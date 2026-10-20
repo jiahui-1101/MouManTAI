@@ -281,6 +281,80 @@ def test_unconfirmed_incoming_delivery_is_preserved_with_confirmation_state():
     assert all(row.confirmation_status.value == "CONFIRMED" for row in snapshot.incoming_deliveries if row is not unconfirmed)
 
 
+def test_confirmed_delivery_without_confirmation_provenance_is_rejected():
+    snapshot = build_supplier_delay_scenario().before
+    payload = snapshot.model_dump(exclude_computed_fields=True)
+    payload["incoming_deliveries"][0].pop("confirmation_evidence_id", None)
+
+    with pytest.raises(ValidationError, match="confirmation evidence"):
+        OperationalSnapshot.model_validate(payload)
+
+
+def test_generic_quote_only_evidence_cannot_prove_a_confirmed_delivery():
+    snapshot = build_supplier_delay_scenario().before
+    payload = snapshot.model_dump(exclude_computed_fields=True)
+    source = next(row for row in payload["sources"] if row["source_id"] == "source-deliveries-001")
+    source["evidence_refs"] = ("supplier-quote-v1",)
+    quote_claim = source["supplier_delivery_evidence"][0]
+    quote_claim["evidence_type"] = "QUOTE"
+    quote_claim["evidence_ref"] = "supplier-quote-v1"
+
+    with pytest.raises(ValidationError, match="confirmation evidence"):
+        OperationalSnapshot.model_validate(payload)
+
+
+def test_eta_update_cannot_disconnect_original_confirmation_provenance():
+    snapshot = build_supplier_delay_scenario().after
+    payload = snapshot.model_dump(exclude_computed_fields=True)
+    delivery = next(row for row in payload["incoming_deliveries"] if row["delivery_id"] == "delivery-patty-001")
+    delivery["source_refs"] = ("source-deliveries-002",)
+
+    with pytest.raises(ValidationError, match="confirmation evidence"):
+        OperationalSnapshot.model_validate(payload)
+
+
+def test_eta_change_notice_cannot_substitute_for_initial_confirmation():
+    snapshot = build_supplier_delay_scenario().after
+    payload = snapshot.model_dump(exclude_computed_fields=True)
+    delivery = next(row for row in payload["incoming_deliveries"] if row["delivery_id"] == "delivery-patty-001")
+    delivery["confirmation_evidence_id"] = delivery["eta_change_evidence_ids"][0]
+
+    with pytest.raises(ValidationError, match="confirmation evidence.*CONFIRMATION evidence"):
+        OperationalSnapshot.model_validate(payload)
+
+
+def test_eta_update_preserves_confirmation_provenance_and_links_eta_notice():
+    scenario = build_supplier_delay_scenario()
+    before = next(row for row in scenario.before.incoming_deliveries if row.delivery_id == "delivery-patty-001")
+    after = next(row for row in scenario.after.incoming_deliveries if row.delivery_id == "delivery-patty-001")
+
+    assert before.confirmation_evidence_id
+    assert after.confirmation_evidence_id == before.confirmation_evidence_id
+    assert after.eta_change_evidence_ids
+    assert "source-deliveries-001" in after.source_refs
+    assert "source-deliveries-002" in after.source_refs
+
+    claims = {
+        evidence.evidence_id: (source, evidence)
+        for source in scenario.after.sources
+        for evidence in source.supplier_delivery_evidence
+    }
+    confirmation_source, confirmation = claims[after.confirmation_evidence_id]
+    eta_source, eta_change = claims[after.eta_change_evidence_ids[0]]
+    assert confirmation.evidence_type.value == "CONFIRMATION"
+    assert confirmation.delivery_id == after.delivery_id
+    assert confirmation.supplier_id == after.supplier_id
+    assert confirmation.evidence_ref in confirmation_source.evidence_refs
+    assert confirmation_source.source_id == "source-deliveries-001"
+    assert eta_change.evidence_type.value == "ETA_CHANGE"
+    assert eta_change.delivery_id == after.delivery_id
+    assert eta_change.supplier_id == after.supplier_id
+    assert eta_change.evidence_ref in eta_source.evidence_refs
+    assert eta_source.source_id == "source-deliveries-002"
+    assert scenario.before.validation_status is SnapshotValidationStatus.VALID
+    assert scenario.after.validation_status is SnapshotValidationStatus.VALID
+
+
 def test_snapshot_rejects_confirmation_evidence_from_after_capture():
     snapshot = build_supplier_delay_scenario().before
     payload = snapshot.model_dump(exclude_computed_fields=True)

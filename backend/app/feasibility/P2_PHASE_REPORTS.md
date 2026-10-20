@@ -144,3 +144,47 @@
 - `docs/TEAM_LOG.md` (P2 status and QA evidence only)
 
 **Next action:** Stop for external review. Do not begin Phase 2 until a later `APPROVED — CONTINUE P2`.
+
+## Phase 1 confirmation-provenance review correction #2
+
+- **State:** PASS for the requested P2-local evidence-provenance correction; Phase 1 remains stopped for external review. Phase 2 has not started.
+- **Date:** 2026-10-21
+- **Branch:** `feat/p2-feasibility-engine`
+- **Starting commit:** `98ea9882a4cb27951ce78d14a19538cc162b8d58` (prior Phase 1 correction).
+- **Correction commit SHA:** see phase response.
+- **Push status:** pushed to `origin/feat/p2-feasibility-engine`; remote branch ref was verified to match local HEAD after push (exact SHA in phase response).
+- **Post-push worktree:** verified clean on the feature branch.
+
+### Evidence model and observed behavior
+
+- Added P2-local `SupplierDeliveryEvidence` claims nested in the relevant `SourceEvidence` row. Each claim has a stable evidence ID, tenant ID, supplier ID, delivery ID, typed purpose (`CONFIRMATION`, `ETA_CHANGE`, or `QUOTE`), raw evidence reference, and observation timestamp. The containing source must be an incoming-deliveries source; the evidence ref must occur in its source row, and its observation cannot postdate the source observation.
+- `IncomingDelivery.confirmation_evidence_id` is mandatory when the delivery is `CONFIRMED`; unconfirmed deliveries cannot claim it. Snapshot validation resolves the ID to a typed confirmation claim and checks tenant/supplier/delivery identity, source-row linkage, source ref, and timestamp against `confirmed_at`. A quote claim or ETA-change claim cannot satisfy the initial confirmation link.
+- On the synthetic supplier ETA change, the `delivery-patty-001` record preserves its initial confirmation evidence ID and `source-deliveries-001` link. It separately links a typed ETA-change evidence ID in `source-deliveries-002`; the new notice does not replace the original confirmation. The before and after snapshots validate as `VALID` in the focused fixture test.
+- The new fields and association structure are P2-local and provisional. No shared P5 contract, migration, route, or P5-owned code was modified.
+- **Evidence guarantee:** the P2 model proves that a typed evidence claim is present in the snapshot, references an evidence item in a specific source row, and is bound to the matching tenant/supplier/delivery. It does not prove the external supplier's identity, document authenticity, or truth. P5 must decide and implement source-adapter verification/trust before real source data is treated as authenticated.
+
+### Test-first validation
+
+- **Expected red run:** `python -m pytest backend/app/feasibility/tests/test_snapshots.py::test_confirmed_delivery_without_confirmation_provenance_is_rejected backend/app/feasibility/tests/test_snapshots.py::test_generic_quote_only_evidence_cannot_prove_a_confirmed_delivery backend/app/feasibility/tests/test_snapshots.py::test_eta_update_cannot_disconnect_original_confirmation_provenance backend/app/feasibility/tests/test_snapshots.py::test_eta_update_preserves_confirmation_provenance_and_links_eta_notice -q` — **FAIL as expected, 4 failed**. The pre-correction model accepted missing/quote-only/disconnected provenance and exposed no explicit provenance association.
+- **Focused provenance tests:** `python -m pytest backend/app/feasibility/tests/test_snapshots.py::test_confirmed_delivery_without_confirmation_provenance_is_rejected backend/app/feasibility/tests/test_snapshots.py::test_generic_quote_only_evidence_cannot_prove_a_confirmed_delivery backend/app/feasibility/tests/test_snapshots.py::test_eta_update_cannot_disconnect_original_confirmation_provenance backend/app/feasibility/tests/test_snapshots.py::test_eta_change_notice_cannot_substitute_for_initial_confirmation backend/app/feasibility/tests/test_snapshots.py::test_eta_update_preserves_confirmation_provenance_and_links_eta_notice -q` — **PASS, 5 passed**.
+- **Snapshot regression:** `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q` — **PASS, 21 passed**, preserving the prior 16 tests.
+- No unrelated repository suite was run.
+
+### Requirement trace, safety, and blockers
+
+- Updated `P2-BE01-03`, `P2-BE01-05`, `P2-DATA-07`, `P2-HC-06`, `SYS-BE-04`, and Phase 1 rows `PH1-02`, `PH1-03`, and `PH1-05` in `P2_REQUIREMENT_TRACE.md`; fixture provenance limits are documented in `FIXTURES.md`.
+- P5's external source authenticity/identity trust remains BLOCKED for integration. P5's shared snapshot/assessment contract, persistence, authentication/routes/outbox, and Core lifecycle remain unchanged and pending. P1/P5 fixture approval and P3/P5 evaluator/ProposedChanges integration also remain pending. These dependencies do not prevent this P2-local evidence-model correction.
+- **Compact review assessment:** Tests establish typed and delivery-specific provenance inside synthetic snapshots. They cannot establish supplier authenticity, real adapter correctness, durable audit storage, ATP eligibility, or feasibility. The evidence types remain provisional until P5 approves any shared handoff.
+
+### Exact files changed
+
+- `backend/app/feasibility/models.py`
+- `backend/app/feasibility/fixtures.py`
+- `backend/app/feasibility/tests/test_snapshots.py`
+- `backend/app/feasibility/FIXTURES.md`
+- `backend/app/feasibility/P2_REQUIREMENT_TRACE.md`
+- `backend/app/feasibility/P2_PROGRESS.md`
+- `backend/app/feasibility/P2_PHASE_REPORTS.md`
+- `docs/TEAM_LOG.md` (P2 entries only)
+
+**Next action:** Stop for external review. Do not begin Phase 2 without a later `APPROVED — CONTINUE P2`.

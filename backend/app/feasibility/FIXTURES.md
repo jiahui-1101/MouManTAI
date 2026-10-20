@@ -17,6 +17,14 @@ These fixtures are P2-local and provisional until P5/P1 approve shared snapshot,
 
 `build_two_affected_scenario()` has 30 unreserved patties, confirmed inbound quantity 110, and two commitments needing 100 and 40 patties at the same `2026-10-23T09:00:00+08:00` material-use time. The 110-unit receipt changes from `08:00` to `11:00`; the fixture logistics cutoff is `08:00`. The stable lexical tie-break gives `com-001` the 30 on-hand units first. Labels are therefore shortages of 70 for `com-001` and 40 for `com-002`, total 110, with both commitments affected. Without the declared priority, individual shortage labels would be arbitrary and the same 30 units could be counted twice.
 
+## Supplier confirmation provenance (P2-local, provisional)
+
+Every `CONFIRMED` `IncomingDelivery` must carry a `confirmation_evidence_id` that resolves to a typed `CONFIRMATION` claim nested in a validated `SourceEvidence` row. The claim identifies its tenant, supplier, delivery, evidence reference, and observation time. Validation requires the claim's source to be an incoming-deliveries source, the exact evidence reference to exist in that source row, the source ID to remain linked from the delivery, and the tenant/supplier/delivery IDs to match. Its observation time must match `confirmed_at`. A generic source reference, quote-only claim, ETA-change claim, or claim for another delivery cannot establish confirmation.
+
+For an ETA change, the next snapshot retains the original `confirmation_evidence_id` and original source link, then adds a separate `ETA_CHANGE` evidence ID and source link. The changed ETA notice is not substituted for the initial supplier confirmation. Focused tests verify both associations resolve in the before/after fixture and reject missing, quote-only, ETA-only, or disconnected confirmation provenance.
+
+This P2-local structure guarantees only traceable, correctly typed associations inside the validated snapshot. Synthetic evidence references do not prove an external supplier's identity, document authenticity, or truth. Authenticity and trusted classification of evidence from real adapters remain a P5 source-adapter responsibility. These P2 model fields are provisional and do not modify the shared P5 contract.
+
 ## Time handling
 
 Every snapshot and row timestamp must include an explicit UTC offset; naive local datetimes are rejected. Fixture business times use `+08:00` / `Asia/Kuala_Lumpur`. Comparisons normalize instants to UTC, so equivalent offsets represent the same instant. `material_use_at` is when inputs are required by production; `delivery_deadline` is the customer-facing deadline. They are separate values. Capacity calendars name their IANA timezone and store offset-aware window boundaries. No timestamp inherits the machine's local timezone.

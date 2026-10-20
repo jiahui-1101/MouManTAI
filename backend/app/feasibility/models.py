@@ -90,6 +90,24 @@ class FrozenModel(BaseModel):
         return value
 
 
+class SupplierDeliveryEvidenceType(StrEnum):
+    CONFIRMATION = "CONFIRMATION"
+    ETA_CHANGE = "ETA_CHANGE"
+    QUOTE = "QUOTE"
+
+
+class SupplierDeliveryEvidence(FrozenModel):
+    """P2-local typed claim linking a supplier evidence item to one delivery."""
+
+    evidence_id: str = Field(min_length=1)
+    tenant_id: str = Field(min_length=1)
+    delivery_id: str = Field(min_length=1)
+    supplier_id: str = Field(min_length=1)
+    evidence_type: SupplierDeliveryEvidenceType
+    evidence_ref: str = Field(min_length=1)
+    observed_at: datetime
+
+
 def _utc(value: datetime) -> datetime:
     """Normalize instants for comparisons without depending on host timezone."""
 
@@ -106,11 +124,17 @@ class SourceEvidence(FrozenModel):
     observed_at: datetime | None
     valid_through: datetime | None
     evidence_refs: tuple[str, ...] = ()
+    supplier_delivery_evidence: tuple[SupplierDeliveryEvidence, ...] = ()
 
     @model_validator(mode="after")
     def source_metadata_is_consistent(self) -> Self:
         if self.source_ref is None:
-            if self.observed_at is not None or self.valid_through is not None or self.evidence_refs:
+            if (
+                self.observed_at is not None
+                or self.valid_through is not None
+                or self.evidence_refs
+                or self.supplier_delivery_evidence
+            ):
                 raise ValueError("missing source cannot claim observation times or evidence refs")
             return self
         if not self.source_ref:
@@ -121,6 +145,15 @@ class SourceEvidence(FrozenModel):
             raise ValueError("source valid_through cannot precede observed_at")
         if any(not ref.strip() for ref in self.evidence_refs):
             raise ValueError("source evidence refs must be non-empty")
+        if self.supplier_delivery_evidence and self.kind is not SourceKind.INCOMING_DELIVERIES:
+            raise ValueError("supplier delivery evidence requires an incoming-deliveries source")
+        for evidence in self.supplier_delivery_evidence:
+            if evidence.tenant_id != self.tenant_id:
+                raise ValueError("supplier delivery evidence tenant must match its source")
+            if evidence.evidence_ref not in self.evidence_refs:
+                raise ValueError("supplier delivery evidence ref must exist in its source evidence refs")
+            if _utc(evidence.observed_at) > _utc(self.observed_at):
+                raise ValueError("supplier delivery evidence cannot be newer than its source observation")
         return self
 
     def freshness_at(self, captured_at: datetime) -> FreshnessStatus:
@@ -192,15 +225,24 @@ class IncomingDelivery(FrozenModel):
     unit: str = Field(min_length=1)
     confirmation_status: DeliveryConfirmationStatus
     confirmed_at: datetime | None = None
+    confirmation_evidence_id: str | None = Field(default=None, min_length=1)
+    eta_change_evidence_ids: tuple[str, ...] = ()
     expected_at: datetime
     source_refs: tuple[str, ...]
 
     @model_validator(mode="after")
     def confirmation_evidence_matches_status(self) -> Self:
-        if self.confirmation_status is DeliveryConfirmationStatus.CONFIRMED and self.confirmed_at is None:
-            raise ValueError("confirmed delivery requires confirmed_at evidence time")
-        if self.confirmation_status is DeliveryConfirmationStatus.UNCONFIRMED and self.confirmed_at is not None:
-            raise ValueError("unconfirmed delivery cannot claim confirmed_at")
+        if self.confirmation_status is DeliveryConfirmationStatus.CONFIRMED:
+            if self.confirmed_at is None:
+                raise ValueError("confirmed delivery requires confirmed_at evidence time")
+            if self.confirmation_evidence_id is None:
+                raise ValueError("confirmed delivery requires linked supplier confirmation evidence")
+        elif self.confirmed_at is not None or self.confirmation_evidence_id is not None:
+            raise ValueError("unconfirmed delivery cannot claim confirmation evidence")
+        if len(self.eta_change_evidence_ids) != len(set(self.eta_change_evidence_ids)):
+            raise ValueError("duplicate ETA-change evidence association")
+        if any(not evidence_id.strip() for evidence_id in self.eta_change_evidence_ids):
+            raise ValueError("ETA-change evidence IDs must be non-empty")
         return self
 
 
@@ -310,10 +352,45 @@ class OperationalSnapshot(FrozenModel):
         for source in self.sources:
             if source.observed_at is not None and _utc(source.observed_at) > _utc(self.captured_at):
                 raise ValueError(f"source {source.source_id} observation is after snapshot capture")
+        supplier_delivery_evidence_rows = tuple(
+            evidence
+            for source in self.sources
+            for evidence in source.supplier_delivery_evidence
+        )
+        _ensure_unique(
+            supplier_delivery_evidence_rows,
+            "evidence_id",
+            "supplier delivery evidence",
+        )
+        supplier_delivery_evidence_by_id = {
+            evidence.evidence_id: (source, evidence)
+            for source in self.sources
+            for evidence in source.supplier_delivery_evidence
+        }
 
         sku_by_id = {sku.sku_id: sku for sku in self.sku_catalog}
         lot_by_id = {lot.lot_id: lot for lot in self.inventory_lots}
+        delivery_by_id = {delivery.delivery_id: delivery for delivery in self.incoming_deliveries}
         commitment_by_id = {row.commitment_id: row for row in self.confirmed_commitments}
+
+        for source, evidence in supplier_delivery_evidence_by_id.values():
+            delivery = delivery_by_id.get(evidence.delivery_id)
+            if delivery is None:
+                raise ValueError(
+                    f"supplier delivery evidence {evidence.evidence_id} references an unknown delivery"
+                )
+            if evidence.tenant_id != self.tenant_id or delivery.tenant_id != evidence.tenant_id:
+                raise ValueError(
+                    f"supplier delivery evidence {evidence.evidence_id} has a tenant scope mismatch"
+                )
+            if evidence.supplier_id != delivery.supplier_id:
+                raise ValueError(
+                    f"supplier delivery evidence {evidence.evidence_id} references the wrong supplier"
+                )
+            if _utc(evidence.observed_at) > _utc(self.captured_at):
+                raise ValueError(
+                    f"supplier delivery evidence {evidence.evidence_id} is after snapshot capture"
+                )
 
         for sku in self.sku_catalog:
             _validate_source_refs(sku.source_refs, sources_by_id, SourceKind.SKU_CATALOG, self.captured_at)
@@ -371,6 +448,24 @@ class OperationalSnapshot(FrozenModel):
             if delivery.confirmed_at is not None and _utc(delivery.confirmed_at) > _utc(self.captured_at):
                 raise ValueError(
                     f"confirmed_at for delivery {delivery.delivery_id} is after snapshot capture"
+                )
+            if delivery.confirmation_evidence_id is not None:
+                _validate_supplier_delivery_evidence_link(
+                    delivery=delivery,
+                    evidence_id=delivery.confirmation_evidence_id,
+                    expected_type=SupplierDeliveryEvidenceType.CONFIRMATION,
+                    evidence_by_id=supplier_delivery_evidence_by_id,
+                    captured_at=self.captured_at,
+                    evidence_label="confirmation evidence",
+                )
+            for evidence_id in delivery.eta_change_evidence_ids:
+                _validate_supplier_delivery_evidence_link(
+                    delivery=delivery,
+                    evidence_id=evidence_id,
+                    expected_type=SupplierDeliveryEvidenceType.ETA_CHANGE,
+                    evidence_by_id=supplier_delivery_evidence_by_id,
+                    captured_at=self.captured_at,
+                    evidence_label="ETA-change evidence",
                 )
             sku = sku_by_id.get(delivery.sku_id)
             if sku is None:
@@ -528,3 +623,43 @@ def _validate_source_refs(
             )
         if source.freshness_at(captured_at) is FreshnessStatus.MISSING:
             raise ValueError(f"row cannot cite missing source evidence: {source_id}")
+
+
+def _validate_supplier_delivery_evidence_link(
+    *,
+    delivery: IncomingDelivery,
+    evidence_id: str,
+    expected_type: SupplierDeliveryEvidenceType,
+    evidence_by_id: dict[str, tuple[SourceEvidence, SupplierDeliveryEvidence]],
+    captured_at: datetime,
+    evidence_label: str,
+) -> None:
+    association = evidence_by_id.get(evidence_id)
+    if association is None:
+        raise ValueError(
+            f"{evidence_label} {evidence_id} is not present in the validated snapshot"
+        )
+    source, evidence = association
+    if evidence.evidence_type is not expected_type:
+        raise ValueError(
+            f"{evidence_label} for delivery {delivery.delivery_id} must be "
+            f"{expected_type.value} evidence"
+        )
+    if evidence.delivery_id != delivery.delivery_id or evidence.supplier_id != delivery.supplier_id:
+        raise ValueError(
+            f"{evidence_label} for delivery {delivery.delivery_id} is associated with another delivery or supplier"
+        )
+    if evidence.tenant_id != delivery.tenant_id:
+        raise ValueError(f"{evidence_label} for delivery {delivery.delivery_id} has a tenant mismatch")
+    if source.source_id not in delivery.source_refs:
+        raise ValueError(
+            f"{evidence_label} source {source.source_id} is not linked from delivery {delivery.delivery_id}"
+        )
+    if _utc(evidence.observed_at) > _utc(captured_at):
+        raise ValueError(f"{evidence_label} for delivery {delivery.delivery_id} is after snapshot capture")
+    if expected_type is SupplierDeliveryEvidenceType.CONFIRMATION:
+        if delivery.confirmed_at is None or _utc(evidence.observed_at) != _utc(delivery.confirmed_at):
+            raise ValueError(
+                f"confirmation evidence timestamp for delivery {delivery.delivery_id} "
+                "must match confirmed_at"
+            )
