@@ -8,7 +8,7 @@ calculation phases.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, DecimalException
 from enum import StrEnum
 from typing import Annotated, ClassVar, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -22,6 +22,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+from backend.app.feasibility.quantities import add, multiply
 
 
 PositiveQuantity = Annotated[Decimal, Field(gt=0)]
@@ -73,12 +75,12 @@ class DeliveryConfirmationStatus(StrEnum):
 class FrozenModel(BaseModel):
     """Pydantic value object with immutable fields and aware timestamps."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(frozen=True, extra="forbid", str_strip_whitespace=True, allow_inf_nan=False)
 
     @field_validator("*", mode="before")
     @classmethod
     def quantities_must_not_use_binary_floats(cls, value: object, info: ValidationInfo) -> object:
-        if info.field_name in {"quantity", "available_minutes"} and isinstance(value, float):
+        if info.field_name in {"quantity", "available_minutes", "factor", "waste_multiplier"} and isinstance(value, float):
             raise ValueError("quantities must be a decimal value or integer, not a float")
         return value
 
@@ -189,6 +191,20 @@ class BomComponent(FrozenModel):
     quantity: PositiveQuantity
     unit: str = Field(min_length=1)
     source_refs: tuple[str, ...]
+    # Consumption markup, not yield division: 1.1 means 10% extra inputs.
+    waste_multiplier: Annotated[Decimal, Field(ge=1)] = Decimal("1")
+
+
+class UnitConversion(FrozenModel):
+    """Explicit, SKU-specific direct conversion to the catalog base unit."""
+
+    conversion_id: str = Field(min_length=1)
+    tenant_id: str = Field(min_length=1)
+    sku_id: str = Field(min_length=1)
+    from_unit: str = Field(min_length=1)
+    to_unit: str = Field(min_length=1)
+    factor: PositiveQuantity
+    source_refs: tuple[str, ...]
 
 
 class InventoryLot(FrozenModel):
@@ -229,6 +245,7 @@ class IncomingDelivery(FrozenModel):
     eta_change_evidence_ids: tuple[str, ...] = ()
     expected_at: datetime
     source_refs: tuple[str, ...]
+    warehouse_id: str | None = None
 
     @model_validator(mode="after")
     def confirmation_evidence_matches_status(self) -> Self:
@@ -290,6 +307,7 @@ class CommitmentLine(FrozenModel):
     quantity: PositiveQuantity
     unit: str = Field(min_length=1)
     material_use_at: datetime
+    warehouse_id: str | None = None
 
 
 class ConfirmedCommitment(FrozenModel):
@@ -319,6 +337,7 @@ class OperationalSnapshot(FrozenModel):
     capacity_calendars: tuple[CapacityCalendar, ...]
     confirmed_commitments: tuple[ConfirmedCommitment, ...]
     logistics_cutoff_at: datetime
+    unit_conversions: tuple[UnitConversion, ...] = ()
 
     @model_validator(mode="after")
     def validate_snapshot_references_and_tenant_scope(self) -> Self:
@@ -330,6 +349,7 @@ class OperationalSnapshot(FrozenModel):
         _ensure_unique(self.incoming_deliveries, "delivery_id", "incoming delivery")
         _ensure_unique(self.capacity_calendars, "calendar_id", "capacity calendar")
         _ensure_unique(self.confirmed_commitments, "commitment_id", "confirmed commitment")
+        _ensure_unique(self.unit_conversions, "conversion_id", "unit conversion")
 
         all_rows: tuple[FrozenModel, ...] = (
             *self.sources,
@@ -340,6 +360,7 @@ class OperationalSnapshot(FrozenModel):
             *self.incoming_deliveries,
             *self.capacity_calendars,
             *self.confirmed_commitments,
+            *self.unit_conversions,
         )
         for row in all_rows:
             if getattr(row, "tenant_id") != self.tenant_id:
@@ -372,6 +393,19 @@ class OperationalSnapshot(FrozenModel):
         lot_by_id = {lot.lot_id: lot for lot in self.inventory_lots}
         delivery_by_id = {delivery.delivery_id: delivery for delivery in self.incoming_deliveries}
         commitment_by_id = {row.commitment_id: row for row in self.confirmed_commitments}
+        conversion_keys: set[tuple[str, str]] = set()
+        for conversion in self.unit_conversions:
+            _validate_source_refs(conversion.source_refs, sources_by_id, SourceKind.BOM, self.captured_at)
+            sku = sku_by_id.get(conversion.sku_id)
+            if sku is None or conversion.to_unit != sku.base_unit or conversion.from_unit == sku.base_unit:
+                raise ValueError("unit conversion must map a known SKU's non-base unit to its base unit")
+            key = (conversion.sku_id, conversion.from_unit)
+            if key in conversion_keys:
+                raise ValueError("duplicate or inconsistent unit conversion mapping")
+            conversion_keys.add(key)
+
+        def supports_unit(sku: Sku, unit: str) -> bool:
+            return unit == sku.base_unit or (sku.sku_id, unit) in conversion_keys
 
         for source, evidence in supplier_delivery_evidence_by_id.values():
             delivery = delivery_by_id.get(evidence.delivery_id)
@@ -400,7 +434,7 @@ class OperationalSnapshot(FrozenModel):
             child = sku_by_id.get(component.component_sku_id)
             if parent is None or child is None:
                 raise ValueError(f"BOM component {component.component_id} references an unknown SKU")
-            if component.unit != child.base_unit:
+            if not supports_unit(child, component.unit):
                 raise ValueError(f"unit mismatch for BOM component {component.component_id}")
             if parent.supply_type is not SkuSupplyType.MANUFACTURED:
                 raise ValueError(f"purchased SKU {parent.sku_id} cannot own a BOM component")
@@ -410,7 +444,7 @@ class OperationalSnapshot(FrozenModel):
             sku = sku_by_id.get(lot.sku_id)
             if sku is None:
                 raise ValueError(f"inventory lot {lot.lot_id} references an unknown SKU")
-            if lot.unit != sku.base_unit:
+            if not supports_unit(sku, lot.unit):
                 raise ValueError(f"unit mismatch for inventory lot {lot.lot_id}")
 
         active_reserved_by_lot: dict[str, Decimal] = {}
@@ -425,17 +459,19 @@ class OperationalSnapshot(FrozenModel):
                 raise ValueError(
                     f"reservation {reservation.reservation_id} has no confirmed commitment owner"
                 )
-            if reservation.unit != lot.unit:
+            if not supports_unit(sku_by_id[lot.sku_id], reservation.unit):
                 raise ValueError(f"unit mismatch for reservation {reservation.reservation_id}")
             if reservation.status is ReservationStatus.ACTIVE:
                 if lot.is_expired_at(self.captured_at):
                     raise ValueError(f"active reservation {reservation.reservation_id} uses an expired lot")
-                active_reserved_by_lot[lot.lot_id] = (
-                    active_reserved_by_lot.get(lot.lot_id, Decimal("0")) + reservation.quantity
+                active_reserved_by_lot[lot.lot_id] = add(
+                    active_reserved_by_lot.get(lot.lot_id, Decimal("0")),
+                    self.quantity_in_base(lot.sku_id, reservation.quantity, reservation.unit),
                 )
 
         for lot_id, reserved in active_reserved_by_lot.items():
-            if reserved > lot_by_id[lot_id].quantity:
+            lot = lot_by_id[lot_id]
+            if reserved > self.quantity_in_base(lot.sku_id, lot.quantity, lot.unit):
                 raise ValueError(
                     f"overlapping active reservations exceed inventory lot {lot_id}: "
                     f"{reserved} > {lot_by_id[lot_id].quantity}"
@@ -470,7 +506,7 @@ class OperationalSnapshot(FrozenModel):
             sku = sku_by_id.get(delivery.sku_id)
             if sku is None:
                 raise ValueError(f"incoming delivery {delivery.delivery_id} references an unknown SKU")
-            if delivery.unit != sku.base_unit:
+            if not supports_unit(sku, delivery.unit):
                 raise ValueError(f"unit mismatch for incoming delivery {delivery.delivery_id}")
 
         resource_windows: dict[str, list[CapacityWindow]] = {}
@@ -504,10 +540,25 @@ class OperationalSnapshot(FrozenModel):
                     raise ValueError(
                         f"commitment line {line.line_id} references an unknown SKU"
                     )
-                if line.unit != sku.base_unit:
+                if not supports_unit(sku, line.unit):
                     raise ValueError(f"unit mismatch for commitment line {line.line_id}")
 
         return self
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def normalization_limits_are_validation_errors(cls, value, handler):
+        try:
+            return handler(value)
+        except DecimalException as error:
+            raise ValueError("snapshot numeric normalization exceeds supported exact arithmetic limits") from error
+
+    def quantity_in_base(self, sku_id: str, quantity: Decimal, unit: str) -> Decimal:
+        sku = next(row for row in self.sku_catalog if row.sku_id == sku_id)
+        if unit == sku.base_unit:
+            return quantity
+        conversion = next(row for row in self.unit_conversions if row.sku_id == sku_id and row.from_unit == unit)
+        return multiply(quantity, conversion.factor)
 
     @computed_field
     @property

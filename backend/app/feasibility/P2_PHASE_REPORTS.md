@@ -188,3 +188,93 @@
 - `docs/TEAM_LOG.md` (P2 entries only)
 
 **Next action:** Stop for external review. Do not begin Phase 2 without a later `APPROVED — CONTINUE P2`.
+
+## Phase 2 — Time-Phased ATP, Recursive BOM and Unit Conversion
+
+- **State:** PASS for P2-local Phase 2 material calculations; shared P5/P3 integration BLOCKED. Independent external review PENDING. Overall P2 is not complete.
+- **Date:** 2026-10-21 (Asia/Kuala_Lumpur).
+- **Branch:** `feat/p2-feasibility-engine`.
+- **Approved starting commit:** `0d990d99bfe973f7b13295d1e005639a0f61adbd`. User reported independent approval of Phase 1 and both corrections. Clean working tree, exact HEAD and remote feature ref were verified before changes. Local main remains `aedb152812640d4a825c69de05aef54637068e21`; no merge performed.
+- **Master path:** earlier `D:\dunno\0.SDC\P2_CODEX_MASTER.txt` does not exist; user's corrected `D:\dunno\0.SDC\P2_CODEX_MASTER.txt.txt` exists and was read. Actual local owner requirements/canonical docs/progress/trace/reports and existing code/tests were read. No missing source content was invented.
+- **Commit SHA:** see phase response (created after this report).
+- **Dirty status at preparation:** listed P2 files/P2 TEAM_LOG records and generated untracked bytecode caches. Automatic approval review rejected both recursive and file-limited PowerShell cache deletion as blocked by policy. Caches are left untracked and excluded from staging; final worktree status is in phase response.
+- **Push:** explicitly authorized by the user's final instruction to push only `feat/p2-feasibility-engine`; performed/verified after commit, exact result in phase response. No main push, PR or merge authorized/performed.
+
+### Implementation and observable behavior
+
+`bom.explode_bom(snapshot, *, tenant_id)` expands all confirmed commitment lines recursively into purchased leaf materials. It preserves commitment/version/line/SKU, base quantity/unit, need-time, warehouse, SKU paths, component paths and evidence. Shared leaves aggregate exactly. Missing BOM or cycle produces UNKNOWN with no confident requirements. Explicit BOM-kind source-backed SKU/unit conversions map directly to base units, never implicit reverse or chained conversions. BOM quantities are per one parent base unit; `waste_multiplier >= 1` represents extra consumption (1.1 = 10% extra), not division by yield. Every conversion/multiplier/default no-known-loss assumption is visible.
+
+`inventory.calculate_atp(snapshot, *, tenant_id, as_of=None)` allocates all competing confirmed demand in a single pure batch. Priority is material-use instant, commitment ID/version, line ID, SKU. Active reservations are removed once from free lots and credited only to their owner; remaining held quantity is decremented across owner lines and surplus remains held. Released/consumed reservations do not hold stock. Lots and receipts have separate remaining balances; a supply unit cannot serve multiple orders/lines. Free lots use earliest expiry/ID, followed by receipts by ETA/ID.
+
+Lot expiry is checked at each material-use instant, including owned reserved stock. Expiry equality excludes the lot. Only CONFIRMED receipts with validated typed confirmation/ETA links and current relevant source evidence may contribute. ETA equality is eligible at material use and logistics cutoff; one microsecond late is excluded. An outstanding receipt due at/before calculation time yields UNKNOWN pending receipt/on-hand reconciliation, preventing received-goods double counting. Quotes/unconfirmed promises (including fixture quantity 500) never supply stock.
+
+Warehouse-scoped lines use only matching lots/receipts; unknown receipt location cannot satisfy them. Unscoped demand pools warehouses as a disclosed assumption. Missing/stale relevant source categories, incomplete BOM/competing demand, past material demand or arithmetic limits yield UNKNOWN/no confident material rows. Invalid tenant/source/unit/reservation inputs are refused by validation. Both calculation entry points revalidate copied/constructed snapshots rather than trusting Pydantic validator bypasses.
+
+`materials.py` defines frozen P2-local `BomExpansion`, `MaterialRequirement`, `SupplyAllocation`, `MaterialAvailability`, `MaterialATP`. ATP rows expose required, allocated usable/reserved/confirmed incoming, shortage, unit, need-time, allocation IDs and source/raw evidence refs. Tenant, immutable snapshot ID/version and calculation time remain in results. Quantities serialize as decimal strings. `quantities.py` isolates exact addition/subtraction/multiplication from ambient precision/exponent/trap settings; unsupported normalization becomes UNKNOWN or a Pydantic validation error before allocation.
+
+### Scope and contract consistency
+
+- Material statuses are COMPLETE/UNKNOWN (BOM) and COVERED/SHORTAGE/UNKNOWN (ATP), explicitly **not** a new shared FeasibilityAssessment enum. COVERED does not establish full FEASIBLE. SHORTAGE is a material constraint under the documented priority, not universal proof against alternative allocations. Full assessment status/capacity/evaluator orchestration is Phase 3 and was not implemented.
+- Thus F2-01's arithmetic/evidence gate passes (100 required, 70 allocated, 30 shortage), but its full `INFEASIBLE` shared assessment remains IN_PROGRESS until Phase 3. F2-02..04 and F2-07 material acceptance is tested. F2-05/06 impact events remain Phase 4 even though material fixture labels now reproduce. F2-09 command concurrency remains P3/P5 BLOCKED; no actual reservation operation exists here.
+- Default `as_of` is snapshot capture for reproducible historical replay. Explicit aware `as_of >= captured_at` checks freshness at that instant. No wall-clock dependence, persistence, cache authority/current-version assertion, agreement/risk/fulfilment mutation, inventory write, supplier action, event publication, API or UI.
+- All added model/result fields remain P2-local/provisional. External supplier identity/authenticity is P5 adapter work. Structural confirmation links are not proof of real supplier truth or actual goods received.
+- Capacity/job resource conflicts are Phase 3; the Phase 2 shared-resource tests cover competing materials only. No P5-owned implementation/shared contracts/migrations or other member-owned code changed.
+
+### Representative actual output
+
+Executed from repository root:
+
+```powershell
+python -c "from backend.app.feasibility.fixtures import build_supplier_delay_scenario, build_two_affected_scenario; from backend.app.feasibility.inventory import calculate_atp; scenarios=(build_supplier_delay_scenario(), build_two_affected_scenario()); print([(s.scenario_id, snap.snapshot_version, [(r.commitment_id, str(r.shortage), r.unit) for r in calculate_atp(snap, tenant_id=snap.tenant_id).materials if r.sku_id == 'PATTY']) for s in scenarios for snap in (s.before, s.after)])"
+```
+
+Observed patty shortages in commitment order com-001/com-002:
+
+| Scenario | Snapshot v1 | Snapshot v2 |
+|---|---|---|
+| supplier-delay-buffered-unaffected | 0 / 0 pcs | 40 / 0 pcs |
+| supplier-delay-two-affected | 0 / 0 pcs | 70 / 40 pcs |
+
+The recursive conversion test observes 100 parents * 250 g * 1.1 * 0.001 kg/g * 2 pcs/kg = 55 pcs; shared-leaf branching observes 150 pcs. These are synthetic material outputs, not operational risk-event or production-feasibility results.
+
+### Exact validation evidence
+
+All commands ran from `D:\dunno\0.SDC\MouManTAI`.
+
+1. `python -m pytest backend/app/feasibility/tests/test_bom.py backend/app/feasibility/tests/test_inventory.py -q` — initial expected red: **32 failed**, principally absent modules/model extensions; one duplicate-keyword test setup was corrected. Invalid factor tests initially passed because unknown conversion fields were refused; after the model extension the same tests reject actual invalid factors.
+2. `python -m pytest backend/app/feasibility/tests/test_bom.py -q` — **9 passed** after BOM implementation.
+3. `python -m pytest backend/app/feasibility/tests/test_inventory.py -q` — **23 passed** after ATP implementation.
+4. `python -m pytest backend/app/feasibility/tests/test_bom.py::test_bom_revalidates_copied_snapshot_before_calculation backend/app/feasibility/tests/test_inventory.py::test_receipt_overdue_at_calculation_time_requires_reconciliation -q` — **2 failed before fixes, 2 passed after**. The defects were bypassed tenant validation and counting an outstanding receipt already due at explicit calculation time.
+5. Combined BOM/inventory command from (1) — **42 passed** after added boundary/warehouse/reservation/immutability cases and those fixes.
+6. `python -m pytest backend/app/feasibility/tests/test_inventory.py::test_inventory_conversion_overflow_returns_unknown_instead_of_crashing -q` — **1 failed then 1 passed** after moving free-lot normalization inside the DecimalException handler. Internal read-only review found this defect; independent external Phase 2 approval is still pending.
+7. `python -m pytest backend/app/feasibility/tests/test_inventory.py::test_reservation_normalization_limit_is_a_validation_error -q` — **1 failed then 1 passed** after normalizing input arithmetic errors into Pydantic ValidationError.
+8. `python -m pytest backend/app/feasibility/tests/test_inventory.py::test_decimal_exponent_and_trap_settings_do_not_change_material_outcome -q` — **1 failed then 1 passed** after isolating Decimal Context settings.
+9. Final focused P2 regression: `python -m pytest backend/app/feasibility/tests/test_bom.py backend/app/feasibility/tests/test_inventory.py backend/app/feasibility/tests/test_snapshots.py -q` — **66 passed, 0 failed in 0.42s** (45 Phase 2 tests plus all 21 prior snapshot tests). Test elapsed time is not a product latency metric.
+10. Internal read-only reviewer rechecked five localized fixes: **5 passed**, no remaining important issue reported. Earlier reviewer run caught the overflow defect (63 passed / 1 failed at that intermediate state); it was fixed before final (9).
+11. API/frontend/typecheck/build/events/E2E/full repository integration/operational metrics — **NOT RUN**: absent shared skeleton and explicitly outside this phase. No passing integration or accuracy claim.
+
+### Exact changed files and why
+
+- `backend/app/feasibility/models.py` — source-backed direct conversions, consumption markup, warehouse scope, normalized reservation bounds, finite/float validation and arithmetic validation errors.
+- `backend/app/feasibility/quantities.py` — exact context-isolated Decimal operations.
+- `backend/app/feasibility/materials.py` — immutable material-only result/evidence values.
+- `backend/app/feasibility/bom.py` — recursive demand expansion and conservative issues.
+- `backend/app/feasibility/inventory.py` — batch time-phased ATP with no allocation reuse or operational writes.
+- `backend/app/feasibility/tests/test_bom.py` — recursive/cycle/conversion/waste/tenant/precision coverage.
+- `backend/app/feasibility/tests/test_inventory.py` — ATP, competing demand, reservations, expiry/timing/warehouse/freshness and arithmetic-limit coverage.
+- `backend/app/feasibility/PHASE2_PLAN.md` — scoped plan and decisions based on approved Phase 2 instructions.
+- `backend/app/feasibility/FIXTURES.md` — exact material interface, semantics and limits.
+- `backend/app/feasibility/P2_REQUIREMENT_TRACE.md` — individual material criteria and PH2 rows with observed evidence; later phases remain open.
+- `backend/app/feasibility/P2_PROGRESS.md` — approved Phase 1 baseline and Phase 2 review checkpoint.
+- `backend/app/feasibility/P2_PHASE_REPORTS.md` — this appended report; previous phase reports preserved.
+- `docs/TEAM_LOG.md` — P2-only status/checkpoint/QA records.
+
+### Blockers, assumptions and compact review assessment
+
+P5 must ratify shared OperationalSnapshot/assessment mappings including the proposed conversion, warehouse, consumption markup, source/assumption and material-constraint fields; supply trusted complete ledgers and supplier authenticity/classification; provide authoritative snapshot versions, persistence/auth/routes/outbox and Core event handling. No shared files were changed to impose these contracts. P1/P5 fixture catalog approval remains pending. P3 must agree proposed-change serialization and reuse the future full evaluator; P3/P5 own authorized transactional reservation concurrency.
+
+Highest-risk assumptions: each present/current source represents the complete relevant ledger, unscoped warehouses are pooled, absent known loss is explicitly multiplier 1, and every recursive material shares the root material-use time (no modeled production lead times). Allocation order is the existing provisional fixture rule, not a ratified business optimization policy. Source evidence refs include whole source observations and are not proof of row-level authenticity.
+
+Known conservative limits: stocked manufactured/intermediate assemblies yield UNKNOWN rather than being ignored or falsely called short; netting such stock is unsupported. Direct SKU-to-base conversions only; no inferred conversion chains. Material results do not establish optimal allocation, available capacity or customer delivery feasibility. Default replay time does not establish current authoritative state. These limits are explicit; there is no confident safe/impossible result from inadequate inputs.
+
+**Next action:** Stop for independent external Phase 2 review. Start Phase 3 only after the user returns `APPROVED — CONTINUE P2` following that review.

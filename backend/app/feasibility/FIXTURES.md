@@ -1,13 +1,32 @@
 # P2 synthetic snapshot fixtures
 
-These fixtures are P2-local and provisional until P5/P1 approve shared snapshot, SKU, and Commitment contracts. They contain only synthetic data. They are reproducibility inputs and hand-labelled expected outcomes; no feasibility evaluator runs in Phase 1.
+These fixtures are P2-local and provisional until P5/P1 approve shared snapshot, SKU, and Commitment contracts. They contain only synthetic data. Phase 2 ATP reproduces the hand-labelled material shortages; the full feasibility evaluator remains Phase 3 work.
 
 ## Allocation and reservation rules used to label the examples
 
 1. Active reservations are claims against the named inventory lot and are owned by the named confirmed commitment. The reserved quantity is credited only to that owner and removed once from the lot's unreserved pool. It is not subtracted again as general demand. Released and consumed reservations do not hold stock.
 2. After owned reservations are applied, allocate unreserved stock and eligible receipts by `(material_use_at, commitment_id, commitment_version, line_id)`, ascending. Commitment ID is a stable lexical tie-break when material-use times are equal. This is a deterministic fixture policy, not an owner-approved business preference or a reservation command.
-3. A lot expired at snapshot capture is preserved as evidence but marked unusable. An incoming delivery is eligible for future availability only when its status is `CONFIRMED`, its ETA is no later than both the line's material-use time and the snapshot's logistics cutoff, and the delivery has confirmation evidence. `UNCONFIRMED` promises remain visible in the snapshot but never count as verified supply.
-4. Supplies are considered per SKU and base unit. Phase 1 rejects implicit unit conversion; conversion rules are deferred to Phase 2 and require explicit source-backed mappings.
+3. A lot is usable only if its expiry is strictly after material use; equality is expired. Incoming supply requires CONFIRMED status, validated confirmation/ETA evidence, current linked sources, and ETA no later than both material use and logistics cutoff (equality included). Unconfirmed promises never count. Outstanding receipts due at/before calculation time require reconciliation and yield UNKNOWN, preventing double counting of goods potentially already in stock.
+4. Supplies and demand normalize to base units using explicit SKU-specific `unit_conversions`: ID, tenant, from/to units, positive Decimal factor and BOM-kind source refs. No inferred reverse/chained/cross-SKU conversion. Ambiguous mappings are rejected. Converted reservations cannot exceed normalized lot quantity. BOM quantity is per one parent base unit; `waste_multiplier >= 1` is consumption markup, not yield division. The default 1 is disclosed as no known loss. Each multiplier and conversion appears in assumptions.
+5. Free lots use earliest expiry then lot ID; receipts follow by ETA/ID. Active reservation surplus remains held for its owner. Released/consumed reservations do not hold stock; source on-hand must already reflect actual consumption.
+6. Scoped line warehouse IDs require exact lot/receipt warehouse matches. An unlocated receipt cannot supply scoped demand. Unscoped demand explicitly pools warehouses; this is an assumption, not a verified transfer plan.
+
+## Phase 2 calculation interface and limits
+
+```python
+from backend.app.feasibility.bom import explode_bom
+from backend.app.feasibility.inventory import calculate_atp
+
+scenario = build_supplier_delay_scenario()
+requirements = explode_bom(scenario.after, tenant_id=scenario.after.tenant_id)
+materials = calculate_atp(scenario.after, tenant_id=scenario.after.tenant_id)
+```
+
+Both functions revalidate immutable inputs, including Pydantic copies that bypass validators. ATP processes all confirmed commitments in one batch. Repeated queries cannot reserve or consume operational inventory. Default calculation time is `captured_at`; explicit offset-aware `as_of >= captured_at` rechecks freshness. Capture-time replay is historical, never proof of current state. Relevant source categories must represent complete, current stock/reservation/receipt/competing-demand ledgers. Empty rows with a current source represent a source-verified zero; missing/stale sources do not. P5 must uphold completeness/authenticity at its adapter boundary.
+
+`BomExpansion` gives COMPLETE/UNKNOWN, leaf quantities, paths/component IDs, evidence and assumptions. `MaterialATP` gives COVERED/SHORTAGE/UNKNOWN, snapshot ID/version, tenant, calculation time, issues and material rows. `usable`, `reserved`, and `confirmed_incoming` are disjoint **allocated** quantities, not reusable stock totals. Rows also give required/shortage/unit/need-time, allocation supply/reservation IDs and evidence. Exact arithmetic ignores caller precision/exponent/trap settings. Unsupported limits yield UNKNOWN or input validation errors.
+
+Missing/stale relevant sources, missing BOM, cycles, past material demand and overdue outstanding receipts make the entire batch UNKNOWN without confident material rows. Stocked manufactured assemblies also yield UNKNOWN: leaf explosion does not net finished/intermediate stock against new production. Deeper BOM inputs inherit root material-use time; no production lead times are invented. Capacity/job conflicts, full FeasibilityAssessment status, hypothetical plans, events, API/auth and persistence are later phases. COVERED is not FEASIBLE; SHORTAGE is a material constraint under the declared priority, not proof that every alternative allocation/schedule fails.
 
 ## Supplier-delay fixture: one affected, one buffered
 

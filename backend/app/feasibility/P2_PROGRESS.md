@@ -2,15 +2,16 @@
 
 ## Current checkpoint
 
-- **Phase:** 1 — Operational Snapshots + Synthetic Data
-- **State:** Phase 1 targeted review corrections PASS; external review is pending. Shared P5/P3 integration decisions remain explicitly BLOCKED.
+- **Phase:** 2 — Time-Phased ATP, Recursive BOM and Unit Conversion
+- **State:** P2-local Phase 2 PASS; awaiting independent external review. Shared P5/P3 integration remains BLOCKED.
 - **Branch:** `feat/p2-feasibility-engine`
 - **Remote branch status:** `origin/feat/p2-feasibility-engine` pushed and verified to match local HEAD after this checkpoint commit; exact SHA is in the phase response.
 - **Workspace:** `D:\dunno\0.SDC\MouManTAI`
 - **Phase 0 review:** Approved by the user after external review. The Master Prompt was available as `D:\dunno\0.SDC\P2_CODEX_MASTER.txt.txt` (the supplied path omitted the final `.txt`).
-- **Gate:** Stop for external review; do not start Phase 2 without a later `APPROVED — CONTINUE P2`.
-- **Tests:** Four provenance-focused test nodes failed before implementation; five focused provenance tests pass. `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q` — 21 passed.
-- **Implementation:** P2-local immutable snapshots now validate typed supplier confirmation associations bound to tenant, supplier, delivery, source row and evidence reference; ETA changes preserve that confirmation and link a distinct ETA-change claim. Capacity-window upper bounds, commitment material-use/deadline consistency, and Oct 24 buffered-fixture calendar coverage are also validated. Calendar coverage does not establish production feasibility. No P2 UI/API/evaluator or P5-owned code was changed.
+- **Phase 1 review:** User approved both corrections at `0d990d99bfe973f7b13295d1e005639a0f61adbd`; verified clean HEAD and remote feature ref before Phase 2.
+- **Gate:** Stop for external review; Phase 3 requires a later `APPROVED — CONTINUE P2`.
+- **Tests:** `python -m pytest backend/app/feasibility/tests/test_bom.py backend/app/feasibility/tests/test_inventory.py backend/app/feasibility/tests/test_snapshots.py -q` — 66 passed (45 new tests + 21 Phase 1 regression tests).
+- **Implementation:** Frozen material results, exact Decimal operations, recursive BOM/cycles/waste/conversion, batch ATP with reservations subtracted once and credited only to owners, expiry at material use, confirmed evidence-linked receipts under inclusive ETA/cutoff rules, warehouse scope, conservative UNKNOWN, and tenant/input revalidation. COVERED/SHORTAGE/UNKNOWN describe material checks only; full assessment/capacity orchestration belongs to Phase 3. No UI/API/evaluator or P5-owned code was changed.
 - **Evidence trust boundary:** The model guarantees structural source provenance within a snapshot; external authenticity and supplier identity verification remain P5 source-adapter responsibilities. All new model fields remain P2-local and provisional.
 - **P5/P3 blockers:** Shared snapshot/assessment/ProposedChanges contracts, persistence, routes/auth/outbox, and P3 import/serialization remain provisional and unratified; they did not block independent P2-local Phase 1 work.
 
@@ -23,8 +24,8 @@ At the Phase 0 baseline the designated clone was clean on `main` at `aedb152` (`
 | Phase | Scope | State | Gate / evidence |
 |---|---|---|---|
 | 0 | Inspect repo, trace requirements, propose contracts and synthetic fixture | PASS — externally reviewed and approved | Trace/report/progress created; shared contract decisions remain unratified and explicitly blocked |
-| 1 | Validated operational snapshots and synthetic fixtures | P2-local implementation and targeted corrections PASS; external review pending | 21 focused tests pass; P5/P3 integration remains blocked; stop before Phase 2 |
-| 2 | Decimal ATP, time-phased supply, recursive BOM and unit conversion | NOT_STARTED | Requires explicit approval after Phase 1 review |
+| 1 | Validated operational snapshots and synthetic fixtures | PASS — externally reviewed and approved | Approved SHA `0d990d99bfe973f7b13295d1e005639a0f61adbd`; prior 21 tests preserved |
+| 2 | Decimal ATP, time-phased supply, recursive BOM and unit conversion | P2-local PASS; external review pending | 45 new tests and 21 regressions pass; Phase 3 has not started |
 | 3 | Capacity/deadline checks and pure shared evaluator | NOT_STARTED | Requires explicit approval after Phase 2 review |
 | 4 | Dependency graph and incremental impact recalculation | NOT_STARTED | Requires explicit approval after Phase 3 review |
 | 5 | Five P2 routes and P3/P5 contract handoff | NOT_STARTED | Requires explicit approval after Phase 4 review and shared API decisions |
@@ -111,7 +112,7 @@ No P5-approved fixture exists. The executable fixtures remain temporary and reus
 - The two-affected variant has 30 unreserved patties and 110 confirmed inbound, with `com-001` requiring 100 and `com-002` 40 at `2026-10-23T09:00:00+08:00`; the ETA moves from `08:00` to `11:00`, after the `08:00` logistics cutoff. Under the declared priority, hand-labelled shortages are 70 and 40 (total 110). Without this order, those per-commitment labels would be arbitrary and risk double-counting the 30 units.
 - Every timestamp carries its source offset; fixture times use `+08:00` / `Asia/Kuala_Lumpur`. Naive datetimes are rejected and comparison uses UTC instants. `material_use_at` is distinct from the customer-facing delivery deadline. Source/row evidence, tenant scope, snapshot ID/version, freshness bounds, and validation status are preserved.
 
-Expected shortage/impact labels are synthetic ground truth only. Phase 1 tests snapshot construction and labels; no feasibility calculation or observed impact engine exists yet. The P2-local serialization/model remains provisional until shared P5/P1 review.
+Phase 2 batch ATP reproduces the material shortage labels in both snapshots. They are material results under the deterministic policy, not full feasibility or observed impact/event results. The P2-local serialization/model remains provisional until shared P5/P1 review.
 
 ## Open shared-owner decisions
 
@@ -127,4 +128,4 @@ Expected shortage/impact labels are synthetic ground truth only. Phase 1 tests s
 
 ## Next action
 
-Submit the Phase 1 report and trace for external review. Do not start Phase 2 until the user returns `APPROVED — CONTINUE P2`.
+Submit Phase 2 for external review. Do not start Phase 3 until the user returns `APPROVED — CONTINUE P2` after that review. Material interfaces and assumptions are documented in `FIXTURES.md`; the full evaluator/P3 hypothetical interface remains later-phase work.

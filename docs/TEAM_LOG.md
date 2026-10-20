@@ -88,8 +88,8 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | P1-BE | Ingestion/Extraction/Context API | P1 | NOT_STARTED | — | Shared contracts | Define fixtures |
 | P1-TST | Context tests and metrics | P1 | NOT_STARTED | — | — | Define expected labels |
 | P2-FE | Feasibility / Impact UI | P2 | NOT_STARTED | No UI implementation; Phase 1 made no frontend changes | Shared frontend skeleton and P5 route/API contract absent | Implement views only in approved Phase 6 after shared frontend integration is available |
-| P2-BE | Constraint + Impact engine | P2 | IN_PROGRESS | P2-local snapshots/fixtures; 21 focused tests pass; capacity/deadline and source-grounded supplier-confirmation corrections recorded; no evaluator yet | P5 snapshot/assessment contracts, trusted supplier source adapter, persistence, and shared backend skeleton absent | Stop for external review; continue with approved Phase 2 after review |
-| P2-TST | Feasibility/Impact tests | P2 | IN_PROGRESS | `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q` — 21 passed | API, UI, evaluator, and integration suites are not implemented | Add only the focused tests for each later approved phase |
+| P2-BE | Constraint + Impact engine | P2 | IN_PROGRESS | Phase 2 P2-local ATP/BOM/conversions/waste, reservation ownership, expiry/ETA cutoffs and UNKNOWN handling; 66 P2 tests pass; full evaluator/impact not implemented | P5 shared snapshot/assessment contracts, source authenticity/completeness, persistence and backend skeleton absent | Stop for external Phase 2 review; Phase 3 requires later explicit approval |
+| P2-TST | Feasibility/Impact tests | P2 | IN_PROGRESS | `python -m pytest backend/app/feasibility/tests/test_bom.py backend/app/feasibility/tests/test_inventory.py backend/app/feasibility/tests/test_snapshots.py -q` — 66 passed | API/UI/full evaluator/event/integration suites remain later-phase work | Independent external Phase 2 review |
 | P3-FE | Recovery / Approval UI | P3 | NOT_STARTED | — | — | Plan comparison cards |
 | P3-BE | Plan / Approval / Action API | P3 | NOT_STARTED | — | P2 evaluator interface | Start templates |
 | P3-TST | Approval/Execution tests | P3 | NOT_STARTED | — | — | Define stale-approval test |
@@ -132,6 +132,11 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 
 - P2: Added P2-local typed supplier evidence associations. Confirmed deliveries require a source-grounded `CONFIRMATION` claim tied to the exact tenant, supplier, delivery and evidence reference; ETA changes retain that association and add a distinct ETA-change claim. Five targeted provenance tests pass and the focused snapshot file passes 21 tests. Synthetic refs establish structural provenance only; P5 must decide external source authenticity and adapter trust. P2-FE remains `NOT_STARTED`. The feature branch was pushed and the remote branch SHA was verified against local HEAD (exact SHA in phase response). Stop for external review; Phase 2 has not started.
 
+### 2026-10-21 — P2 Phase 2 checkpoint
+
+- P2: Phase 1 and both corrections externally approved by user at `0d990d99bfe973f7b13295d1e005639a0f61adbd`. Added P2-local Decimal-safe batch ATP, recursive BOM/cycles, source-backed conversions/waste assumptions, reservation owner/subtract-once handling, expiry at material use, confirmed evidence-linked receipt timing/cutoffs and conservative UNKNOWN. Material-only statuses do not claim full feasibility. 45 new calculation tests plus 21 Phase 1 tests pass (66 total). Internal code review found an overflow-handling gap; a failing regression was added, the gap fixed, and targeted review checks passed. External Phase 2 review is still pending.
+- P2: No Phase 3 capacity/evaluator orchestration, Phase 4 events, Phase 5 APIs, Phase 6 UI or other-owner code changes. P2-FE remains NOT_STARTED. P5 authenticity/completeness/shared contracts and P3 integration/command reservations remain BLOCKED. Exact checkpoint commit/push SHA and feature-ref verification are in the phase response. Stop for external review before Phase 3.
+
 ## 6. Blocker / Dependency Ledger
 
 | ID | Opened | Blocked owner | Blocking owner | Issue | Impact | Decision / ETA | Status |
@@ -162,6 +167,8 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | 2026-10-21 | P2 Phase 1 confirmation-provenance correction (SHA in phase response) | Four new provenance test nodes failed before the fix; five targeted provenance tests passed after; `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q`: 21 passed | NOT RUN | NOT RUN | NOT RUN | 21 snapshot/fixture tests; operational metrics not measured | No evaluator, API, UI, durable P5 snapshot store, or P3/P5 integration yet; external supplier evidence authenticity remains P5-owned; synthetic refs prove only structural provenance |
 
 Metric protocol: always disclose dataset size, date, ground truth creation method, pass/fail definitions. **Do not** mark actual customer fulfilment because communication was sent or approved.
+
+P2 Phase 2 QA (2026-10-21): `python -m pytest backend/app/feasibility/tests/test_bom.py backend/app/feasibility/tests/test_inventory.py backend/app/feasibility/tests/test_snapshots.py -q` — 66 passed, 0 failed (45 new + 21 regression). Actual material shortage outputs: buffered before 0/0 -> after 40/0 pcs; two-order before 0/0 -> after 70/40 pcs. API/UI/build/E2E/production metrics NOT RUN; shared runtime absent and later-phase scope. No accuracy or latency claim from pytest elapsed time.
 
 ## 9. Submission Checklist
 
