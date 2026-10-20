@@ -97,9 +97,9 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | P4-FE | Communication / Confirmation UI | P4 | NOT_STARTED | — | — | Scaffold route |
 | P4-BE | Draft/Send/Confirm APIs | P4 | NOT_STARTED | — | P3 proposal schema | Define signed confirmation |
 | P4-TST | Confirmation/Channel tests | P4 | NOT_STARTED | — | — | Define ambiguous OK fixture |
-| P5-FE | Shell / Overview / Audit UI | P5 | IN_PROGRESS | Phase 0 shell, routes, health status card; uncommitted working tree | Feature pages remain owner work | Add shared audit/overview data API |
-| P5-BE | Registry / DB / Events / Roles | P5 | IN_PROGRESS | Canonical contracts, fixture, PostgreSQL/Alembic foundation; uncommitted working tree | Docker daemon unavailable for DB smoke | Add registry lifecycle and outbox in next core slice |
-| P5-TST | Integrated E2E / Security tests | P5 + all | IN_PROGRESS | 5 backend tests + 1 frontend smoke test passing | Full E2E waits for P1–P4 modules | Add tenant/version/duplicate-event integration suite |
+| P5-FE | Shell / Overview / Audit UI | P5 | IN_PROGRESS | Phase 0 shell, routes, health status card; committed in `ec0458d` | Feature pages remain owner work | Add shared audit/overview data API |
+| P5-BE | Registry / DB / Events / Roles | P5 | IN_PROGRESS | Canonical contracts, fixture, PostgreSQL/Alembic foundation, registry lifecycle and outbox; committed in `ec0458d` | Docker daemon unavailable for DB smoke | Add tenant/version/duplicate-event integration suite |
+| P5-TST | Integrated E2E / Security tests | P5 + all | IN_PROGRESS | 7 backend tests + 1 frontend smoke test passing | Full E2E waits for P1–P4 modules | Add integrated tenant/version/duplicate-event suite |
 | REL-01 | Deploy / submission / docs | Release owner | NOT_STARTED | — | — | Assign owner |
 
 **DONE definition**: reviewed PR merged + live API/UI or valid designated mock + passing relevant tests + integration compatibility + log link. `95% done` is not a status. Screenshots alone do not prove backend behavior.
@@ -146,13 +146,13 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 - Affected owners, frontend screens, tests: P5 core; P1–P4 consume the registry by tenant, commitment ID and version; backend registry and API tests.
 - Migration or fixture update: Alembic `0002_commitment_registry`; existing demo fixture remains compatible.
 - Decision: ACCEPTED for implementation by the current task; owner review remains required for future contract changes.
-- PR / commit: working tree (uncommitted at decision time).
+- PR / commit: `ec0458d` (`feat(core): establish Phase 0 foundation and commitment registry`).
 
 ## 8. QA / Metrics Log
 
 | Date | Commit | Backend tests | Frontend tests | Build | E2E | Key observed metric / sample size | Known limitations |
 |---|---|---|---|---|---|---|---|
-| 2026-10-21 | phase0-core-integration (uncommitted) | 7 passed (`pytest`) | 1 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | Contract/fixture/registry smoke only; sample size 1 fixture | Live DB migration pending isolated PostgreSQL; Docker/WSL1 blocker; npm audit clean after validated upgrades |
+| 2026-10-21 | `ec0458d` on `phase0-core-integration` | 7 passed (`pytest`) | 1 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | Contract/fixture/registry smoke only; sample size 1 fixture | Live DB migration pending isolated PostgreSQL; Docker/WSL1 blocker; npm audit clean after validated upgrades |
 
 Metric protocol: always disclose dataset size, date, ground truth creation method, pass/fail definitions. **Do not** mark actual customer fulfilment because communication was sent or approved.
 
@@ -203,7 +203,7 @@ Metric protocol: always disclose dataset size, date, ground truth creation metho
 - Next: enable WSL2 or provide an isolated PostgreSQL instance on host port 5433, then run the DB migration smoke; assign P1–P5 branches and implement feature slices independently.
 
 ### 2026-10-21 — Phase 1 core integration readiness
-- Branch: `phase0-core-integration`; no commit or push made yet.
+- Branch: `phase0-core-integration`; implementation baseline `ec0458d` committed and pushed to `origin/phase0-core-integration`.
 - Registry: added tenant-scoped Commitment persistence, controlled lifecycle transitions, optimistic `commitment_version` checks, immutable audit rows, transactional outbox rows, and typed API errors.
 - APIs: `POST/GET /v1/commitments`, `GET /v1/commitments/{id}`, `POST /v1/commitments/{id}/transitions`, `GET /v1/audit`, and `GET /v1/events/{id}`. Actor role is resolved server-side from the synthetic actor map; client role headers are ignored.
 - Security audit: initial 5 findings were dev-only Vitest/Tinypool criticals plus React Router moderate findings. Manual upgrades to `vitest@5.0.5` and `react-router-dom@7.18.4` were validated with typecheck, tests and build; final `npm audit` reports 0 vulnerabilities.
