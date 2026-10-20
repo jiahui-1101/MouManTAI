@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-moumantai}
+      POSTGRES_USER: ${POSTGRES_USER:-moumantai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-moumantai}
+    ports:
+      - "5433:5432"
+    volumes:
+      - moumantai-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-moumantai}:${POSTGRES_PASSWORD:-moumantai}@db:5432/${POSTGRES_DB:-moumantai}
+      CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-moumantai}:${POSTGRES_PASSWORD:-moumantai}@db:5432/${POSTGRES_DB:-moumantai}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "-m", "app.worker"]
+
+volumes:
+  moumantai-postgres:

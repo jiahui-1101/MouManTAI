@@ -1,7 +1,7 @@
-# PromiseFlow — Team Execution Log & Decision Register
+# MouManTAI — Team Execution Log & Decision Register
 
-> **Log start**: 2026-10-20 · **Submission**: 2026-10-25  
-> **Document state**: **INITIAL PLANNING TEMPLATE**. No implementation tasks are pre-marked complete. Update this file from real code, PRs, tests and evidence only.  
+> **Log start**: 2026-10-20 · **Submission**: 2026-10-25
+> **Document state**: **INITIAL PLANNING TEMPLATE**. No implementation tasks are pre-marked complete. Update this file from real code, PRs, tests and evidence only.
 > **Working rule**: Update at least once per day; every PR should reference a log item. Do not claim integrations deployed from architecture plans alone.
 
 ## 1. Members / Responsibilities
@@ -29,6 +29,7 @@
 | ADR-007 | Synthetic data; no real payments or assumed Orbyte live API | Domain 2 boundary | Proposed baseline | 2026-10-20 |
 | ADR-008 | No continuous LLM self-learning before 25 Oct | Reduce risk and preserve core demo | Proposed baseline | 2026-10-20 |
 | ADR-009 | 24 Oct feature freeze; 25 Oct submission only | Deadline protection | Proposed baseline | 2026-10-20 |
+| ADR-010 | Product name finalized as **MouManTAI** | Align repository and implementation naming | Accepted by current task request | 2026-10-21 |
 
 Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/files, agreed-by, time; never silently reverse a lock.
 
@@ -96,9 +97,9 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | P4-FE | Communication / Confirmation UI | P4 | NOT_STARTED | — | — | Scaffold route |
 | P4-BE | Draft/Send/Confirm APIs | P4 | NOT_STARTED | — | P3 proposal schema | Define signed confirmation |
 | P4-TST | Confirmation/Channel tests | P4 | NOT_STARTED | — | — | Define ambiguous OK fixture |
-| P5-FE | Shell / Overview / Audit UI | P5 | NOT_STARTED | — | — | Create shared UI kit |
-| P5-BE | Registry / DB / Events / Roles | P5 | NOT_STARTED | — | Contract decisions | Create schema/migrations |
-| P5-TST | Integrated E2E / Security tests | P5 + all | NOT_STARTED | — | Feature PRs | Early smoke tests |
+| P5-FE | Shell / Overview / Audit UI | P5 | IN_PROGRESS | Phase 0 shell, routes, health status card; committed in `ec0458d` | Feature pages remain owner work | Add shared audit/overview data API |
+| P5-BE | Registry / DB / Events / Roles | P5 | IN_PROGRESS | Canonical contracts, fixture, PostgreSQL/Alembic foundation, registry lifecycle and outbox; committed in `ec0458d` | Docker daemon unavailable for DB smoke | Add tenant/version/duplicate-event integration suite |
+| P5-TST | Integrated E2E / Security tests | P5 + all | IN_PROGRESS | 7 backend tests + 1 frontend smoke test passing | Full E2E waits for P1–P4 modules | Add integrated tenant/version/duplicate-event suite |
 | REL-01 | Deploy / submission / docs | Release owner | NOT_STARTED | — | — | Assign owner |
 
 **DONE definition**: reviewed PR merged + live API/UI or valid designated mock + passing relevant tests + integration compatibility + log link. `95% done` is not a status. Screenshots alone do not prove backend behavior.
@@ -120,6 +121,7 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 
 | ID | Opened | Blocked owner | Blocking owner | Issue | Impact | Decision / ETA | Status |
 |---|---|---|---|---|---|---|---|
+| BLOCK-20261021-001 | 2026-10-21 | P5 | Environment | Docker Desktop Linux engine unavailable because host exposes WSL1; existing PostgreSQL on 5432 is unrelated | Live PostgreSQL migration and DB smoke test cannot run safely | Enable WSL2 or provide isolated PostgreSQL on host 5433 | OPEN |
 | BLOCK-TEMPLATE | — | — | — | Add concrete blockers here | — | — | TEMPLATE |
 
 **Escalation rule**: Any blocking contract dispute >2 hours → write blocker and involve P5 + affected owner; choose narrow contract fix, not silent ad hoc field changes. Any P0 at-risk task by 23 Oct → alert entire team and cut P1/P2 extras before core journey.
@@ -137,11 +139,20 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 - PR / commit:
 ```
 
+### CONTRACT-20261021-002 — Shared Commitment Registry persistence and lifecycle API
+- Proposed by / reviewed by: Phase 1 readiness task / P5 review pending
+- Old vs new field/event/API: no existing persistence API → additive `POST/GET /v1/commitments`, `POST /v1/commitments/{id}/transitions`, and `GET /v1/audit?commitment_id=...`; adds typed create/transition/read/audit schemas.
+- Breaking or additive: additive; existing canonical lifecycle enums and evidence semantics are unchanged.
+- Affected owners, frontend screens, tests: P5 core; P1–P4 consume the registry by tenant, commitment ID and version; backend registry and API tests.
+- Migration or fixture update: Alembic `0002_commitment_registry`; existing demo fixture remains compatible.
+- Decision: ACCEPTED for implementation by the current task; owner review remains required for future contract changes.
+- PR / commit: `ec0458d` (`feat(core): establish Phase 0 foundation and commitment registry`).
+
 ## 8. QA / Metrics Log
 
 | Date | Commit | Backend tests | Frontend tests | Build | E2E | Key observed metric / sample size | Known limitations |
 |---|---|---|---|---|---|---|---|
-| — | — | NOT RUN | NOT RUN | NOT RUN | NOT RUN | — | — |
+| 2026-10-21 | `ec0458d` on `phase0-core-integration` | 7 passed (`pytest`) | 1 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | Contract/fixture/registry smoke only; sample size 1 fixture | Live DB migration pending isolated PostgreSQL; Docker/WSL1 blocker; npm audit clean after validated upgrades |
 
 Metric protocol: always disclose dataset size, date, ground truth creation method, pass/fail definitions. **Do not** mark actual customer fulfilment because communication was sent or approved.
 
@@ -177,3 +188,24 @@ Metric protocol: always disclose dataset size, date, ground truth creation metho
 - Feature limitations: TBD
 - Known defects: TBD
 - Submission timestamp/reference: TBD
+
+## 12. Phase 0 — Shared Contracts and Repository Foundation
+
+### 2026-10-21 — Phase 0 audit and foundation
+- Scope: shared contracts, repository foundation, synthetic fixture, parallel boundaries; no P1–P4 business module implementation.
+- Repository audit: `main` clean and synchronized with `origin/main` before changes; repository was an empty foundation with only `docs/` and `README.md`.
+- Added: canonical Pydantic schemas and enums, synchronized TypeScript types, unified synthetic fixture, FastAPI `/health`, React/Vite shell and routes, shared API client, PostgreSQL Compose service, SQLAlchemy/Alembic wiring, worker entrypoint, `.env.example`, `.gitignore`, and minimal tests.
+- Contract decisions: canonical `BusinessContext.status` is `INFORMATION_READY` with legacy `READY` input normalization; `Confirmation` is version- and identity-bound; approval/execution states are frozen only to the lifecycle values already required by P3/P4.
+- Validation: backend `7 passed`; frontend typecheck passed; frontend `1 passed`; frontend production build passed; Alembic offline SQL generation passed; `docker compose config` passed.
+- Not run: live PostgreSQL/Alembic upgrade because Docker Desktop's Linux engine is unavailable and the existing host PostgreSQL rejects the project credentials. No existing database was modified.
+- Repository documentation gap resolved: all five owner requirement files are now checked into `docs/requirements/`; root `AGENTS.md` is the single canonical agent instruction file.
+- Dependency note: the initial audit reported 5 findings (3 moderate, 2 critical); validated non-breaking manual upgrades reduced the final audit to 0 findings.
+- Next: enable WSL2 or provide an isolated PostgreSQL instance on host port 5433, then run the DB migration smoke; assign P1–P5 branches and implement feature slices independently.
+
+### 2026-10-21 — Phase 1 core integration readiness
+- Branch: `phase0-core-integration`; implementation baseline `ec0458d` committed and pushed to `origin/phase0-core-integration`.
+- Registry: added tenant-scoped Commitment persistence, controlled lifecycle transitions, optimistic `commitment_version` checks, immutable audit rows, transactional outbox rows, and typed API errors.
+- APIs: `POST/GET /v1/commitments`, `GET /v1/commitments/{id}`, `POST /v1/commitments/{id}/transitions`, `GET /v1/audit`, and `GET /v1/events/{id}`. Actor role is resolved server-side from the synthetic actor map; client role headers are ignored.
+- Security audit: initial 5 findings were dev-only Vitest/Tinypool criticals plus React Router moderate findings. Manual upgrades to `vitest@5.0.5` and `react-router-dom@7.18.4` were validated with typecheck, tests and build; final `npm audit` reports 0 vulnerabilities.
+- Database: migration `0002_commitment_registry` passes offline SQL generation. Live `upgrade head` is blocked by Docker/WSL1; no connection was made to or mutation performed on host port 5432.
+- P1–P4 readiness: each owner now has its requirement file in `docs/requirements/`; shared schemas/types and fixture remain compatible; feature routes and backend package boundaries remain unchanged.
