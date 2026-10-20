@@ -3,8 +3,8 @@ from decimal import Decimal, localcontext
 import pytest
 from pydantic import ValidationError
 
-from backend.app.feasibility.fixtures import build_supplier_delay_scenario
-from backend.app.feasibility.models import OperationalSnapshot
+from app.feasibility.fixtures import build_supplier_delay_scenario
+from app.feasibility.models import OperationalSnapshot
 
 
 def payload():
@@ -12,7 +12,7 @@ def payload():
 
 
 def explode(data):
-    from backend.app.feasibility.bom import explode_bom
+    from app.feasibility.bom import explode_bom
     snapshot = OperationalSnapshot.model_validate(data)
     return explode_bom(snapshot, tenant_id=snapshot.tenant_id)
 
@@ -91,7 +91,7 @@ def test_bom_arithmetic_does_not_depend_on_decimal_context():
 
 
 def test_bom_cross_tenant_request_is_refused():
-    from backend.app.feasibility.bom import explode_bom
+    from app.feasibility.bom import explode_bom
     with pytest.raises(ValueError, match='tenant'):
         explode_bom(build_supplier_delay_scenario().before, tenant_id='other')
 
@@ -107,7 +107,7 @@ def test_conversion_rejects_inexact_or_invalid_factor(field, value):
 
 
 def test_bom_revalidates_copied_snapshot_before_calculation():
-    from backend.app.feasibility.bom import explode_bom
+    from app.feasibility.bom import explode_bom
     snapshot = build_supplier_delay_scenario().before
     foreign = snapshot.sku_catalog[0].model_copy(update={'tenant_id': 'other'})
     bypassed = snapshot.model_copy(update={'sku_catalog': (foreign, *snapshot.sku_catalog[1:])})

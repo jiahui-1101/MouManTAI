@@ -2,19 +2,21 @@
 
 ## Current checkpoint
 
-- **Phase:** Safety sync of updated Main after approved Phase 2; Phase 3 NOT_STARTED.
-- **State:** Phase 2 externally approved at `d28b63ab5fa82c66633ad18211b9c4fa83ffbbe4`. Main integration prepared; review required before Phase 3. P2 runtime imports and shared operational-data adapters remain BLOCKED.
+- **Phase:** P2-local runtime import correction after approved Main sync; Phase 3 NOT_STARTED.
+- **State:** Main sync externally approved at `14e794308d317e744d321f2b26ba4d5af8f677dd`; runtime correction PASS, awaiting external review. Shared operational-data/fixture/schema adapters remain BLOCKED.
 - **Branch:** `feat/p2-feasibility-engine`
 - **Remote branch status:** `origin/feat/p2-feasibility-engine` pushed and verified to match local HEAD after this checkpoint commit; exact SHA is in the phase response.
 - **Workspace:** `D:\dunno\0.SDC\MouManTAI`
 - **Phase 0 review:** Approved by the user after external review. The Master Prompt was available as `D:\dunno\0.SDC\P2_CODEX_MASTER.txt.txt` (the supplied path omitted the final `.txt`).
 - **Phase 1 review:** User approved both corrections at `0d990d99bfe973f7b13295d1e005639a0f61adbd`; verified clean HEAD and remote feature ref before Phase 2.
 - **Phase 2 review:** User reported external approval at `d28b63ab5fa82c66633ad18211b9c4fa83ffbbe4`; authorized Main -> P2 sync only.
-- **Gate:** Stop for user review of this integration; no Phase 3 implementation authorized by the safety task.
-- **Tests:** `python -m pytest backend/app/feasibility/tests/test_bom.py backend/app/feasibility/tests/test_inventory.py backend/app/feasibility/tests/test_snapshots.py -q` — 66 passed (45 new tests + 21 Phase 1 regression tests).
+- **Main-sync review:** User accepted merge `14e794308d317e744d321f2b26ba4d5af8f677dd` and authorized only the P2-local import correction, without rollback or repeated pull.
+- **Gate:** Stop for external review of the runtime correction. Phase 3 remains unauthorized by this task.
+- **Tests (backend working directory):** `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_snapshots.py app/feasibility/tests/test_bom.py app/feasibility/tests/test_inventory.py tests/test_contracts.py tests/test_smoke.py tests/test_registry.py -q -p no:cacheprovider` — 73 passed (66 P2 + 7 shared), 1 pre-existing Starlette/httpx deprecation warning.
 - **Implementation:** Frozen material results, exact Decimal operations, recursive BOM/cycles/waste/conversion, batch ATP with reservations subtracted once and credited only to owners, expiry at material use, confirmed evidence-linked receipts under inclusive ETA/cutoff rules, warehouse scope, conservative UNKNOWN, and tenant/input revalidation. COVERED/SHORTAGE/UNKNOWN describe material checks only; full assessment/capacity orchestration belongs to Phase 3. No UI/API/evaluator or P5-owned code was changed.
 - **Evidence trust boundary:** The model guarantees structural source provenance within a snapshot; external authenticity and supplier identity verification remain P5 source-adapter responsibilities. All new model fields remain P2-local and provisional.
-- **Sync tests:** 66 P2 regressions pass from repo root; 7 shared contract/health/SQLite registry tests pass from backend. Backend-runtime `app.feasibility.inventory` import FAILS: `ModuleNotFoundError: No module named 'backend'`. Host pytest 9.1.1 exceeds P5's declared dev constraint `>=8.3,<9`; dependencies unchanged.
+- **Runtime correction:** Exact requested ATP/BOM import command prints `P2 runtime imports OK`. Five P2 modules now use package-relative imports; all three P2 test files consistently use `app.feasibility.*`. One-process class-identity assertions across P2 modules/tests and P5's Pydantic base pass; no backend.app modules load. Eight Python ASTs match approved HEAD after import-only normalization. No aliases, sys.path changes, P5 configuration/dependencies, calculations or fixtures changed.
+- **Environment limitation:** Host pytest 9.1.1 exceeds P5's declared dev constraint `>=8.3,<9`; dependencies unchanged. Passing tests do not establish validation in the pinned dev environment.
 - **P5/P3 blockers:** Shared assessment/enums/constraints/assumptions, Core registry/auth/audit/outbox foundation and frontend shell now exist. P2 OperationalSnapshot/ProposedChanges, assessment/impact history persistence, operational-source adapters and evaluator/event/API/UI integration remain pending. See `MAIN_SYNC_REPORT.md` for exact compatibility gaps and test evidence.
 
 ## Repository baseline
@@ -132,4 +134,4 @@ Phase 2 batch ATP reproduces the material shortage labels in both snapshots. The
 
 ## Next action
 
-Submit the Main-sync report for user review and stop. Phase 2 is approved; Phase 3 has not started. Required P2-local import adaptation is reported, not implemented: package-relative production imports and app-based test imports/import-path configuration, avoiding duplicate module identities. Full evaluator/P3 hypothetical interfaces remain later-phase work.
+Submit the runtime correction report in `P2_PHASE_REPORTS.md` for external review and stop. Phase 2 and Main sync are approved; Phase 3 has not started. The import blocker is closed without modifying shared runtime configuration. Shared demo fixture/schema alignment and full evaluator/P3 hypothetical interfaces remain future reviewed integration work; `MAIN_SYNC_REPORT.md` preserves the historical pre-correction failure evidence.

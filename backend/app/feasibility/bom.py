@@ -2,12 +2,12 @@
 
 from decimal import Decimal, DecimalException
 
-from backend.app.feasibility.materials import BomExpansion, MaterialRequirement
-from backend.app.feasibility.models import (
+from .materials import BomExpansion, MaterialRequirement
+from .models import (
     FreshnessStatus, IssueSeverity, OperationalSnapshot, SkuSupplyType,
     SnapshotIssue, SourceKind, _utc,
 )
-from backend.app.feasibility.quantities import add, multiply
+from .quantities import add, multiply
 
 
 def evidence_for(snapshot: OperationalSnapshot, refs: tuple[str, ...]) -> tuple[str, ...]:

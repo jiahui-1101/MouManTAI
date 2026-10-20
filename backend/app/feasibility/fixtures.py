@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from backend.app.feasibility.models import (
+from .models import (
     BomComponent,
     CapacityCalendar,
     CapacityWindow,

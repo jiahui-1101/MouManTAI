@@ -296,3 +296,69 @@ Shared fixture/source-schema adapters, full evaluator and later integrations rem
 pending. No Phase 3 implementation. See `MAIN_SYNC_REPORT.md` for exact commands,
 results, shared schema/fixture differences and dependency notes. Merge SHA and
 feature-only push/ref verification are in the task response. Stop for user review.
+
+## P2-local runtime import compatibility correction
+
+- **State:** PASS for the requested import correction; external correction review pending. No Phase 3 implementation.
+- **Date:** 2026-10-21, Asia/Kuala_Lumpur.
+- **Branch / baseline:** `feat/p2-feasibility-engine`, approved Main-sync merge `14e794308d317e744d321f2b26ba4d5af8f677dd`. Confirmed exact HEAD and clean tracked/untracked-visible status before edits. User accepted the merge; no rollback, repeated fetch/pull or additional merge performed.
+- **Correction commit / feature push SHA:** see task response, after this report is committed and remote ref verified. No Main modification or push.
+
+### Scope and changes
+
+- Five P2 modules now use package-relative imports: `models.py`, `materials.py`, `bom.py`, `inventory.py`, `fixtures.py` under `backend/app/feasibility/`.
+- All imports in existing P2 tests `test_snapshots.py`, `test_bom.py`, `test_inventory.py` now consistently use `app.feasibility.*`. Test working directory is `backend/`; P5's existing backend package/test setup suffices.
+- No aliases, sys.path manipulation, shared runtime/config/dependency changes, new schemas/endpoints, modified fixture data, calculation/evidence logic or test expectation changes.
+- Current progress/trace, fixture import example and P2-only TEAM_LOG records updated. Prior sync/phase failure evidence remains historical; SYNC-03 is now PASS, SYNC-04 shared fixture/data alignment remains BLOCKED.
+
+### Reproduction and exact verification
+
+Commands below ran from `D:\dunno\0.SDC\MouManTAI\backend`.
+
+```powershell
+python -B -c "from app.feasibility.inventory import calculate_atp; from app.feasibility.bom import explode_bom; print('P2 runtime imports OK')"
+```
+
+Before edits: exit 1, `ModuleNotFoundError: No module named 'backend'`, inventory.py importing backend.app.feasibility.bom. After the import-only change: exit 0, **`P2 runtime imports OK`**.
+
+```powershell
+python -B -m pytest -o 'addopts=' app/feasibility/tests/test_snapshots.py app/feasibility/tests/test_bom.py app/feasibility/tests/test_inventory.py tests/test_contracts.py tests/test_smoke.py tests/test_registry.py -q -p no:cacheprovider
+```
+
+**PASS: 73 passed, 1 warning in 1.58s, exit 0.** All existing 66 P2 tests and 7 shared contract/fixture/health/SQLite registry tests ran together. No tests added/deleted/weakened. The existing Starlette TestClient warning about httpx/httpx2 remains; no shared dependency change was made. Pytest elapsed time is not an operational performance metric.
+
+Canonical identity probe (same backend working directory):
+
+```powershell
+python -B -c "import sys; from pydantic import BaseModel; from app.core import schemas; from app.feasibility import models, materials, bom, inventory, fixtures; from app.feasibility.tests import test_bom, test_inventory, test_snapshots; assert bom.OperationalSnapshot is inventory.OperationalSnapshot is fixtures.OperationalSnapshot is test_bom.OperationalSnapshot is test_inventory.OperationalSnapshot is test_snapshots.OperationalSnapshot is models.OperationalSnapshot; assert materials.FrozenModel is models.FrozenModel; assert bom.MaterialRequirement is materials.MaterialRequirement; assert inventory.MaterialATP is materials.MaterialATP; assert models.FrozenModel.__bases__[0] is schemas.ContractModel.__bases__[0] is BaseModel; assert not any(name == 'backend' or name.startswith('backend.app') for name in sys.modules); print('P2/P5 class identity OK; canonical app namespace only')"
+```
+
+**PASS:** `P2/P5 class identity OK; canonical app namespace only`, exit 0. This verifies each P2 type is the same class across importing modules/tests and both P2/P5 model bases resolve to the same Pydantic BaseModel. It does not equate P2-local operational input types with different P5 domain schemas or claim shared snapshot adapter integration.
+
+Additional scope verification from repository root: parsed all eight changed Python files and their approved HEAD versions as ASTs. Replacing only each old import prefix in the approved source yields an identical AST to each edited file. Observed **`8 Python ASTs match approved HEAD after import-only normalization`**, exit 0. Thus calculations, fixture definitions, evidence checks and test assertions remain unchanged.
+
+Source scan for backend.app, sys.path and sys.modules under P2 Python files returned no matches. Shared Core/DB/migrations/contracts/backend pyproject/root AGENTS/system requirements diff was empty. Final staged-diff/clean-tree/ref evidence is in the task response.
+
+### Exact authored files
+
+- `backend/app/feasibility/models.py`
+- `backend/app/feasibility/materials.py`
+- `backend/app/feasibility/bom.py`
+- `backend/app/feasibility/inventory.py`
+- `backend/app/feasibility/fixtures.py`
+- `backend/app/feasibility/tests/test_snapshots.py`
+- `backend/app/feasibility/tests/test_bom.py`
+- `backend/app/feasibility/tests/test_inventory.py`
+- `backend/app/feasibility/FIXTURES.md`
+- `backend/app/feasibility/P2_PROGRESS.md`
+- `backend/app/feasibility/P2_REQUIREMENT_TRACE.md`
+- `backend/app/feasibility/P2_PHASE_REPORTS.md`
+- `docs/TEAM_LOG.md` (P2 board/checkpoint records only; P5 records preserved).
+
+### Remaining limitations and next action
+
+Host Python 3.14 uses pytest **9.1.1**, outside P5's declared dev constraint **`pytest>=8.3,<9`**. The mismatch is documented without modifying shared dependencies, package installation or runtime configuration. Existing 7 shared tests use SQLite; no live PostgreSQL migrations/DB smoke, frontend build or full cross-feature E2E test was run for this import-only correction.
+
+P5's shared demo snapshot remains an untyped summary and lacks required source freshness/provenance, lot/reservation ownership, full competing demand, calendars/jobs and typed supplier confirmation associations. Shared IDs and BURGER catalog (SAUCE/PACKAGING) differ from the approved P2 regression fixture (WRAP). Keep both fixtures intact; reviewed P2/P5 source/fixture/schema alignment is still required. Shared FeasibilityAssessment/ConstraintReason mapping and all full evaluator, capacity, impact/event/API/UI/P3 integration work remain later phases.
+
+**Stop for external review of this correction. Phase 3 has not started and requires a later explicit authorization.**

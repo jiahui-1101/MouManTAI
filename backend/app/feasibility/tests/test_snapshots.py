@@ -6,11 +6,11 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from backend.app.feasibility.fixtures import (
+from app.feasibility.fixtures import (
     build_supplier_delay_scenario,
     build_two_affected_scenario,
 )
-from backend.app.feasibility.models import (
+from app.feasibility.models import (
     CapacityWindow,
     FreshnessStatus,
     OperationalSnapshot,

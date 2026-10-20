@@ -23,7 +23,7 @@ from pydantic import (
     model_validator,
 )
 
-from backend.app.feasibility.quantities import add, multiply
+from .quantities import add, multiply
 
 
 PositiveQuantity = Annotated[Decimal, Field(gt=0)]

@@ -14,8 +14,8 @@ These fixtures are P2-local and provisional until P5/P1 approve shared snapshot,
 ## Phase 2 calculation interface and limits
 
 ```python
-from backend.app.feasibility.bom import explode_bom
-from backend.app.feasibility.inventory import calculate_atp
+from app.feasibility.bom import explode_bom
+from app.feasibility.inventory import calculate_atp
 
 scenario = build_supplier_delay_scenario()
 requirements = explode_bom(scenario.after, tenant_id=scenario.after.tenant_id)
@@ -23,6 +23,8 @@ materials = calculate_atp(scenario.after, tenant_id=scenario.after.tenant_id)
 ```
 
 Both functions revalidate immutable inputs, including Pydantic copies that bypass validators. ATP processes all confirmed commitments in one batch. Repeated queries cannot reserve or consume operational inventory. Default calculation time is `captured_at`; explicit offset-aware `as_of >= captured_at` rechecks freshness. Capture-time replay is historical, never proof of current state. Relevant source categories must represent complete, current stock/reservation/receipt/competing-demand ledgers. Empty rows with a current source represent a source-verified zero; missing/stale sources do not. P5 must uphold completeness/authenticity at its adapter boundary.
+
+Use the `backend/` working directory with P5's canonical `app.feasibility` package for imports/tests. P2 modules use package-relative imports internally; no dual-namespace aliases or runtime path modifications are required. Historical phase reports retain their original pre-correction commands.
 
 `BomExpansion` gives COMPLETE/UNKNOWN, leaf quantities, paths/component IDs, evidence and assumptions. `MaterialATP` gives COVERED/SHORTAGE/UNKNOWN, snapshot ID/version, tenant, calculation time, issues and material rows. `usable`, `reserved`, and `confirmed_incoming` are disjoint **allocated** quantities, not reusable stock totals. Rows also give required/shortage/unit/need-time, allocation supply/reservation IDs and evidence. Exact arithmetic ignores caller precision/exponent/trap settings. Unsupported limits yield UNKNOWN or input validation errors.
 

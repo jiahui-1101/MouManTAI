@@ -3,8 +3,8 @@ from decimal import Decimal, localcontext
 
 import pytest
 
-from backend.app.feasibility.fixtures import build_supplier_delay_scenario, build_two_affected_scenario
-from backend.app.feasibility.models import OperationalSnapshot
+from app.feasibility.fixtures import build_supplier_delay_scenario, build_two_affected_scenario
+from app.feasibility.models import OperationalSnapshot
 
 
 def stock_payload(on_hand='70'):
@@ -19,7 +19,7 @@ def stock_payload(on_hand='70'):
 
 
 def calculate(data, **kwargs):
-    from backend.app.feasibility.inventory import calculate_atp
+    from app.feasibility.inventory import calculate_atp
     snapshot = OperationalSnapshot.model_validate(data)
     return calculate_atp(snapshot, tenant_id=snapshot.tenant_id, **kwargs)
 
@@ -164,7 +164,7 @@ def test_warehouse_mismatch_cannot_supply_demand():
 
 
 def test_decimal_precision_and_input_immutability():
-    from backend.app.feasibility.inventory import calculate_atp
+    from app.feasibility.inventory import calculate_atp
     data = stock_payload('0.2')
     data['confirmed_commitments'][0]['lines'][0]['quantity'] = '0.3'
     snapshot = OperationalSnapshot.model_validate(data)
@@ -181,7 +181,7 @@ def test_decimal_precision_and_input_immutability():
 
 
 def test_atp_rejects_wrong_tenant_and_naive_as_of():
-    from backend.app.feasibility.inventory import calculate_atp
+    from app.feasibility.inventory import calculate_atp
     snapshot = build_supplier_delay_scenario().before
     with pytest.raises(ValueError, match='tenant'):
         calculate_atp(snapshot, tenant_id='other')

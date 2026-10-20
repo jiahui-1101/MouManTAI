@@ -7,13 +7,13 @@ overall commitment feasibility, change Core state, or reserve operational stock.
 from datetime import datetime, timezone
 from decimal import Decimal, DecimalException
 
-from backend.app.feasibility.bom import evidence_for, explode_bom, source_issues
-from backend.app.feasibility.materials import MaterialATP, MaterialAvailability, SupplyAllocation
-from backend.app.feasibility.models import (
+from .bom import evidence_for, explode_bom, source_issues
+from .materials import MaterialATP, MaterialAvailability, SupplyAllocation
+from .models import (
     DeliveryConfirmationStatus, IssueSeverity, OperationalSnapshot, ReservationStatus,
     SkuSupplyType, SnapshotIssue, SourceKind, _utc,
 )
-from backend.app.feasibility.quantities import add, subtract
+from .quantities import add, subtract
 
 
 def calculate_atp(

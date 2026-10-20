@@ -89,8 +89,8 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | P1-BE | Ingestion/Extraction/Context API | P1 | NOT_STARTED | — | Shared contracts | Define fixtures |
 | P1-TST | Context tests and metrics | P1 | NOT_STARTED | — | — | Define expected labels |
 | P2-FE | Feasibility / Impact UI | P2 | NOT_STARTED | No P2 UI; Main sync supplies shared frontend shell/types/client | P2 assessment/impact APIs and later-phase UI integration pending | Implement only after approved Phase 6 scope |
-| P2-BE | Constraint + Impact engine | P2 | IN_PROGRESS | Phase 2 externally approved at d28b63a; 66 P2 regressions pass after Main sync; shared Core/skeleton/contracts now present | P2 backend.app imports fail in app runtime; operational snapshot/fixture/source/history adapters pending | Stop for safety-sync review before Phase 3 |
-| P2-TST | Feasibility/Impact tests | P2 | IN_PROGRESS | `python -m pytest backend/app/feasibility/tests/test_bom.py backend/app/feasibility/tests/test_inventory.py backend/app/feasibility/tests/test_snapshots.py -q` — 66 passed | API/UI/full evaluator/event/integration suites remain later-phase work | Independent external Phase 2 review |
+| P2-BE | Constraint + Impact engine | P2 | IN_PROGRESS | Phase 2 and Main sync approved; runtime correction passes exact ATP/BOM import and canonical class-identity checks; calculation behavior unchanged | Shared operational snapshot/demo fixture/schema/source/history adapters pending; full evaluator remains later phase | Stop for external runtime-correction review before Phase 3 |
+| P2-TST | Feasibility/Impact tests | P2 | IN_PROGRESS | From backend: 73 tests pass together (all 66 P2 + 7 shared); P2 tests import app.feasibility consistently | API/UI/full evaluator/event/integration suites remain later-phase work; host pytest 9.1.1 exceeds P5 declared <9 | External review of P2-local import correction |
 | P3-FE | Recovery / Approval UI | P3 | NOT_STARTED | — | — | Plan comparison cards |
 | P3-BE | Plan / Approval / Action API | P3 | NOT_STARTED | — | P2 evaluator interface | Start templates |
 | P3-TST | Approval/Execution tests | P3 | NOT_STARTED | — | — | Define stale-approval test |
@@ -142,6 +142,11 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 
 - P2: Merged Main `4ec2ba1ef7ede4a67352631178a73a6882bcd774` into the P2 branch only after backup ref `backup/p2-before-main-sync-d28b63a`. Combined package docstrings and kept all P2/P5 QA entries; all incoming non-P2 TEAM_LOG lines preserved. Nine pre-existing untracked bytecode files retained with unchanged hashes. Merge SHA/push verification in task response.
 - P2: 66 P2 and 7 focused shared contract/health/SQLite registry tests pass. Backend runtime import fails with `ModuleNotFoundError: No module named 'backend'`; P2-relative import adaptation and app-based test alignment reported for review. Shared schemas/contracts/Core/DB/migrations unchanged from Main. No Phase 3 implementation. Full report: `backend/app/feasibility/MAIN_SYNC_REPORT.md`.
+
+### 2026-10-21 — P2 runtime compatibility correction
+
+- P2: User accepted Main-sync merge `14e794308d317e744d321f2b26ba4d5af8f677dd`. Changed only imports in five P2 modules to package-relative form and three existing P2 test files to app.feasibility. Exact runtime probe failed before the fix and now prints `P2 runtime imports OK`. Canonical class identity across P2 modules/tests and shared Pydantic base passes; no backend.app modules load. All eight Python ASTs match approved HEAD after import-only normalization, preserving calculations/evidence/fixtures.
+- P2: From backend, `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_snapshots.py app/feasibility/tests/test_bom.py app/feasibility/tests/test_inventory.py tests/test_contracts.py tests/test_smoke.py tests/test_registry.py -q -p no:cacheprovider` — 73 passed, 1 existing Starlette/httpx warning. P5 pytest mismatch (host 9.1.1 vs declared >=8.3,<9) documented without dependency changes. Shared demo fixture/schema alignment remains pending; P5 contracts/configuration unchanged. No Phase 3 work. Correction SHA/push verification in task response; stop for external review.
 
 ## 6. Blocker / Dependency Ledger
 
