@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { useAuth } from "../shared/auth";
 
 const navigation = [
   ["/overview", "Overview"],
@@ -10,6 +11,8 @@ const navigation = [
 ] as const;
 
 export function AppShell() {
+  const { tenantId, actorRole } = useAuth();
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -17,7 +20,9 @@ export function AppShell() {
           <p className="eyebrow">Synthetic integration mode</p>
           <h1>MouManTAI</h1>
         </div>
-        <span className="tenant-badge">tenant_demo_01 · Owner</span>
+        <span className="tenant-badge">
+          {tenantId} · {actorRole}
+        </span>
       </header>
 
       <div className="shell-body">
