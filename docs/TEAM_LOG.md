@@ -87,9 +87,9 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | P1-FE | Inbox + Context Review UI | P1 | NOT_STARTED | — | — | Scaffold route |
 | P1-BE | Ingestion/Extraction/Context API | P1 | NOT_STARTED | — | Shared contracts | Define fixtures |
 | P1-TST | Context tests and metrics | P1 | NOT_STARTED | — | — | Define expected labels |
-| P2-FE | Feasibility / Impact UI | P2 | NOT_STARTED | — | — | Scaffold route |
-| P2-BE | Constraint + Impact engine | P2 | NOT_STARTED | — | SKU/BOM fixtures | Pure evaluate API |
-| P2-TST | Feasibility/Impact tests | P2 | NOT_STARTED | — | — | Set known examples |
+| P2-FE | Feasibility / Impact UI | P2 | IN_PROGRESS | Phase 0 repository/contract trace; no UI code yet | Shared frontend skeleton and P5 route/API contract absent | Await Phase 0 review; implement views only in approved Phase 6 |
+| P2-BE | Constraint + Impact engine | P2 | IN_PROGRESS | Phase 0 requirements trace and provisional evaluator/event handoff | P5 snapshot/assessment/API contracts and shared backend skeleton absent | Await Phase 0 review; begin snapshots in approved Phase 1 |
+| P2-TST | Feasibility/Impact tests | P2 | NOT_STARTED | No tests run; Phase 0 explicitly prohibits tests | Runtime module/fixture not implemented | Add focused snapshot tests in Phase 1 after approval |
 | P3-FE | Recovery / Approval UI | P3 | NOT_STARTED | — | — | Plan comparison cards |
 | P3-BE | Plan / Approval / Action API | P3 | NOT_STARTED | — | P2 evaluator interface | Start templates |
 | P3-TST | Approval/Execution tests | P3 | NOT_STARTED | — | — | Define stale-approval test |
