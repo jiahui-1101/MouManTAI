@@ -37,3 +37,67 @@
 - P5 must confirm OperationalSnapshot and assessment extensions, tenant/auth/API integration, storage/outbox/events, canonical fixture types, and Core state update operations. P1/P5 must confirm SKU/BOM/units and normalized context inputs. P3 must confirm proposed-change serialization and import usage. P3/P5 own command-side reservations and concurrency proof.
 - Highest-risk assumptions: the temporary shared example SKU can become the approved synthetic fixture; the hand-calculated 40-unit shortage depends on the reservation being counted exactly once and the material-use deadlines being adopted; the P2 additions to shared assessment/event payloads are not yet ratified.
 - **Next phase:** Phase 1 operational snapshots and synthetic fixtures, only after the user returns `APPROVED — CONTINUE P2` following external review.
+
+### Phase 0 external review update
+
+- **Review result:** The user reported external approval of Phase 0 and authorized Phase 1.
+- **Accepted scope:** The Phase 0 requirement trace and P2 Git scope were accepted. The reviewer requested that all P5 snapshot/assessment extensions remain provisional until P5/P3 approval, that P5 integration dependencies stay explicitly `BLOCKED` without stopping independent P2 work, that `P2-FE` be `NOT_STARTED` while no UI exists, and that the synthetic allocation/reservation/time rules be explicit.
+- **Applied in Phase 1:** P2-FE is corrected to `NOT_STARTED`; fixture policy and evidence are documented; no shared contract, P5-owned file, route, migration, app skeleton, or P3 code was changed.
+
+## Phase 1 — Operational Snapshots + Synthetic Data
+
+- **State:** PASS for the P2-local Phase 1 deliverable. P5/P3 shared-contract and integration work remains explicitly BLOCKED.
+- **Date:** 2026-10-21
+- **Branch:** `feat/p2-feasibility-engine`
+- **Starting commit:** `5368e0d docs(p2): trace feasibility phase 0 requirements`
+- **Commit SHA:** see phase response.
+- **Post-commit dirty status:** see phase response.
+
+### Changes
+
+- Added `backend/app/feasibility/models.py`: P2-local, frozen Pydantic v2 value objects for sources, normalized SKU/BOM, inventory lots, reservation ownership, incoming delivery confirmation state, capacity calendars, confirmed commitments/material-use times, and `OperationalSnapshot` identity/version/tenant/capture/cutoff fields. Snapshot validation checks duplicate IDs, tenant mismatch, source references/kinds, impossible relationships and quantities, unit mismatch, active reservations exceeding their lot, invalid capacity windows, freshness bounds, and impossible future source/confirmation timestamps. Expired lots remain auditable but are marked unusable; missing BOM/source and stale source evidence are preserved as structured incomplete status. All datetimes reject naive input; UTC instants are compared without inheriting the machine timezone. Models and nested collections are immutable.
+- Added `backend/app/feasibility/fixtures.py`: two immutable before/after supplier ETA scenarios. One has `com-001` affected with a labelled 40 `pcs` shortage and buffered `com-002` unaffected; the F2-06 variant has both commitments affected. Labels are hand-calculated ground truth for future evaluator tests, not output from a Phase 1 engine.
+- Added `backend/app/feasibility/FIXTURES.md`: explicit allocation priority `(material_use_at, commitment_id, commitment_version, line_id)`, active-reservation ownership/subtract-once semantics, cutoff/confirmed-receipt eligibility, material-use vs customer deadline, and offset-aware `+08:00`/UTC comparison rules. It identifies the rule and SKU/BOM fixture as provisional, not an approved business preference or global contract.
+- Added `backend/app/feasibility/tests/test_snapshots.py` with 13 focused tests for versioning/immutability, tenant and source evidence, duplicates, exact quantity input, unit and reservation validation, expiry, missing/stale data, unconfirmed supply preservation, fixture labels, and offset-aware input/serialization.
+- Updated `P2_REQUIREMENT_TRACE.md` with observed Phase 1 evidence and explicit pending integration statuses.
+- Updated `P2_PROGRESS.md` with the approved Phase 0 gate, Phase 1 checkpoint/results, fixture policy, and the Phase 2 stop gate.
+- Updated only P2 entries and the P2 QA record in `docs/TEAM_LOG.md`; set P2-FE to `NOT_STARTED` because no UI was implemented.
+
+### Representative observed fixture/model output
+
+- `build_supplier_delay_scenario()` returns a valid version 1 snapshot and a new valid version 2 snapshot under the same synthetic tenant. The confirmed patty delivery ETA changes from `2026-10-23T08:00:00+08:00` to `2026-10-23T11:00:00+08:00`; `com-001` needs material at `09:00`, while `com-002` needs it the following day at `09:00` and owns the 20-unit reservation from the 80-unit lot.
+- The hand-labelled fixture result is `com-001`: shortage `40 pcs`; `com-002`: buffered/unaffected. The separate two-affected fixture labels `70 pcs` and `40 pcs`, totaling `110 pcs`, under its documented stable allocation order. These expected labels are fixture data only; no allocation/evaluation code ran.
+- Model serialization retained `captured_at` as `2026-10-22T12:00:00+08:00` and inventory `Decimal('80')` as the decimal string `"80"`. A missing source/BOM yields `INCOMPLETE` with `MISSING_SOURCE`/`MISSING_BOM`; stale evidence yields `STALE` and `INCOMPLETE`; neither is translated to FEASIBLE/INFEASIBLE in this phase.
+
+### Validation and tests
+
+- `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q` — **PASS, 13 passed** (final focused run).
+- The first test-first run of `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q` failed collection because `fixtures.py` had not yet been implemented; this was the expected red state. No repository tests existed before Phase 1.
+- `python -m pytest backend/app/feasibility/tests/test_snapshots.py::test_snapshot_rejects_confirmation_evidence_from_after_capture -q` — first **FAIL as expected** before the capture-time check; after the check, **PASS, 1 passed**.
+- `python -m pytest backend/app/feasibility/tests/test_snapshots.py::test_snapshot_retains_expired_lots_but_marks_them_unusable -q` — **PASS, 1 passed** after correcting the test to expire an unreserved lot; the validator correctly rejects an active reservation on an expired lot.
+- `python -m pytest backend/app/feasibility/tests/test_snapshots.py::test_snapshot_rejects_naive_datetimes_and_compares_offset_aware_instants -q` — **PASS, 1 passed**.
+- `python -m pytest backend/app/feasibility/tests/test_snapshots.py::test_snapshot_rejects_floating_point_inventory_quantities -q` — first **FAIL as expected** before exact-quantity validation; after the check, **PASS, 1 passed**.
+- The first full focused run found 10 passed / 1 test-fixture failure (the expiry example also had an active reservation); this was corrected in test setup. The subsequent focused run passed all 11 then-present tests; after capture-time and float-input checks were added, the final run passed all 13.
+- Full repository suite, API, UI, evaluator, P3/P5 integration, and E2E tests — **NOT RUN / NOT IMPLEMENTED**; the repository has no shared runtime/test skeleton and Phase 1 is limited to snapshots and fixtures.
+
+### Requirement trace and safety
+
+- Phase 1 P2-local evidence covers snapshot input shape, tenant/source provenance, freshness/validation state, immutable versioning, explicit receipt confirmation status, reservation ownership, lot expiry handling, deterministic fixture policy, and offset-aware time handling. Refer to trace rows `P2-BE01-01` through `P2-BE01-05`, `P2-DATA-02`, `P2-DATA-04`, `P2-DATA-05`, `P2-DATA-07`, `P2-DATA-09`, `P2-DATA-11`, `P2-HC-06`, and new `PH1-*` rows.
+- The shared contract remains unchanged. The P2-local snapshot serialization and any future assessment/constraint/ProposedChanges additions remain provisional pending P5/P3 review. No actual stock reservation, supplier action, commitment agreement/risk/fulfilment write, persistence, event publication, or UI/API integration exists in this phase.
+- P5 must still provide/ratify shared types, authentication/tenant context, source-of-truth adapters, persistence/version authority, outbox, route registration, and the Core operation for assessment/risk events. P1/P5 must approve SKU/BOM/unit fixture ownership. P3/P5 must confirm the hypothetical-change serialization/import and authorized command-side reservation integration.
+- **Highest-risk open assumption:** the BURGER fixture and the deterministic allocation order are reproducibility rules for synthetic expected labels only; they must not silently become a shared contract or business trade-off.
+- **Compact review assessment:** Snapshot objects are in-memory Pydantic v2 models, not durable operational snapshots. The tests verify P2-local validation and evidence retention; they do not prove ATP, feasibility, impact, persistence, authorization, or cross-feature behavior.
+
+### Exact changed files
+
+- `backend/app/feasibility/__init__.py`
+- `backend/app/feasibility/models.py`
+- `backend/app/feasibility/fixtures.py`
+- `backend/app/feasibility/FIXTURES.md`
+- `backend/app/feasibility/tests/test_snapshots.py`
+- `backend/app/feasibility/P2_REQUIREMENT_TRACE.md`
+- `backend/app/feasibility/P2_PROGRESS.md`
+- `backend/app/feasibility/P2_PHASE_REPORTS.md`
+- `docs/TEAM_LOG.md` (P2 rows/QA entry only)
+
+**Next action:** Stop for external review. Phase 2 requires a later explicit `APPROVED — CONTINUE P2`.

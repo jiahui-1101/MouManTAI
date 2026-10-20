@@ -87,9 +87,9 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | P1-FE | Inbox + Context Review UI | P1 | NOT_STARTED | — | — | Scaffold route |
 | P1-BE | Ingestion/Extraction/Context API | P1 | NOT_STARTED | — | Shared contracts | Define fixtures |
 | P1-TST | Context tests and metrics | P1 | NOT_STARTED | — | — | Define expected labels |
-| P2-FE | Feasibility / Impact UI | P2 | IN_PROGRESS | Phase 0 repository/contract trace; no UI code yet | Shared frontend skeleton and P5 route/API contract absent | Await Phase 0 review; implement views only in approved Phase 6 |
-| P2-BE | Constraint + Impact engine | P2 | IN_PROGRESS | Phase 0 requirements trace and provisional evaluator/event handoff | P5 snapshot/assessment/API contracts and shared backend skeleton absent | Await Phase 0 review; begin snapshots in approved Phase 1 |
-| P2-TST | Feasibility/Impact tests | P2 | NOT_STARTED | No tests run; Phase 0 explicitly prohibits tests | Runtime module/fixture not implemented | Add focused snapshot tests in Phase 1 after approval |
+| P2-FE | Feasibility / Impact UI | P2 | NOT_STARTED | No UI implementation; Phase 1 made no frontend changes | Shared frontend skeleton and P5 route/API contract absent | Implement views only in approved Phase 6 after shared frontend integration is available |
+| P2-BE | Constraint + Impact engine | P2 | IN_PROGRESS | Phase 1 P2-local snapshot models/fixtures; 13 focused tests pass; no evaluator yet | P5 snapshot/assessment contracts, persistence, and shared backend skeleton absent | Stop for external review; continue with approved Phase 2 after review |
+| P2-TST | Feasibility/Impact tests | P2 | IN_PROGRESS | `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q` — 13 passed | API, UI, evaluator, and integration suites are not implemented | Add only the focused tests for each later approved phase |
 | P3-FE | Recovery / Approval UI | P3 | NOT_STARTED | — | — | Plan comparison cards |
 | P3-BE | Plan / Approval / Action API | P3 | NOT_STARTED | — | P2 evaluator interface | Start templates |
 | P3-TST | Approval/Execution tests | P3 | NOT_STARTED | — | — | Define stale-approval test |
@@ -116,6 +116,12 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 - Risks and decisions: ...
 ```
 
+### 2026-10-21 — P2 Phase 1 checkpoint
+
+- P2: Completed P2-local immutable operational snapshot models, validation, ETA-change fixtures, fixture allocation/reservation/timezone documentation, and 13 focused model/fixture tests. Next: stop for external review before Phase 2. Blocked: P5 shared contract/persistence/auth/outbox work and P3 ProposedChanges integration remain unapproved dependencies.
+- P2-FE remains `NOT_STARTED`; no UI was implemented.
+- Local commit SHA: see phase response. No push or merge performed.
+
 ## 6. Blocker / Dependency Ledger
 
 | ID | Opened | Blocked owner | Blocking owner | Issue | Impact | Decision / ETA | Status |
@@ -141,7 +147,7 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 
 | Date | Commit | Backend tests | Frontend tests | Build | E2E | Key observed metric / sample size | Known limitations |
 |---|---|---|---|---|---|---|---|
-| — | — | NOT RUN | NOT RUN | NOT RUN | NOT RUN | — | — |
+| 2026-10-21 | P2 Phase 1 local commit (SHA in phase response) | `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q`: 13 passed | NOT RUN | NOT RUN | NOT RUN | 13 snapshot/fixture tests; operational metrics not measured | No evaluator, API, UI, durable P5 snapshot store, or P3/P5 integration yet; fixture labels are hand-calculated synthetic ground truth only |
 
 Metric protocol: always disclose dataset size, date, ground truth creation method, pass/fail definitions. **Do not** mark actual customer fulfilment because communication was sent or approved.
 

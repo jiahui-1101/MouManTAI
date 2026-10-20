@@ -2,24 +2,26 @@
 
 ## Current checkpoint
 
-- **Phase:** 0 — Inspect + Contract Trace
-- **State:** PARTIAL; documentation checkpoint is prepared, while P5 contract decisions listed below remain unratified.
+- **Phase:** 1 — Operational Snapshots + Synthetic Data
+- **State:** PASS for P2-local Phase 1 scope; shared P5/P3 integration decisions remain explicitly BLOCKED.
 - **Branch:** `feat/p2-feasibility-engine`
 - **Workspace:** `D:\dunno\0.SDC\MouManTAI`
-- **Gate:** Do not start Phase 1 until the user sends `APPROVED — CONTINUE P2` after external review.
-- **Tests:** Not run. Phase 0 explicitly prohibits tests.
-- **Implementation:** No P2 runtime code exists yet; this phase creates only P2-owned planning, trace, and review artifacts.
+- **Phase 0 review:** Approved by the user after external review. The Master Prompt was available as `D:\dunno\0.SDC\P2_CODEX_MASTER.txt.txt` (the supplied path omitted the final `.txt`).
+- **Gate:** Stop for external review; do not start Phase 2 without a later `APPROVED — CONTINUE P2`.
+- **Tests:** `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q` — 13 passed.
+- **Implementation:** P2-local immutable snapshot models, source/freshness validation, synthetic fixtures, fixture policy documentation, and focused model/fixture tests. No P2 UI/API/evaluator or P5-owned code was changed.
+- **P5/P3 blockers:** Shared snapshot/assessment/ProposedChanges contracts, persistence, routes/auth/outbox, and P3 import/serialization remain provisional and unratified; they did not block independent P2-local Phase 1 work.
 
 ## Repository baseline
 
-The designated clone was clean on `main` at `aedb152` (`origin/main`) before the P2 branch was created. The tracked project files were `README.md`, `docs/AGENTS.md`, `docs/REQUIREMENTS_SYSTEM.md`, and `docs/TEAM_LOG.md`. No backend, frontend, shared contracts, test suite, P1/P3/P5 modules, or shared application skeleton is present. The only configured remote is `origin` at the repository URL identified in the user's master prompt. The actual P2, P1, P3, and P5 owner requirement files were readable from the authorized parent workspace; they remain outside the repository and are not copied here.
+At the Phase 0 baseline the designated clone was clean on `main` at `aedb152` (`origin/main`); the P2 branch is `feat/p2-feasibility-engine`. Before Phase 1, HEAD was `5368e0d` and the working tree was clean. The repository still has no P5 backend/frontend skeleton, shared contracts, persistence, P1/P3 modules, or repository test configuration. The actual P2 owner requirements remain outside the repository and were not copied here. Phase 1 uses the installed Pydantic v2 runtime without changing P5-owned root dependency/configuration files.
 
 ## P2 phase board
 
 | Phase | Scope | State | Gate / evidence |
 |---|---|---|---|
-| 0 | Inspect repo, trace requirements, propose contracts and synthetic fixture | PARTIAL | Trace/report/progress created; P5 contract review is open; no tests by instruction |
-| 1 | Validated operational snapshots and synthetic fixtures | NOT_STARTED | Requires explicit approval of Phase 0 |
+| 0 | Inspect repo, trace requirements, propose contracts and synthetic fixture | PASS — externally reviewed and approved | Trace/report/progress created; shared contract decisions remain unratified and explicitly blocked |
+| 1 | Validated operational snapshots and synthetic fixtures | PASS — P2-local scope | 13 focused tests pass; P5/P3 integration remains blocked; stop for external review before Phase 2 |
 | 2 | Decimal ATP, time-phased supply, recursive BOM and unit conversion | NOT_STARTED | Requires explicit approval after Phase 1 review |
 | 3 | Capacity/deadline checks and pure shared evaluator | NOT_STARTED | Requires explicit approval after Phase 2 review |
 | 4 | Dependency graph and incremental impact recalculation | NOT_STARTED | Requires explicit approval after Phase 3 review |
@@ -98,16 +100,16 @@ P3 must pass the same versioned snapshot and a typed proposed change to the sing
 
 ## Provisional synthetic scenario
 
-No P5-approved fixture exists. This proposal reuses the shared contract's example SKU `BURGER` and remains temporary pending P1/P5 confirmation of SKU IDs, units, BOM, fixture ownership, and commitment references. All quantities are synthetic and use exact `pcs`; timestamps are offset-aware Malaysia time (`+08:00`).
+No P5-approved fixture exists. The executable fixtures remain temporary and reuse the shared example SKU `BURGER`, pending P1/P5 approval of SKU IDs, units, BOM, fixture ownership, and commitment references. Each burger needs one `PATTY`, `BUN`, and `WRAP`; all quantities are synthetic `Decimal` values in `pcs`.
 
-- BOM proposal: each `BURGER` needs 1 `PATTY`, 1 `BUN`, and 1 `WRAP`; buns and wraps have enough fresh stock for both commitments.
-- `com_001`: confirmed 100 `BURGER`, material-use time `2026-10-23T09:00:00+08:00`, customer deadline `2026-10-24T15:00:00+08:00`.
-- `com_002`: confirmed 20 `BURGER`, with 20 `PATTY` already reserved from on-hand stock; material-use time `2026-10-24T09:00:00+08:00`.
-- Snapshot: 80 usable `PATTY` on hand, 20 reserved for `com_002` (so 60 unreserved for `com_001`), plus 40 confirmed incoming `PATTY` originally due `2026-10-23T08:00:00+08:00`. Baseline supply is 120 for total demand 120.
-- Supplier change: ETA moves to `2026-10-23T11:00:00+08:00`. For `com_001`, only 60 unreserved patties are usable by need time, so the expected shortage is 40. `com_002` remains covered by its 20-unit reservation; the later inbound delivery still arrives before its need time, so it is the buffered unaffected case.
-- F2-06 variant: two commitments of 100 and 40 `BURGER` both need patties before `09:00`; 30 patties are on hand and 110 confirmed incoming are originally due before need. Delaying that delivery to `11:00` leaves both commitments short (70 and 40 under the stated deterministic allocation), exercising two affected IDs.
+- The buffered scenario has `com-001` require 100 patties at `2026-10-23T09:00:00+08:00` and `com-002` require 20 at `2026-10-24T09:00:00+08:00`. Their customer delivery deadline is separately recorded as `2026-10-24T15:00:00+08:00`.
+- The patty lot contains 80 units, with 20 actively reserved to `com-002`. A reservation is part of that lot's quantity, credited only to its named owner, and removed once from the unreserved pool; it is not subtracted a second time from general demand.
+- Unreserved supply is allocated by `(material_use_at, commitment_id, commitment_version, line_id)` ascending. Equal material-use times use lexical commitment ID, then version and line ID as stable tie-breaks. Active reservations are honored to their owners before that general allocation. This is a deterministic fixture-label policy, not a business preference or stock-reservation command.
+- The confirmed 40-patty delivery changes from `2026-10-23T08:00:00+08:00` to `2026-10-23T11:00:00+08:00`. Hand-labelled expected results are a 40-patty shortage for `com-001` and no impact to buffered `com-002`. A separate 500-patty unconfirmed promise remains present as untrusted input and is never labelled verified supply. The cutoff is `2026-10-24T08:00:00+08:00`.
+- The two-affected variant has 30 unreserved patties and 110 confirmed inbound, with `com-001` requiring 100 and `com-002` 40 at `2026-10-23T09:00:00+08:00`; the ETA moves from `08:00` to `11:00`, after the `08:00` logistics cutoff. Under the declared priority, hand-labelled shortages are 70 and 40 (total 110). Without this order, those per-commitment labels would be arbitrary and risk double-counting the 30 units.
+- Every timestamp carries its source offset; fixture times use `+08:00` / `Asia/Kuala_Lumpur`. Naive datetimes are rejected and comparison uses UTC instants. `material_use_at` is distinct from the customer-facing delivery deadline. Source/row evidence, tenant scope, snapshot ID/version, freshness bounds, and validation status are preserved.
 
-These are expected examples for Phase 1/2 fixtures and later tests, not observed evaluator output. They must be checked against the approved P1/P5 data model before implementation.
+Expected shortage/impact labels are synthetic ground truth only. Phase 1 tests snapshot construction and labels; no feasibility calculation or observed impact engine exists yet. The P2-local serialization/model remains provisional until shared P5/P1 review.
 
 ## Open shared-owner decisions
 
@@ -123,4 +125,4 @@ These are expected examples for Phase 1/2 fixtures and later tests, not observed
 
 ## Next action
 
-Submit the Phase 0 report and trace for external review. On `APPROVED — CONTINUE P2`, start Phase 1 only, implement P2-owned snapshot validation/fixtures, and run only the focused model/fixture tests required by that phase.
+Submit the Phase 1 report and trace for external review. Do not start Phase 2 until the user returns `APPROVED — CONTINUE P2`.

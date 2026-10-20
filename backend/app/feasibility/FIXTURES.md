@@ -1,0 +1,26 @@
+# P2 synthetic snapshot fixtures
+
+These fixtures are P2-local and provisional until P5/P1 approve shared snapshot, SKU, and Commitment contracts. They contain only synthetic data. They are reproducibility inputs and hand-labelled expected outcomes; no feasibility evaluator runs in Phase 1.
+
+## Allocation and reservation rules used to label the examples
+
+1. Active reservations are claims against the named inventory lot and are owned by the named confirmed commitment. The reserved quantity is credited only to that owner and removed once from the lot's unreserved pool. It is not subtracted again as general demand. Released and consumed reservations do not hold stock.
+2. After owned reservations are applied, allocate unreserved stock and eligible receipts by `(material_use_at, commitment_id, commitment_version, line_id)`, ascending. Commitment ID is a stable lexical tie-break when material-use times are equal. This is a deterministic fixture policy, not an owner-approved business preference or a reservation command.
+3. A lot expired at snapshot capture is preserved as evidence but marked unusable. An incoming delivery is eligible for future availability only when its status is `CONFIRMED`, its ETA is no later than both the line's material-use time and the snapshot's logistics cutoff, and the delivery has confirmation evidence. `UNCONFIRMED` promises remain visible in the snapshot but never count as verified supply.
+4. Supplies are considered per SKU and base unit. Phase 1 rejects implicit unit conversion; conversion rules are deferred to Phase 2 and require explicit source-backed mappings.
+
+## Supplier-delay fixture: one affected, one buffered
+
+`build_supplier_delay_scenario()` returns immutable versions 1 and 2 for `tenant-synthetic-p2`. Each burger needs one patty, bun, and wrap. Commitment `com-001` needs 100 patties at `2026-10-23T09:00:00+08:00`; `com-002` needs 20 at `2026-10-24T09:00:00+08:00`. The 80-patty lot has 20 units actively reserved for `com-002`, leaving 60 unreserved. A confirmed 40-patty delivery is due at `08:00` in version 1, then delayed to `11:00` in version 2. The fixture labels `com-001` with a 40-patty shortage in version 2; `com-002` remains covered by its owned reservation and has a later material-use time. A separate 500-patty promise is explicitly unconfirmed and is not eligible supply. The logistics cutoff is `2026-10-24T08:00:00+08:00`.
+
+## Supplier-delay fixture: two affected commitments
+
+`build_two_affected_scenario()` has 30 unreserved patties, confirmed inbound quantity 110, and two commitments needing 100 and 40 patties at the same `2026-10-23T09:00:00+08:00` material-use time. The 110-unit receipt changes from `08:00` to `11:00`; the fixture logistics cutoff is `08:00`. The stable lexical tie-break gives `com-001` the 30 on-hand units first. Labels are therefore shortages of 70 for `com-001` and 40 for `com-002`, total 110, with both commitments affected. Without the declared priority, individual shortage labels would be arbitrary and the same 30 units could be counted twice.
+
+## Time handling
+
+Every snapshot and row timestamp must include an explicit UTC offset; naive local datetimes are rejected. Fixture business times use `+08:00` / `Asia/Kuala_Lumpur`. Comparisons normalize instants to UTC, so equivalent offsets represent the same instant. `material_use_at` is when inputs are required by production; `delivery_deadline` is the customer-facing deadline. They are separate values. Capacity calendars name their IANA timezone and store offset-aware window boundaries. No timestamp inherits the machine's local timezone.
+
+## Ownership and audit limits
+
+Source rows retain tenant scope, adapter/source references, observed time, validity horizon, and evidence references. Snapshot objects are immutable and each ETA change creates a new ID/version. These local models do not persist snapshots, write Core state, publish events, reserve inventory, or define the final shared serialization contract; P5 owns those integrations.
