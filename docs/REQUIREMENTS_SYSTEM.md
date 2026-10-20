@@ -1,13 +1,13 @@
-# PromiseFlow — System Requirements & Integration Contract
+# MouManTAI — System Requirements & Integration Contract
 
-> **版本**：1.0 · **冻结日期**：2026-10-20 · **交付检查日**：2026-10-25  
-> **定位**：SDC Domain 2 / Orbyte-compatible SME automation product  
-> **文档性质**：团队共同遵守的需求基线；包括 **25 Oct 必交范围** 与 **Production Target**。未经团队记录的决定，不得悄悄扩大范围。  
+> **版本**：1.0 · **冻结日期**：2026-10-20 · **交付检查日**：2026-10-25
+> **定位**：SDC Domain 2 / Orbyte-compatible SME automation product
+> **文档性质**：团队共同遵守的需求基线；包括 **25 Oct 必交范围** 与 **Production Target**。未经团队记录的决定，不得悄悄扩大范围。
 > **Feature ownership**：F1 → P1；F2 → P2；F3 → P3；F4 → P4；Shared Core/Integration → P5。**所有人均负责各自的 Frontend、Backend 和 Tests**。
 
 ## 0. One-Sentence Product Definition
 
-**PromiseFlow is an intelligent commitment assurance and recovery system for SMEs:** it links fragmented business information to customer commitments, verifies feasibility, detects cascading operational impact, coordinates human-governed recovery, and verifies communication and actual outcomes.
+**MouManTAI is an intelligent commitment assurance and recovery system for SMEs:** it links fragmented business information to customer commitments, verifies feasibility, detects cascading operational impact, coordinates human-governed recovery, and verifies communication and actual outcomes.
 
 **核心业务问题**：SME 的客户要求、库存、供应商和产能数据分散。商家已经答应客户的交付事项一旦受运营变化影响，难以及时找出受影响承诺、评估补救选择和验证落实结果。
 
@@ -204,7 +204,7 @@
 
 **Suggested modules**：`app/core`、`app/context`、`app/feasibility`、`app/recovery`、`app/communication`、`app/integrations`。避免横向复制 Domain Entities；共享类型从 `contracts/` 导出。
 
-**源事实归属**：库存数量属于库存数据源；消息属于渠道数据源；PromiseFlow 保存可复算 snapshot、承诺及解释/审计，而不是默默替代 ERP 的库存真相。
+**源事实归属**：库存数量属于库存数据源；消息属于渠道数据源；MouManTAI 保存可复算 snapshot、承诺及解释/审计，而不是默默替代 ERP 的库存真相。
 
 **可靠性**：At-least-once event handling、unique `event_id`、idempotent consumers、transactional outbox（P0 可用同 DB outbox + worker）、optimistic concurrency on commitment version。错误不能被吞并；业务失败状态与 HTTP 失败区分。外部副作用执行前做 precondition & version check。
 
@@ -257,4 +257,4 @@
 
 ## 10. Quick Product Summary
 
-PromiseFlow 把分散在 WhatsApp、Email、Telegram 与内部系统的业务数据转换成可追溯的客户承诺，通过库存、供应商和产能约束持续验证履约可行性；当变化威胁承诺时，它生成可行的恢复方案，经必要审批后协调执行和沟通，并以真实确认与履约证据完成闭环。
+MouManTAI 把分散在 WhatsApp、Email、Telegram 与内部系统的业务数据转换成可追溯的客户承诺，通过库存、供应商和产能约束持续验证履约可行性；当变化威胁承诺时，它生成可行的恢复方案，经必要审批后协调执行和沟通，并以真实确认与履约证据完成闭环。
