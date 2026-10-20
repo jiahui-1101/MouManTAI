@@ -9,6 +9,9 @@ from pydantic import BaseModel
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
 from app.core.errors import DomainError
 from app.core.router import router as core_router
 
@@ -46,6 +49,51 @@ async def domain_error_handler(request: Request, exc: DomainError) -> JSONRespon
             "message": exc.message,
             "correlation_id": correlation_id,
             "details": exc.details,
+        },
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    correlation_id = request.headers.get("X-Correlation-ID") or f"corr_{uuid4().hex}"
+    code_map = {
+        400: "BAD_REQUEST",
+        401: "UNAUTHORIZED",
+        403: "FORBIDDEN",
+        404: "NOT_FOUND",
+        405: "METHOD_NOT_ALLOWED",
+        409: "CONFLICT",
+        422: "UNPROCESSABLE_ENTITY",
+        500: "INTERNAL_SERVER_ERROR",
+    }
+    code = code_map.get(exc.status_code, f"HTTP_{exc.status_code}")
+    if isinstance(exc.detail, dict):
+        message = exc.detail.get("message", "HTTP error")
+        details = exc.detail
+    else:
+        message = str(exc.detail)
+        details = {"detail": exc.detail}
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "code": code,
+            "message": message,
+            "correlation_id": correlation_id,
+            "details": details,
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    correlation_id = request.headers.get("X-Correlation-ID") or f"corr_{uuid4().hex}"
+    return JSONResponse(
+        status_code=422,
+        content={
+            "code": "VALIDATION_ERROR",
+            "message": "Request validation failed",
+            "correlation_id": correlation_id,
+            "details": {"errors": exc.errors()},
         },
     )
 

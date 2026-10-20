@@ -6,8 +6,11 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .audit import build_timeline_entries, redact_payload, redact_text
+from .commitments import get_overview
 from .dependencies import RequestContext
 from .errors import DomainError
+from .events import CoreEventType, OutboxStatus
 from .models import AuditEventRecord, CommitmentRecord, OutboxEventRecord
 from .schemas import (
     AgreementState,
@@ -19,8 +22,13 @@ from .schemas import (
     DomainEvent,
     FeasibilityState,
     FulfilmentState,
+    OverviewResponse,
+    ProposalConfirmRequest,
+    ProposalCreateRequest,
+    RecordFulfilmentRequest,
     RecoveryState,
     RiskState,
+    TimelineEntry,
 )
 
 
@@ -114,7 +122,7 @@ def _to_commitment(record: CommitmentRecord) -> Commitment:
     )
 
 
-def _to_audit(record: AuditEventRecord) -> AuditEvent:
+def _to_audit(record: AuditEventRecord, role: str = "STAFF") -> AuditEvent:
     return AuditEvent.model_validate(
         {
             "audit_id": record.audit_id,
@@ -124,11 +132,12 @@ def _to_audit(record: AuditEventRecord) -> AuditEvent:
             "actor_id": record.actor_id,
             "actor_role": record.actor_role,
             "dimension": record.dimension,
-            "previous_state": record.previous_state,
-            "new_state": record.new_state,
+            "previous_state": redact_payload(record.previous_state, role),
+            "new_state": redact_payload(record.new_state, role),
             "evidence_refs": record.evidence_refs,
-            "reason": record.reason,
+            "reason": redact_text(record.reason, role),
             "correlation_id": record.correlation_id,
+            "causation_id": record.causation_id,
             "occurred_at": _aware(record.occurred_at),
         }
     )
@@ -155,6 +164,7 @@ class CommitmentService:
     def create_request(self, db: Session, context: RequestContext, request: CommitmentCreateRequest) -> Commitment:
         now = _now()
         commitment_id = _id("com")
+        causation_id = request.causation_id or context.causation_id
         record = CommitmentRecord(
             tenant_id=context.tenant_id,
             commitment_id=commitment_id,
@@ -173,22 +183,24 @@ class CommitmentService:
         audit = self._audit(
             context=context,
             commitment_id=commitment_id,
-            event_type="commitment.created",
+            event_type=CoreEventType.COMMITMENT_CREATED.value,
             dimension="agreement",
             previous_state=None,
             new_state=_commitment_snapshot(record),
             evidence_refs=request.evidence_refs,
             reason="Commitment request created",
             occurred_at=now,
+            causation_id=causation_id,
         )
         event = self._outbox(
             context=context,
             event_id=_id("evt"),
-            event_type="commitment.created",
+            event_type=CoreEventType.COMMITMENT_CREATED.value,
             commitment_id=commitment_id,
             commitment_version=1,
             payload={"commitment_id": commitment_id, "audit_id": audit.audit_id},
             occurred_at=now,
+            causation_id=causation_id,
         )
         try:
             db.add_all([record, audit, event])
@@ -251,6 +263,7 @@ class CommitmentService:
             )
         self._authorize_transition(context, dimension, target_state, request.evidence_refs)
 
+        causation_id = request.causation_id or context.causation_id
         previous_state = _commitment_snapshot(record)
         setattr(record, field, target_state)
         record.commitment_version += 1
@@ -268,6 +281,7 @@ class CommitmentService:
             evidence_refs=request.evidence_refs,
             reason=request.reason,
             occurred_at=record.updated_at,
+            causation_id=causation_id,
         )
         event = self._outbox(
             context=context,
@@ -282,6 +296,7 @@ class CommitmentService:
                 "audit_id": audit.audit_id,
             },
             occurred_at=record.updated_at,
+            causation_id=causation_id,
         )
         try:
             db.add_all([audit, event])
@@ -292,16 +307,327 @@ class CommitmentService:
             raise
         return CommitmentTransitionResponse(
             commitment=_to_commitment(record),
-            audit_event=_to_audit(audit),
+            audit_event=_to_audit(audit, role=context.actor_role),
+            domain_event=_to_event(event),
+        )
+
+    def overview(self, db: Session, context: RequestContext) -> OverviewResponse:
+        return get_overview(db, context)
+
+    def timeline(self, db: Session, context: RequestContext, commitment_id: str) -> list[TimelineEntry]:
+        commitment = db.get(CommitmentRecord, (context.tenant_id, commitment_id))
+        if commitment is None:
+            raise DomainError("COMMITMENT_NOT_FOUND", "Commitment not found", status_code=404)
+
+        audit_records = db.scalars(
+            select(AuditEventRecord)
+            .where(
+                AuditEventRecord.tenant_id == context.tenant_id,
+                AuditEventRecord.commitment_id == commitment_id,
+            )
+            .order_by(AuditEventRecord.occurred_at.asc())
+        ).all()
+
+        outbox_records = db.scalars(
+            select(OutboxEventRecord)
+            .where(
+                OutboxEventRecord.tenant_id == context.tenant_id,
+                OutboxEventRecord.commitment_id == commitment_id,
+            )
+            .order_by(OutboxEventRecord.occurred_at.asc())
+        ).all()
+
+        return build_timeline_entries(commitment, audit_records, outbox_records, role=context.actor_role)
+
+    def create_proposal(
+        self,
+        db: Session,
+        context: RequestContext,
+        commitment_id: str,
+        request: ProposalCreateRequest,
+    ) -> CommitmentTransitionResponse:
+        record = db.scalar(
+            select(CommitmentRecord)
+            .where(
+                CommitmentRecord.tenant_id == context.tenant_id,
+                CommitmentRecord.commitment_id == commitment_id,
+            )
+            .with_for_update()
+        )
+        if record is None:
+            raise DomainError("COMMITMENT_NOT_FOUND", "Commitment not found", status_code=404)
+
+        if record.commitment_version != request.expected_commitment_version:
+            raise DomainError(
+                "COMMITMENT_VERSION_CONFLICT",
+                "Commitment version is stale",
+                status_code=409,
+                details={"current_commitment_version": record.commitment_version},
+            )
+
+        if record.agreement_state == AgreementState.CANCELLED.value:
+            raise DomainError(
+                "INVALID_STATE_TRANSITION",
+                "Cannot offer proposal for a cancelled commitment",
+                status_code=409,
+            )
+
+        proposal_id = request.proposal_id or _id("prop")
+        previous_state = _commitment_snapshot(record)
+
+        record.agreement_state = AgreementState.OFFERED.value
+        if request.revised_terms is not None:
+            record.terms = request.revised_terms.model_dump(mode="json")
+        record.commitment_version += 1
+        record.updated_at = _now()
+        record.evidence_refs = list(dict.fromkeys([*record.evidence_refs, *request.evidence_refs]))
+        new_state = _commitment_snapshot(record)
+
+        causation_id = request.causation_id or context.causation_id
+        audit = self._audit(
+            context=context,
+            commitment_id=commitment_id,
+            event_type=CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value,
+            dimension="agreement",
+            previous_state=previous_state,
+            new_state=new_state,
+            evidence_refs=request.evidence_refs,
+            reason=request.reason,
+            occurred_at=record.updated_at,
+            causation_id=causation_id,
+        )
+        event = self._outbox(
+            context=context,
+            event_id=_id("evt"),
+            event_type=CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value,
+            commitment_id=commitment_id,
+            commitment_version=record.commitment_version,
+            payload={
+                "commitment_id": commitment_id,
+                "proposal_id": proposal_id,
+                "proposal_version": request.proposal_version,
+                "audit_id": audit.audit_id,
+                "evidence_refs": request.evidence_refs,
+            },
+            occurred_at=record.updated_at,
+            causation_id=causation_id,
+        )
+        try:
+            db.add_all([audit, event])
+            db.commit()
+            db.refresh(record)
+        except Exception:
+            db.rollback()
+            raise
+
+        return CommitmentTransitionResponse(
+            commitment=_to_commitment(record),
+            audit_event=_to_audit(audit, role=context.actor_role),
+            domain_event=_to_event(event),
+        )
+
+    def confirm_proposal(
+        self,
+        db: Session,
+        context: RequestContext,
+        commitment_id: str,
+        request: ProposalConfirmRequest,
+    ) -> CommitmentTransitionResponse:
+        record = db.scalar(
+            select(CommitmentRecord)
+            .where(
+                CommitmentRecord.tenant_id == context.tenant_id,
+                CommitmentRecord.commitment_id == commitment_id,
+            )
+            .with_for_update()
+        )
+        if record is None:
+            raise DomainError("COMMITMENT_NOT_FOUND", "Commitment not found", status_code=404)
+
+        if record.commitment_version != request.expected_commitment_version:
+            raise DomainError(
+                "COMMITMENT_VERSION_CONFLICT",
+                "Commitment version is stale",
+                status_code=409,
+                details={"current_commitment_version": record.commitment_version},
+            )
+
+        if record.agreement_state != AgreementState.OFFERED.value:
+            raise DomainError(
+                "INVALID_STATE_TRANSITION",
+                f"Cannot confirm proposal when agreement state is {record.agreement_state} (expected OFFERED)",
+                status_code=409,
+            )
+
+        if context.actor_role not in {"OWNER", "MANAGER"}:
+            raise DomainError("APPROVAL_REQUIRED", "Manager or owner approval is required to confirm proposal", status_code=403)
+
+        if not request.evidence_refs:
+            raise DomainError("EVIDENCE_REQUIRED", "Confirmation evidence is required", status_code=422)
+
+        previous_state = _commitment_snapshot(record)
+        if request.decision == "ACCEPT":
+            record.agreement_state = AgreementState.CONFIRMED.value
+            event_type = CoreEventType.COMMITMENT_CONFIRMED.value
+        else:
+            record.agreement_state = AgreementState.REJECTED.value
+            event_type = CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value
+
+        record.commitment_version += 1
+        record.updated_at = _now()
+        record.evidence_refs = list(dict.fromkeys([*record.evidence_refs, *request.evidence_refs]))
+        new_state = _commitment_snapshot(record)
+
+        causation_id = request.causation_id or context.causation_id
+        audit = self._audit(
+            context=context,
+            commitment_id=commitment_id,
+            event_type=event_type,
+            dimension="agreement",
+            previous_state=previous_state,
+            new_state=new_state,
+            evidence_refs=request.evidence_refs,
+            reason=request.reason,
+            occurred_at=record.updated_at,
+            causation_id=causation_id,
+        )
+        event = self._outbox(
+            context=context,
+            event_id=_id("evt"),
+            event_type=event_type,
+            commitment_id=commitment_id,
+            commitment_version=record.commitment_version,
+            payload={
+                "commitment_id": commitment_id,
+                "proposal_id": request.proposal_id,
+                "proposal_version": request.proposal_version,
+                "decision": request.decision,
+                "audit_id": audit.audit_id,
+                "evidence_refs": request.evidence_refs,
+            },
+            occurred_at=record.updated_at,
+            causation_id=causation_id,
+        )
+        try:
+            db.add_all([audit, event])
+            db.commit()
+            db.refresh(record)
+        except Exception:
+            db.rollback()
+            raise
+
+        return CommitmentTransitionResponse(
+            commitment=_to_commitment(record),
+            audit_event=_to_audit(audit, role=context.actor_role),
+            domain_event=_to_event(event),
+        )
+
+    def record_fulfilment(
+        self,
+        db: Session,
+        context: RequestContext,
+        commitment_id: str,
+        request: RecordFulfilmentRequest,
+    ) -> CommitmentTransitionResponse:
+        record = db.scalar(
+            select(CommitmentRecord)
+            .where(
+                CommitmentRecord.tenant_id == context.tenant_id,
+                CommitmentRecord.commitment_id == commitment_id,
+            )
+            .with_for_update()
+        )
+        if record is None:
+            raise DomainError("COMMITMENT_NOT_FOUND", "Commitment not found", status_code=404)
+
+        if record.commitment_version != request.expected_commitment_version:
+            raise DomainError(
+                "COMMITMENT_VERSION_CONFLICT",
+                "Commitment version is stale",
+                status_code=409,
+                details={"current_commitment_version": record.commitment_version},
+            )
+
+        if context.actor_role not in {"OWNER", "MANAGER"}:
+            raise DomainError("APPROVAL_REQUIRED", "Manager or owner evidence is required for fulfilment", status_code=403)
+
+        if not request.evidence_refs:
+            raise DomainError("EVIDENCE_REQUIRED", "Operational fulfilment evidence is required", status_code=422)
+
+        if record.agreement_state != AgreementState.CONFIRMED.value:
+            raise DomainError(
+                "INVALID_STATE_TRANSITION",
+                f"Cannot record fulfilment for commitment with agreement state {record.agreement_state}; must be CONFIRMED",
+                status_code=409,
+            )
+
+        if record.fulfilment_state == FulfilmentState.FULFILLED.value:
+            raise DomainError(
+                "INVALID_STATE_TRANSITION",
+                "Commitment is already fulfilled",
+                status_code=409,
+            )
+
+        previous_state = _commitment_snapshot(record)
+        record.fulfilment_state = request.fulfilment_state
+        record.commitment_version += 1
+        record.updated_at = _now()
+        record.evidence_refs = list(dict.fromkeys([*record.evidence_refs, *request.evidence_refs]))
+        new_state = _commitment_snapshot(record)
+
+        causation_id = request.causation_id or context.causation_id
+        audit = self._audit(
+            context=context,
+            commitment_id=commitment_id,
+            event_type=CoreEventType.COMMITMENT_FULFILMENT_VERIFIED.value,
+            dimension="fulfilment",
+            previous_state=previous_state,
+            new_state=new_state,
+            evidence_refs=request.evidence_refs,
+            reason=request.reason,
+            occurred_at=record.updated_at,
+            causation_id=causation_id,
+        )
+        event = self._outbox(
+            context=context,
+            event_id=_id("evt"),
+            event_type=CoreEventType.COMMITMENT_FULFILMENT_VERIFIED.value,
+            commitment_id=commitment_id,
+            commitment_version=record.commitment_version,
+            payload={
+                "commitment_id": commitment_id,
+                "fulfilment_state": request.fulfilment_state,
+                "audit_id": audit.audit_id,
+                "evidence_refs": request.evidence_refs,
+            },
+            occurred_at=record.updated_at,
+            causation_id=causation_id,
+        )
+        try:
+            db.add_all([audit, event])
+            db.commit()
+            db.refresh(record)
+        except Exception:
+            db.rollback()
+            raise
+
+        return CommitmentTransitionResponse(
+            commitment=_to_commitment(record),
+            audit_event=_to_audit(audit, role=context.actor_role),
             domain_event=_to_event(event),
         )
 
     def audit(self, db: Session, context: RequestContext, commitment_id: str | None) -> list[AuditEvent]:
+        if commitment_id:
+            commitment = db.get(CommitmentRecord, (context.tenant_id, commitment_id))
+            if commitment is None:
+                raise DomainError("COMMITMENT_NOT_FOUND", "Commitment not found", status_code=404)
+
         query = select(AuditEventRecord).where(AuditEventRecord.tenant_id == context.tenant_id)
         if commitment_id:
             query = query.where(AuditEventRecord.commitment_id == commitment_id)
         records = db.scalars(query.order_by(AuditEventRecord.occurred_at.asc())).all()
-        return [_to_audit(record) for record in records]
+        return [_to_audit(record, role=context.actor_role) for record in records]
 
     def event(self, db: Session, context: RequestContext, event_id: str) -> DomainEvent:
         record = db.get(OutboxEventRecord, event_id)
@@ -332,13 +658,17 @@ class CommitmentService:
 
     @staticmethod
     def _event_type(dimension: str, target_state: str) -> str:
+        if dimension == "agreement" and target_state == "OFFERED":
+            return CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value
         if dimension == "agreement" and target_state == "CONFIRMED":
-            return "commitment.confirmed"
+            return CoreEventType.COMMITMENT_CONFIRMED.value
         if dimension == "risk" and target_state == "AT_RISK":
-            return "commitment.at_risk"
+            return CoreEventType.COMMITMENT_AT_RISK.value
+        if dimension == "risk" and target_state == "RESOLVED":
+            return CoreEventType.COMMITMENT_RISK_RESOLVED.value
         if dimension == "fulfilment" and target_state == "FULFILLED":
-            return "commitment.fulfilment_verified"
-        return "commitment.lifecycle_changed"
+            return CoreEventType.COMMITMENT_FULFILMENT_VERIFIED.value
+        return CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value
 
     @staticmethod
     def _audit(
@@ -352,6 +682,7 @@ class CommitmentService:
         evidence_refs: list[str],
         reason: str,
         occurred_at: datetime,
+        causation_id: str | None = None,
     ) -> AuditEventRecord:
         return AuditEventRecord(
             audit_id=_id("audit"),
@@ -366,6 +697,7 @@ class CommitmentService:
             evidence_refs=evidence_refs,
             reason=reason,
             correlation_id=context.correlation_id,
+            causation_id=causation_id,
             occurred_at=occurred_at,
         )
 
@@ -379,6 +711,7 @@ class CommitmentService:
         commitment_version: int,
         payload: dict[str, object],
         occurred_at: datetime,
+        causation_id: str | None = None,
     ) -> OutboxEventRecord:
         return OutboxEventRecord(
             event_id=event_id,
@@ -387,7 +720,11 @@ class CommitmentService:
             commitment_id=commitment_id,
             commitment_version=commitment_version,
             correlation_id=context.correlation_id,
+            causation_id=causation_id,
             payload=payload,
             occurred_at=occurred_at,
             attempts=0,
+            status=OutboxStatus.PENDING.value,
+            last_error=None,
+            next_retry_at=None,
         )
