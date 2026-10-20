@@ -1,0 +1,1 @@
+"""MouManTAI backend application package."""

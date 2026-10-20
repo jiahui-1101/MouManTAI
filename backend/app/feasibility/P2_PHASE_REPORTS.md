@@ -278,3 +278,21 @@ Highest-risk assumptions: each present/current source represents the complete re
 Known conservative limits: stocked manufactured/intermediate assemblies yield UNKNOWN rather than being ignored or falsely called short; netting such stock is unsupported. Direct SKU-to-base conversions only; no inferred conversion chains. Material results do not establish optimal allocation, available capacity or customer delivery feasibility. Default replay time does not establish current authoritative state. These limits are explicit; there is no confident safe/impossible result from inadequate inputs.
 
 **Next action:** Stop for independent external Phase 2 review. Start Phase 3 only after the user returns `APPROVED — CONTINUE P2` following that review.
+
+## Safety checkpoint — Main synchronization before Phase 3
+
+The user reported Phase 2 approved at `d28b63ab5fa82c66633ad18211b9c4fa83ffbbe4`
+and authorized Main -> P2 integration only. Incoming Main is
+`4ec2ba1ef7ede4a67352631178a73a6882bcd774`; local backup ref
+`backup/p2-before-main-sync-d28b63a` preserves approved HEAD. Only package docstring
+and adjacent TEAM_LOG QA rows conflicted; both owners' work was retained. P5
+Core/contracts/DB/migrations/current canonical docs are identical to incoming Main.
+All nine pre-existing untracked bytecode files are retained with matching hashes.
+
+66 P2 regression tests and 7 focused shared contract/health/SQLite registry tests
+PASS. P5 backend-runtime import of P2 ATP FAILS with ModuleNotFoundError for backend;
+required P2-local relative-import/test-path adaptation is reported, not implemented.
+Shared fixture/source-schema adapters, full evaluator and later integrations remain
+pending. No Phase 3 implementation. See `MAIN_SYNC_REPORT.md` for exact commands,
+results, shared schema/fixture differences and dependency notes. Merge SHA and
+feature-only push/ref verification are in the task response. Stop for user review.

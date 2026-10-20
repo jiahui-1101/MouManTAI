@@ -2,22 +2,26 @@
 
 ## Current checkpoint
 
-- **Phase:** 2 — Time-Phased ATP, Recursive BOM and Unit Conversion
-- **State:** P2-local Phase 2 PASS; awaiting independent external review. Shared P5/P3 integration remains BLOCKED.
+- **Phase:** Safety sync of updated Main after approved Phase 2; Phase 3 NOT_STARTED.
+- **State:** Phase 2 externally approved at `d28b63ab5fa82c66633ad18211b9c4fa83ffbbe4`. Main integration prepared; review required before Phase 3. P2 runtime imports and shared operational-data adapters remain BLOCKED.
 - **Branch:** `feat/p2-feasibility-engine`
 - **Remote branch status:** `origin/feat/p2-feasibility-engine` pushed and verified to match local HEAD after this checkpoint commit; exact SHA is in the phase response.
 - **Workspace:** `D:\dunno\0.SDC\MouManTAI`
 - **Phase 0 review:** Approved by the user after external review. The Master Prompt was available as `D:\dunno\0.SDC\P2_CODEX_MASTER.txt.txt` (the supplied path omitted the final `.txt`).
 - **Phase 1 review:** User approved both corrections at `0d990d99bfe973f7b13295d1e005639a0f61adbd`; verified clean HEAD and remote feature ref before Phase 2.
-- **Gate:** Stop for external review; Phase 3 requires a later `APPROVED — CONTINUE P2`.
+- **Phase 2 review:** User reported external approval at `d28b63ab5fa82c66633ad18211b9c4fa83ffbbe4`; authorized Main -> P2 sync only.
+- **Gate:** Stop for user review of this integration; no Phase 3 implementation authorized by the safety task.
 - **Tests:** `python -m pytest backend/app/feasibility/tests/test_bom.py backend/app/feasibility/tests/test_inventory.py backend/app/feasibility/tests/test_snapshots.py -q` — 66 passed (45 new tests + 21 Phase 1 regression tests).
 - **Implementation:** Frozen material results, exact Decimal operations, recursive BOM/cycles/waste/conversion, batch ATP with reservations subtracted once and credited only to owners, expiry at material use, confirmed evidence-linked receipts under inclusive ETA/cutoff rules, warehouse scope, conservative UNKNOWN, and tenant/input revalidation. COVERED/SHORTAGE/UNKNOWN describe material checks only; full assessment/capacity orchestration belongs to Phase 3. No UI/API/evaluator or P5-owned code was changed.
 - **Evidence trust boundary:** The model guarantees structural source provenance within a snapshot; external authenticity and supplier identity verification remain P5 source-adapter responsibilities. All new model fields remain P2-local and provisional.
-- **P5/P3 blockers:** Shared snapshot/assessment/ProposedChanges contracts, persistence, routes/auth/outbox, and P3 import/serialization remain provisional and unratified; they did not block independent P2-local Phase 1 work.
+- **Sync tests:** 66 P2 regressions pass from repo root; 7 shared contract/health/SQLite registry tests pass from backend. Backend-runtime `app.feasibility.inventory` import FAILS: `ModuleNotFoundError: No module named 'backend'`. Host pytest 9.1.1 exceeds P5's declared dev constraint `>=8.3,<9`; dependencies unchanged.
+- **P5/P3 blockers:** Shared assessment/enums/constraints/assumptions, Core registry/auth/audit/outbox foundation and frontend shell now exist. P2 OperationalSnapshot/ProposedChanges, assessment/impact history persistence, operational-source adapters and evaluator/event/API/UI integration remain pending. See `MAIN_SYNC_REPORT.md` for exact compatibility gaps and test evidence.
 
 ## Repository baseline
 
-At the Phase 0 baseline the designated clone was clean on `main` at `aedb152` (`origin/main`); the P2 branch is `feat/p2-feasibility-engine`. Before Phase 1, HEAD was `5368e0d` and the working tree was clean. The repository still has no P5 backend/frontend skeleton, shared contracts, persistence, P1/P3 modules, or repository test configuration. The actual P2 owner requirements remain outside the repository and were not copied here. Phase 1 uses the installed Pydantic v2 runtime without changing P5-owned root dependency/configuration files.
+Historical baseline: Phase 0 started on `main` at `aedb152`; Phase 1 started at `5368e0d` without a shared skeleton. Safety sync imports Main `4ec2ba1ef7ede4a67352631178a73a6882bcd774`: P5 FastAPI/Vite foundation, shared schemas/types/fixture, Core registry, SQLAlchemy/Alembic setup and test configuration. Root `AGENTS.md` and `docs/requirements/PERSON_2_FEASIBILITY_REQUIREMENTS.md` are now canonical. P1/P3 business modules remain placeholders. Live PostgreSQL migration smoke remains P5's documented Docker/WSL blocker; no external database was used here.
+
+Local backup ref `backup/p2-before-main-sync-d28b63a` preserves approved P2 HEAD. Nine existing untracked bytecode files were preserved with matching SHA256 hashes; incoming `.gitignore` now ignores them. Only conflicts were feasibility package docstrings and adjacent TEAM_LOG QA rows; both members' records were combined. Shared Core/contracts/DB/migrations and canonical instructions remain identical to incoming Main. Merge SHA and push verification are in the task response.
 
 ## P2 phase board
 
@@ -25,7 +29,7 @@ At the Phase 0 baseline the designated clone was clean on `main` at `aedb152` (`
 |---|---|---|---|
 | 0 | Inspect repo, trace requirements, propose contracts and synthetic fixture | PASS — externally reviewed and approved | Trace/report/progress created; shared contract decisions remain unratified and explicitly blocked |
 | 1 | Validated operational snapshots and synthetic fixtures | PASS — externally reviewed and approved | Approved SHA `0d990d99bfe973f7b13295d1e005639a0f61adbd`; prior 21 tests preserved |
-| 2 | Decimal ATP, time-phased supply, recursive BOM and unit conversion | P2-local PASS; external review pending | 45 new tests and 21 regressions pass; Phase 3 has not started |
+| 2 | Decimal ATP, time-phased supply, recursive BOM and unit conversion | PASS — externally approved | Approved `d28b63ab5fa82c66633ad18211b9c4fa83ffbbe4`; 66 regressions pass after Main sync |
 | 3 | Capacity/deadline checks and pure shared evaluator | NOT_STARTED | Requires explicit approval after Phase 2 review |
 | 4 | Dependency graph and incremental impact recalculation | NOT_STARTED | Requires explicit approval after Phase 3 review |
 | 5 | Five P2 routes and P3/P5 contract handoff | NOT_STARTED | Requires explicit approval after Phase 4 review and shared API decisions |
@@ -79,11 +83,11 @@ response = {
 }
 ```
 
-The constraint detail above is a proposal to make P2's shortage evidence inspectable. The HTTP `subject` union follows the canonical system contract; its exact serialization still needs P1/P5 approval. P5 must approve additive assessment/constraint fields and the final error shape before HTTP integration; the canonical shared assessment fields listed below remain unchanged.
+The constraint detail above remains a historical proposal, not the shared serialization schema. P5's current `ConstraintReason` uses `deadline` and mandatory `severity`, and omits detailed required/usable/reserved/incoming fields. `FeasibilityAssessment.assumptions` now exists. The final subject/snapshot/ProposedChanges shape and any additional material fields still need P1/P3/P5 review; reuse shared types without silently extending them.
 
 ### Assessment shape
 
-Retain the canonical `FeasibilityAssessment` fields from `docs/REQUIREMENTS_SYSTEM.md`: `assessment_id`, `tenant_id`, `commitment_id`, `commitment_version`, `snapshot_version`, `status`, `constraints`, `affected_commitment_ids`, `evidence_refs`, `solver_status`, and offset-aware `assessed_at`. P2 additionally requires visible assumptions and source-grounded constraint detail; adding `assumptions` or changing the constraint object requires P5 review because the shared contract is not present in code. Status values remain exactly `FEASIBLE`, `CONDITIONAL`, `INFEASIBLE`, or `UNKNOWN`; none implies agreement or fulfilment.
+Use `app.core.schemas.FeasibilityAssessment` and `ConstraintReason` for the future evaluator. Shared assumptions and typed enums are present. Status, constraint severity/deadline, nonempty affected IDs and solver status must follow these existing types. P2 material-only rows remain local inputs to that future mapping; no shared model was edited in this sync.
 
 ### Event envelope
 
@@ -103,7 +107,7 @@ P3 must pass the same versioned snapshot and a typed proposed change to the sing
 
 ## Provisional synthetic scenario
 
-No P5-approved fixture exists. The executable fixtures remain temporary and reuse the shared example SKU `BURGER`, pending P1/P5 approval of SKU IDs, units, BOM, fixture ownership, and commitment references. Each burger needs one `PATTY`, `BUN`, and `WRAP`; all quantities are synthetic `Decimal` values in `pcs`.
+P5 now supplies `contracts/fixtures/demo_dataset.json`: `tenant_demo_01` / `com_001`, BURGER -> BUN/PATTY/SAUCE/PACKAGING. Existing P2 fixtures remain separate regression data (`tenant-synthetic-p2`, `com-001`, BURGER -> PATTY/BUN/WRAP). Preserve approved tests; align future integration through reviewed source adapters/fixture extensions rather than silently changing shared data. P5's operational snapshot is an untyped summary without P2's full source freshness/lot/reservation/calendar/competing-demand/typed receipt evidence, so missing facts cannot be guessed.
 
 - The buffered scenario has `com-001` require 100 patties at `2026-10-23T09:00:00+08:00` and `com-002` require 20 at `2026-10-24T09:00:00+08:00`. Their customer delivery deadline is separately recorded as `2026-10-24T15:00:00+08:00`.
 - The patty lot contains 80 units, with 20 actively reserved to `com-002`. A reservation is part of that lot's quantity, credited only to its named owner, and removed once from the unreserved pool; it is not subtracted a second time from general demand.
@@ -118,9 +122,9 @@ Phase 2 batch ATP reproduces the material shortage labels in both snapshots. The
 
 | Owner | Decision / interface needed | Why it blocks final integration |
 |---|---|---|
-| P5 | Ratify `OperationalSnapshot` and fixture types, including source freshness, status/validation, IDs, unit conversions, reservations, confirmed deliveries, capacity and active commitments | No shared schema, database, or app skeleton exists; P2 must not create competing global contracts or migrations |
+| P5 | Ratify full `OperationalSnapshot` and fixture adapters with source freshness, IDs, conversion/reservation/confirmed-delivery/calendar/competing-demand semantics | Shared Core schemas/skeleton exist, but operational snapshot remains an untyped summary dict; adapter facts/contract approval still needed |
 | P5 | Confirm P2 route registration, API error shape, tenant/auth context and storage/query ownership for the five P2 routes | P2 owner routes are specified, while P5 owns API contracts, auth, database and integration |
-| P5 | Ratify additive assessment fields/constraint evidence and the event envelope/outbox mapping for the four P2 events | System contract has the assessment base fields and common event envelope; P2 adds assumptions and detailed evidence |
+| P5 | Review material-detail mapping and event/outbox integration | Shared assessment assumptions, typed constraints and DomainEvent now exist; P2-specific adapter/event/history integration remains pending |
 | P5 + P1 | Confirm the canonical synthetic SKU/BOM/unit catalog and normalized BusinessContext-to-Commitment inputs | P1 consumes the approved SKU list; current shared BURGER example is the only available baseline |
 | P5 | Supply active confirmed commitments, tenant policy, Core identity/risk badges and the Core operation that records P2 assessment/risk results | P2 cannot update authoritative agreement, risk, or fulfilment state directly |
 | P3 | Confirm concrete `ProposedChanges` serialization and import/HTTP usage of the P2 evaluator | P3 explicitly depends on the same pure evaluator and must not duplicate it |
@@ -128,4 +132,4 @@ Phase 2 batch ATP reproduces the material shortage labels in both snapshots. The
 
 ## Next action
 
-Submit Phase 2 for external review. Do not start Phase 3 until the user returns `APPROVED — CONTINUE P2` after that review. Material interfaces and assumptions are documented in `FIXTURES.md`; the full evaluator/P3 hypothetical interface remains later-phase work.
+Submit the Main-sync report for user review and stop. Phase 2 is approved; Phase 3 has not started. Required P2-local import adaptation is reported, not implemented: package-relative production imports and app-based test imports/import-path configuration, avoiding duplicate module identities. Full evaluator/P3 hypothetical interfaces remain later-phase work.
