@@ -11,6 +11,7 @@ from backend.app.feasibility.fixtures import (
     build_two_affected_scenario,
 )
 from backend.app.feasibility.models import (
+    CapacityWindow,
     FreshnessStatus,
     OperationalSnapshot,
     Reservation,
@@ -62,6 +63,46 @@ def test_two_affected_fixture_uses_documented_stable_allocation_order():
         ("com-002", Decimal("40")),
     ]
     assert sum((row.quantity for row in scenario.expected_shortages), Decimal("0")) == Decimal("110")
+
+
+def test_buffered_fixture_has_capacity_calendar_coverage_for_both_material_use_times():
+    scenario = build_supplier_delay_scenario()
+
+    for snapshot in (scenario.before, scenario.after):
+        windows = tuple(
+            window
+            for calendar in snapshot.capacity_calendars
+            for window in calendar.windows
+        )
+        for commitment in snapshot.confirmed_commitments:
+            for line in commitment.lines:
+                material_use_at = line.material_use_at.astimezone(timezone.utc)
+                assert any(
+                    window.start_at.astimezone(timezone.utc)
+                    <= material_use_at
+                    <= window.end_at.astimezone(timezone.utc)
+                    for window in windows
+                ), f"no capacity-calendar window covers {commitment.commitment_id} material use"
+
+
+def test_capacity_window_rejects_available_minutes_above_elapsed_duration():
+    with pytest.raises(ValidationError, match="available_minutes.*duration"):
+        CapacityWindow(
+            start_at=datetime.fromisoformat("2026-10-23T07:00:00+08:00"),
+            end_at=datetime.fromisoformat("2026-10-23T08:00:00+08:00"),
+            available_minutes=Decimal("61"),
+        )
+
+
+def test_snapshot_rejects_material_use_after_commitment_delivery_deadline():
+    snapshot = build_supplier_delay_scenario().before
+    payload = snapshot.model_dump(exclude_computed_fields=True)
+    payload["confirmed_commitments"][0]["delivery_deadline"] = datetime.fromisoformat(
+        "2026-10-23T08:59:00+08:00"
+    )
+
+    with pytest.raises(ValidationError, match="material_use_at.*delivery_deadline"):
+        OperationalSnapshot.model_validate(payload)
 
 
 def test_active_reservation_is_owned_by_one_tenant_commitment_and_lot():

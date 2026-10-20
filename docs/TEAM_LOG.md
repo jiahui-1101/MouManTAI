@@ -88,8 +88,8 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | P1-BE | Ingestion/Extraction/Context API | P1 | NOT_STARTED | — | Shared contracts | Define fixtures |
 | P1-TST | Context tests and metrics | P1 | NOT_STARTED | — | — | Define expected labels |
 | P2-FE | Feasibility / Impact UI | P2 | NOT_STARTED | No UI implementation; Phase 1 made no frontend changes | Shared frontend skeleton and P5 route/API contract absent | Implement views only in approved Phase 6 after shared frontend integration is available |
-| P2-BE | Constraint + Impact engine | P2 | IN_PROGRESS | Phase 1 P2-local snapshot models/fixtures; 13 focused tests pass; no evaluator yet | P5 snapshot/assessment contracts, persistence, and shared backend skeleton absent | Stop for external review; continue with approved Phase 2 after review |
-| P2-TST | Feasibility/Impact tests | P2 | IN_PROGRESS | `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q` — 13 passed | API, UI, evaluator, and integration suites are not implemented | Add only the focused tests for each later approved phase |
+| P2-BE | Constraint + Impact engine | P2 | IN_PROGRESS | P2-local snapshots/fixtures; 16 focused tests pass; capacity-window and commitment-deadline validation corrections recorded; no evaluator yet | P5 snapshot/assessment contracts, persistence, and shared backend skeleton absent | Stop for external review; continue with approved Phase 2 after review |
+| P2-TST | Feasibility/Impact tests | P2 | IN_PROGRESS | `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q` — 16 passed | API, UI, evaluator, and integration suites are not implemented | Add only the focused tests for each later approved phase |
 | P3-FE | Recovery / Approval UI | P3 | NOT_STARTED | — | — | Plan comparison cards |
 | P3-BE | Plan / Approval / Action API | P3 | NOT_STARTED | — | P2 evaluator interface | Start templates |
 | P3-TST | Approval/Execution tests | P3 | NOT_STARTED | — | — | Define stale-approval test |
@@ -122,6 +122,12 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 - P2-FE remains `NOT_STARTED`; no UI was implemented.
 - Local commit SHA: see phase response. No push or merge performed.
 
+### 2026-10-21 — P2 Phase 1 review corrections
+
+- P2: Corrected capacity-window upper-bound validation, commitment material-use/deadline consistency, and Oct 24 buffered-fixture capacity coverage. The three focused tests failed before implementation and passed afterward; the snapshot test file passes 16 tests. Calendar coverage does not claim full production feasibility. Next: stop for external review. Blocked: P5 shared contracts/integration and P3 ProposedChanges handoff remain pending.
+- P2-FE remains `NOT_STARTED`; no UI was implemented.
+- Correction commit SHA: see phase response. No push or merge performed.
+
 ## 6. Blocker / Dependency Ledger
 
 | ID | Opened | Blocked owner | Blocking owner | Issue | Impact | Decision / ETA | Status |
@@ -148,6 +154,7 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | Date | Commit | Backend tests | Frontend tests | Build | E2E | Key observed metric / sample size | Known limitations |
 |---|---|---|---|---|---|---|---|
 | 2026-10-21 | P2 Phase 1 local commit (SHA in phase response) | `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q`: 13 passed | NOT RUN | NOT RUN | NOT RUN | 13 snapshot/fixture tests; operational metrics not measured | No evaluator, API, UI, durable P5 snapshot store, or P3/P5 integration yet; fixture labels are hand-calculated synthetic ground truth only |
+| 2026-10-21 | P2 Phase 1 correction commit (SHA in phase response) | Three new correction nodes: 3 failed as expected before fixes, then 3 passed; `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q`: 16 passed | NOT RUN | NOT RUN | NOT RUN | 16 snapshot/fixture tests; operational metrics not measured | No evaluator, API, UI, durable P5 snapshot store, or P3/P5 integration yet; calendar coverage does not prove production feasibility; fixture labels remain hand-calculated synthetic ground truth only |
 
 Metric protocol: always disclose dataset size, date, ground truth creation method, pass/fail definitions. **Do not** mark actual customer fulfilment because communication was sent or approved.
 

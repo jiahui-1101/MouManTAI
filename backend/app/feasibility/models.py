@@ -211,8 +211,16 @@ class CapacityWindow(FrozenModel):
 
     @model_validator(mode="after")
     def window_has_positive_duration(self) -> Self:
-        if _utc(self.end_at) <= _utc(self.start_at):
+        duration = _utc(self.end_at) - _utc(self.start_at)
+        duration_microseconds = (
+            (duration.days * 86_400 + duration.seconds) * 1_000_000
+            + duration.microseconds
+        )
+        if duration_microseconds <= 0:
             raise ValueError("capacity window end_at must be after start_at")
+        elapsed_minutes = Decimal(duration_microseconds) / Decimal(60_000_000)
+        if self.available_minutes > elapsed_minutes:
+            raise ValueError("available_minutes cannot exceed elapsed capacity window duration")
         return self
 
 
@@ -391,6 +399,11 @@ class OperationalSnapshot(FrozenModel):
             )
             _ensure_unique(commitment.lines, "line_id", f"commitment {commitment.commitment_id} line")
             for line in commitment.lines:
+                if _utc(line.material_use_at) > _utc(commitment.delivery_deadline):
+                    raise ValueError(
+                        f"material_use_at for commitment line {line.line_id} is after "
+                        "commitment delivery_deadline"
+                    )
                 sku = sku_by_id.get(line.sku_id)
                 if sku is None:
                     raise ValueError(

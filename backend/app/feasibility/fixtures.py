@@ -79,6 +79,13 @@ def build_supplier_delay_scenario() -> SupplierDelayScenario:
             ),
         ),
         logistics_cutoff_at=datetime.fromisoformat("2026-10-24T08:00:00+08:00"),
+        additional_capacity_windows=(
+            CapacityWindow(
+                start_at=datetime.fromisoformat("2026-10-24T07:00:00+08:00"),
+                end_at=datetime.fromisoformat("2026-10-24T17:00:00+08:00"),
+                available_minutes=Decimal("480"),
+            ),
+        ),
     )
     after = _delay_delivery(before, captured_at + timedelta(minutes=30), "2026-10-23T11:00:00+08:00")
     return SupplierDelayScenario(
@@ -136,6 +143,7 @@ def _build_snapshot(
     commitment_specs: tuple[tuple[str, str, str, Decimal], ...],
     reservations: tuple[Reservation, ...],
     logistics_cutoff_at: datetime,
+    additional_capacity_windows: tuple[CapacityWindow, ...] = (),
 ) -> OperationalSnapshot:
     fresh_through = datetime.fromisoformat("2026-10-26T00:00:00+08:00")
     sources = tuple(
@@ -193,6 +201,7 @@ def _build_snapshot(
                 end_at=datetime.fromisoformat("2026-10-23T17:00:00+08:00"),
                 available_minutes=Decimal("480"),
             ),
+            *additional_capacity_windows,
         ),
         source_refs=("source-capacity-001",),
     )

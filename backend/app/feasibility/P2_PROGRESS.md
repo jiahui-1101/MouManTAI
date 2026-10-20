@@ -3,13 +3,13 @@
 ## Current checkpoint
 
 - **Phase:** 1 — Operational Snapshots + Synthetic Data
-- **State:** PASS for P2-local Phase 1 scope; shared P5/P3 integration decisions remain explicitly BLOCKED.
+- **State:** Phase 1 targeted review corrections PASS; external review is pending. Shared P5/P3 integration decisions remain explicitly BLOCKED.
 - **Branch:** `feat/p2-feasibility-engine`
 - **Workspace:** `D:\dunno\0.SDC\MouManTAI`
 - **Phase 0 review:** Approved by the user after external review. The Master Prompt was available as `D:\dunno\0.SDC\P2_CODEX_MASTER.txt.txt` (the supplied path omitted the final `.txt`).
 - **Gate:** Stop for external review; do not start Phase 2 without a later `APPROVED — CONTINUE P2`.
-- **Tests:** `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q` — 13 passed.
-- **Implementation:** P2-local immutable snapshot models, source/freshness validation, synthetic fixtures, fixture policy documentation, and focused model/fixture tests. No P2 UI/API/evaluator or P5-owned code was changed.
+- **Tests:** Three correction test nodes failed before implementation as expected and then passed; `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q` — 16 passed.
+- **Implementation:** P2-local immutable snapshot models now reject available capacity minutes above elapsed window duration and commitment material-use times after the parent delivery deadline. The buffered supplier-delay fixture includes an Oct 24 capacity window. Tests establish calendar coverage for both commitments in before/after snapshots; they do not establish production feasibility. No P2 UI/API/evaluator or P5-owned code was changed.
 - **P5/P3 blockers:** Shared snapshot/assessment/ProposedChanges contracts, persistence, routes/auth/outbox, and P3 import/serialization remain provisional and unratified; they did not block independent P2-local Phase 1 work.
 
 ## Repository baseline
@@ -21,7 +21,7 @@ At the Phase 0 baseline the designated clone was clean on `main` at `aedb152` (`
 | Phase | Scope | State | Gate / evidence |
 |---|---|---|---|
 | 0 | Inspect repo, trace requirements, propose contracts and synthetic fixture | PASS — externally reviewed and approved | Trace/report/progress created; shared contract decisions remain unratified and explicitly blocked |
-| 1 | Validated operational snapshots and synthetic fixtures | PASS — P2-local scope | 13 focused tests pass; P5/P3 integration remains blocked; stop for external review before Phase 2 |
+| 1 | Validated operational snapshots and synthetic fixtures | P2-local implementation and targeted corrections PASS; external review pending | 16 focused tests pass; P5/P3 integration remains blocked; stop before Phase 2 |
 | 2 | Decimal ATP, time-phased supply, recursive BOM and unit conversion | NOT_STARTED | Requires explicit approval after Phase 1 review |
 | 3 | Capacity/deadline checks and pure shared evaluator | NOT_STARTED | Requires explicit approval after Phase 2 review |
 | 4 | Dependency graph and incremental impact recalculation | NOT_STARTED | Requires explicit approval after Phase 3 review |

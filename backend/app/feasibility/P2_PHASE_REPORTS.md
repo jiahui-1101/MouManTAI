@@ -101,3 +101,46 @@
 - `docs/TEAM_LOG.md` (P2 rows/QA entry only)
 
 **Next action:** Stop for external review. Phase 2 requires a later explicit `APPROVED — CONTINUE P2`.
+
+## Phase 1 targeted review corrections
+
+- **State:** PASS for the three requested P2-local corrections; Phase 1 remains stopped for external review. Phase 2 has not started.
+- **Date:** 2026-10-21
+- **Branch:** `feat/p2-feasibility-engine`
+- **Starting commit:** `c3183b6 feat(p2): add validated operational snapshots and fixtures`
+- **Correction commit SHA:** see phase response.
+- **Post-commit worktree status:** see phase response.
+
+### Review findings and changes
+
+- **Capacity window bound:** `CapacityWindow` now rejects `available_minutes` greater than the elapsed window duration. The duration is measured between UTC-normalized instants using integer microseconds and compared as `Decimal`; the single-resource input does not assume unmodelled parallel capacity. A 60-minute window with 61 available minutes is rejected.
+- **Commitment deadline consistency:** snapshot validation now rejects a commitment line whose `material_use_at` is after its parent `delivery_deadline`. The test moves `com-001`'s deadline to `08:59` while its material-use time is `09:00` on Oct 23, 2026 (+08:00), and receives a Pydantic validation error.
+- **Buffered fixture calendar:** `build_supplier_delay_scenario()` now carries an Oct 24, 2026 07:00–17:00 (+08:00) window with 480 available minutes, alongside the existing Oct 23 window. A focused test checks every line's material-use instant for both commitments in both before/after snapshots. This verifies calendar coverage only; it does not claim full production feasibility or alter the expected supplier-delay/shortage labels.
+- No shared contract, migration, route, app skeleton, or P5-owned code was modified. Existing P5/P3 contract and integration dependencies remain explicitly BLOCKED and do not prevent this independent P2 correction.
+
+### Test-first evidence
+
+- **Expected red run:** `python -m pytest backend/app/feasibility/tests/test_snapshots.py::test_buffered_fixture_has_capacity_calendar_coverage_for_both_material_use_times backend/app/feasibility/tests/test_snapshots.py::test_capacity_window_rejects_available_minutes_above_elapsed_duration backend/app/feasibility/tests/test_snapshots.py::test_snapshot_rejects_material_use_after_commitment_delivery_deadline -q` — **FAIL as expected, 3 failed**: `com-002` had no window coverage, excessive available minutes raised no error, and late material use raised no error.
+- **Focused green rerun:** the same command — **PASS, 3 passed**.
+- **Snapshot regression:** `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q` — **PASS, 16 passed**.
+- No unrelated repository suite was run.
+
+### Requirement trace, boundaries, and open concerns
+
+- Correction evidence updates `P2-BE01-05`, `P2-DATA-09`, `P2-HC-06`, and `PH1-02` through `PH1-05` in `P2_REQUIREMENT_TRACE.md`. The P2 progress checkpoint and P2-only TEAM_LOG/QA evidence were also updated.
+- Snapshot validation now proves capacity inputs do not exceed their elapsed calendar windows and that material-use deadlines are consistent. The fixture coverage assertion only establishes that each material-use instant falls inside a declared window; capacity scheduling, overlapping production jobs, and end-to-end promise feasibility are not implemented in Phase 1.
+- P5 still owns shared snapshot/assessment contracts, persistence, authentication, routes, events/outbox, and authoritative Core transitions. P1/P5 fixture/SKU approval and P3/P5 ProposedChanges/evaluator integration remain pending. Phase 2 ATP/BOM work remains gated on external review.
+- **Compact review assessment:** The requested defects have focused regression evidence. The P2 snapshot model remains provisional and in-memory; no evaluator or complete production-capacity calculation exists, and calendar coverage must not be read as a feasibility result.
+
+### Exact correction files
+
+- `backend/app/feasibility/models.py`
+- `backend/app/feasibility/fixtures.py`
+- `backend/app/feasibility/FIXTURES.md`
+- `backend/app/feasibility/tests/test_snapshots.py`
+- `backend/app/feasibility/P2_REQUIREMENT_TRACE.md`
+- `backend/app/feasibility/P2_PROGRESS.md`
+- `backend/app/feasibility/P2_PHASE_REPORTS.md`
+- `docs/TEAM_LOG.md` (P2 status and QA evidence only)
+
+**Next action:** Stop for external review. Do not begin Phase 2 until a later `APPROVED — CONTINUE P2`.
