@@ -362,3 +362,83 @@ Host Python 3.14 uses pytest **9.1.1**, outside P5's declared dev constraint **`
 P5's shared demo snapshot remains an untyped summary and lacks required source freshness/provenance, lot/reservation ownership, full competing demand, calendars/jobs and typed supplier confirmation associations. Shared IDs and BURGER catalog (SAUCE/PACKAGING) differ from the approved P2 regression fixture (WRAP). Keep both fixtures intact; reviewed P2/P5 source/fixture/schema alignment is still required. Shared FeasibilityAssessment/ConstraintReason mapping and all full evaluator, capacity, impact/event/API/UI/P3 integration work remain later phases.
 
 **Stop for external review of this correction. Phase 3 has not started and requires a later explicit authorization.**
+
+## Phase 3 — Production Capacity, Deadlines and Pure Evaluator
+
+- **State: PARTIAL.** Independent P2-local calculations pass focused tests; final shared FeasibilityAssessment output and P3/P5 data integration remain BLOCKED. External review is pending. No Phase 4 work.
+- **Date:** 2026-10-21, Asia/Kuala_Lumpur.
+- **Branch:** feat/p2-feasibility-engine. Verified clean exact approved baseline `5a1e827b6431d4fddbaf6bf2938865f0bfdef567` before edits; user reported external approval of that import correction.
+- **Commit/push SHA and final dirty/ref state:** see phase response; report saved before commit. User explicitly authorized commit/push only this feature branch. No Main push, merge or force-push.
+- **Instructions:** read actual current Master/P2 requirements, canonical system/root AGENTS, owner requirements, TEAM_LOG, P2 progress/trace/reports, implementation/tests and actual Core schemas. Old docs/AGENTS.md is absent; TEAM_LOG explicitly establishes root AGENTS.md as canonical, matching current user instruction. No missing content invented or external requirements copied/edited.
+
+### Contract clarification received during this phase
+
+The user explicitly confirmed there is **no verified P5 decision** for
+affected_commitment_ids in ordinary single-commitment assessments, particularly
+FEASIBLE/UNKNOWN. Nonempty schema validation does not define business semantics.
+User forbade automatically inserting the evaluated ID and authorized independent
+local calculations using actual Core enums/ConstraintReason, while keeping final
+shared mapping BLOCKED. Therefore evaluate returns P2-local EvaluationResult,
+not FeasibilityAssessment. No affected IDs, shared schema modification or
+caller-controlled bypass was added. Phase 3 cannot be fully PASS on local tests.
+
+### Changes and precise supported behavior
+
+- `models.py`: one P2-local calendar bound correction compares exact available microseconds with elapsed microseconds instead of dividing under ambient Decimal context. A valid129-minute window at precision1 previously failed validation; new focused test failed before this correction and passes afterward. No shared schema change.
+- `production.py`: frozen P2-local EvaluationSnapshot wrapping existing OperationalSnapshot, production evidence roles/freshness, exclusive resources, explicit SKU processing/setup/transit parameters, versioned fixed plans/dispatch/SOFT preference, existing jobs and complete coverage horizon; version-bound ProposedChanges. Missing job ledger differs from complete evidenced empty ledger. Tenant/duplicates/time/decimal/role validation refuses malformed inputs; unresolved evidence is UNKNOWN.
+- `capacity.py`: evaluates actual supplied fixed non-preemptible intervals across all confirmed demand. Working windows must locate breaks exactly; daily totals cannot establish interval availability. Checks all simultaneous resources, job/commitment overlaps, half-open edges, window gaps/end boundaries, dispatch and customer deadline including explicit transit. Missing rate/lead/plan/ledger/horizon/source and unsupported intermediate routing/durations -> UNKNOWN. Decimal arithmetic is isolated; timeline comparisons use exact microseconds. Free-time diagnostics are bounded by work/jobs/deadline/dispatch/transit and become None when incomplete evidence prevents trustworthy availability.
+- `service.py`: pure evaluate(snapshot, proposed_changes, commitment); actual Core Commitment boundary, Core FeasibilityState/SolverStatus/ConstraintReason, term/tenant/version equality, original metadata/time/evidence/assumptions retained. Reuses existing batch calculate_atp/BOM unchanged. Proposals change target quantity/deadline/start only in a validated private copy; no inventory/job/reservation/Core writes. Other demand remains present. New/increased competitor material shortage rejects a proposal via same baseline/candidate ATP; no dependency graph, event or risk propagation.
+- `production_fixtures.py`: explicit synthetic rate/setup/transit/calendar/empty-job-ledger/fixed-booking evidence, separate from existing regression/shared fixtures. No operational rate inferred. This is not the P5-approved shared demo dataset.
+- `tests/test_capacity.py`, `tests/test_service.py`: positive/negative production, calendar/job/resource, deadline/transport, source freshness/missingness, precision/unsupported duration, actual Core mapping, all four statuses, proposal purity, tenant/version and competitor safety cases.
+- `PHASE3_PLAN.md`, `PHASE3_HANDOFF.md`: approved scope, exact imports/proposals, evidence model, status/mapping table, supported scheduling limits, P3/P5 requests.
+- Updated P2_PROGRESS.md, P2_REQUIREMENT_TRACE.md, this report and P2-only TEAM_LOG entries. Existing P2 algorithms/fixtures/tests and P5 Core/schemas/contracts/migrations/dependencies/app shell remain unchanged.
+
+### Actual representative outputs
+
+The executed Python probe called build_production_example and evaluate on its
+baseline, a copied 70-patty lot, a quantity60 proposal and a missing-job ledger:
+
+| Input | Local status / solver | Observed constraints |
+|---|---|---|
+| Required100, stock100, explicit one minute/unit, exact 09:00 booking and trusted complete fixture ledger | FEASIBLE / COMPLETED | none; required100 minutes, finish10:40, available480 minutes |
+| Same snapshot with stock70 | INFEASIBLE / COMPLETED | MATERIAL_SHORTAGE, PATTY, shortage30 pcs, HARD, material-use deadline/evidence |
+| Stock70, version-bound quantity60 hypothesis | CONDITIONAL / COMPLETED | HYPOTHETICAL_CHANGE_PENDING_APPROVAL, INFORMATIONAL, proposal evidence |
+| Complete materials, jobs=None | UNKNOWN / UNKNOWN | MISSING_JOB_LEDGER, INFORMATIONAL; no implied zero jobs |
+
+These are local fixed-booking query results, not affected-ID findings, Core
+state transitions, order acceptance, promised future delivery or live integration.
+Stale source/current-version examples return UNKNOWN/STALE. Unsupported durations
+and routing remain UNKNOWN. A 10:45 dispatch cap reports105 available minutes;
+a subsequent 10:40 job reduces that to100; missing competing plan reports None.
+
+### Exact validation evidence
+
+All pytest commands below ran from `D:\dunno\0.SDC\MouManTAI\backend` with
+canonical app imports, `python -B`, no path aliases and no shared config changes.
+
+1. Initial test-first command:
+   `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_capacity.py app/feasibility/tests/test_service.py -q -p no:cacheprovider`
+   — **42 failed as expected**, absent production/evaluator modules (test collection succeeded).
+2. First implementation run of the same command — **41 passed, 1 failed**: available-time diagnostic depended on ambient Decimal precision. Fixed isolated diagnostic division; `... test_capacity.py::test_decimal_context_and_input_order_do_not_change_result ...` — **1 passed**.
+3. Target-local capacity regression `test_service.py::test_unrelated_commitment_deadline_failure_does_not_make_target_infeasible` — **1 failed before fix, 1 passed after**. Known unrelated hard/soft violations no longer contaminate target status; missing competing inputs remain conservative UNKNOWN.
+4. Internal read-only review found candidate displacement and available-time overstatement. Added `test_service.py::test_hypothetical_quantity_cannot_hide_new_shortage_for_competing_commitment` — **1 failed then 1 passed** after same-ATP baseline comparison. Added `test_capacity.py::test_available_minutes_stop_at_dispatch_cutoff_and_existing_job` — **1 failed then 1 passed** after free-interval diagnostic correction.
+5. `test_service.py::test_stale_production_and_inventory_sources_preserve_stale_solver_status` — **1 failed then passed** with STALE preserved. Focused command with that node, real existing-unrelated-shortage fixture node and parametrized duration limits — **4 passed**. Corrected the unrelated-shortage test setup to include a real competitor (baseline shortage20, reduced candidate shortage10); this tests unchanged pre-existing harm separately from new displacement.
+6. Final localized review found unknown competing plan still left a numeric diagnostic. Added `test_capacity.py::test_missing_competitor_plan_cannot_claim_known_free_minutes` — **1 failed then 1 passed**; free-time is None under insufficient booking evidence.
+7. Added `test_capacity.py::test_exact_calendar_validation_ignores_ambient_decimal_precision` — **1 failed then 1 passed** after the existing P2 CapacityWindow validation correction; fresh full regressions required because an existing model changed. Final Phase 3 command from (1) — **54 passed, 0 failed in 0.63s**. Earlier 45/47/52/53 counts are intermediate development/reviewer runs, not final coverage.
+8. Existing regression:
+   `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_snapshots.py app/feasibility/tests/test_bom.py app/feasibility/tests/test_inventory.py tests/test_contracts.py tests/test_smoke.py tests/test_registry.py -q -p no:cacheprovider`
+   — **73 passed, 1 existing Starlette/httpx deprecation warning in 1.64s** (all66 existing P2 plus7 shared tests). Original tests unchanged. Repeated only after the final P2 calendar validation correction; all73 preserved.
+9. Executed four-status probe from backend using app.feasibility imports — **exit0**, exact output table above. `git diff --check` — exit0; final staged scope checks recorded in phase response.
+10. Frontend typecheck/Vitest/build, HTTP/API/UI, events, metrics, live PostgreSQL, cross-feature E2E and P3 execution/concurrent command reservation — **NOT RUN**, outside Phase 3 scope or pending owner integration. No latency/accuracy claim from pytest timing.
+
+### Safety, assumptions, blockers and handoff
+
+- **BLOCK-P2-P3-001 / P5:** define affected_commitment_ids for every single-query status and distinguish assessed subject from confirmed operational impact. Exact request in PHASE3_HANDOFF.md; user will obtain P5 decision. Final shared serializer remains BLOCKED.
+- **BLOCK-P2-P3-002 / P3:** review exact ProposedChanges shape and fixed-booking evaluator import/usage. Current P3 package is a placeholder; no agreement or live P3 parity claim. Arbitrary supply insertion/job deletion is refused; supply substitution needs reviewed typed provenance/conditional semantics.
+- **BLOCK-P2-P3-003 / P2+P5:** shared demo summary is not a complete operational snapshot. Shared tenant_demo_01/com_001 and SAUCE/PACKAGING differ from existing P2 IDs/WRAP catalog. Need reviewed operational-data/catalog adapter with trusted full ledgers, freshness, lots/reservation ownership, typed receipts, exact calendars/jobs/processes/transport. No invented stock/rates/evidence to make shared demo FEASIBLE.
+- P5 source authenticity/completeness/current-version/persistence/auth/Core audit/outbox and P3/P5 transactional command reservations remain pending integration. Pure proposals cannot allocate stock across concurrent plans.
+- Host Python3.14.3/Pydantic2.13.4/pytest9.1.1; pytest exceeds P5 declared >=8.3,<9. Dependencies untouched. Shared regression uses SQLite, not a live PostgreSQL migration.
+- Compact review limits: fixed-booking feasibility is not global scheduling optimization; complete existing-job ledger excludes already represented plans; adapters must reconcile identities. Multi-stage production and purchased-finished-goods logistics remain UNKNOWN. Diagnostic minutes may use explicitly documented fixed-precision decimal representation, while proofs use exact microseconds. Core constraint outputs are mutable but freshly allocated per query. Historical replay does not prove current authoritative version.
+- Trace: PH3-01..05/08 local evidence PASS; PH3-06/07 shared integration BLOCKED; applicable owner/F2/system rows updated truthfully. Phase3 overall PARTIAL, P2-FE NOT_STARTED, Phases4–7 NOT_STARTED.
+
+**STOP for external Phase 3 review. Do not claim full Phase 3 PASS or start Phase 4.**

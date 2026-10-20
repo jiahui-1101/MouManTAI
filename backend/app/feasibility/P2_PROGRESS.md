@@ -2,22 +2,20 @@
 
 ## Current checkpoint
 
-- **Phase:** P2-local runtime import correction after approved Main sync; Phase 3 NOT_STARTED.
-- **State:** Main sync externally approved at `14e794308d317e744d321f2b26ba4d5af8f677dd`; runtime correction PASS, awaiting external review. Shared operational-data/fixture/schema adapters remain BLOCKED.
-- **Branch:** `feat/p2-feasibility-engine`
-- **Remote branch status:** `origin/feat/p2-feasibility-engine` pushed and verified to match local HEAD after this checkpoint commit; exact SHA is in the phase response.
-- **Workspace:** `D:\dunno\0.SDC\MouManTAI`
-- **Phase 0 review:** Approved by the user after external review. The Master Prompt was available as `D:\dunno\0.SDC\P2_CODEX_MASTER.txt.txt` (the supplied path omitted the final `.txt`).
-- **Phase 1 review:** User approved both corrections at `0d990d99bfe973f7b13295d1e005639a0f61adbd`; verified clean HEAD and remote feature ref before Phase 2.
-- **Phase 2 review:** User reported external approval at `d28b63ab5fa82c66633ad18211b9c4fa83ffbbe4`; authorized Main -> P2 sync only.
-- **Main-sync review:** User accepted merge `14e794308d317e744d321f2b26ba4d5af8f677dd` and authorized only the P2-local import correction, without rollback or repeated pull.
-- **Gate:** Stop for external review of the runtime correction. Phase 3 remains unauthorized by this task.
-- **Tests (backend working directory):** `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_snapshots.py app/feasibility/tests/test_bom.py app/feasibility/tests/test_inventory.py tests/test_contracts.py tests/test_smoke.py tests/test_registry.py -q -p no:cacheprovider` — 73 passed (66 P2 + 7 shared), 1 pre-existing Starlette/httpx deprecation warning.
-- **Implementation:** Frozen material results, exact Decimal operations, recursive BOM/cycles/waste/conversion, batch ATP with reservations subtracted once and credited only to owners, expiry at material use, confirmed evidence-linked receipts under inclusive ETA/cutoff rules, warehouse scope, conservative UNKNOWN, and tenant/input revalidation. COVERED/SHORTAGE/UNKNOWN describe material checks only; full assessment/capacity orchestration belongs to Phase 3. No UI/API/evaluator or P5-owned code was changed.
-- **Evidence trust boundary:** The model guarantees structural source provenance within a snapshot; external authenticity and supplier identity verification remain P5 source-adapter responsibilities. All new model fields remain P2-local and provisional.
-- **Runtime correction:** Exact requested ATP/BOM import command prints `P2 runtime imports OK`. Five P2 modules now use package-relative imports; all three P2 test files consistently use `app.feasibility.*`. One-process class-identity assertions across P2 modules/tests and P5's Pydantic base pass; no backend.app modules load. Eight Python ASTs match approved HEAD after import-only normalization. No aliases, sys.path changes, P5 configuration/dependencies, calculations or fixtures changed.
-- **Environment limitation:** Host pytest 9.1.1 exceeds P5's declared dev constraint `>=8.3,<9`; dependencies unchanged. Passing tests do not establish validation in the pinned dev environment.
-- **P5/P3 blockers:** Shared assessment/enums/constraints/assumptions, Core registry/auth/audit/outbox foundation and frontend shell now exist. P2 OperationalSnapshot/ProposedChanges, assessment/impact history persistence, operational-source adapters and evaluator/event/API/UI integration remain pending. See `MAIN_SYNC_REPORT.md` for exact compatibility gaps and test evidence.
+- **Phase:** 3 only — production capacity/deadlines and pure evaluator.
+- **State:** PARTIAL; independent local calculations tested. Final shared-output integration BLOCKED pending P5 affected_commitment_ids semantics; external review pending. No Phase 4 work.
+- **Branch:** feat/p2-feasibility-engine.
+- **Approved baseline:** user reported external approval of runtime correction 5a1e827b6431d4fddbaf6bf2938865f0bfdef567; verified exact clean HEAD before edits.
+- **Scope:** only new P2-local production inputs, interval capacity validation, pure evaluation, explicit synthetic fixture and tests; existing ATP/BOM algorithms/tests unchanged; one exact calendar-bound validation correction in P2 models.py. P5 schemas/Core/DB/dependencies/UI unchanged.
+- **Validation:** final Phase 3 command (backend): `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_capacity.py app/feasibility/tests/test_service.py -q -p no:cacheprovider` — 54 passed. Existing P2/shared regression command — 73 passed, one existing Starlette/httpx warning. Exact commands/red-green evidence in phase report.
+- **Interface:** app.feasibility.service.evaluate(EvaluationSnapshot, ProposedChanges | None, app.core.schemas.Commitment) -> P2-local EvaluationResult. Uses actual Core enums/ConstraintReason; does not fabricate affected IDs or claim to return FeasibilityAssessment. See PHASE3_HANDOFF.md.
+- **Semantics:** exact fixed bookings, resource sharing, existing jobs, real working windows, explicit processing/setup/transport times and dispatch/deadline checks. Missing/incomplete/unsupported data -> UNKNOWN. Material COVERED alone is insufficient. Hypothetical changes remain CONDITIONAL on approval/customer agreement unless hard-infeasible/unknown.
+- **Purity:** version-bound target quantity/deadline/start proposals use a validated private copy and same batch ATP/BOM. Newly displaced competing material demand rejects a proposal. No stock/job/reservation/terms/Core lifecycle writes.
+- **Shared blocker:** user confirmed no P5 decision for nonempty affected_commitment_ids; do not auto-insert target. P5 must define semantics for all four statuses before final shared adapter. P3 serialization and P2/P5 source/catalog adapter also remain provisional.
+- **Environment:** Python 3.14.3, Pydantic 2.13.4, pytest 9.1.1 (outside P5 >=8.3,<9). No dependency changes. Existing seven shared tests use SQLite, not live PostgreSQL.
+- **Canonical instructions:** old docs/AGENTS.md absent; root AGENTS.md is canonical per TEAM_LOG and current user instruction. Current Master path P2_CODEX_MASTER.txt exists. External requirements remain read-only.
+- **Git:** local commit and feature-only push authorized by this task; exact SHA/ref/clean-state evidence in final response. No merge, force push or Main change.
+- **Gate:** STOP for external Phase 3 review. Phase 3 is not fully PASS; do not begin Phase 4.
 
 ## Repository baseline
 
@@ -32,13 +30,13 @@ Local backup ref `backup/p2-before-main-sync-d28b63a` preserves approved P2 HEAD
 | 0 | Inspect repo, trace requirements, propose contracts and synthetic fixture | PASS — externally reviewed and approved | Trace/report/progress created; shared contract decisions remain unratified and explicitly blocked |
 | 1 | Validated operational snapshots and synthetic fixtures | PASS — externally reviewed and approved | Approved SHA `0d990d99bfe973f7b13295d1e005639a0f61adbd`; prior 21 tests preserved |
 | 2 | Decimal ATP, time-phased supply, recursive BOM and unit conversion | PASS — externally approved | Approved `d28b63ab5fa82c66633ad18211b9c4fa83ffbbe4`; 66 regressions pass after Main sync |
-| 3 | Capacity/deadline checks and pure shared evaluator | NOT_STARTED | Requires explicit approval after Phase 2 review |
+| 3 | Capacity/deadline checks and pure evaluator | PARTIAL — local tests pass; shared output BLOCKED | 54 new + 73 existing passing tests; P5 affected-ID decision and external review pending |
 | 4 | Dependency graph and incremental impact recalculation | NOT_STARTED | Requires explicit approval after Phase 3 review |
 | 5 | Five P2 routes and P3/P5 contract handoff | NOT_STARTED | Requires explicit approval after Phase 4 review and shared API decisions |
 | 6 | Feasibility and impact frontend views | NOT_STARTED | Requires explicit approval after Phase 5 review and shared frontend skeleton |
 | 7 | Mandatory gap closure, integration, metrics, and handoff | NOT_STARTED | Requires explicit approval after Phase 6 review and available P5/P3 integration |
 
-## Provisional shared interface proposal
+## Historical Phase 0 interface proposal (superseded locally by PHASE3_HANDOFF.md)
 
 This section records a P2 proposal for review; it does not ratify a new global contract.
 
@@ -134,4 +132,4 @@ Phase 2 batch ATP reproduces the material shortage labels in both snapshots. The
 
 ## Next action
 
-Submit the runtime correction report in `P2_PHASE_REPORTS.md` for external review and stop. Phase 2 and Main sync are approved; Phase 3 has not started. The import blocker is closed without modifying shared runtime configuration. Shared demo fixture/schema alignment and full evaluator/P3 hypothetical interfaces remain future reviewed integration work; `MAIN_SYNC_REPORT.md` preserves the historical pre-correction failure evidence.
+Review Phase 3 report and PHASE3_HANDOFF.md externally. P5 must decide affected_commitment_ids semantics before the final shared-output adapter; P3 must confirm proposal serialization. Stop here. No Phase 4 until explicit approval.

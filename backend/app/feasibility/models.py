@@ -277,8 +277,13 @@ class CapacityWindow(FrozenModel):
         )
         if duration_microseconds <= 0:
             raise ValueError("capacity window end_at must be after start_at")
-        elapsed_minutes = Decimal(duration_microseconds) / Decimal(60_000_000)
-        if self.available_minutes > elapsed_minutes:
+        # Compare exact microseconds; division by 60e6 can round under the
+        # caller's Decimal context and reject valid 129-minute windows.
+        try:
+            available_microseconds = multiply(self.available_minutes, Decimal(60_000_000))
+        except DecimalException as error:
+            raise ValueError("capacity minutes exceed supported exact arithmetic limits") from error
+        if available_microseconds > Decimal(duration_microseconds):
             raise ValueError("available_minutes cannot exceed elapsed capacity window duration")
         return self
 
