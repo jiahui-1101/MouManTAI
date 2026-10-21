@@ -730,19 +730,7 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - **D-013 compatibility:** Core's duplicate public assess route is removed; the public contract is owned by P2. Combined Core/P2 router runtime probe found unique method/path registrations. Empty `affected_commitment_ids` is accepted; `UNKNOWN` remains distinct from `INFEASIBLE`; P2 commitment/snapshot version checks and pure evaluator remain. No P2 Phase 6 frontend code changed.
 - **Authorization and integration boundary:** `CommitmentService.assess` requires `SERVICE`/`SYSTEM`; D-013 identity tests prove ordinary user context gets 403 and directly constructed trusted service context is accepted. P2's assessment writer and current-snapshot authority are unconfigured, so the P2 public handler returns 503. Its writer seam receives the requesting context; P5 must supply a trusted server-side service identity and preserve the requesting user in audit. The synthetic X-Actor-ID role map is not an authenticated service boundary. P2 router remains unmounted in production `app/main.py`; P2 frontend routes remain placeholders. Assessment/history/impact persistence, supplier-delay/outbox processing, and real P2/P5 E2E remain pending P5; P3 evaluator serialization remains pending owner confirmation.
 - **Validation:** from `backend/`, P2 `python -B -m pytest -o 'addopts=' app/feasibility/tests -q -p no:cacheprovider` — 181 passed; P2 router/API `... app/feasibility/tests/test_router.py ...` — 24 passed; P5 `... tests ...` — 79 passed; D-013 `... tests/test_assess_identity_guards.py ...` — 16 passed; combined `... app/feasibility/tests tests ...` — 260 passed. Runtime import/model identity and temporary combined-router uniqueness probe passed. Each pytest run emitted one Starlette/httpx TestClient deprecation warning. Frontend `npm test` — 108 passed, 5 skipped; `npm run typecheck` and `npm run build` passed. Host: Python 3.14.3 / pytest 9.1.1 (outside declared pytest `<9`), FastAPI 0.139.2, Pydantic 2.13.4, SQLAlchemy 2.0.51; Node 24.14.0 / npm 11.9.0 / Vitest 5.0.5 / Vite 7.3.7. Local `node_modules` lacked lockfile-pinned `@tanstack/react-query@5.104.5`; installed with `--no-save --package-lock=false`, leaving manifests unchanged. One overlapping Vitest run had one assertion failure; the focused rerun and subsequent isolated full suite passed. No DB reset, migration, live DB or live API run.
-- **Gate:** synchronization and applicable local regression checks passed; branch is ready for independent review of the sync. No P2 PR was created, no P2-to-Main merge or Phase 7 work was performed. Orbyte access is optional and was not used.  ### 2026-10-21 — P4 / Commit 01: Communication foundation and integration boundaries
-- Person: P4. Milestone: Commit 01. Status: Foundation prepared in an isolated project copy; real working tree untouched pending manual application. Full P4 feature remains incomplete.
-- Baseline: inspected local `P4-communication` at `0485d3d`; requested branch label was `branchP4-communication`. No branch change, fetch, merge or synchronization was performed; remote main was not verified.
-- Implemented Features: P4-local reference-only event view; pure event shape/tenant/reference consistency inspection preserving independent plan/proposal/commitment versions; frontend type-only entry point reusing shared types; evidence-based integration notes. Existing P4 `__init__.py` preserved. No event consumer or public API registered.
-- Changed Files: added `backend/app/communication/schemas.py`, `service.py`, `tests/test_foundation.py`, `INTEGRATION_NOTES.md`; added `frontend/src/features/communication/types.ts`, `README.md`; appended this record to `docs/TEAM_LOG.md` in the isolated copy only. No existing record or teammate status changed.
-- Tests Executed (isolated copy, using existing Python venv dependencies): `python -B -m pytest tests app/communication/tests -v` from backend: **69 passed** (46 existing + 23 P4). Initial run had one new test-fixture error (string datetime passed to Core factory); corrected only the P4 test and reran the complete suite successfully. One existing Starlette/httpx deprecation warning remains.
-- Backend Import Check: `python -B -c "from app.communication.schemas import RecoveryCommunicationReference; from app.communication.service import inspect_recovery_communication_event"`: passed.
-- Frontend Tests Executed: `npm run typecheck`: passed; `node_modules/.bin/tsc.cmd --noEmit -p tsconfig.app.json`: passed (checks actual app files despite root solution tsconfig); `npm test`: **12 passed**; `npm run build`: passed. No lint script is configured. No dependencies added or changed.
-- Diff Checks: `git status --short`, `git diff --stat`, `git diff --check` reviewed against the local baseline using the isolated work tree; added files separately reviewed and whitespace-checked. Original working tree remains clean. No Git index/history mutations performed.
-- Known Limitations: no request management, draft generation, message send, confirmation processing, UI page, DB table/migration, live provider, real API/UI or E2E flow in Commit 01. A valid reference does not verify identity, consent, approval, current authority or freshness. Only schema version 1 is understood. No PostgreSQL smoke test required/run for this foundation-only change.
-- Integration Dependencies / Blockers: no blocker for Commit 01. Future integration needs P1 normalized reply/verified identity contract, P3 exact approved plan/proposal reader and replan handoff, P5 scoped proposal reader and completion of proposal ID/status/expiry/identity guards, shared persistence/outbox transaction coordination and later routing. Existing Core readers/confirmation services/auth simulator/outbox are documented as existing, not reimplemented. P4 target confirmation event names are not claimed as registered consumers.
-- Next Milestone: **Commit 02 — Communication Request Management**. Not started.
-- Git Status: **Not committed yet**. No commit hash, push, merge or PR is claimed. After manual application, record the user's actual test results and eventual commit reference separately.
+- **Gate:** synchronization and applicable local regression checks passed; branch is ready for independent review of the sync. No P2 PR was created, no P2-to-Main merge or Phase 7 work was performed. Orbyte access is optional and was not used.
 
 ### 2026-10-21 — P4 / Commit 01: Communication foundation and integration boundaries
 - Person: P4. Milestone: Commit 01. Status: Foundation prepared in an isolated project copy; real working tree untouched pending manual application. Full P4 feature remains incomplete.
@@ -772,9 +760,35 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Runtime limitations: real main still does not mount P4 (404); registering only router gives POST 503 until authority wiring; GET/LIST require migration (otherwise 503). Current Core migrations end at 0004 and do not create P4 tables. PostgreSQL migration/live smoke/concurrent row-lock verification and real app E2E were **not run / Pending Integration**, not counted as passed SQLite tests. Service owns a request-scoped transaction; use with a fresh session, not inside a different unit of work or OutboxDispatcher transaction without coordination.
 - Next milestone: **Commit 03 — Template-Based Message Drafting**, not started. Complete required source/approval/persistence integration before claiming the connected request flow works.
 
-
-
-
+### 2026-10-21 — Task T4.1: GitHub Actions CI Workflow, Docker Compose Seed & Windows DevEx Documentation (DEV-1 to DEV-5, UI-06, BE-03f)
+- **Status**: Complete & Verified.
+- **Scope & Changes**:
+  1. **GitHub Actions CI (`.github/workflows/ci.yml`, `DEV-5`)**:
+     - Job 1 (`backend-tests`): Python 3.12, installs backend in editable mode (`pip install -e "./backend[dev]"`), executes `compileall` syntax validation across `backend/app`, and runs full `pytest -v backend/tests` (80 tests: unit, concurrency, outbox, E2E journey, and identity guards).
+     - Job 2 (`frontend-checks`): Node.js 20, runs `npm ci`, `npm run typecheck`, `npm test -- --run` (Vitest), and `npm run build` (`vite build`).
+     - Job 3 (`hygiene-check`): Enforces `.env.example` existence and placeholder-only compliance (scans for unmasked tokens/keys), and asserts zero leftover legacy branding (`PromiseFlow`) across all frontend, backend, and contracts source files.
+  2. **Docker Compose & Synthetic Seed Reproducibility (`DEV-1`, `BE-03f`)**:
+     - `docker-compose.yml`: Automated start sequence running PostgreSQL on 5433, Backend API on 8000 (with active `/health` check), and Outbox worker.
+     - Automated startup command runs `alembic upgrade head` and executes `python scripts/seed_demo.py` before serving traffic.
+     - `backend/Dockerfile`: Added `COPY scripts ./scripts` so seed scripts are packaged into the runtime container.
+     - Created `scripts/seed_demo.py`: Fully idempotent seed script populating stock levels (`BUN`, `PATTY`, `BURGER`, `GREENS`) and the 5 canonical demo commitments:
+        1. `com_normal_01`: Standard confirmed feasible order (`CONFIRMED`, `FEASIBLE`, `NORMAL`).
+        2. `com_001`: Material shortage of 40 beef patties triggering recovery (`CONFIRMED`, `INFEASIBLE`, `AT_RISK`, `RECOVERY_REQUIRED`).
+        3. `com_delay_01`: Supplier delay with 2 alternate recovery proposals (`CONFIRMED`, `INFEASIBLE`, `AT_RISK`, `PENDING_APPROVAL`).
+        4. `com_ambiguous_01`: Ambiguous customer reply requiring manual review (`OFFERED`, `requires_manual_review=True`).
+        5. `com_fulfilled_01`: Verified operational completion (`CONFIRMED`, `FULFILLED`, `RESOLVED`, signed POD proof).
+     - Added automated verification in `backend/tests/test_seed_demo.py`.
+  3. **Environment Template (`DEV-3`)**:
+     - Created `.env.example` containing variable names and placeholders only for DB, API, CORS, Vite, and Outbox. Zero secrets or real keys committed.
+  4. **Documentation & Windows PowerShell DevEx (`DEV-2`, `DEV-4`)**:
+     - Rewrote `README.md` with product identity (**MouManTAI**), architecture overview, single-command Docker Compose startup, manual local setup steps, testing guides, synthetic scenario breakdown, and CI badges.
+     - Documented explicit Windows PowerShell execution policy troubleshooting (`PSSecurityException` on `npm.ps1`), instructing developers to use `cmd /c npm ...` or `npm.cmd ...`.
+- **Validation Results**:
+  - `python -m pytest backend/tests`: Passed (80 passed, 0 failed in 1.51s).
+  - `cmd /c npm run typecheck`: Passed (0 errors).
+  - `cmd /c npm test`: Passed (28 passed, 5 skipped).
+  - `cmd /c npm run build`: Passed (`dist/` generated cleanly in 841ms).
+  - Hygiene check: Passed (zero secret patterns, zero `PromiseFlow` occurrences).
 ### 2026-10-21 — P2 Phase 7A independent gap closure and integration readiness
 
 - **Branch/scope:** clean starting repository; fetched Main `ee4dfc73deb998a5af902422220cb1a34e0182cc` contains PR #4; created `feat/p2-phase7-integration` directly from it. Only P2 feature source/tests/docs and these P2 log entries changed. No shared contract, migration, auth, app/router mount, P3 module, Main or old P2 branch changes. Feature-only commit/push authorized; final SHAs in task response.
