@@ -1,5 +1,13 @@
 # MouManTAI — Team Execution Log & Decision Register
 
+### 2026-10-21 — P1 TASK 2B-FIX: bounded extraction safety fixes (local only)
+
+- Reviewed `7c6ab30`, `243fab1`, `9a83e3b`, `772bb1e`; clean baseline `772bb1e` on `feat/p1-context-intelligence`. Reproduced failures before fixes; no shared schema or TASK 2C changes.
+- Commits: `fcee8cc` expression/token safety; `5d70f91` explicit timezone/year/source-time policy; `9e492f5` DST/past-date review; `9c6a1ed` clause boundaries/date-only relations; `a8b78a8` alias SKU/unit ambiguity; `601c04f` malformed suffixes/tentative time cues. All include passing regression tests.
+- Final checks: focused **139 passed / 0 skipped**; P1 + shared backend **295 passed / 0 skipped**, one existing Starlette/httpx warning. P1 PostgreSQL tests ran against the existing healthy isolated DB; P5 existing SQLite fixtures do not prove P5 PostgreSQL deployment. No frontend/model changes or benchmarks.
+- Actual P5 BusinessContext checked: DATE_ONLY/qualifiers cannot be forwarded directly; PARTIAL and AMBIGUOUS mappings, date-only representation, EXACT/deadline semantics, readiness gates, partial items and legacy timezone provenance remain owner/P5 questions, not approved mappings.
+- [Validation, exact commands and limitations](p1/P1_02B_FIX_VALIDATION.md); [handoff](p1/HANDOFF.md). Safe to consider bounded provisional TASK 2C design only, no automatic READY/Core publication. No push/merge or next-task work.
+
 > **Log start**: 2026-10-20 · **Submission**: 2026-10-25
 > **Document state**: **INITIAL PLANNING TEMPLATE**. No implementation tasks are pre-marked complete. Update this file from real code, PRs, tests and evidence only.
 > **Working rule**: Update at least once per day; every PR should reference a log item. Do not claim integrations deployed from architecture plans alone.
