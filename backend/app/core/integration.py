@@ -9,7 +9,6 @@ never directly mutates the authoritative commitments table.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
 import logging
 from typing import Any
 from uuid import uuid4
@@ -205,41 +204,6 @@ class CoreIntegrationFacade:
                 causation_id=business_context.context_id,
             )
             db.add_all([record, audit, event])
-        elif record.agreement_state == AgreementState.CONFIRMED.value:
-            # Confirmed terms must NOT be directly overwritten in place!
-            # Formulate the requested amendment as a proposal (ADR-003, Batch 5).
-            existing_terms = record.terms or {}
-            terms_changed = (
-                existing_terms.get("sku") != terms_dict["sku"]
-                or str(existing_terms.get("quantity")) != str(terms_dict["quantity"])
-                or existing_terms.get("unit") != terms_dict["unit"]
-                or str(existing_terms.get("deadline"))[:19] != str(terms_dict["deadline"])[:19]
-            )
-            if terms_changed:
-                revised_terms = CommitmentTerms(
-                    sku=terms_dict["sku"],
-                    quantity=Decimal(terms_dict["quantity"]),
-                    unit=terms_dict["unit"],
-                    deadline=delivery_at,
-                    special_instructions=terms_dict.get("special_instructions"),
-                )
-                proposal_req = ProposalCreateRequest(
-                    proposal_id=_id("prop"),
-                    proposal_version=record.commitment_version,
-                    expected_commitment_version=record.commitment_version,
-                    revised_terms=revised_terms,
-                    reason=f"Customer requested terms amendment via context {business_context.context_id}",
-                    evidence_refs=evidence_refs,
-                    causation_id=business_context.context_id,
-                )
-                proposal_res = self.service.create_proposal(db, context, record.commitment_id, proposal_req)
-                return proposal_res.commitment
-            else:
-                record.evidence_refs = list(dict.fromkeys([*record.evidence_refs, *evidence_refs]))
-                record.updated_at = now
-                db.commit()
-                db.refresh(record)
-                return self.service.get(db, context, record.commitment_id)
         else:
             # Update existing draft
             previous_state = _commitment_snapshot(record)
