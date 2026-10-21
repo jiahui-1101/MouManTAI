@@ -151,7 +151,10 @@ class P2FeasibilityConsumer:
                 CommitmentProposalRecord.status == "ACTIVE",
             )
         )
-        if proposal is None or not proposal.revised_terms:
+        payload = event.payload or {}
+        payload_revised = payload.get("revised_terms")
+        revised = (proposal.revised_terms if proposal else None) or payload_revised
+        if not revised:
             return None
 
         commitment = _to_commitment(record)
@@ -164,9 +167,11 @@ class P2FeasibilityConsumer:
 
         snapshot = resolve_snapshot_for_commitment(eval_commitment)
 
-        revised = proposal.revised_terms
         revised_deadline = (
             datetime.fromisoformat(revised["deadline"]) if "deadline" in revised else None
+        )
+        evidence_refs = tuple(
+            (proposal.evidence_refs if proposal else None) or payload.get("evidence_refs") or ()
         )
         proposed_changes = ProposedChanges(
             tenant_id=event.tenant_id,
@@ -175,7 +180,7 @@ class P2FeasibilityConsumer:
             expected_snapshot_version=snapshot.snapshot_version,
             quantity=Decimal(str(revised["quantity"])) if "quantity" in revised else None,
             deadline=revised_deadline,
-            evidence_refs=tuple(proposal.evidence_refs or ()),
+            evidence_refs=evidence_refs,
         )
 
         result = evaluate(snapshot, proposed_changes, eval_commitment)
