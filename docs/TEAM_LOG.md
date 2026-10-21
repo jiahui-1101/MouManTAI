@@ -919,6 +919,40 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - Frontend typecheck: Passed (`tsc --noEmit`, 0 errors).
   - Frontend build: Passed (`vite build`, generated in 821ms).
 
+### 2026-10-21 — Task T5.1: Feature Freeze Regression & Quantitative Metrics Report (REQUIREMENTS §7, PERSON_5 §8)
+- **Status**: Complete & Verified (Reproducible evaluator and honest measured metrics report generated).
+- **Scope & Implementation**:
+  1. **Reproducible Metrics Evaluator (`scripts/evaluate_metrics.py`)**:
+     - Authored standalone CLI benchmark harness running against isolated in-memory test database and FastAPI `TestClient(app)`.
+     - Integrated 12 E2E acceptance scenarios (`E2E-01` through `E2E-12`) via real integration test suite calls.
+     - Implemented atomic audit and outbox completeness evaluator verifying pairing of `AuditEventRecord` and `OutboxEventRecord` across all lifecycle mutations.
+     - Implemented 7 security probes testing: Staff recovery execution (403), Staff fulfilment recording (403), Cross-tenant read (404), Cross-tenant mutation (404), Stale snapshot drift (409), Concurrency version conflict (409), and direct lifecycle PATCH prohibition (405).
+     - Implemented 4 false-fulfilment & confirmation guardrail checks verifying `SENT != ACCEPTED != FULFILLED` (message delivery does not auto-advance state, vague "OK" flags `CLARIFICATION_REQUIRED`, unverified payment slip rejected with 422, OCR context keeps `REQUESTED`).
+     - Implemented wall-clock latency benchmarking (N=15 iterations) across 9 Core lifecycle operations (`context_ingest`, `feasibility_assess`, `proposal_offer`, `proposal_confirm`, `recovery_start`, `recovery_execute`, `fulfilment_record`, `overview_query`, `timeline_query`).
+  2. **Quantitative Metrics Report (`docs/metrics_report.md`)**:
+     - Generated markdown report containing measured metrics tables, hardware/platform disclosures (Windows 11 AMD64, Python 3.14.7), sample sizes, and explicit hackathon synthetic limitations per `REQUIREMENTS_SYSTEM.md` §7 and `AGENTS.md` §8/§10.
+- **Measured Metrics Summary**:
+  - **E2E Acceptance Scenarios**: **100.0% (12/12 passed)** across `E2E-01` to `E2E-12`.
+  - **Audit & Outbox Atomic Completeness**: **100.0% (13/13 paired lifecycle transitions)**; zero unpaired mutations.
+  - **Unauthorized & Stale Action Block Rate**: **100.0% (7/7 blocked)**; **0 unauthorized mutations permitted**.
+  - **False Fulfilment / False Confirmation Rate**: **0.0% (0/4)**; strict invariant adherence verified.
+  - **Core Command Latencies (p50 / p95 in ms)**:
+    - Context Ingest: `p50=5.35 ms`, `p95=15.32 ms`
+    - Feasibility Assess: `p50=1.15 ms`, `p95=1.72 ms`
+    - Proposal Offer: `p50=6.02 ms`, `p95=8.04 ms`
+    - Proposal Confirm: `p50=6.09 ms`, `p95=16.44 ms`
+    - Recovery Start: `p50=5.71 ms`, `p95=6.53 ms`
+    - Recovery Execute: `p50=6.62 ms`, `p95=7.59 ms`
+    - Fulfilment Record: `p50=5.61 ms`, `p95=6.45 ms`
+    - Overview Query: `p50=5.70 ms`, `p95=7.77 ms`
+    - Timeline Query: `p50=5.09 ms`, `p95=7.53 ms`
+- **Validation**:
+  - Metrics script: `python scripts/evaluate_metrics.py` (exited with code 0; generated `docs/metrics_report.md`).
+  - Backend tests: `309 passed, 0 failed` (`pytest tests app/feasibility/tests -q`).
+  - Frontend tests: `118 passed, 5 skipped` (`cmd /c npm test -- --run`).
+  - Frontend typecheck: Passed (`tsc --noEmit`, 0 errors).
+  - Frontend build: Passed (`cmd /c npm run build`, 0 errors).
+
 ## 2026-10-22 — P4 Commit 03: Template-Based Message Drafting
 
 - Baseline: local `P4-communication`, HEAD `443ff6cab6178ad3109669a46262701073e81ad2`. Implementation and verification performed in an isolated copy; real repository unchanged.
