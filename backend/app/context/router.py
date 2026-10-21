@@ -8,6 +8,7 @@ from .association_schemas import AssociationDecisionRequest, MessageAssociationR
 from .association_service import AssociationService
 from .attachment_validator import validate_attachment
 from .context_service import ContextService
+from .document_extractor import extract_pdf_document
 from .document_schemas import AttachmentRecord, DocumentExtractionResult
 from .dependencies import development_context, local_repository
 from .ingestion import IngestionService
@@ -265,4 +266,39 @@ def get_attachment_metadata(
         raise HTTPException(status_code=404, detail="Attachment not found")
     rec, _ = res
     return rec
+
+
+@router.post("/v1/attachments/{evidence_ref}/extract", response_model=DocumentExtractionResult,
+             responses={**errors, 404: {"model": ApiError}, 415: {"model": ApiError}})
+def extract_attachment(
+    evidence_ref: str,
+    tenant: Tenant,
+    repository: Repository,
+) -> DocumentExtractionResult:
+    res = repository.get_attachment(tenant.tenant_id, evidence_ref)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    record, content = res
+    if record.media_type == "application/pdf":
+        result = extract_pdf_document(record, content)
+    elif record.media_type in ("image/png", "image/jpeg"):
+        from .document_extractor import extract_image_ocr
+        result = extract_image_ocr(record, content)
+    else:
+        raise HTTPException(status_code=415, detail=f"Unsupported attachment type for extraction: {record.media_type}")
+
+    return repository.save_document_extraction(tenant.tenant_id, result)
+
+
+@router.get("/v1/attachments/{evidence_ref}/extraction", response_model=DocumentExtractionResult,
+            responses={**errors, 404: {"model": ApiError}})
+def get_attachment_extraction(
+    evidence_ref: str,
+    tenant: Tenant,
+    repository: Repository,
+) -> DocumentExtractionResult:
+    result = repository.get_document_extraction(tenant.tenant_id, evidence_ref)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Document extraction not found for this attachment")
+    return result
 
