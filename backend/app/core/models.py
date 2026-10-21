@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import DateTime, Index, Integer, JSON, String, Text
+from sqlalchemy import DateTime, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -106,5 +107,42 @@ class CommitmentProposalRecord(Base):
     __table_args__ = (
         Index("ix_proposals_tenant_commitment_version", "tenant_id", "commitment_id", "proposal_version"),
         Index("ix_proposals_tenant_status", "tenant_id", "status"),
+    )
+
+
+class ResourceStockRecord(Base):
+    __tablename__ = "resource_stocks"
+
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    resource_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    total_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    reserved_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"))
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    snapshot_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_resource_stocks_tenant_updated", "tenant_id", "updated_at"),
+    )
+
+
+class ResourceReservationRecord(Base):
+    __tablename__ = "resource_reservations"
+
+    reservation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    commitment_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    plan_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    action_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    resource_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_resource_reservations_tenant_idempotency"),
+        Index("ix_resource_reservations_tenant_commitment", "tenant_id", "commitment_id"),
+        Index("ix_resource_reservations_tenant_resource_status", "tenant_id", "resource_id", "status"),
     )
 
