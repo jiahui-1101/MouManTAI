@@ -135,22 +135,22 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 
 | ID | Deliverable | Owner | Status | Evidence / PR / Test | Blocker | Next action |
 |---|---|---|---|---|---|---|
-| P1-FE | Inbox + Context Review UI | P1 | IN_PROGRESS | Batch 3 completed (`5e73ff0`): OrderContextDetail (FE-03) with items, evidence quotes, conflicts & missing fields alerts, and version timeline; ReviewDrawer (FE-02) with field editing, reviewer notes, and optimistic locking; DurableInbox context action; 135 frontend tests pass | — | Batch 4 Core Integration Facade & readiness gating |
-| P1-BE | Ingestion/Extraction/Context API | P1 | IN_PROGRESS | Batch 3 completed (`8c18730`, `d38f6c5`): OrderContext and OrderContextVersion in p1_dev; follow-up message merge with conflict detection; optimistic locking (409 StaleContextVersion); actor/role audit log; REST API endpoints for context lifecycle, review, and history; 280 backend tests pass | Awaiting P5 BusinessContext & CoreIntegrationFacade coordination | Batch 4 Core Integration Facade & readiness gating |
-| P1-TST | Context tests and metrics | P1 | IN_PROGRESS | Batch 3 tests: test_order_context_storage.py (4 passed), test_context_api.py (3 passed), OrderContextDetail.test.tsx (6 passed); full test suites passing: 280 backend tests + 135 frontend tests (100% green); tsc -b && vite build 0 errors | — | Batch 4 Core Integration Facade integration tests |
-| P2-FE | Feasibility / Impact UI | P2 | IN_REVIEW | P2 pages/guards plus injected public GET adapter; 118 frontend passed, 5 skipped; typecheck/build passed | P5 authenticated transport, detail/current-version response and route mounting remain unavailable; no live P2 UI/API path | Independent review of Phase 7B-1, then approved joint wiring |
-| P2-BE | Constraint + Impact engine | P2 | IN_REVIEW | Phase 7A engines/pipeline preserved; exact result mapping/history reference/resource readiness; internal evaluator SERVICE/SYSTEM role guard; 229 P2 + 79 P5 backend tests passed | Trusted sources/version authority, durable writer/history/Core/audit/outbox transaction, supplier processor and production mounts; P3 typed authoritative input confirmation | Review `feat/p2-phase7b-integration`; stop before Phase 7B-2 |
-| P2-TST | Feasibility/Impact tests | P2 | IN_REVIEW | 308 combined backend passed; 118 frontend passed / 5 skipped; P2 demo exits 0 | Authenticated DB/API/browser E2E and transaction race/rollback through joint adapter not exercised; host pytest 9.1.1 is outside declared `<9` | Independent review; no PR or Main integration |
-| P3-FE | Recovery / Approval UI | P3 | NOT_STARTED | — | — | Plan comparison cards |
-| P3-BE | Plan / Approval / Action API | P3 | NOT_STARTED | — | P2 evaluator interface | Start templates |
-| P3-TST | Approval/Execution tests | P3 | NOT_STARTED | — | — | Define stale-approval test |
-| P4-FE | Communication / Confirmation UI | P4 | NOT_STARTED | — | — | Scaffold route |
-| P4-BE | Draft/Send/Confirm APIs | P4 | NOT_STARTED | — | P3 proposal schema | Define signed confirmation |
-| P4-TST | Confirmation/Channel tests | P4 | NOT_STARTED | — | — | Define ambiguous OK fixture |
-| P5-FE | Shell / Overview / Audit UI | P5 | IN_PROGRESS | Real Overview (/overview) & Activity (/activity) wired to real backend endpoints via TanStack Query (FE-01, FE-02, FE-03, UI-01, UI-02); timeline with F1–F4 deep links, state diffs, version increments, human governance highlights, correlation/causation grouping, role redaction, loading/empty/error/403 states; 12 vitest tests passing | Feature pages remain owner work | Integrate P1–P4 feature routes |
-| P5-BE | Registry / DB / Events / Roles | P5 | IN_PROGRESS | Integration facade & typed consumers (BE-06a–f), P1–P4 handshakes, proposal versioning, mock resource inventory & locking primitive (SAF-4, Invariant 8); 63 backend tests passing | Docker daemon unavailable for DB smoke | Complete cross-feature E2E rehearsal |
-| P5-TST | Integrated E2E / Security tests | P5 + all | IN_PROGRESS | 63 backend tests + 12 frontend tests passing (BE-06a–f, SAF-4, Invariant 8, E2E-01 through E2E-12, UI-04, UI-05, UT-04, UT-06, UT-07, UT-08, UT-09, UT-10, SAF-2) | Full E2E waits for P1–P4 feature modules | Cross-feature integration complete |
-| REL-01 | Deploy / submission / docs | Release owner | NOT_STARTED | — | — | Assign owner |
+| P1-FE | Inbox + Context Review UI | P1 | IN_PROGRESS | DurableInbox, ReviewDrawer, and OrderContextDetail implemented on `feat/p1-context-intelligence`; Vitest component tests | BLOCK-P1-001 (unmerged branch, package.json/vite.config collisions) | Clean branch, resolve config collisions, submit PR to `main` |
+| P1-BE | Ingestion/Extraction/Context API | P1 | IN_PROGRESS | ContextService, ingestion API, deterministic extractor on `feat/p1-context-intelligence` | BLOCK-P1-001 (unmerged branch, pyproject.toml collisions) | Align with Core `/v1/integration/context-updated` and submit PR |
+| P1-TST | Context tests and metrics | P1 | IN_PROGRESS | Extraction safety and scenario JSON tests passing on P1 branch | BLOCK-P1-001 | Verify against shared integration test suite |
+| P2-FE | Feasibility / Impact UI | P2 | IN_PROGRESS | `CommitmentFeasibilityPage`, `ImpactDetailPage`, synthetic preview fixture and apiSource adapter merged to repo; 118 frontend tests passing | Route mounting in `App.tsx` and P5 authenticated transport pending Phase 7B-2 | Mount live routes in `App.tsx` |
+| P2-BE | Constraint + Impact engine | P2 | DONE | Feasibility evaluator, batch ATP, BOM, supplier pipeline, and causal impact engine merged to `main` (PR #5, PR #6); 229 backend tests passing | BLOCK-P2-P5-004 (Phase 7B-2 joint adapters in progress) | Implement Phase 7B-2 adapters connecting P2 ports to Core |
+| P2-TST | Feasibility/Impact tests | P2 | DONE | 229 P2 backend tests + 80 P5 backend tests = 309 passing; 118 frontend passed / 5 skipped | None | Joint E2E rehearsal |
+| P3-FE | Recovery / Approval UI | P3 | IN_PROGRESS | `RecoveryPage.tsx` implemented with option compare and action cards on `feat/p3-recovery` | BLOCK-P3-001 (unmerged branch) | Submit PR to `main` and mount route in `App.tsx` |
+| P3-BE | Plan / Approval / Action API | P3 | IN_REVIEW | Recovery orchestrator, proposal mapping, ranking, triggers, and action executor on `feat/p3-recovery`; audited and approved by P5 in Task T4.2-A | BLOCK-P3-001 (needs PR to `main` and verified role adapter) | Submit PR to `main`, remove com_001 hardcoding, wire server-side auth |
+| P3-TST | Approval/Execution tests | P3 | IN_REVIEW | 107 tests passing on `feat/p3-recovery`; reuses P2 evaluator | BLOCK-P3-001 | Merge PR to `main` |
+| P4-FE | Communication / Confirmation UI | P4 | BLOCKED | Types scaffold on `P4-communication`; no UI implemented | BLOCK-P4-001 (critical delay, unstarted UI) | Scaffold `/communications` and `/confirmations/:id` |
+| P4-BE | Draft/Send/Confirm APIs | P4 | BLOCKED | Foundation schemas and mock service on `P4-communication`; 14 tests passing | BLOCK-P4-001 (critical delay, no live draft/send API) | Implement draft/send/confirm APIs |
+| P4-TST | Confirmation/Channel tests | P4 | BLOCKED | 14 foundation tests on `P4-communication` | BLOCK-P4-001 | Implement signed confirmation & ambiguous OK tests |
+| P5-FE | Shell / Overview / Audit UI | P5 | IN_PROGRESS | Real Overview (/overview) & Activity (/activity) wired to backend via TanStack Query (FE-01, FE-02, FE-03); shared AppShell, navigation, auth, role simulation; 118 tests passing | None | Mount P1–P4 feature routes in `App.tsx` |
+| P5-BE | Registry / DB / Events / Roles | P5 | IN_PROGRESS | Core Commitment Registry (BE-02), DB migrations (0001-0005), outbox worker (BE-04), mock resource inventory & locking (SAF-4, Invariant 8), overview/timeline APIs (BE-06); 80 tests passing | BLOCK-20261021-001 (isolated PostgreSQL for live migration smoke) | Complete Phase 7B-2 P2 integration adapters |
+| P5-TST | Integrated E2E / Security tests | P5 + all | IN_PROGRESS | Single-commitment Hero Journey ('com_001' v1-v9) and full 12-scenario acceptance matrix verified; 309 backend + 118 frontend tests passing | Full E2E waits for P1, P3, P4 PR merges | Rehearse full cross-feature E2E |
+| REL-01 | Deploy / submission / docs | Release owner | NOT_STARTED | Docker Compose, README.md, CI workflow, .env.example created | Assign owner | Assign deploy owner |
 
 **DONE definition**: reviewed PR merged + live API/UI or valid designated mock + passing relevant tests + integration compatibility + log link. `95% done` is not a status. Screenshots alone do not prove backend behavior.
 
@@ -239,6 +239,14 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 - P5: Completed: Task T3.3 (Backend E2E Hero Journey & Full 12-Scenario Acceptance Matrix, UI-04, UI-05, E2E-01 to E2E-12); implemented test_e2e_hero_journey.py (full single-commitment_id 'com_001' lifecycle across 9 monotonic optimistic concurrency versions from ingestion to delivery POD) and test_e2e_negative_matrix.py (E2E-04 snapshot drift, E2E-05 ambiguous OK, E2E-06 stale proposal version rejection, E2E-07 delivery tracking without state advance, E2E-08 idempotency retry, E2E-09 unverified receipt guard, E2E-10 worker crash recovery, E2E-11 cross-tenant isolation); updated commitments.py attention queue is_ambiguous evaluation; 63 backend tests + 12 frontend tests passing; typecheck & build passing | Next: Cross-feature E2E rehearsal with team | Blocked by: BLOCK-20261021-001 (isolated PostgreSQL for live migration smoke)
 - Integration status: Full 12-scenario backend E2E acceptance matrix and Hero Journey verified on real database.
 - Risks and decisions: Invariant adherence verified: REQUESTED != CONFIRMED, CONFIRMED + AT_RISK coexists, SENT != ACCEPTED != FULFILLED, APPROVED != EXECUTED, OCR receipt != verified funds. CONTRACT-20261021-008.
+### 2026-10-21 — Daily integration sync (Task T4.2-B / TL-1)
+- P1: Completed: ContextService, deterministic extraction, and DurableInbox on `feat/p1-context-intelligence` | Next: Clean branch without root config collisions and submit PR to `main` | Blocked by: BLOCK-P1-001 (unmerged branch, package config collisions)
+- P2: Completed: Feasibility evaluator, ATP, BOM, supplier pipeline, and impact engine merged to `main` (PR #5, PR #6); Phase 7B integration baseline merged to P5 in Task T5.1 (309 backend tests passing) | Next: Phase 7B-2 joint adapter implementation and router mounting | Blocked by: BLOCK-P2-P5-004 (Phase 7B-2 joint adapters in progress)
+- P3: Completed: Recovery orchestrator, proposal mapping, actions, ranking, and triggers on `feat/p3-recovery`; audited & approved by P5 in Task T4.2-A (107 tests passing) | Next: Submit PR to `main`, remove com_001 hardcoding in planner, wire verified role adapter | Blocked by: BLOCK-P3-001 (PR submission to main pending)
+- P4: Completed: Initial foundation schemas and tests on `origin/P4-communication` (14 tests passing) | Next: Implement draft/send/confirm APIs and confirmation workspace UI | Blocked by: BLOCK-P4-001 (critical delay, no UI or operational APIs ready for Oct 22 milestone)
+- P5: Completed: Task T4.2-A (P3 PR audit), Task T5.1 (P2 Phase 7B merge + tzdata fix), Task T4.2-B (Daily integration sync & blocker triage); verified 309 backend tests passing, 118 frontend tests passing, typecheck/build passing; single-commitment_id 'com_001' Hero Journey (v1-v9) proven on backend | Next: Phase 7B-2 (wire P2 adapters in api_dependencies.py, mount feasibility_router in main.py, wire App.tsx routes) | Blocked by: BLOCK-20261021-001 (isolated PostgreSQL for live migration smoke)
+- Integration status: Backend Core Hero Journey fully verified across v1-v9 on real DB; P2 backend merged into main and integrated on P5 branch; P3 audited & ready to merge; P1 pending clean PR; P4 critically delayed. Frontend overview/activity live; feature routes in App.tsx remain placeholders pending feature mounting.
+- Risks and decisions: P4 timeline is primary risk for Oct 22 integration milestone; P1 package collisions must be cleaned before PR; Invariants strictly held across all modules (REQUESTED != CONFIRMED, SENT != ACCEPTED != FULFILLED, APPROVED != EXECUTED).
 
 ### 2026-10-21 — P1 Task 2B Delivery Date/Time & Unit Normalization
 - P1: Completed: Task 2B (Deterministic Delivery Date/Time & Unit Normalization, commits `7c6ab30`, `243fab1`, `9a83e3b`, `772bb1e`). Supports relative dates (today/tomorrow/今天/明天/后天) with timezone-aware midnight/boundary resolution, ISO and formatted English/Chinese dates, 12h/24h/Chinese times, deadline qualifiers (DEADLINE vs EXACT vs DATE_ONLY), multilingual unit normalization (pcs, piece, pieces, pc, 个, 件 -> pcs; box, boxes, 盒, 箱 -> box; kg, 公斤 -> kg), unsafe unit conversion prevention (24 kg burgers -> INVALID), and conflict/unsupported expressions -> UNRESOLVED. 62 focused unit tests pass; 218 total backend tests pass. Synced latest Main (PR #3 P5 and PR #4 P2 Feasibility Engine `ee4dfc7`) with 0 conflicts.
@@ -264,11 +272,14 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | ID | Opened | Blocked owner | Blocking owner | Issue | Impact | Decision / ETA | Status |
 |---|---|---|---|---|---|---|---|
 | BLOCK-20261021-001 | 2026-10-21 | P5 | Environment | Docker Desktop Linux engine unavailable because host exposes WSL1; existing PostgreSQL on 5432 is unrelated | Live PostgreSQL migration and DB smoke test cannot run safely | Enable WSL2 or provide isolated PostgreSQL on host 5433 | OPEN |
-| BLOCK-P2-P3-001 | 2026-10-21 | P2 | P5 | Empty actual Impact Set schema fix IMPLEMENTED ON P5 BRANCH, PENDING INTEGRATION (`a5f9915`); current P2/Main still old schema | Final shared assessment adapter still blocked on synchronization and runtime adapters | No merge authorized/performed; preserve both owners TEAM_LOG entries in a future approved sync | OPEN |
-| BLOCK-P2-P3-002 | 2026-10-21 | P2 | P3 | ProposedChanges fixed-booking and Phase 5 HTTP serialization not yet owner-confirmed | Library/API handoff provisional | Review PHASE3_HANDOFF.md and PHASE5_HANDOFF.md; reuse pure evaluate(); no duplicate calculator or arbitrary stock insertion | OPEN |
+| BLOCK-P2-P3-001 | 2026-10-21 | P2 | P5 | Empty actual Impact Set schema fix | Final shared assessment adapter | Resolved via D-CONTRACT-005; merged in PR #2 and PR #6 | CLOSED |
+| BLOCK-P2-P3-002 | 2026-10-21 | P2 | P3 | ProposedChanges fixed-booking serialization | Cross-feature evaluator reuse | Resolved; P3 directly uses P2 pure evaluate() | CLOSED |
 | BLOCK-P2-P3-003 | 2026-10-21 | P2 | P2 + P5 | Shared summary lacks complete operational evidence; SAUCE/PACKAGING vs WRAP catalog mismatch | Shared demo cannot be safely treated as a full trusted snapshot | Review source/catalog adapter and fixture extension; missing data stays UNKNOWN | OPEN |
-| BLOCK-P2-P5-004 | 2026-10-21 | P2 | P5 | No approved P2 router mount, authenticated RequestContext/internal auth, authoritative snapshot/version authority, durable assessment/history or impact reader, or transactional supplier-event/outbox adapter | Local route tests are not production integration; assessment/event success remains unavailable | P5 to answer the exact interface/ownership questions in `backend/app/feasibility/PHASE5_HANDOFF.md`; routes fail closed until approved adapters exist | OPEN |
-| BLOCK-P2-P3-005 | 2026-10-21 | P2 | P3 | P3 owner confirmation of the HTTP hypothetical-evaluation request/response shape is pending | No cross-module HTTP call can be claimed; Python pure evaluator remains the documented handoff | Confirm Phase 5 serialization against `evaluate(snapshot, proposed_changes, commitment)` in `PHASE5_HANDOFF.md`; P2 made no P3 changes | OPEN |
+| BLOCK-P2-P5-004 | 2026-10-21 | P2 | P5 | Mounting P2 router in main.py, implementing P5 adapters in api_dependencies.py for CommitmentService.assess() and reservations.get_resource_snapshot(), mounting App.tsx routes | Live P2 HTTP routes return 503 until adapters provided; App.tsx uses FeaturePlaceholder | P5 Phase 7B-2 implementation currently in progress | IN_PROGRESS |
+| BLOCK-P2-P3-005 | 2026-10-21 | P2 | P3 | P3 owner confirmation of the HTTP hypothetical-evaluation shape | Cross-module call | Resolved; pure Python evaluator adapter adopted | CLOSED |
+| BLOCK-P1-001 | 2026-10-21 | P1 / Team | P1 | P1 branch feat/p1-context-intelligence contains unmerged shared config modifications (pyproject.toml, package.json, vite.config.ts) and has not submitted PR to main | Blocks P1 context integration into shared integration branch and App.tsx | P1 to rebase onto latest main, remove unnecessary shared config changes, and submit clean PR | OPEN |
+| BLOCK-P3-001 | 2026-10-21 | P3 / Team | P3 | P3 branch feat/p3-recovery passed Task T4.2-A audit but PR to main is unmerged; planner hardcodes com_001; HTTP approval uses unverified adapter | Blocks live recovery route integration | P3 to open PR to main; wire server-side auth adapter (D-005) and multi-commitment reader | OPEN |
+| BLOCK-P4-001 | 2026-10-21 | P4 / Team | P4 | P4 feature slice critically delayed; only scaffold schemas on P4-communication branch; no UI or live draft/send/confirm API implemented | End-to-end customer confirmation loop blocked for Oct 22 integration milestone | P4 owner must scaffold confirmation workspace UI and implement draft/send/confirm endpoints | CRITICAL / OPEN |
 | BLOCK-TEMPLATE | — | — | — | Add concrete blockers here | — | — | TEMPLATE |
 
 **Escalation rule**: Any blocking contract dispute >2 hours → write blocker and involve P5 + affected owner; choose narrow contract fix, not silent ad hoc field changes. Any P0 at-risk task by 23 Oct → alert entire team and cut P1/P2 extras before core journey.
@@ -835,6 +846,33 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - Implement P5 integration adapters in `backend/app/feasibility/api_dependencies.py` connecting P2 ports to `CommitmentService.assess()` and `reservations.get_resource_snapshot()`.
   - Mount `feasibility_router` in `backend/app/main.py` and feature pages in `frontend/src/App.tsx`.
   - Execute joint E2E supplier delay -> P2 recalculation -> Core risk transition -> dashboard flow.
+
+### 2026-10-21 — Task T4.2-B: Daily Integration Sync Status & Blocker Triage (TL-1)
+- **Status**: Complete & Verified (Audit, test runs, and triage recorded).
+- **Scope & Findings**:
+  1. **Single-Commitment Hero Journey (`F1 -> Core -> F2 -> Core -> F3 -> Core -> F4 -> Core -> Fulfilment`)**:
+     - Authoritative backend lifecycle verified on single `commitment_id` (`com_001`) through 9 monotonic versions (`REQUESTED` v1 -> `FEASIBLE` v2 -> `OFFERED` v3 -> `CONFIRMED` v4 -> `INFEASIBLE`/`AT_RISK` v5 -> `PLANNING` v6 -> revised `OFFERED` v7 -> customer `CONFIRMED` v8 -> operational POD `FULFILLED` v9).
+     - Cross-module handshakes: P2 calculation verified and merged to `main` (PR #6); P3 recovery slice audited and approved in Task T4.2-A (PR pending); P1 ingestion/extraction slice functional on branch `feat/p1-context-intelligence` (PR pending); P4 communication critically delayed (scaffold only).
+  2. **Feature Route Wiring Matrix**:
+     - `/overview` (P5): **LIVE BACKEND API** (`GET /v1/overview`).
+     - `/activity` (P5): **LIVE BACKEND API** (`GET /v1/commitments/{id}/timeline` / audit).
+     - `/inbox` (P1): **FIXTURE / PLACEHOLDER** in `App.tsx` (P1 `DurableInbox` unmerged on `feat/p1-context-intelligence`).
+     - `/orders/:id` (P1): **FIXTURE / PLACEHOLDER** in `App.tsx` (P1 `OrderContextDetail` unmerged).
+     - `/commitments/:id` (P2): **FIXTURE / PLACEHOLDER** in `App.tsx` (`CommitmentFeasibilityPage` in repo with synthetic preview + `apiSource.ts`, awaiting Phase 7B-2 mount).
+     - `/impact/:id` (P2): **FIXTURE / PLACEHOLDER** in `App.tsx` (`ImpactDetailPage` in repo with synthetic preview + `apiSource.ts`, awaiting Phase 7B-2 mount).
+     - `/recovery/:id` (P3): **FIXTURE / PLACEHOLDER** in `App.tsx` (`RecoveryPage` unmerged on `feat/p3-recovery`).
+     - `/communications` (P4): **FIXTURE / PLACEHOLDER** in `App.tsx` (P4 UI not implemented).
+     - `/confirmations/:id` (P4): **FIXTURE / PLACEHOLDER** in `App.tsx` (P4 UI not implemented).
+  3. **Blockers & Bug Assignments**:
+     - `BLOCK-P1-001` (Assigned: P1): Rebase `feat/p1-context-intelligence` on latest `main`, clean shared config collisions (`pyproject.toml`, `package.json`, `vite.config.ts`), and open clean PR.
+     - `BLOCK-P3-001` (Assigned: P3): Submit clean PR for `feat/p3-recovery` to `main`; wire server-side auth adapter (D-005) and multi-commitment reader.
+     - `BLOCK-P4-001` (Assigned: P4): CRITICAL. Implement draft/send/confirm API endpoints and confirmation workspace UI to unblock Oct 22 customer confirmation loop.
+     - `BLOCK-P2-P5-004` (Assigned: P5): In progress. Phase 7B-2 joint adapter implementation and router mounting.
+- **Validation**:
+  - Backend tests: `309 passed, 0 failed` (`pytest tests app/feasibility/tests`).
+  - Frontend tests: `118 passed, 5 skipped` (`cmd /c npm test -- --run`).
+  - Frontend typecheck: Passed (`tsc --noEmit`, 0 errors).
+  - Frontend build: Passed (`vite build`, generated in 821ms).
 
 ## 2026-10-22 — P4 Commit 03: Template-Based Message Drafting
 
