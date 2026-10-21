@@ -16,7 +16,7 @@ from .extraction import ExtractionResult
 from .ingestion_schemas import StoredMessage
 from .schemas import ExtractedField, FieldEvidence
 
-VERSION = "p1-deterministic-v2"
+VERSION = "p1-deterministic-v3"
 
 # ---------------------------------------------------------------------------
 # Catalogs and Normalization Maps
@@ -113,14 +113,25 @@ DATE_ZH_SHORT_RE = re.compile(r"(?<!\d)(?P<month>\d{1,2})月(?P<day>\d{1,2})[日
 
 # Time patterns
 TIME_12H_RE = re.compile(
-    r"\b(?P<hour>1[0-2]|0?[1-9])(?::(?P<minute>[0-5]\d))?\s*(?P<meridiem>am|pm)(?![A-Za-z0-9_])",
+    r"(?<![A-Za-z0-9_:])(?P<hour>[0-9]+)(?::(?P<minute>[0-9]+))?"
+    r"(?P<extra>(?::[0-9]+)*)\s*(?P<meridiem>am|pm)(?![A-Za-z0-9_:])",
     re.IGNORECASE
 )
 TIME_24H_RE = re.compile(
-    r"(?<![\d:])(?P<hour>[01]?\d|2[0-3]):(?P<minute>[0-5]\d)(?![\d:])"
+    r"(?<![A-Za-z0-9_:])(?P<hour>[0-9]+):(?P<minute>[0-9]+)"
+    r"(?P<extra>(?::[0-9]+)*)(?![A-Za-z0-9_:])"
 )
 TIME_ZH_RE = re.compile(
-    r"(?:(?P<meridiem>下午|晚上|上午|早上|中午)\s*)?(?P<hour>1[0-2]|0?[1-9]|1\d|2[0-3])\s*(?:点|时)(?:(?P<minute>[0-5]\d)分?|(?P<half>半))?"
+    r"(?<![0-9])(?:(?P<meridiem>下午|晚上|上午|早上|中午)\s*)?"
+    r"(?P<hour>[0-9]+)\s*(?:点|时)(?:(?P<minute>[0-9]+)分?|(?P<half>半))?"
+)
+
+# These semantics cannot be represented by EXACT/DEADLINE/DATE_ONLY. Keep
+# the original expression unresolved rather than silently dropping a modifier.
+UNSUPPORTED_TIME_SEMANTICS_RE = re.compile(
+    r"\b(?:after|not\s+before|earlier\s+than|around|about|between|from|not\s+at|"
+    r"not\s+by|UTC|GMT|EST|EDT|CST|PST|PDT)\b|之后|以后|过后|大约|左右|不早于|不要|不是|(?<=点)后",
+    re.IGNORECASE,
 )
 
 # Deadline indicators
@@ -224,6 +235,9 @@ def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate
             valid.append(ParsedDate(d, m.start(), m.end(), m.group()))
 
     for m in DATE_ZH_SHORT_RE.finditer(text):
+        if any(s <= m.start() and m.end() <= e for s, e in
+               [(d.start, d.end) for d in valid] + invalid_calendar):
+            continue
         yr = local_date.year if local_date else 2026
         d = _safe_date(yr, int(m.group("month")), int(m.group("day")))
         if d is None:
@@ -235,40 +249,42 @@ def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate
     return valid, invalid_calendar, tz_required
 
 
-def _find_all_times(text: str) -> list[ParsedTime]:
+def _find_all_times(text: str) -> tuple[list[ParsedTime], list[tuple[int, int]]]:
+    """Capture complete time-like tokens first, then validate their ranges.
+
+    Longer 12h tokens own their spans, preventing 3:30pm from also yielding
+    03:30. Invalid tokens also own spans so no valid suffix can be salvaged.
+    Bare Chinese 1..12 o'clock is ambiguous without a period and is rejected.
+    """
     times: list[ParsedTime] = []
-
-    # 1. 12-hour English time: 3pm, 3:30pm
-    for m in TIME_12H_RE.finditer(text):
-        hr = int(m.group("hour"))
-        mn = int(m.group("minute")) if m.group("minute") else 0
-        mer = m.group("meridiem").lower()
-        if mer == "pm" and hr < 12:
-            hr += 12
-        elif mer == "am" and hr == 12:
-            hr = 0
-        times.append(ParsedTime(hr, mn, m.start(), m.end(), m.group()))
-
-    # 2. Chinese time: 下午3点, 3点半, 下午3点前
-    for m in TIME_ZH_RE.finditer(text):
-        hr = int(m.group("hour"))
-        mn = 30 if m.group("half") else int(m.group("minute")) if m.group("minute") else 0
-        mer = m.group("meridiem")
-        if mer in ("下午", "晚上") and hr < 12:
-            hr += 12
-        elif mer in ("上午", "早上") and hr == 12:
-            hr = 0
-        times.append(ParsedTime(hr, mn, m.start(), m.end(), m.group()))
-
-    # 3. 24-hour time: 15:00
-    for m in TIME_24H_RE.finditer(text):
-        hr = int(m.group("hour"))
-        mn = int(m.group("minute"))
-        if 0 <= hr <= 23 and 0 <= mn <= 59:
+    invalid = []
+    occupied = []
+    for pattern in (TIME_12H_RE, TIME_ZH_RE, TIME_24H_RE):
+        for m in pattern.finditer(text):
+            if any(m.start() < end and start < m.end() for start, end in occupied):
+                continue
+            occupied.append(m.span())
+            hour, minute = m.group("hour"), m.group("minute")
+            groups = m.groupdict()
+            mer = (groups.get("meridiem") or "").lower()
+            if (len(hour) > 2 or (minute is not None and len(minute) != 2)
+                    or groups.get("extra")):
+                invalid.append(m.span())
+                continue
+            hr = int(hour)
+            mn = 30 if groups.get("half") else int(minute) if minute else 0
+            bad_hour = not (1 <= hr <= 12) if mer else not (0 <= hr <= 23)
+            ambiguous = pattern is TIME_ZH_RE and ((not mer and 1 <= hr <= 12) or (mer == "中午" and hr != 12))
+            if bad_hour or not 0 <= mn <= 59 or ambiguous:
+                invalid.append(m.span())
+                continue
+            if mer in ("pm", "下午", "晚上") and hr < 12:
+                hr += 12
+            elif mer in ("am", "上午", "早上") and hr == 12:
+                hr = 0
             times.append(ParsedTime(hr, mn, m.start(), m.end(), m.group()))
-
     times.sort(key=lambda x: x.start)
-    return times
+    return times, invalid
 
 
 # ---------------------------------------------------------------------------
@@ -336,19 +352,34 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     # Check for unsupported or ambiguous relative expressions
     ambig_match = AMBIGUOUS_DELIVERY_RE.search(text)
     dates_found, invalid_calendar_spans, tz_required_spans = _find_all_dates(text, local_date)
-    times_found = _find_all_times(text)
+    times_found, invalid_time_spans = _find_all_times(text)
+    unsupported_semantics = UNSUPPORTED_TIME_SEMANTICS_RE.search(text) if dates_found or times_found else None
+    # Exclude every recognized temporal token from quantity candidates, even
+    # when delivery is invalid/unresolved. Do not steal dates as order counts.
+    delivery_spans.extend([(d.start, d.end) for d in dates_found]
+                          + [(t.start, t.end) for t in times_found]
+                          + invalid_calendar_spans + invalid_time_spans + tz_required_spans)
 
     # Detect conflicts: multiple dates or times with connector
     has_conflict = False
     conflict_span: tuple[int, int] | None = None
-    if len(dates_found) > 1 and DELIVERY_CONFLICT_CONNECTOR_RE.search(text):
+    if len(dates_found) > 1:
         has_conflict = True
         conflict_span = (dates_found[0].start, dates_found[-1].end)
-    elif len(times_found) > 1 and DELIVERY_CONFLICT_CONNECTOR_RE.search(text):
+    elif len(times_found) > 1:
         has_conflict = True
         conflict_span = (times_found[0].start, times_found[-1].end)
 
-    if has_conflict and conflict_span:
+    if unsupported_semantics:
+        spans = delivery_spans + [unsupported_semantics.span()]
+        span = (min(s for s, e in spans), max(e for s, e in spans))
+        delivery_spans.append(span)
+        delivery_field = field("requested_delivery_at", None, "UNRESOLVED", [span],
+                               metadata={"reason": "Unsupported delivery bound, range, approximation or explicit timezone; manual review required"})
+    elif invalid_time_spans:
+        delivery_field = field("requested_delivery_at", None, "INVALID", invalid_time_spans,
+                               metadata={"reason": "Invalid or ambiguous time expression; no partial time or date-only fallback"})
+    elif has_conflict and conflict_span:
         c_start, c_end = conflict_span
         delivery_spans.append((c_start, c_end))
         delivery_field = field(
