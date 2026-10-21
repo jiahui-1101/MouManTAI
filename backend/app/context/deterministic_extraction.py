@@ -126,14 +126,16 @@ TIME_24H_RE = re.compile(
 )
 TIME_ZH_RE = re.compile(
     r"(?<![0-9])(?:(?P<meridiem>下午|晚上|上午|早上|中午)\s*)?"
-    r"(?P<hour>[0-9]+)\s*(?:点|时)(?:(?P<minute>[0-9]+)分?|(?P<half>半))?"
+    r"(?P<hour>[0-9]+)\s*(?:点|时)(?:(?P<minute>[0-9]+)分?|(?P<half>半))?(?P<extra>[0-9]+秒)?"
 )
 
 # These semantics cannot be represented by EXACT/DEADLINE/DATE_ONLY. Keep
 # the original expression unresolved rather than silently dropping a modifier.
 UNSUPPORTED_TIME_SEMANTICS_RE = re.compile(
     r"\b(?:after|not\s+before|earlier\s+than|around|about|between|from|not\s+at|"
-    r"not\s+by|UTC|GMT|EST|EDT|CST|PST|PDT)\b|之后|以后|过后|大约|左右|不早于|不要|不是|(?<=点)后",
+    r"not\s+by|UTC|GMT|EST|EDT|CST|CDT|MST|MDT|PST|PDT|BST|CET|CEST|HKT|SGT|MYT|JST|AEST|AEDT)\b|"
+    r"(?<![A-Za-z0-9])[+-][0-9]{2}:?[0-9]{2}(?![0-9])|"
+    r"\b[A-Za-z_]+/[A-Za-z_]+\b|之后|以后|过后|大约|左右|不早于|不要|不是|(?<=点)后",
     re.IGNORECASE,
 )
 
@@ -297,7 +299,8 @@ def _find_all_times(text: str) -> tuple[list[ParsedTime], list[tuple[int, int]]]
             hr = int(hour)
             mn = 30 if groups.get("half") else int(minute) if minute else 0
             bad_hour = not (1 <= hr <= 12) if mer else not (0 <= hr <= 23)
-            ambiguous = pattern is TIME_ZH_RE and ((not mer and 1 <= hr <= 12) or (mer == "中午" and hr != 12))
+            ambiguous = pattern is TIME_ZH_RE and ((not mer and 1 <= hr <= 12)
+                or (mer == "中午" and hr != 12) or (mer in ("晚上", "早上") and hr == 12))
             if bad_hour or not 0 <= mn <= 59 or ambiguous:
                 invalid.append(m.span())
                 continue
@@ -398,6 +401,12 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     elif len(times_found) > 1:
         has_conflict = True
         conflict_span = (times_found[0].start, times_found[-1].end)
+    elif dates_found and times_found:
+        dt, tm = dates_found[0], times_found[0]
+        gap = text[min(dt.end, tm.end):max(dt.start, tm.start)]
+        if re.search(r"[;。.!?！？\n]", gap):
+            has_conflict = True
+            conflict_span = (min(dt.start, tm.start), max(dt.end, tm.end))
 
     if unsupported_semantics:
         spans = delivery_spans + [unsupported_semantics.span()]
@@ -533,6 +542,7 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
                         delivery_field.validation_status = "UNRESOLVED"
                         delivery_field.value = None
         else:
+            date_relation = qualifier
             qualifier = "DATE_ONLY"
             delivery_field = field(
                 "requested_delivery_at",
@@ -542,6 +552,7 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
                 qualifier=qualifier,
                 metadata={
                     "qualifier": qualifier,
+                    "date_relation": date_relation,
                     "raw_expression": text[span_start:span_end],
                     "timezone": message.raw.business_timezone or "",
                 },

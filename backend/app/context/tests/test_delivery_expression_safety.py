@@ -17,6 +17,7 @@ def delivery(text):
     "Deliver tomorrow after 3pm", "Deliver tomorrow not before 3pm",
     "明天下午3点之后送", "Deliver tomorrow around 3pm",
     "Deliver tomorrow between 3pm and 4pm", "Deliver tomorrow at 3pm UTC",
+    "Deliver on 2026-10-24 at 15:00 -0500", "Deliver tomorrow at 3pm Asia/Tokyo",
 ])
 def test_unsupported_bound_range_or_time_zone_is_not_exact(text):
     field = delivery(text)
@@ -28,6 +29,7 @@ def test_unsupported_bound_range_or_time_zone_is_not_exact(text):
     "Deliver tomorrow at 3pm; deliver on 2026-10-24 at 4pm",
     "Deliver tomorrow at 3pm. Deliver on 2026-10-24 at 4pm.",
     "Tomorrow at 3pm; 4pm", "Tomorrow. 2026-10-24", "Tomorrow at 3pm\n2026-10-24 at 4pm",
+    "Deliver tomorrow; call at 3pm", "Deliver tomorrow. Pickup at 3pm",
 ])
 def test_independent_expressions_never_silently_choose_first(text):
     field = delivery(text)
@@ -39,6 +41,7 @@ def test_independent_expressions_never_silently_choose_first(text):
 @pytest.mark.parametrize("token", [
     "25点", "下午25点", "下午3点70分", "3:99pm", "13pm", "25:00", "15:99",
     "15:000", "3:30:00pm", "15:00:00", "3点", "中午3点", "0pm", "003pm",
+    "晚上12点", "下午3点30分5秒",
 ])
 def test_bad_or_ambiguous_time_cannot_fall_back_to_partial_or_date_only(token):
     field = delivery(f"Deliver on 2026-10-24 at {token}")
@@ -61,3 +64,9 @@ def test_unicode_semantic_cue_is_part_of_source_evidence():
     assert field.validation_status == "UNRESOLVED"
     assert any("之后" in evidence.quote for evidence in field.evidence)
     assert all(text[e.start:e.end] == e.quote for e in field.evidence)
+
+
+def test_date_only_deadline_keeps_relation_without_inventing_midnight():
+    field = delivery("Deliver before 2026-10-24")
+    assert field.value == "2026-10-24" and field.qualifier == "DATE_ONLY"
+    assert field.metadata["date_relation"] == "DEADLINE"
