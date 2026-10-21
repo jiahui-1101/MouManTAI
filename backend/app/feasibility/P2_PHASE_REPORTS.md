@@ -1109,6 +1109,38 @@ calculation. Synthetic deterministic comparison is not proof of production sourc
 authenticity. This P5 adapter remains unimplemented/unconfigured and is not changed
 in this follow-up.
 
+## Phase 7B-1 — P2 integration readiness — 2026-10-21
+
+**State:** P2-local readiness changes PASS and are ready for independent review. Production integration remains PARTIAL/BLOCKED pending P5's trusted source, identity, durable writer/reader, supplier processor, app mounting, and authenticated frontend contracts; P3 evaluator handoff confirmation is also pending.
+
+**Approved baseline and Git:** fetched `origin/main` and verified PR #5 merge SHA `03d5928e060271585a617afb3733b83732e6d4cd` is Main HEAD and contains the approved Phase 7A implementation. Starting branch `feat/p2-phase7b-integration` was created directly from that commit. The pre-existing `feat/p2-phase7-integration` checkout was clean and left unchanged. P3 `ca7517c7c09390f0926d01825e689dbf1a8c8ca6` and P5 `5823db8c89d509243f904d988f865a6777ea6c4a` were inspected read-only and were not treated as Main code or as confirmed owner responses.
+
+**Scope:** no feasibility or impact engine rewrite; no shared schema, Core, DB, migration, auth, app-shell, P3 or P5 implementation changes. Changes are P2 backend router/test, P2 frontend data adapter/tests and P2 documentation/log only.
+
+**P2 implementation:**
+
+- Added an injected P2 public API source for the existing Core commitment, P2 assessment-history and P2 impact GET endpoints. It adds no request identity headers and remains unwired because P5's authenticated transport and route mounting are not approved/available.
+- Maps the latest assessment by timestamp but supplies no current snapshot version or detail rows. Current feasibility remains UNKNOWN until P5 returns authoritative currentness. Recalculation remains disabled.
+- Maps canonical impact classifications, deltas, buffers, evidence and dependency paths after checking root and row tenant/snapshot bindings. Trigger source values and Core risk transitions remain unavailable; the adapter does not infer them from event intents.
+- The P2 internal evaluator now rejects non-SERVICE/SYSTEM contexts before authority resolution. Its dependency remains unset by default, returning 503. This role check does not authenticate the context; P5 must provide a server-resolved service identity separate from the requester.
+- Test-first evidence: the new internal-caller regression first received 200 for a MANAGER context and then passed after the guard. Frontend cases first failed because the adapter/currentness behavior was absent; additional nested impact-binding cases first showed that row tenant/version details were being discarded. Final focused adapter/currentness tests pass.
+
+**Exact P5/P3 findings and dependency matrix:** see `PHASE7B1_INTEGRATION_READINESS.md`. Main already provides P2 pure `evaluate`, complete synthetic supplier recalculation, canonical assessment mapping, local reference history and an aggregate stock read that remains explicitly incomplete. P2 dependencies remain unconfigured by default. Production router mounting, trusted requester/SERVICE contexts, authoritative full snapshots/current version, durable assessment and impact storage, atomic Core/history/audit/outbox writer, `SupplierDelayProcessor`, authenticated P2 detail transport and route mounting require P5. P3's latest branch has a newer callable evaluator adapter requiring an authoritative `VersionedSnapshot`; its older adapter remains interface-incompatible and the owner must confirm the production path.
+
+**Validation actually run:**
+
+- From `backend/`: focused P2 router suite — **25 passed**; P2 feature suite — **229 passed**; P5/shared suite — **79 passed**; combined P2/P5 suite — **308 passed**. Each pytest invocation emitted one existing Starlette warning that `httpx` with `TestClient` is deprecated.
+- `python -B -m app.feasibility.demo` — **exit 0**. Output marks data `SYNTHETIC_P2_PIPELINE` and persistence `process-local reference only; nothing published`.
+- From `frontend/`: focused adapter/currentness suite — **18 passed**; full `npm.cmd test` — **118 passed, 5 skipped**; `npm.cmd run typecheck` — exit 0; `npm.cmd run build` — exit 0, 94 modules transformed. Five skips include the gated live-API suite; Vitest emitted its jsdom worker performance advisory.
+
+All P2/P5 API tests used isolated local dependencies (SQLite/injected providers/writers or frontend request doubles). No live PostgreSQL/migrations, authenticated API, mounted P2 page, persistent P2 writer, browser route, or joint P2/P5/P3 E2E was run. The P2 demo remains synthetic and process-local.
+
+**Files:** `backend/app/feasibility/router.py`; `backend/app/feasibility/tests/test_router.py`; `backend/app/feasibility/PHASE7B1_PLAN.md`; `backend/app/feasibility/PHASE7B1_INTEGRATION_READINESS.md`; P2 progress/trace/report; `frontend/src/features/feasibility/apiSource.ts`; `frontend/src/features/feasibility/apiSource.test.ts`; `frontend/src/features/feasibility/data.ts`; `frontend/src/features/feasibility/data.test.ts`; and a P2-only `docs/TEAM_LOG.md` status/log update.
+
+**Recommended joint sequence:** P5 configures authenticated requester/service contexts, source authority, writer/history/impact/supplier processor and app routes; seed two commitments with full synthetic operational evidence; submit supplier ETA change and assert one affected plus one buffered-unaffected result; verify atomic history/Core risk/audit/outbox and duplicate replay; inject transactional failure and verify complete rollback; exercise stale/tenant/evidence/untrusted negatives; then load P2 pages and P5 overview through real authenticated API/browser paths. Full ordering and assertions are in the readiness report.
+
+**Gate:** stop for independent review after committing and pushing only `origin/feat/p2-phase7b-integration`. Do not start Phase 7B-2 or joint production wiring until separately approved. No PR or Main merge is authorized by this phase.
+
 Changed files: `history.py`, `ports.py`, `tests/test_history.py`,
 `PHASE7A_HANDOFF.md`, `P2_PROGRESS.md`, `P2_REQUIREMENT_TRACE.md`,
 `P2_PHASE_REPORTS.md`, and P2-only `docs/TEAM_LOG.md` entry. Final commit/remote SHA

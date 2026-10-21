@@ -79,9 +79,15 @@ def api_client() -> Generator[TestClient, None, None]:
         actor_role="MANAGER",
         correlation_id="corr_p2_router_test",
     )
+    internal_context = RequestContext(
+        tenant_id="tenant-synthetic-p2",
+        actor_id="service_p2_feasibility",
+        actor_role="SERVICE",
+        correlation_id="corr_p2_internal_router_test",
+    )
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_request_context] = lambda: context
-    app.dependency_overrides[get_internal_request_context] = lambda: context
+    app.dependency_overrides[get_internal_request_context] = lambda: internal_context
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()
@@ -233,6 +239,26 @@ def test_internal_evaluate_reuses_pure_engine_and_preserves_unknown_metadata(
     assert "shared_output_blocker" not in result
     assert "affected_commitment_ids" not in result
     assert authority.calls == 1
+
+
+def test_internal_evaluate_rejects_untrusted_requester_before_authority_or_solver(
+    api_client: TestClient,
+) -> None:
+    payload = _evaluation_payload()
+    authority = FixtureEvaluationAuthority()
+    api_client.app.dependency_overrides[get_evaluation_input_authority] = lambda: authority
+    api_client.app.dependency_overrides[get_internal_request_context] = lambda: RequestContext(
+        tenant_id=payload["commitment"]["tenant_id"],
+        actor_id="user_manager_01",
+        actor_role="MANAGER",
+        correlation_id="corr_untrusted_internal_call",
+    )
+
+    response = api_client.post("/internal/feasibility/evaluate", json=payload)
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "P2_INTERNAL_CALLER_NOT_AUTHORIZED"
+    assert authority.calls == 0
 
 
 def test_internal_evaluate_rejects_cross_tenant_before_authority_or_solver(

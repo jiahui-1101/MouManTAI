@@ -30,6 +30,7 @@ export function validateFeasibility(view: FeasibilityView, id: string, tenant: s
 export function assessmentCaution(view: FeasibilityView, displayTime = Date.now()): string | null {
   const a = view.assessment, d = view.details;
   if (!a) return "No assessment available. Core feasibility state alone is not a detailed assessment.";
+  if (view.current_snapshot_version === null) return "Current snapshot version is unavailable; this is historical assessment data and current feasibility is UNKNOWN.";
   if (a.commitment_version !== view.commitment.commitment_version || a.snapshot_version !== view.current_snapshot_version) return "Stale or conflicting version. Historical assessment only; current feasibility is UNKNOWN.";
   if (a.solver_status !== "COMPLETED") return `Solver ${a.solver_status}; current feasibility is UNKNOWN.`;
   const assessed = Date.parse(a.assessed_at);
