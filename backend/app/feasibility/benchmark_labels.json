@@ -1,0 +1,21 @@
+{
+  "scope": "Manually established synthetic labels, independent of evaluator outputs",
+  "feasibility": {
+    "complete": {"status": "FEASIBLE", "reason": "100 unreserved patties for 100 burgers; continuous evidenced line booking and delivery fit deadline"},
+    "shortage": {"status": "INFEASIBLE", "reason": "70 patties, no incoming supply, no competitors or reservations, demand 100: shortage 30"},
+    "empty_stock": {"status": "INFEASIBLE", "reason": "0 patties and no incoming supply for demand 100: shortage 100"},
+    "missing_production": {"status": "UNKNOWN", "reason": "No rates, plan or complete job ledger"},
+    "stale_version": {"status": "UNKNOWN", "reason": "Captured version 1, declared current version 2"},
+    "missing_current_version": {"status": "UNKNOWN", "reason": "Historical calculation may be feasible, but current authority must not accept missing version"}
+  },
+  "impact": {
+    "complete": {"com-001": true, "com-002": false, "reason": "80 patties minus 20 owned reservation leaves 60; 40 receipt delayed past first use; second has protected stock and later booking buffer"},
+    "two_affected": {"com-001": true, "com-002": true, "reason": "New complete two-order fixture: baseline sequential jobs at 09:00 and 10:40 fit; delayed 110 receipt at 11:00 removes 70 and 40 required units, also after receiving cutoff. Both start FEASIBLE; original material-only fixture is unchanged"},
+    "material_only": {"com-001": null, "com-002": null, "reason": "Production proof unavailable; material delta alone cannot prove full feasibility"},
+    "missing_supplier": {"com-001": null, "com-002": null, "reason": "Supplier ledger completeness evidence unavailable"},
+    "stale_inventory": {"com-001": null, "com-002": null, "reason": "Stock validity expired before capture"},
+    "stale_production": {"com-001": null, "com-002": null, "reason": "Production validity expired before capture"},
+    "confounded": {"com-001": null, "com-002": null, "reason": "Concurrent stock change outside supplier event scope prevents safe causal attribution"},
+    "preexisting": {"com-001": false, "com-002": false, "reason": "Same shortage before and after; receipt already after both material-use times, so no new adverse delta"}
+  }
+}

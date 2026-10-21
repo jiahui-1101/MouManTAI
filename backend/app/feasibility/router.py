@@ -19,6 +19,7 @@ from .api_dependencies import (
     get_supplier_delay_processor,
 )
 from .api_schemas import AssessCommitmentRequest, FeasibilityEvaluateRequest, SupplierDelayRequest
+from .currentness import require_current_snapshot
 from .impact import ImpactAssessment
 from .ports import (
     AssessmentHistoryReader,
@@ -116,6 +117,13 @@ def evaluate_feasibility(
         raise _blocked(
             "P2_INTERNAL_AUTH_NOT_CONFIGURED",
             "P5 has not configured the internal feasibility authorization boundary",
+        )
+    if context.actor_role not in {"SERVICE", "SYSTEM"}:
+        raise DomainError(
+            "P2_INTERNAL_CALLER_NOT_AUTHORIZED",
+            "Internal feasibility evaluation requires a trusted SERVICE or SYSTEM context",
+            status_code=403,
+            correlation_id=context.correlation_id,
         )
     tenant_ids = [request.snapshot.operational.tenant_id, request.commitment.tenant_id]
     if request.proposed_changes is not None:
@@ -234,23 +242,7 @@ def assess_commitment(
             mismatched_fields,
             correlation_id=context.correlation_id,
         )
-    if snapshot.current_snapshot_version is None:
-        raise _blocked(
-            "P2_CURRENT_SNAPSHOT_VERSION_UNAVAILABLE",
-            "P5 has not supplied current operational snapshot version authority",
-            correlation_id=context.correlation_id,
-        )
-    if snapshot.current_snapshot_version != snapshot.operational.snapshot_version:
-        raise DomainError(
-            "SNAPSHOT_VERSION_CONFLICT",
-            "Operational snapshot is not the current tenant snapshot",
-            status_code=409,
-            details={
-                "requested_snapshot_version": snapshot.operational.snapshot_version,
-                "current_snapshot_version": snapshot.current_snapshot_version,
-            },
-            correlation_id=context.correlation_id,
-        )
+    require_current_snapshot(snapshot, correlation_id=context.correlation_id)
     try:
         result = evaluate(snapshot, None, authoritative_commitment)
     except ValueError as exc:
