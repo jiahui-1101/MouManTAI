@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import re
 import time
+from typing import Literal
+import importlib.metadata
 
 from pydantic import Field
 
@@ -28,7 +30,7 @@ For no requested information return {"fields":[]}."""
 
 
 class RawObservation(StrictModel):
-    field: str
+    field: Literal["product", "quantity", "unit", "delivery", "order_reference"]
     message_id: str
     quote: str = Field(min_length=1, max_length=500)
     group_id: str | None = Field(default=None, max_length=40)
@@ -130,7 +132,6 @@ class ModelRuntime:
     def predict(self, request: InferenceInput) -> InferenceOutput:
         import torch
         model_id, revision = MODEL_CONFIG[request.engine]
-        start = time.perf_counter()
         model, tokenizer, load_seconds = self._load(request.engine)
         torch.manual_seed(42)
         torch.cuda.reset_peak_memory_stats()
@@ -178,7 +179,9 @@ class ModelRuntime:
         return InferenceOutput(engine=request.engine, model_id=model_id, revision=revision, status=status, fields=fields,
             raw_output=raw, finish_reason=finish_reason, load_seconds=load_seconds,
             inference_seconds=time.perf_counter() - before, input_tokens=input_tokens, output_tokens=output_tokens,
-            peak_gpu_bytes=torch.cuda.max_memory_allocated())
+            peak_gpu_bytes=torch.cuda.max_memory_allocated(), gpu_name=torch.cuda.get_device_name(),
+            dtype=str(next(model.parameters()).dtype),
+            runtime_versions={name: importlib.metadata.version(name) for name in ("torch", "transformers", "gliner", "huggingface-hub")})
 
 
 _runtime = None

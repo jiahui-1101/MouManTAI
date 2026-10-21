@@ -1,7 +1,7 @@
 import asyncio
 
 from app.context.ai.protocol import InferenceFailure
-from app.context.experiments.ai_gpu.run import evaluate, merged
+from app.context.experiments.ai_gpu.run import evaluate, merged, diagnostics
 
 
 def test_baseline_has_no_remote_calls_and_keeps_every_case():
@@ -27,3 +27,9 @@ def test_unavailable_endpoint_is_not_a_successful_model_extraction():
 def test_combination_retains_rule_association_instead_of_overwriting_it():
     item = dict(field="product", message_id="m1", quote="bread", start=0, end=5, group_id="rule_item")
     assert merged([item], [{**item, "group_id": "model_item"}]) == [item]
+
+
+def test_invalid_authority_output_is_a_schema_failure_not_a_good_empty_answer():
+    case = {"messages": [{"id": "m1", "text": "bread"}]}
+    observed = dict(engine="qwen", finish_reason="stop", raw_output='{"fields":[{"field":"identity_verified","message_id":"m1","quote":"bread"}]}')
+    assert diagnostics(observed, case)["invalid_json_or_schema_answers"] == 1

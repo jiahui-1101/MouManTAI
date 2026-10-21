@@ -57,6 +57,9 @@ class InferenceOutput(StrictModel):
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
     peak_gpu_bytes: int | None = Field(default=None, ge=0)
+    gpu_name: str | None = Field(default=None, max_length=200)
+    dtype: str | None = Field(default=None, max_length=60)
+    runtime_versions: dict[str, str] = Field(default_factory=dict)
 
 
 class InferenceFailure(Exception):
