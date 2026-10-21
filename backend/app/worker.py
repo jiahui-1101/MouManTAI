@@ -1,17 +1,13 @@
-"""Minimal long-running worker entrypoint for the Phase 0 compose stack.
-
-Feature-specific outbox consumers belong to their owning modules and are intentionally
-not implemented in Phase 0.
-"""
+"""Outbox dispatcher worker entrypoint for MouManTAI."""
 
 from __future__ import annotations
 
-import time
+from app.core.outbox import run_worker
+from app.db.session import SessionLocal
 
 
 def main() -> None:
-    while True:
-        time.sleep(60)
+    run_worker(SessionLocal, poll_interval=1.0)
 
 
 if __name__ == "__main__":

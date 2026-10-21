@@ -1,15 +1,14 @@
 """Pure P2 evaluation, using the existing batch ATP/BOM and capacity checks.
 
-Final FeasibilityAssessment serialization remains BLOCKED until the P5 schema
-accepts an empty actual-impact set. No affected IDs are fabricated. This local
-result is not a substitute shared contract.
+P5's shared FeasibilityAssessment accepts an empty actual-impact set. This P2
+result remains a calculation projection with detailed operational output, not a
+replacement shared contract or a persistence adapter. No affected IDs are
+inferred from assessment scope.
 """
 
 from datetime import datetime
 from decimal import Decimal
 from hashlib import sha256
-
-from pydantic import Field
 
 from app.core.schemas import Commitment, ConstraintReason, FeasibilityState, SolverStatus
 
@@ -38,7 +37,6 @@ class EvaluationResult(FrozenModel):
     evidence_refs: tuple[str, ...]
     materials: MaterialATP
     capacity: CapacityResult
-    shared_output_blocker: str = Field(default='P5_AFFECTED_COMMITMENT_IDS_EMPTY_SCHEMA_SUPPORT', frozen=True)
 
 
 def _allocation_can_cover_target(snapshot: EvaluationSnapshot, materials: MaterialATP,

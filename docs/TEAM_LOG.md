@@ -97,9 +97,9 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | P4-FE | Communication / Confirmation UI | P4 | NOT_STARTED | — | — | Scaffold route |
 | P4-BE | Draft/Send/Confirm APIs | P4 | NOT_STARTED | — | P3 proposal schema | Define signed confirmation |
 | P4-TST | Confirmation/Channel tests | P4 | NOT_STARTED | — | — | Define ambiguous OK fixture |
-| P5-FE | Shell / Overview / Audit UI | P5 | IN_PROGRESS | Phase 0 shell, routes, health status card; committed in `ec0458d` | Feature pages remain owner work | Add shared audit/overview data API |
-| P5-BE | Registry / DB / Events / Roles | P5 | IN_PROGRESS | Canonical contracts, fixture, PostgreSQL/Alembic foundation, registry lifecycle and outbox; committed in `ec0458d` | Docker daemon unavailable for DB smoke | Add tenant/version/duplicate-event integration suite |
-| P5-TST | Integrated E2E / Security tests | P5 + all | IN_PROGRESS | 7 backend tests + 1 frontend smoke test passing | Full E2E waits for P1–P4 modules | Add integrated tenant/version/duplicate-event suite |
+| P5-FE | Shell / Overview / Audit UI | P5 | IN_PROGRESS | Real Overview (/overview) & Activity (/activity) wired to real backend endpoints via TanStack Query (FE-01, FE-02, FE-03, UI-01, UI-02); timeline with F1–F4 deep links, state diffs, version increments, human governance highlights, correlation/causation grouping, role redaction, loading/empty/error/403 states; 12 vitest tests passing | Feature pages remain owner work | Integrate P1–P4 feature routes |
+| P5-BE | Registry / DB / Events / Roles | P5 | IN_PROGRESS | Integration facade & typed consumers (BE-06a–f), P1–P4 handshakes, proposal versioning, optimistic concurrency, and audit/outbox guards; 46 backend tests passing | Docker daemon unavailable for DB smoke | Complete P0 E2E hero journey |
+| P5-TST | Integrated E2E / Security tests | P5 + all | IN_PROGRESS | 46 backend tests + 12 frontend tests passing (BE-06a–f, UT-04, UT-06, UT-07, UT-08, UT-09, UT-10, E2E-04, E2E-05, E2E-06, E2E-07, E2E-12, SAF-2) | Full E2E waits for P1–P4 modules | Add integrated cross-feature E2E journey suite |
 | REL-01 | Deploy / submission / docs | Release owner | NOT_STARTED | — | — | Assign owner |
 
 **DONE definition**: reviewed PR merged + live API/UI or valid designated mock + passing relevant tests + integration compatibility + log link. `95% done` is not a status. Screenshots alone do not prove backend behavior.
@@ -154,6 +154,24 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 - P2: 54 Phase3 tests pass; existing66 P2 plus7 shared tests pass (73, one existing Starlette/httpx warning). Full exact commands, red-green corrections and limitations in backend/app/feasibility/P2_PHASE_REPORTS.md. Host pytest9.1.1 vs declared>=8.3,<9 remains documented; dependencies unchanged. Frontend/API/events/E2E/live PostgreSQL/metrics NOT RUN for this phase.
 - P2: User confirmed no verified P5 business semantics for nonempty affected_commitment_ids; forbade default insertion of evaluated target. evaluate returns a clearly local EvaluationResult using actual Core enums/ConstraintReason and no affected IDs. Final FeasibilityAssessment mapping BLOCKED, not claimed integrated. User will request P5 decision for every status, especially FEASIBLE/UNKNOWN. P3 serialization and shared operational-data/catalog adapter requests are in PHASE3_HANDOFF.md.
 - P2: Shared Core/schema/app shell exist and were not modified. Shared demo lacks complete operational evidence and uses SAUCE/PACKAGING rather than P2 WRAP; no fixture/evidence invented to make it FEASIBLE. P2-FE remains NOT_STARTED. Only P2 code/docs and these P2 entries changed. Commit/feature-only push SHA in phase response. STOP for external Phase3 review; overall Phase3 PARTIAL and Phase4 NOT_STARTED.
+### 2026-10-21 — Daily sync (P5 Core & UI Milestone)
+- P1: Completed: Shared context contracts aligned | Next: Inbox / extraction API | Blocked by: None
+- P2: Completed: Feasibility assessment schema contract agreed (D-CONTRACT-005 empty affected_commitment_ids) | Next: Constraint & impact evaluator | Blocked by: None
+- P3: Completed: Plan / approval schemas aligned | Next: Recovery planner & action execution adapter | Blocked by: None
+- P4: Completed: Communication request schemas aligned | Next: Confirmation workspace & message templates | Blocked by: None
+- P5: Completed: Tasks T2.3 (Overview Page) and T2.4 (Activity & Audit Page) wired via TanStack Query; 9 REST endpoints, transactional outbox worker, idempotent consumers, version guard, role-based redaction, and simulated role switcher; 28 backend tests + 12 frontend tests passing; typecheck & build passing | Next: P0 Cross-Feature E2E Hero Journey integration tests | Blocked by: BLOCK-20261021-001 (isolated PostgreSQL for live migration smoke)
+- Integration status: Core API + Overview UI + Activity UI fully integrated and tested in synthetic mode.
+- Risks and decisions: D-002 (optimistic concurrency version checks), D-005 (synthetic server-side role inspection), CONTRACT-20261021-005 (FeasibilityAssessment affected_commitment_ids relaxed to allow empty list []).
+
+### 2026-10-21 — Daily sync (P5 Task T3.1 Core Integration Facade & Handshakes)
+- P1: Completed: Shared context contracts aligned | Next: Ingestion & field extraction | Blocked by: None
+- P2: Completed: Feasibility assessment schema contract agreed | Next: Feasibility solver | Blocked by: None
+- P3: Completed: Plan & action schemas aligned | Next: Recovery generator & ranking | Blocked by: None
+- P4: Completed: Proposal & confirmation contracts aligned | Next: Message templates & channel adapter | Blocked by: None
+- P5: Completed: Task T3.1 (P1–P4 Handshake Event Consumers & Core Integration Facades, BE-06a–f, UT-10); CoreIntegrationFacade, assess/recovery/proposal endpoints, Alembic migration 0004_commitment_proposals, 18 comprehensive integration tests in test_feature_handshakes.py covering UT-08, UT-09, UT-10, E2E-04, E2E-05, E2E-06, E2E-07, E2E-12, and PII minimization; 46 backend tests + 12 frontend tests passing; typecheck & build passing | Next: P0 Cross-Feature E2E Hero Journey integration tests | Blocked by: BLOCK-20261021-001 (isolated PostgreSQL for live migration smoke)
+- Integration status: Core Integration Facade + P1–P4 Handshake Consumers fully implemented and tested.
+- Risks and decisions: D-002 (concurrency), D-005 (synthetic server-side role inspection), CONTRACT-20261021-006 (P1–P4 Handshakes & Versioned Proposals).
+
 
 ## 6. Blocker / Dependency Ledger
 
@@ -191,6 +209,67 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 - Decision: ACCEPTED for implementation by the current task; owner review remains required for future contract changes.
 - PR / commit: `ec0458d` (`feat(core): establish Phase 0 foundation and commitment registry`).
 
+### CONTRACT-20261021-003 — Outbox Status, Idempotent Consumers, and Causation Propagation
+- Proposed by / reviewed by: P5 (Task T1.4)
+- Old vs new field/event/API:
+  - Additive `OutboxEventRecord.status` (`PENDING`, `PUBLISHED`, `FAILED`, `DEAD_LETTER`), `last_error`, `next_retry_at`.
+  - Additive `ProcessedEventRecord` (`tenant_id`, `event_id`, `consumer_name`, `processed_at`) for idempotent consumers.
+  - Additive `causation_id` propagated through `RequestContext`, `CommitmentCreateRequest`, `CommitmentTransitionRequest`, `AuditEvent`, `DomainEvent`, `audit_events`, `outbox_events`.
+  - Additive `CoreEventType` enum covering `commitment.created`, `commitment.proposal_offered`, `commitment.confirmed`, `commitment.at_risk`, `commitment.risk_resolved`, `commitment.fulfilment_verified`, `audit.recorded`.
+- Breaking or additive: additive; existing event schemas and commitment contracts remain backward-compatible.
+- Affected owners, frontend screens, tests: P1–P4 domain event subscribers; P5 core outbox dispatcher; unit and DB tests.
+### CONTRACT-20261021-004 — Overview Aggregate API, Correlated Commitment Timeline, Proposals & Fulfilment API, and Role Redaction
+- Proposed by / reviewed by: P5 (Tasks T1.6 / T1.7)
+- Old vs new field/event/API:
+  - Additive `GET /v1/overview`: tenant-scoped SQL aggregate counts (7 buckets: requested, confirmed, at_risk, pending_approval, execution_in_progress, awaiting_confirmation, fulfilled), attention queue (stale plans, unknown feasibility, manual review, failed executions, unresolved confirmations), and filterable commitment summaries.
+  - Additive `GET /v1/commitments/{id}/timeline`: chronological correlated timeline merging audit and outbox events, providing actor/role, source feature (`F1_CONTEXT | F2_FEASIBILITY | F3_RECOVERY | F4_COMMUNICATION | CORE`), action, state diffs, correlation/causation IDs, approval reasons, and deep-link pointers (`context_id`, `assessment_id`, `recovery_case_id`, `communication_id`, `proposal_id`).
+  - Additive `POST /v1/commitments/{id}/proposals`: offers revised/new terms, advances agreement state to `OFFERED`, optimistic version checks.
+  - Additive `POST /v1/commitments/{id}/confirm-proposal`: records customer accept/reject with manager approval and evidence verification.
+  - Additive `POST /v1/commitments/{id}/record-fulfilment`: records verified operational completion with manager role and evidence guards; enforces `SENT != ACCEPTED != FULFILLED` invariant.
+  - Forbidden unrestricted `PATCH /v1/commitments/{id}`: returns HTTP 405 Method Not Allowed (`UNRESTRICTED_PATCH_FORBIDDEN`).
+  - Normalized error response shape (`code`, `message`, `correlation_id`, `details`) across 400, 401, 403, 404, 405, 409, 422, 500.
+  - Role-based redaction: sensitive margin, financial, and contact fields sanitized for `STAFF` role in audit and timeline.
+- Breaking or additive: additive; existing commitment schemas and transition APIs remain backward-compatible.
+- Affected owners, frontend screens, tests: P5 overview and activity screens, P1–P4 feature integration; frontend `shared/types.ts` and `shared/api.ts` synchronized; unit and integration tests.
+- Migration or fixture update: contracts/types.ts synchronized.
+- Decision: ACCEPTED
+- PR / commit: local branch `phase0-core-integration`
+
+### CONTRACT-20261021-005 — Relaxation of FeasibilityAssessment.affected_commitment_ids constraint
+
+### 2026-10-21 — P5 Contract Decision: affected_commitment_ids Semantics
+- **Context**: P2 raised ambiguity regarding `min_length=1` on `FeasibilityAssessment.affected_commitment_ids` for `FEASIBLE`/`UNKNOWN`.
+- **Decision**: Approved relaxation to allow empty list (`min_length=0`, default `[]`). The field strictly denotes downstream impacted commitments, not the assessment scope.
+- **Impact**: Unblocks P2 Phase 3 calculation and prevents P3 from generating false recovery plans.
+- **Owner**: P5 (Updated schema in contracts/ and app.core.schemas).
+- Proposed by / reviewed by: P2 (Feasibility owner) / P5 (Core owner)
+- Old vs new field/event/API:
+  - `FeasibilityAssessment.affected_commitment_ids` relaxed from `min_length=1` to allow empty lists `[]` (defaults to empty list via `default_factory=list`).
+  - Semantics clarified: `affected_commitment_ids` strictly represents downstream commitments demonstrably impacted by operational/resource changes (impact set), NOT the scope of the assessment itself. For standard `FEASIBLE` or `UNKNOWN` evaluations where no downstream commitments are disrupted, an empty list `[]` is expected.
+- Breaking or additive: additive / non-breaking relaxation; existing fixtures with populated `affected_commitment_ids` remain fully valid.
+- Affected owners, frontend screens, tests: P2 feasibility engine, P3 recovery planner (unblocked for Phase 3), contract tests in `test_contracts.py`.
+- Migration or fixture update: `backend/app/core/schemas.py`, `contracts/types.ts`, and example fixture added in `contracts/fixtures/feasible_assessment_example.json`.
+- Decision: ACCEPTED
+- PR / commit: local branch `phase0-core-integration`
+
+### CONTRACT-20261021-006 — P1–P4 Handshake Event Consumers, Core Integration Facade, and Versioned Proposals Persistence
+- Proposed by / reviewed by: P5 (Task T3.1)
+- Old vs new field/event/API:
+  - Additive `CoreIntegrationFacade` (`backend/app/core/integration.py`) providing typed handshake service methods: `handle_context_updated` (BE-06a), `handle_feasibility_assessment` (BE-06b), `authorize`, `start_recovery`, `execute_recovery_plan` (BE-06c), `record_communication_status`, `record_ambiguous_response`, `confirm_proposal` (BE-06d), and `record_fulfilment` (BE-02h).
+  - Additive endpoints in `backend/app/core/router.py`:
+    - `POST /v1/commitments/{id}/assess`: P2 Feasibility assessment intake with version conflict guard.
+    - `POST /v1/integration/context-updated`: P1 BusinessContext intake with conflict / missing field handling.
+    - `POST /v1/commitments/{id}/recovery/start`: P3 recovery planning trigger.
+    - `POST /v1/commitments/{id}/recovery/execute`: P3 recovery execution with snapshot drift (E2E-04) and approval expiry (UT-08) guards.
+  - Additive database table `commitment_proposals` (Alembic `0004_commitment_proposals`) tracking versioned proposals, status (`ACTIVE`, `ACCEPTED`, `REJECTED`, `SUPERSEDED`), revised terms, and evidence.
+  - Additive core events: `commitment.proposal_rejected`, `commitment.context_ready`, `recovery.started`, `recovery.plan_approved`, `recovery.communication_requested`.
+  - PII minimization enforced in `validate_event_payload`: phone, email, contact, message_body keywords strictly forbidden in outbox payloads.
+- Breaking or additive: additive; existing commitment schemas and REST APIs remain fully backward-compatible.
+- Affected owners, frontend screens, tests: P1–P4 feature integration, `contracts/types.ts` and `frontend/src/shared/types.ts` updated with `RecoveryStartRequest` and `RecoveryExecuteRequest`; 18 comprehensive tests in `backend/tests/integration/test_feature_handshakes.py`.
+- Migration or fixture update: Alembic migration `0004_commitment_proposals` created; offline SQL generation verified.
+- Decision: ACCEPTED
+- PR / commit: `7869196` on branch `feat/p5-core-integration`
+
 ## 8. QA / Metrics Log
 
 | Date | Commit | Backend tests | Frontend tests | Build | E2E | Key observed metric / sample size | Known limitations |
@@ -200,6 +279,12 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | 2026-10-21 | P2 Phase 1 confirmation-provenance correction (SHA in phase response) | Four new provenance test nodes failed before the fix; five targeted provenance tests passed after; `python -m pytest backend/app/feasibility/tests/test_snapshots.py -q`: 21 passed | NOT RUN | NOT RUN | NOT RUN | 21 snapshot/fixture tests; operational metrics not measured | No evaluator, API, UI, durable P5 snapshot store, or P3/P5 integration yet; external supplier evidence authenticity remains P5-owned; synthetic refs prove only structural provenance |
 | 2026-10-21 | `ec0458d` on `phase0-core-integration` | 7 passed (`pytest`) | 1 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | Contract/fixture/registry smoke only; sample size 1 fixture | Live DB migration pending isolated PostgreSQL; Docker/WSL1 blocker; npm audit clean after validated upgrades |
 | 2026-10-21 | P2 Phase 5 external review #1 correction (PH5-R1-01; commit SHA in phase response) | 24 focused router tests + 188 combined P2/shared tests passed; one existing Starlette/httpx deprecation warning | NOT RUN | NOT RUN | NOT RUN | Synthetic test-router behavior only; no production API/security/persistence/outbox metric | P2 router not mounted in `main.py`; demo header RequestContext is not authenticated; P5 snapshot/history/outbox/empty Impact Set support and P3 HTTP contract remain blocked; pytest 9.1.1 is outside declared `<9` |
+| 2026-10-21 | `phase0-core-integration` | 15 passed (`pytest`) | 1 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | Outbox worker, idempotency, version guard, retry/dead-letter, and causation chain passed; sample size 15 tests | Live DB migration pending isolated PostgreSQL |
+| 2026-10-21 | `phase0-core-integration` (T1.6/T1.7) | 24 passed (`pytest`) | 1 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | Complete 9-endpoint surface, overview SQL counts (7 buckets), attention queue, chronological timeline with F1–F4 links, role redaction (Staff vs Manager), patch forbidden (405), and normalized errors; sample size 24 tests | Live DB migration pending isolated PostgreSQL |
+| 2026-10-21 | `phase0-core-integration` (T2.3) | 24 passed (`pytest`) | 8 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | Real Overview wired to GET /v1/overview via TanStack Query, 7 authoritative state cards with non-green enforcement, attention queue with KL timestamps and deep links, simulated role switcher, state bucket and search filtering, loading skeleton, empty state, working retry callback, and 403 permission denied state; sample size 8 frontend + 24 backend tests | Live DB migration pending isolated PostgreSQL |
+| 2026-10-21 | `phase0-core-integration` (T2.4) | 28 passed (`pytest`) | 12 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | Real Activity & Audit page (/activity) wired to GET /v1/commitments/{id}/timeline and GET /v1/audit via TanStack Query (FE-03a–d, UI-02); chronological event timeline, state transition diffs (CONFIRMED → AT_RISK), version increments, human governance approval highlights with reason and scope, correlation/causation grouping, deep links to F1–F4, Staff role redaction, and loading/empty/retry/403 states; sample size 12 frontend + 28 backend tests | Live DB migration pending isolated PostgreSQL |
+| 2026-10-21 | `7869196` on `feat/p5-core-integration` (T3.1) | 46 passed (`pytest`) | 12 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | P1–P4 Handshake consumers, CoreIntegrationFacade, snapshot drift guard (E2E-04), approval expiry (UT-08), OCR receipt guard (UT-09), proposal version guard (E2E-06, UT-10), vague OK attention (E2E-05), delivery message no-op (E2E-07), operational fulfilment (E2E-12), and PII minimization (BE-06e); sample size 18 integration tests + 28 core tests | Live DB migration pending isolated PostgreSQL |
+
 
 Metric protocol: always disclose dataset size, date, ground truth creation method, pass/fail definitions. **Do not** mark actual customer fulfilment because communication was sent or approved.
 
@@ -334,3 +419,97 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Reviewed clean P2 baseline `de8749a06a117c06ec3eede57725749bb8ca4557`. Removed frontend `unaffected_proof` bypass/helper/property/type. VERIFIED_UNAFFECTED now requires a positive evidence-backed buffer plus adequate refs for all conservatively required buffers and row-level classification evidence. Empty/zero/unsupported buffer proof yields UNKNOWN; complete before/after metadata cannot override it. No backend `_classify()` duplication; all five classifications/runtime rejection/evidence-aware labels and input immutability retained.
 - Independent proof is a future P5 authoritative-contract decision only. Updated P2 progress/trace/report/handoff; prior reports and TEAM_LOG entries preserved. Only P2 frontend and P2 docs changed; no P3/P5 implementation or Phase 7 work.
 - From frontend: focused impact-safety tests **37 passed**; complete Phase 6 suite **80 passed**; npm typecheck, explicit app-project tsc and production build passed. Red/green regressions documented in P2_PHASE_REPORTS.md. No live API/auth/database/outbox/P3/E2E claims. Correction SHA/feature-only push verification in phase response. Stop for independent Phase 6 review; integration remains PARTIAL.
+### 2026-10-21 — Task T1.4: Outbox Worker, Event Dispatcher & Idempotent Consumer Framework
+- Scope: BE-04a–BE-04f, SAF-2, UT-04, UT-06, UT-07. Strictly within P5 core paths; no edits to P1–P4 feature directories.
+- Envelope validation (BE-04a): canonical `DomainEvent` envelope enforced with `event_id`, `schema_version`, `event_type`, `tenant_id`, `commitment_id`, `commitment_version`, `correlation_id`, `causation_id`, `occurred_at`, `payload`; `CoreEventType` enum defines `commitment.created`, `commitment.proposal_offered`, `commitment.confirmed`, `commitment.at_risk`, `commitment.risk_resolved`, `commitment.fulfilment_verified`, `audit.recorded`; sensitive keywords/PII in payloads are strictly rejected.
+- Atomic outbox persistence (BE-04b, SAF-2): every `CommitmentService` state transition writes `CommitmentRecord`, `AuditEventRecord`, and `OutboxEventRecord(status="PENDING", attempts=0)` in the same database transaction. If publisher is offline or fails, pending outbox records remain safely stored in DB.
+- Dispatcher & subscriber registry (BE-04b, BE-04e): `OutboxDispatcher` provides in-process named subscriber registry (`register_subscriber`), batched processing (`process_outbox_batch`), exponential backoff retries, status tracking (`PENDING`, `PUBLISHED`, `FAILED`, `DEAD_LETTER`), and reconciliation (`requeue_dead_letter`). Background polling loop implemented in `run_worker`.
+- Consumer idempotency & version guard (BE-04c, BE-04d, UT-04, UT-06): duplicate event delivery checks `processed_events` for `(tenant_id, event_id, consumer_name)` and cleanly skips duplicate execution without double mutations or duplicate audit entries; `is_stale_event` version guard ensures events with stale `commitment_version` cannot revert newer commitment state.
+- Correlation trace (BE-04f): `correlation_id` and `causation_id` propagate from trigger events and requests through `RequestContext` and `CommitmentService` into downstream `outbox_events` and `audit_events`.
+- Database & migrations: Alembic migration `0003_outbox_processing` created (adds `status`, `last_error`, `next_retry_at` to `outbox_events`, `causation_id` to `audit_events`, and creates `processed_events` table); offline PostgreSQL migration SQL generation passes; `contracts/types.ts` updated with `OutboxStatus` and `causation_id`.
+- Validation: 15 backend tests passed (`pytest`); frontend typecheck passed (`tsc --noEmit`); frontend vitest passed (`1 passed`); frontend production build passed (`npm run build`).
+
+### 2026-10-21 — Tasks T1.6 / T1.7: Core REST API, Overview Aggregate, Timeline, and Redacted Audit API
+- Scope: BE-01e, FE-02a–c, FE-03a–d, API-1. All work confined to P5 core paths (`backend/app/core/`, `backend/app/main.py`, `backend/tests/`, `contracts/`, `frontend/src/shared/`). No P1–P4 feature directories modified.
+- Complete 9-endpoint REST API surface verified:
+  1. `GET /health` (status "ok", service "moumantai-api")
+  2. `GET /v1/overview` (aggregate counts, attention queue, commitment summaries)
+  3. `GET /v1/commitments/{commitment_id}` (retrieval with tenant isolation)
+  4. `GET /v1/commitments/{commitment_id}/timeline` (chronological correlated audit/outbox entries with F1–F4 entity links)
+  5. `POST /v1/commitments/{commitment_id}/proposals` (offer new/revised terms, advance agreement to OFFERED)
+  6. `POST /v1/commitments/{commitment_id}/confirm-proposal` (manager-governed acceptance/rejection with evidence)
+  7. `POST /v1/commitments/{commitment_id}/record-fulfilment` (manager-governed operational evidence recording; enforces `SENT != ACCEPTED != FULFILLED`)
+  8. `GET /v1/audit?commitment_id=...` (audit log with tenant verification and role-based redaction)
+  9. `GET /v1/events/{event_id}` (domain event inspection scoped to tenant)
+- Unrestricted PATCH rejected (BE-02c, API-1): `PATCH /v1/commitments/{id}` explicitly caught and rejected with HTTP 405 Method Not Allowed (`code="UNRESTRICTED_PATCH_FORBIDDEN"`).
+- Overview Aggregate & Attention Queue (FE-02a–c): Real SQL aggregate counts for the 7 authoritative buckets (requested, confirmed, at_risk, pending_approval, execution_in_progress, awaiting_confirmation, fulfilled); attention queue identifies actionable items across `STALE_PLAN`, `UNKNOWN_FEASIBILITY`, `MANUAL_REVIEW`, `FAILED_EXECUTION`, and `UNRESOLVED_CONFIRMATION` with deep links and severities.
+- Correlated Timeline & Deep Links (FE-03a–c): Merges `audit_events` and `outbox_events` sorted chronologically; tracks `correlation_id` and `causation_id`; resolves `source_feature` (`F1_CONTEXT | F2_FEASIBILITY | F3_RECOVERY | F4_COMMUNICATION | CORE`); maps entity pointers (`context_id`, `assessment_id`, `recovery_case_id`, `communication_id`, `proposal_id`).
+- Role-Based Redaction (FE-03d, UT-05): Redacts confidential/financial notes (margins, profits, markups) and customer contact strings (phone, email) for `STAFF` role in both audit and timeline, while preserving full unredacted records for `OWNER` and `MANAGER`.
+- Normalized Error Responses (BE-01e): Added exception handlers for `DomainError`, `StarletteHTTPException`, and `RequestValidationError` so all 400, 401, 403, 404, 405, 409, 422, and 500 errors return `{"code": "...", "message": "...", "correlation_id": "...", "details": {...}}`. Optimistic concurrency conflict (409) includes `current_commitment_version` in details.
+- Frontend Contract Synchronization: `contracts/types.ts` and `frontend/src/shared/types.ts` updated with `AttentionItem`, `OverviewCounts`, `OverviewResponse`, `TimelineEntry`, `SourceFeature`, `ProposalCreateRequest`, `ProposalConfirmRequest`, `RecordFulfilmentRequest`; typed API helper functions added to `frontend/src/shared/api.ts`.
+- Validation: 24 backend tests passed (`pytest`); frontend typecheck passed (`tsc --noEmit`); frontend vitest passed (`1 passed`); frontend production build passed (`npm run build`).
+
+### 2026-10-21 — Task T2.3: Real Overview Page Wired to GET /v1/overview (FE-02a–e, UI-01)
+- Scope: FE-02a–e, FE-01d, UI-01. Confined strictly to P5 owned files (`frontend/src/features/overview/`, `frontend/src/shared/`, `frontend/src/layout/AppShell.tsx`, `frontend/src/App.tsx`, `frontend/src/pages/OverviewPage.tsx`, `frontend/src/styles.css`). Zero edits to P1–P4 feature directories.
+- Real TanStack Query integration (FE-02a, FE-02c): Replaced static placeholder cards with live `useQuery` fetching `GET /v1/overview` with `X-Tenant-ID` and `X-Actor-ID` headers; zero hardcoded frontend commitment arrays.
+- 7 Authoritative State Summary Cards (FE-02a, FE-02c): Displays counts and interactive filters for Requested, Confirmed, At Risk, Pending Approval, Execution in Progress, Awaiting Confirmation, and Fulfilled. Enforces FE-01d strict semantic status badge colors: warning/amber for Pending Approval, purple/violet for Awaiting Confirmation, neutral/violet for Unknown — never green/success for pending or unconfirmed states.
+- Attention Queue (FE-02b): Renders live items from backend `attention_queue` covering stale plans, unknown feasibility, manual review, and failed executions with severity borders, category badges, Asia/Kuala_Lumpur (MYT) timestamps, and deep links to `/commitments/:id`, `/orders/:id`, and `/activity?commitment_id=...`.
+- Transparency Header (FE-02d): Displays active `tenant_id`, current simulated actor and role selector (`Owner` / `Manager` / `Staff` mapped to `user_owner_01`, `user_manager_01`, `user_staff_01`), `SYNTHETIC` integration mode badge, last-updated timestamp formatted in KL time, and a manual Refresh button.
+- Interactive Filtering & Mandatory UI States (FE-02e):
+  - State bucket filter buttons and search input filtering by commitment ID, order ID, customer ID, or SKU.
+  - Loading skeleton with shimmer animation (`aria-busy="true"`, `role="status"`).
+  - Empty state when commitments list or search result is empty with reset filter action.
+  - API Error state with error details and working "Retry Connection" callback.
+  - Permission Denied (403) state handling forbidden access with role switcher.
+- Testing & Branding: Zero `PromiseFlow` strings in UI; all branding displays **MouManTAI**; 7 Vitest + React Testing Library tests in `src/features/overview/__tests__/OverviewPage.test.tsx` plus shell test passing (8 tests total).
+- Validation: 24 backend tests passed (`python -m pytest`); frontend typecheck passed (`npm run typecheck`); frontend vitest passed (`8 passed`); frontend production build passed (`npm run build`).
+
+### 2026-10-21 — Contract Update: FeasibilityAssessment.affected_commitment_ids Schema Relaxation (P2/P5)
+- Scope: `backend/app/core/schemas.py`, `contracts/types.ts`, `contracts/fixtures/feasible_assessment_example.json`, `backend/tests/test_contracts.py`. Strictly within P5 contract paths.
+- Problem: `FeasibilityAssessment.affected_commitment_ids` was constrained to `min_length=1`. For standard `FEASIBLE` or `UNKNOWN` evaluations where no downstream commitments are disrupted, requiring ≥1 affected commitments forced false risk associations and blocked P2 solver output.
+- Resolution (CONTRACT-20261021-005): Relaxed `affected_commitment_ids` to `default_factory=list` without `min_length=1`. Added field description: *"List of commitment IDs demonstrably impacted by operational changes. Empty list if none or unconfirmed."*
+- Cross-language synchronization: Updated `contracts/types.ts` with JSDoc semantics; verified `frontend/src/shared/types.ts` correctly accepts `string[]` (including `[]`). Added canonical example fixture `contracts/fixtures/feasible_assessment_example.json` demonstrating `FEASIBLE` and `UNKNOWN` assessments with `affected_commitment_ids: []`.
+- Tests: Added 4 unit tests in `backend/tests/test_contracts.py` verifying validation of empty affected commitments for `FEASIBLE`, `UNKNOWN`, default omitted list, and example fixture loading. Existing `demo_dataset.json` remains fully backward-compatible.
+- Validation: 28 backend tests passed (`python -m pytest`); frontend typecheck passed (`npm run typecheck`); frontend vitest passed (`8 passed`); frontend production build passed (`npm run build`). Unblocks P2 Phase 3 evaluation pipeline.
+
+### 2026-10-21 — Task T3.1: P1–P4 Handshake Event Consumers & Core Integration Facades (BE-06a–f, UT-10)
+- Scope: BE-06a–f, BE-02h, BE-05c, UT-08, UT-09, UT-10, E2E-04, E2E-05, E2E-06, E2E-07, E2E-12. Strictly within P5 core paths (`backend/app/core/integration.py`, `backend/app/core/commitments.py`, `backend/app/core/events.py`, `backend/app/core/models.py`, `backend/app/core/router.py`, `backend/app/core/schemas.py`, `backend/app/core/service.py`, `backend/migrations/versions/0004_commitment_proposals.py`, `backend/tests/integration/test_feature_handshakes.py`, `contracts/types.ts`, `frontend/src/shared/types.ts`). Zero edits to P1–P4 feature directories.
+- P1 → P5 / P2 Handshake (BE-06a, UT-09):
+  - `handle_context_updated`: When `BusinessContext` is `READY`, `LINK_VERIFIED`, and conflict-free, creates/updates `REQUESTED` commitment and emits `commitment.created` / `commitment.context_ready` with causation tracing to trigger P2 feasibility.
+  - If conflicts or missing fields exist: surfaces a `MANUAL_REVIEW` attention item in overview; never auto-confirms (`REQUESTED != CONFIRMED`).
+  - OCR receipt evidence (`ev_receipt_*`) is stored as evidence only and rejected when attempted as proposal confirmation evidence without contract agreement (`UT-09`).
+- P2 → P5 / P3 Handshake (BE-06b):
+  - `CommitmentService.assess` / `POST /v1/commitments/{id}/assess`: Optimistic concurrency check verifies `assessment.commitment_version == commitment.commitment_version` (rejects stale with 409 Conflict).
+  - Feasibility status evaluated: `INFEASIBLE` on a `CONFIRMED` commitment transitions `risk_state = "AT_RISK"`, `recovery_state = "RECOVERY_REQUIRED"`, and emits `commitment.at_risk` with constraint details and affected IDs to trigger P3 recovery. Preserves invariant: `CONFIRMED + AT_RISK` coexist.
+  - `UNKNOWN` feasibility preserves `risk_state = "NORMAL"`, flags `UNKNOWN_FEASIBILITY` in attention queue without false infeasibility (`UNKNOWN != INFEASIBLE`).
+- P3 → P5 / P4 Handshake (BE-06c, E2E-04, UT-08):
+  - Consequential recovery action authorization enforced server-side: Staff role blocked with 403 `APPROVAL_REQUIRED` (`BE-05c`).
+  - Pre-execution revalidation guards:
+    - Snapshot drift check: if `plan.snapshot_version != current_snapshot_version`, blocks execution with 409 `SNAPSHOT_DRIFT_CONFLICT`, invalidates approval, and transitions `recovery_state = "RECOVERY_REQUIRED"` (`E2E-04`).
+    - Expiry check: if `now > approval_expires_at`, blocks execution with 409 `APPROVAL_EXPIRED` and transitions `recovery_state = "RECOVERY_REQUIRED"` (`UT-08`).
+  - Versioned terms proposal: when recovery plan requires customer terms adjustment, creates proposal in `commitment_proposals` table, transitions agreement to `OFFERED`, and emits `recovery.communication_requested` outbox event for P4.
+- P4 → P5 / P3 Handshake (BE-06d, UT-10, E2E-05, E2E-06, E2E-07):
+  - `MESSAGE_SENT` / `DELIVERED` / `READ` delivery status records audit/evidence only; zero mutation of `agreement_state` or `fulfilment_state` (`E2E-07`).
+  - Ambiguous customer response ("OK") flags `UNRESOLVED_CONFIRMATION` in attention queue; auto-confirmation blocked (`E2E-05`).
+  - Proposal confirmation version guard: attempting to confirm stale V2 proposal when V3 exists is rejected with 409 `STALE_PROPOSAL_VERSION` (`E2E-06`).
+  - Valid V3 proposal confirmation updates terms, bumps `commitment_version`, sets `agreement_state = "CONFIRMED"`, and leaves `fulfilment_state = "NOT_STARTED"` (`SENT != ACCEPTED != FULFILLED`, `UT-10`).
+  - Customer proposal rejection marks proposal `REJECTED`, sets `recovery_state = "RECOVERY_REQUIRED"` to trigger F3 replanning.
+- Operational Fulfilment Verification (BE-02h, UT-10, E2E-12):
+  - `POST /v1/commitments/{id}/record-fulfilment`: Transitions `fulfilment_state = "FULFILLED"` and `risk_state = "RESOLVED"` only when trusted delivery evidence (`ev_ops_delivery_*` or `ev_pod_*`) is provided by an authorized role and `agreement_state == "CONFIRMED"`.
+  - Rejects fulfilment on unconfirmed commitment (409) or when only bank slip/chat evidence is provided (422).
+- PII Minimization (BE-06e):
+  - Outbox payload validator rejects sensitive customer contact tokens (`phone`, `email`, `contact_number`, `message_body`, `raw_message`). Payloads pass IDs and references only.
+- Database & Migrations:
+  - Alembic migration `0004_commitment_proposals` created for `commitment_proposals` table; offline SQL generation verified.
+- Validation:
+  - Backend tests: 46 passed (`pytest -v backend/tests`), including 18 new integration tests in `test_feature_handshakes.py`.
+  - Frontend checks: `tsc --noEmit` passed; Vitest 12 passed; production build passed (`npm run build`).
+
+### 2026-10-21 — P2 Main synchronization and compatibility review (BLOCKED)
+
+- P2: Fetched exact Main `0485d3d3490d9dacb97aedb634e99c6538327bbf`, including P5 PR #2 tip `6e09a5584000ed1b93d1f568d56e9675016b2e25`; pre-sync P2 HEAD `4e04a662eda8c2b96505e27db976727b2f9d336f` is protected by `backup/p2-pre-sync-4e04a66-20261021`. Prepared `git merge --no-ff --no-commit origin/main`; only conflict was `docs/TEAM_LOG.md`, resolved by preserving P2 and P5 histories/QA rows.
+- P2/P5 compatibility: shared `FeasibilityAssessment.affected_commitment_ids` accepts `[]` for the actual Impact Set. Removed the now-stale P2 `shared_output_blocker` and corrected P2 API tests; two focused tests passed after a red run, and the empty-set compatibility test passed.
+- Validation: from `backend/`, `python -B -m pytest -o 'addopts=' app/feasibility/tests -q -p no:cacheprovider` — 169 passed, 12 failed, one Starlette/httpx deprecation warning. All 12 failures return 422 because P5 Core and P2 both declare `POST /v1/commitments/{commitment_id}/assess` with incompatible request/response schemas; Core is mounted first in the P2 test app.
+- P5 handshake tests send caller-authored `FeasibilityAssessment` JSON to the Core route and verify Core state/audit/outbox behavior. They do not invoke P2's evaluator or prove P2 snapshot authority, persistence/history, production route mounting, authentication, or frontend wiring.
+- Stop condition: canonical assess route ownership requires P5/API review; no shared code was changed to hide the collision. P5/combined tests, runtime import probe, frontend tests/typecheck/build, live DB and E2E were not run after this blocker. No sync commit or push; `MERGE_HEAD` is Main `0485d3d...`; Phase 7 NOT_STARTED. Await independent review.
+

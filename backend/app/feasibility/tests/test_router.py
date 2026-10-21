@@ -5,7 +5,6 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -231,7 +230,7 @@ def test_internal_evaluate_reuses_pure_engine_and_preserves_unknown_metadata(
     assert result["snapshot_version"] == payload["snapshot"]["operational"]["snapshot_version"]
     assert result["status"] == "FEASIBLE"
     assert result["solver_status"] == "COMPLETED"
-    assert result["shared_output_blocker"] == "P5_AFFECTED_COMMITMENT_IDS_EMPTY_SCHEMA_SUPPORT"
+    assert "shared_output_blocker" not in result
     assert "affected_commitment_ids" not in result
     assert authority.calls == 1
 
@@ -657,15 +656,15 @@ def test_supplier_delay_rejects_untyped_or_unmatched_evidence(api_client: TestCl
         assert response.status_code == 422
 
 
-def test_shared_assessment_schema_rejects_empty_actual_impact_set() -> None:
+def test_shared_assessment_schema_accepts_empty_actual_impact_set() -> None:
     from app.core.fixture_loader import load_demo_fixture
 
     payload = load_demo_fixture().feasibility_assessment.model_dump(mode="json")
     assert FeasibilityAssessment.model_validate(payload).affected_commitment_ids
     payload["affected_commitment_ids"] = []
 
-    with pytest.raises(ValidationError):
-        FeasibilityAssessment.model_validate(payload)
+    assessment = FeasibilityAssessment.model_validate(payload)
+    assert assessment.affected_commitment_ids == []
 
 
 def _supplier_delay_payload() -> dict:

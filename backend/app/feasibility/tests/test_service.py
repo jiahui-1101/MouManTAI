@@ -165,7 +165,7 @@ def test_metadata_evidence_time_assumptions_and_no_invented_affected_ids():
     assert result.solver_status is SolverStatus.COMPLETED
     assert result.evidence_refs and result.assumptions
     assert 'affected_commitment_ids' not in result.model_dump()
-    assert result.shared_output_blocker == 'P5_AFFECTED_COMMITMENT_IDS_EMPTY_SCHEMA_SUPPORT'
+    assert 'shared_output_blocker' not in result.model_dump()
     assert run(snapshot) == result
 
 

@@ -1,8 +1,62 @@
-# P2 safety sync of updated Main — 2026-10-21
+# P2 Main synchronization and compatibility report
 
-State: Git integration prepared/completed in the merge commit reported in the task
-response. Regression suites PASS; backend-runtime P2 import compatibility BLOCKED.
-Stop for user review before Phase 3. This is not Phase 3 implementation or approval.
+## Latest attempt — 2026-10-21 (BLOCKED; merge prepared, not committed)
+
+- **Refs:** P2 pre-sync HEAD `4e04a662eda8c2b96505e27db976727b2f9d336f`; fetched
+  `origin/main` `0485d3d3490d9dacb97aedb634e99c6538327bbf`; fetched P5 tip
+  `6e09a5584000ed1b93d1f568d56e9675016b2e25`, verified as an ancestor of Main
+  through PR #2. Safety ref `backup/p2-pre-sync-4e04a66-20261021` points to the
+  exact pre-sync P2 HEAD.
+- **Merge/conflicts:** `git merge --no-ff --no-commit origin/main` is in progress.
+  The only merge conflict was `docs/TEAM_LOG.md`; it was resolved by retaining
+  both P2 history and incoming P5 records/QA rows. No code, contract, auth, Core,
+  database, migration, or other-owner implementation merge conflict occurred.
+- **Contract compatibility:** P5's shared `FeasibilityAssessment` now accepts
+  `affected_commitment_ids: []` and describes the field as the actual Impact Set.
+  P2's stale empty-set blocker marker and rejecting test expectation were removed
+  in P2-owned code/tests. P2 still returns a detailed local `EvaluationResult`;
+  no shared assessment persistence adapter was added.
+- **UNKNOWN/version/purity:** P2 evaluator retains `UNKNOWN` for missing/stale or
+  uncertain evidence and binds its calculation to commitment and snapshot
+  versions. The calculation and impact engine remain pure; only the explicit
+  P5 writer/processor ports may persist or publish. Core's `UNKNOWN` branch does
+  not set `AT_RISK`. P5's generic `CommitmentService.assess` checks the supplied
+  commitment version but does not verify current snapshot authority or persist
+  assessment history itself.
+- **Route/integration blocker:** P2 and P5 both define
+  `POST /v1/commitments/{commitment_id}/assess` with incompatible wire contracts.
+  P2 accepts `{expected_commitment_version}` and returns a shared assessment;
+  P5 accepts a `FeasibilityAssessment` body and returns a Core `Commitment`.
+  The P2 API test app mounts `core_router` first, so P5's route captures the path
+  and P2 boundary requests return 422. The P2 backend suite therefore reports
+  **169 passed, 12 failed**, all 12 on this route collision. Resolving ownership
+  or changing the endpoint requires a P5/API contract decision; no unilateral
+  route change was made.
+- **Handshake-test scope:** P5's handshake tests submit hand-authored
+  `FeasibilityAssessment` JSON directly to the Core endpoint. They verify Core
+  state/audit/outbox behavior for supplied statuses, including
+  `UNKNOWN != INFEASIBLE`; they do not invoke P2's `evaluate()`, P2 router,
+  snapshot authority, writer, assessment history, or frontend.
+- **Focused validation:** the two P2 regression tests for removing the stale
+  blocker passed after a red run (2 passed); P2's empty Impact Set schema test
+  passed (1 passed). P2 full suite command:
+  `python -B -m pytest -o 'addopts=' app/feasibility/tests -q -p no:cacheprovider`
+  from `backend/` — **169 passed, 12 failed, 1 Starlette/httpx deprecation
+  warning**. Failure details are in the compatibility blocker above.
+- **Not run after the blocker:** P5 full backend suite, combined backend suite,
+  runtime import probe, P2/P5 frontend tests, TypeScript validation, production
+  build, database migration/live PostgreSQL, and E2E. The mandated stop rule was
+  followed because the failure needs a shared route decision.
+- **Current Git state:** merge remains in progress with `MERGE_HEAD` at the new
+  Main SHA. There is no merge commit/resulting SHA, no commit was created, and no
+  push was made. Main and P5 refs were not modified. Phase 7 was not started.
+- **Review required:** P5 must decide the canonical assessment endpoint/route
+  ownership and connect P2's actual pure evaluator through authoritative
+  snapshot/commitment version checks, assessment history/persistence, and Core
+  audit/outbox transition handling. Then rerun the full regression matrix before
+  creating or pushing the synchronization checkpoint.
+
+## Historical report — previous synchronization of Main `4ec2ba1`
 
 ## Git and preservation evidence
 

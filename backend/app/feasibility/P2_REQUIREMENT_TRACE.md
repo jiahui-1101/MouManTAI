@@ -1,5 +1,27 @@
 # P2 Requirement Trace — Feasibility & Impact Intelligence
 
+## Latest Main synchronization compatibility audit — BLOCKED (2026-10-21)
+
+This section supersedes the older branch/ref and empty-Impact-Set status below.
+The sync fetched Main `0485d3d3490d9dacb97aedb634e99c6538327bbf`, containing P5
+PR #2 tip `6e09a5584000ed1b93d1f568d56e9675016b2e25`, and prepared an uncommitted
+merge from P2 HEAD `4e04a662eda8c2b96505e27db976727b2f9d336f`. Backup ref:
+`backup/p2-pre-sync-4e04a66-20261021`. The sole Git conflict was
+`docs/TEAM_LOG.md`, resolved by preserving both owners' entries and QA rows.
+
+| Check | Result | Evidence / limitation |
+|---|---|---|
+| P5 actual Impact Set accepts `[]` | PASS | Shared Pydantic contract, TypeScript contract, and P5 examples allow an empty list. P2 obsolete rejection expectation and stale `shared_output_blocker` marker were corrected in P2-owned code/tests. |
+| P2 status, identity, and calculation boundary | STATIC REVIEW PASS | P2 imports Core commitment/assessment/enums; evaluator binds tenant, commitment version/terms, snapshot version and remains pure. No production runtime-import probe was run after the shared route failure. |
+| `UNKNOWN` handling | STATIC REVIEW PASS | P2 status precedence preserves UNKNOWN for missing/stale/uncertain evidence; P5 Core service does not turn UNKNOWN into AT_RISK. Handshake tests use supplied assessments, not P2 evaluator output. |
+| P2 production route integration | BLOCKED | P2 and P5 both register `POST /v1/commitments/{commitment_id}/assess` with incompatible bodies and responses. P2 test app mounts Core first; P2 suite has 12 resulting 422 failures. P5 route ownership/API decision required. |
+| Assessment persistence and snapshot-currentness | NOT INTEGRATED | P2's writer/authority ports remain unconfigured. P5 `CommitmentService.assess` validates commitment version and updates Core state/audit/outbox, but does not validate current snapshot version or persist assessment history. |
+| Frontend production wiring/auth | NOT INTEGRATED | P2 views are feature components with injected ports; App still mounts placeholders. P5 synthetic header context and shared API helper are not a P2 authenticated data source. |
+| Backend regression | BLOCKED | P2 suite: 169 passed, 12 failed, 1 Starlette/httpx warning. Focused stale-marker tests: 2 passed after red; empty-set test: 1 passed. Remaining suites stopped after route conflict. |
+| Frontend/runtime/build/E2E | NOT RUN | Stopped at the shared backend route blocker; no production integration claim. |
+
+No synchronization commit or push was made. `MERGE_HEAD` remains `0485d3d3490d9dacb97aedb634e99c6538327bbf`; no resulting merge SHA exists. Do not resolve the route collision in P2 alone. Wait for independent P5 review before further integration or Phase 7.
+
 ## Phase 6 local evidence index
 
 Current evidence supersedes historical missing-UI notes below. Overall integration remains PARTIAL.

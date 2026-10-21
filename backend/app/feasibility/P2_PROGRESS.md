@@ -1,6 +1,16 @@
 # P2 Feasibility & Impact Progress
 
-## Current checkpoint
+## Current Main synchronization checkpoint — BLOCKED
+
+- **Requested operation:** sync fetched Main `0485d3d3490d9dacb97aedb634e99c6538327bbf` (including P5 PR #2, tip `6e09a5584000ed1b93d1f568d56e9675016b2e25`) into P2 branch `feat/p2-feasibility-engine` only. Pre-sync P2 HEAD `4e04a662eda8c2b96505e27db976727b2f9d336f` is preserved by `backup/p2-pre-sync-4e04a66-20261021`.
+- **Merge state:** prepared with `git merge --no-ff --no-commit`; only `docs/TEAM_LOG.md` conflicted, and the resolution retains both P2 and P5 history. Merge remains uncommitted and unpushed pending shared review.
+- **P2/P5 contract result:** P5's shared `FeasibilityAssessment` accepts an empty actual Impact Set. Removed P2's obsolete `P5_AFFECTED_COMMITMENT_IDS_EMPTY_SCHEMA_SUPPORT` response marker and updated P2-owned regression expectations. P2 continues to use Core `FeasibilityState`, `ConstraintReason`, `SolverStatus`, `Commitment`, and `FeasibilityAssessment`; its detailed `EvaluationResult` is explicitly a local calculation projection, not a second shared contract.
+- **Blocking compatibility finding:** the P2 and P5 routers both register `POST /v1/commitments/{commitment_id}/assess` with different request/response schemas. P5's route is first in the P2 boundary test app, so 12 P2 API tests receive 422 instead of their expected P2 results. Endpoint ownership/mapping requires P5 review; no shared router or contract was changed.
+- **Validation:** P2 suite: `python -B -m pytest -o 'addopts=' app/feasibility/tests -q -p no:cacheprovider` from `backend/` — 169 passed, 12 failed, one existing Starlette/httpx deprecation warning. Focused P2 marker regressions: 2 passed after a red run; empty actual Impact Set compatibility test: 1 passed. Full P5/combined backend, runtime import, frontend, typecheck/build, DB and E2E checks stopped/not run after the shared route blocker.
+- **Integration truth:** P5's handshake exercises Core transitions using caller-supplied assessment JSON; it does not call P2's evaluator or provide P2 snapshot authority, persistence/history, authenticated route mounting or frontend wiring. P2 pages remain unmounted placeholders in `App.tsx`; actual P2 assessment/recalculation is not production-mounted, authenticated or persistent.
+- **State/gate:** latest Main merge is in progress with no merge commit/resulting SHA and no push. The last P2 implementation checkpoint `4e04a66` was externally approved; this synchronization and small P2 compatibility correction await independent review. Phase 7 remains NOT_STARTED.
+
+## P2 Phase 6 checkpoint (previous implementation checkpoint)
 
 - **Phase:** 6 only — P2-owned feasibility and impact frontend views.
 - **External review correction PH6-R2:** reviewed baseline `de8749a06a117c06ec3eede57725749bb8ca4557`; removed the frontend metadata-proof bypass and its model property/helper type. VERIFIED_UNAFFECTED requires at least one positive evidence-backed buffer, adequate references for every conservatively required buffer, and row-level classification evidence. Missing/zero/unsupported proof yields UNKNOWN; complete before/after metadata cannot override it. PH6-R1 runtime rejection and evidence-aware labels remain. Inputs are preserved; genuinely independent proof is a future P5 integration decision only.
