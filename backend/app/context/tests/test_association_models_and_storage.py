@@ -217,3 +217,73 @@ def test_postgres_association_persistence_and_optimistic_locking(pg_engine):
     # Cross-tenant query protection
     with pytest.raises(MessageNotFound):
         repo.get_association("synthetic_tenant_b", ingested.message_id)
+
+
+def test_api_association_workflow(pg_engine):
+    from fastapi.testclient import TestClient
+    from app.context.dependencies import development_context, local_repository
+    from app.context.dev_app import app
+    from app.context.ingestion_schemas import DevelopmentContext
+
+    repo = PostgresMessageRepository(pg_engine)
+    app.dependency_overrides[local_repository] = lambda: repo
+    app.dependency_overrides[development_context] = lambda: DevelopmentContext(tenant_id="synthetic_tenant_a")
+
+    try:
+        with TestClient(app) as client:
+            # 1. Ingest message with verified sender
+            ingest_payload = envelope(
+                tenant_id="synthetic_tenant_a",
+                sender_identity_id="+60123456789",
+                text="Please ship ORD-1001 today",
+            ).model_dump(mode="json")
+            ing_res = client.post("/v1/messages/ingest", json=ingest_payload)
+            assert ing_res.status_code == 201
+            msg_id = ing_res.json()["message"]["message_id"]
+
+            # Process extraction so order_id is extracted
+            proc_res = client.post(f"/v1/messages/{msg_id}/process")
+            assert proc_res.status_code == 200
+
+            # 2. GET association
+            assoc_res = client.get(f"/v1/messages/{msg_id}/association")
+            assert assoc_res.status_code == 200
+            data = assoc_res.json()
+            assert data["status"] == "LINK_VERIFIED"
+            assert data["verified_customer"]["customer_id"] == "cust_bk"
+            assert data["verified_order"]["order_id"] == "ORD-1001"
+            assert data["version"] == 1
+
+            # 3. Apply decision
+            dec_payload = {
+                "decision": "CONFIRMED",
+                "target_customer_id": "cust_bk",
+                "target_order_id": "ORD-1001",
+                "reason": "Staff confirmed phone number match and invoice",
+                "expected_version": 1,
+            }
+            dec_res = client.post(
+                f"/v1/messages/{msg_id}/association",
+                json=dec_payload,
+                headers={"X-Actor-ID": "staff_01", "X-Actor-Role": "STAFF"},
+            )
+            assert dec_res.status_code == 200
+            dec_data = dec_res.json()
+            assert dec_data["version"] == 2
+            assert dec_data["last_decision"]["decision"] == "CONFIRMED"
+            assert dec_data["last_decision"]["actor_id"] == "staff_01"
+
+            # 4. Stale update is rejected with 409
+            stale_res = client.post(
+                f"/v1/messages/{msg_id}/association",
+                json=dec_payload,  # expected_version is still 1
+                headers={"X-Actor-ID": "staff_01", "X-Actor-Role": "STAFF"},
+            )
+            assert stale_res.status_code == 409
+
+            # 5. Non-existent message returns 404
+            missing_res = client.get("/v1/messages/nonexistent-msg/association")
+            assert missing_res.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+

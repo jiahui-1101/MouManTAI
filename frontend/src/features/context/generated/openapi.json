@@ -540,6 +540,200 @@
         }
       }
     },
+    "/v1/messages/{message_id}/association": {
+      "get": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Get Message Association",
+        "operationId": "get_message_association_v1_messages__message_id__association_get",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Message Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAssociationRecord"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Decide Message Association",
+        "operationId": "decide_message_association_v1_messages__message_id__association_post",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Message Id"
+            }
+          },
+          {
+            "name": "X-Actor-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssociationDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAssociationRecord"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dev/p1/health": {
       "get": {
         "summary": "Health",
@@ -600,6 +794,188 @@
           "detail"
         ],
         "title": "ApiError"
+      },
+      "AssociationCandidate": {
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Customer Id"
+          },
+          "customer_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Customer Name"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "match_type": {
+            "$ref": "#/components/schemas/MatchType"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Reasons"
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "customer_id",
+          "customer_name",
+          "match_type",
+          "reasons",
+          "confidence"
+        ],
+        "title": "AssociationCandidate"
+      },
+      "AssociationDecision": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "CONFIRMED",
+              "REJECTED"
+            ],
+            "title": "Decision"
+          },
+          "target_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Customer Id"
+          },
+          "target_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Order Id"
+          },
+          "actor_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Actor Id"
+          },
+          "actor_role": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Actor Role"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Decided At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision",
+          "actor_id",
+          "actor_role",
+          "reason",
+          "decided_at"
+        ],
+        "title": "AssociationDecision"
+      },
+      "AssociationDecisionRequest": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "CONFIRMED",
+              "REJECTED"
+            ],
+            "title": "Decision"
+          },
+          "target_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Customer Id"
+          },
+          "target_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Order Id"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision",
+          "reason",
+          "expected_version"
+        ],
+        "title": "AssociationDecisionRequest"
       },
       "Attachment": {
         "properties": {
@@ -858,6 +1234,55 @@
           "status"
         ],
         "title": "ContextReview"
+      },
+      "CustomerAccount": {
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Customer Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Tenant Id"
+          },
+          "legal_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Legal Name"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Display Name"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "default": true
+          },
+          "verified_channels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Verified Channels"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "customer_id",
+          "tenant_id",
+          "legal_name",
+          "display_name"
+        ],
+        "title": "CustomerAccount"
       },
       "DevelopmentContext": {
         "properties": {
@@ -1171,6 +1596,16 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "IdentityLinkStatus": {
+        "type": "string",
+        "enum": [
+          "UNVERIFIED",
+          "LINK_CANDIDATE",
+          "LINK_VERIFIED",
+          "CONFLICT"
+        ],
+        "title": "IdentityLinkStatus"
+      },
       "InboxPreview": {
         "properties": {
           "mode": {
@@ -1252,6 +1687,100 @@
           "duplicate"
         ],
         "title": "IngestResponse"
+      },
+      "MatchType": {
+        "type": "string",
+        "enum": [
+          "TRUSTED_SENDER",
+          "EXTRACTED_ORDER_REF",
+          "THREAD_LINK",
+          "MANUAL_OVERRIDE"
+        ],
+        "title": "MatchType"
+      },
+      "MessageAssociationRecord": {
+        "properties": {
+          "association_id": {
+            "type": "string",
+            "title": "Association Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "message_id": {
+            "type": "string",
+            "title": "Message Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/IdentityLinkStatus"
+          },
+          "verified_customer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerAccount"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verified_order": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrderReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/AssociationCandidate"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "conflicts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Conflicts"
+          },
+          "last_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssociationDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "association_id",
+          "tenant_id",
+          "message_id",
+          "status",
+          "version",
+          "updated_at"
+        ],
+        "title": "MessageAssociationRecord"
       },
       "MessagePage": {
         "properties": {
@@ -1344,6 +1873,49 @@
           "processing_status"
         ],
         "title": "NormalizedMessage"
+      },
+      "OrderReference": {
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Order Id"
+          },
+          "customer_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Customer Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Tenant Id"
+          },
+          "status": {
+            "type": "string",
+            "maxLength": 30,
+            "minLength": 1,
+            "title": "Status"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Description",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "order_id",
+          "customer_id",
+          "tenant_id",
+          "status"
+        ],
+        "title": "OrderReference"
       },
       "ProcessResponse": {
         "properties": {
@@ -1611,6 +2183,13 @@
           "type": {
             "type": "string",
             "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
           }
         },
         "type": "object",

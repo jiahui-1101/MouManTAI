@@ -1,9 +1,11 @@
 import { PreviewError } from './api';
 import type {
+  AssociationDecisionRequest,
   DevelopmentContext,
   ExtractionAttemptRecord,
   ExtractionHistoryResponse,
   IngestResponse,
+  MessageAssociationRecord,
   MessagePage,
   ProcessResponse,
   RawMessageEnvelope,
@@ -25,6 +27,8 @@ export interface OperationalApi {
   process(id: string, reprocess?: boolean): Promise<ProcessResponse>;
   getExtraction(id: string): Promise<ExtractionAttemptRecord>;
   listAttempts(id: string): Promise<ExtractionHistoryResponse>;
+  getAssociation(id: string): Promise<MessageAssociationRecord>;
+  decideAssociation(id: string, request: AssociationDecisionRequest, headers?: Record<string, string>): Promise<MessageAssociationRecord>;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -56,4 +60,11 @@ export const operationalApi: OperationalApi = {
     request(`/v1/messages/${encodeURIComponent(id)}/process${reprocess ? '?reprocess=true' : ''}`, { method: 'POST' }),
   getExtraction: id => request(`/v1/messages/${encodeURIComponent(id)}/extraction`),
   listAttempts: id => request(`/v1/messages/${encodeURIComponent(id)}/attempts`),
+  getAssociation: id => request(`/v1/messages/${encodeURIComponent(id)}/association`),
+  decideAssociation: (id, req, headers = {}) =>
+    request(`/v1/messages/${encodeURIComponent(id)}/association`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify(req),
+    }),
 };

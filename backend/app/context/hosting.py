@@ -9,9 +9,11 @@ from collections.abc import Callable
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from .association_service import StaleAssociationVersion
 from .dependencies import development_context, local_repository
 from .ingestion import TenantMismatch, UnsupportedSyntheticChannel
 from .repository import (
+    AssociationNotFound,
     DuplicateConflict,
     ExtractionNotFound,
     MessageNotFound,
@@ -30,6 +32,8 @@ def register_p1_errors(app: FastAPI) -> None:
         MessageNotFound: (404, "Message not found"),
         ExtractionNotFound: (404, "Extraction attempt not found"),
         ProcessingConflict: (409, "Message processing conflict"),
+        AssociationNotFound: (404, "Association record not found"),
+        StaleAssociationVersion: (409, "Stale association version; refresh before updating"),
     }
     for exception_type, (status, detail) in errors.items():
         def handler(request: Request, exc: Exception, *, status=status, detail=detail, etype=exception_type):

@@ -16,3 +16,10 @@ export type ExtractionAttemptRecord = components['schemas']['ExtractionAttemptRe
 export type ProcessResponse = components['schemas']['ProcessResponse'];
 export type ExtractionHistoryResponse = components['schemas']['ExtractionHistoryResponse'];
 export type FieldEvidence = components['schemas']['FieldEvidence'];
+export type MessageAssociationRecord = components['schemas']['MessageAssociationRecord'];
+export type AssociationCandidate = components['schemas']['AssociationCandidate'];
+export type AssociationDecision = components['schemas']['AssociationDecision'];
+export type AssociationDecisionRequest = components['schemas']['AssociationDecisionRequest'];
+export type CustomerAccount = components['schemas']['CustomerAccount'];
+export type OrderReference = components['schemas']['OrderReference'];
+

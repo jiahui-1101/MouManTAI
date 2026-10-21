@@ -2,8 +2,10 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 
+from .association_schemas import AssociationDecisionRequest, MessageAssociationRecord
+from .association_service import AssociationService
 from .dependencies import development_context, local_repository
 from .ingestion import IngestionService
 from .ingestion_schemas import (
@@ -78,3 +80,43 @@ def get_message_extraction(message_id: str, tenant: Tenant, repository: Reposito
 def list_message_attempts(message_id: str, tenant: Tenant, repository: Repository) -> ExtractionHistoryResponse:
     items = repository.list_extraction_attempts(tenant.tenant_id, message_id)
     return ExtractionHistoryResponse(items=items)
+
+
+@router.get("/v1/messages/{message_id}/association", response_model=MessageAssociationRecord,
+            responses={**errors, 404: {"model": ApiError}})
+def get_message_association(message_id: str, tenant: Tenant, repository: Repository) -> MessageAssociationRecord:
+    existing = repository.get_association(tenant.tenant_id, message_id)
+    if existing is not None:
+        return existing
+
+    message = repository.get(tenant.tenant_id, message_id)
+    if message is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    extracted_fields = None
+    try:
+        attempt = repository.get_latest_extraction(tenant.tenant_id, message_id)
+        if attempt:
+            extracted_fields = [f.model_dump(mode="json") for f in attempt.fields]
+    except Exception:
+        extracted_fields = None
+
+    svc = AssociationService()
+    record = svc.evaluate_association(message, extracted_fields)
+    return repository.save_association(record)
+
+
+@router.post("/v1/messages/{message_id}/association", response_model=MessageAssociationRecord,
+             responses={**errors, 404: {"model": ApiError}, 409: {"model": ApiError}})
+def decide_message_association(
+    message_id: str,
+    request: AssociationDecisionRequest,
+    tenant: Tenant,
+    repository: Repository,
+    x_actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
+    x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
+) -> MessageAssociationRecord:
+    actor_id = x_actor_id or "user_staff_01"
+    actor_role = x_actor_role or "STAFF"
+    return repository.decide_association(tenant.tenant_id, message_id, request, actor_id=actor_id, actor_role=actor_role)
+

@@ -123,6 +123,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/messages/{message_id}/association": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Message Association */
+        get: operations["get_message_association_v1_messages__message_id__association_get"];
+        put?: never;
+        /** Decide Message Association */
+        post: operations["decide_message_association_v1_messages__message_id__association_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dev/p1/health": {
         parameters: {
             query?: never;
@@ -168,6 +186,61 @@ export interface components {
         ApiError: {
             /** Detail */
             detail: string;
+        };
+        /** AssociationCandidate */
+        AssociationCandidate: {
+            /** Customer Id */
+            customer_id: string;
+            /** Customer Name */
+            customer_name: string;
+            /** Order Id */
+            order_id?: string | null;
+            match_type: components["schemas"]["MatchType"];
+            /** Reasons */
+            reasons: string[];
+            /** Evidence */
+            evidence?: string[];
+            /** Confidence */
+            confidence: number;
+        };
+        /** AssociationDecision */
+        AssociationDecision: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "CONFIRMED" | "REJECTED";
+            /** Target Customer Id */
+            target_customer_id?: string | null;
+            /** Target Order Id */
+            target_order_id?: string | null;
+            /** Actor Id */
+            actor_id: string;
+            /** Actor Role */
+            actor_role: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Decided At
+             * Format: date-time
+             */
+            decided_at: string;
+        };
+        /** AssociationDecisionRequest */
+        AssociationDecisionRequest: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "CONFIRMED" | "REJECTED";
+            /** Target Customer Id */
+            target_customer_id?: string | null;
+            /** Target Order Id */
+            target_order_id?: string | null;
+            /** Reason */
+            reason: string;
+            /** Expected Version */
+            expected_version: number;
         };
         /** Attachment */
         Attachment: {
@@ -240,6 +313,24 @@ export interface components {
             reviewed_at?: string | null;
             /** Note */
             note?: string | null;
+        };
+        /** CustomerAccount */
+        CustomerAccount: {
+            /** Customer Id */
+            customer_id: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Legal Name */
+            legal_name: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+            /** Verified Channels */
+            verified_channels?: string[];
         };
         /** DevelopmentContext */
         DevelopmentContext: {
@@ -350,6 +441,11 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * IdentityLinkStatus
+         * @enum {string}
+         */
+        IdentityLinkStatus: "UNVERIFIED" | "LINK_CANDIDATE" | "LINK_VERIFIED" | "CONFLICT";
         /** InboxPreview */
         InboxPreview: {
             /**
@@ -381,6 +477,35 @@ export interface components {
             /** Duplicate */
             duplicate: boolean;
         };
+        /**
+         * MatchType
+         * @enum {string}
+         */
+        MatchType: "TRUSTED_SENDER" | "EXTRACTED_ORDER_REF" | "THREAD_LINK" | "MANUAL_OVERRIDE";
+        /** MessageAssociationRecord */
+        MessageAssociationRecord: {
+            /** Association Id */
+            association_id: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Message Id */
+            message_id: string;
+            status: components["schemas"]["IdentityLinkStatus"];
+            verified_customer?: components["schemas"]["CustomerAccount"] | null;
+            verified_order?: components["schemas"]["OrderReference"] | null;
+            /** Candidates */
+            candidates?: components["schemas"]["AssociationCandidate"][];
+            /** Conflicts */
+            conflicts?: string[];
+            last_decision?: components["schemas"]["AssociationDecision"] | null;
+            /** Version */
+            version: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** MessagePage */
         MessagePage: {
             /** Items */
@@ -408,6 +533,22 @@ export interface components {
             fields?: components["schemas"]["ExtractedField"][];
             /** Diagnostic */
             diagnostic?: string | null;
+        };
+        /** OrderReference */
+        OrderReference: {
+            /** Order Id */
+            order_id: string;
+            /** Customer Id */
+            customer_id: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Status */
+            status: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
         };
         /** ProcessResponse */
         ProcessResponse: {
@@ -505,6 +646,10 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -871,6 +1016,138 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_message_association_v1_messages__message_id__association_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageAssociationRecord"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    decide_message_association_v1_messages__message_id__association_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Actor-ID"?: string | null;
+                "X-Actor-Role"?: string | null;
+            };
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssociationDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageAssociationRecord"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
