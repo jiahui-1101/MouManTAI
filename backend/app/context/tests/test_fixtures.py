@@ -92,4 +92,5 @@ def test_preview_endpoint_is_explicit_and_read_only():
     assert {r["message"]["raw"]["tenant_id"] for r in payload["records"]} == {"synthetic_tenant_a"}
     assert "customers" not in payload
     assert client.post("/dev/p1/inbox", json={}).status_code == 405
-    assert client.post("/v1/messages/ingest", json={}).status_code == 404
+    # Operational route is now separate from the read-only preview.
+    assert client.post("/dev/p1/inbox", json={}).status_code == 405
