@@ -1,0 +1,24 @@
+{
+  "version": "p1-ai-gpu-v1",
+  "status": "proposed_before_heldout_model_evaluation",
+  "hard_requirements": [
+    "No model promotion of identity, payment, commitment or stock decisions",
+    "No overwrite of valid deterministic or human-reviewed values",
+    "Every accepted observation must match the unchanged tenant-scoped source",
+    "Invalid schema/evidence, truncation, timeout and unavailable endpoints preserve rules",
+    "No automatic date or conflict resolution from raw model proposals"
+  ],
+  "quality_targets": {
+    "combined_exact_span_f1_improvement_over_rules": 0.05,
+    "combined_precision_min": 0.95,
+    "per_language_f1_max_regression": 0.05,
+    "invalid_schema_answer_rate_max": 0.05,
+    "evidence_rejected_answer_rate_max": 0.10,
+    "unsupported_accepted_source_value_rate_max": 0.0,
+    "warm_request_median_seconds_max": 3.0,
+    "warm_request_p95_seconds_max": 8.0
+  },
+  "selection_policy": "Both families evaluated on identical new heldout cases. GLiNER retained only for fields where it improves candidate retrieval without unacceptable precision loss. Failure to pass means disabled, not lowered evidence checks. A rejected unsafe answer scores no extracted fields, not a correct case.",
+  "limits": {"max_network_requests": 96, "max_client_runtime_seconds": 2700, "max_worker_concurrency": 1, "automatic_post_retries": 0},
+  "note": "Client limits are not a provider-enforced account spending cap. These synthetic sample quality targets do not establish production accuracy. Item associations and delivery safety are reported separately from literal span extraction."
+}

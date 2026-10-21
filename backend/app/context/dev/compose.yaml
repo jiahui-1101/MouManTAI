@@ -1,0 +1,20 @@
+# PROVISIONAL P1 development only. Not P5 shared database configuration.
+name: monmantai-p1-dev
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${P1_POSTGRES_USER:?Set P1_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${P1_POSTGRES_PASSWORD:?Set P1_POSTGRES_PASSWORD}
+      POSTGRES_DB: monmantai_p1
+    ports:
+      - "127.0.0.1:${P1_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - p1_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d monmantai_p1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+volumes:
+  p1_postgres_data:

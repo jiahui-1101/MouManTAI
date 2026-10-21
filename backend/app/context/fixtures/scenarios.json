@@ -1,0 +1,1103 @@
+{
+  "mode": "SYNTHETIC_FIXTURES",
+  "business_timezone": "Asia/Kuala_Lumpur",
+  "customers": [
+    {
+      "tenant_id": "synthetic_tenant_a",
+      "customer_id": "synthetic_customer_a",
+      "alias": "Demo buyer A",
+      "verified_identity_ids": [
+        "synthetic_identity_a"
+      ]
+    },
+    {
+      "tenant_id": "synthetic_tenant_b",
+      "customer_id": "synthetic_customer_b",
+      "alias": "Demo buyer A",
+      "verified_identity_ids": [
+        "synthetic_identity_b"
+      ]
+    }
+  ],
+  "skus": [
+    {
+      "tenant_id": "synthetic_tenant_a",
+      "sku": "BURGER",
+      "label": "Synthetic burger",
+      "unit": "pcs"
+    },
+    {
+      "tenant_id": "synthetic_tenant_b",
+      "sku": "BURGER",
+      "label": "Synthetic burger",
+      "unit": "pcs"
+    }
+  ],
+  "orders": [
+    {
+      "tenant_id": "synthetic_tenant_a",
+      "order_id": "synthetic_order_a101",
+      "customer_id": "synthetic_customer_a",
+      "items": [
+        {
+          "sku": "BURGER",
+          "quantity": "100",
+          "unit": "pcs"
+        }
+      ],
+      "commitment_ref": null,
+      "agreement_state": "REQUESTED"
+    },
+    {
+      "tenant_id": "synthetic_tenant_a",
+      "order_id": "synthetic_order_a102",
+      "customer_id": "synthetic_customer_a",
+      "items": [
+        {
+          "sku": "BURGER",
+          "quantity": "80",
+          "unit": "pcs"
+        }
+      ],
+      "commitment_ref": "synthetic_commitment_a102",
+      "agreement_state": "CONFIRMED"
+    },
+    {
+      "tenant_id": "synthetic_tenant_b",
+      "order_id": "synthetic_order_b201",
+      "customer_id": "synthetic_customer_b",
+      "items": [
+        {
+          "sku": "BURGER",
+          "quantity": "60",
+          "unit": "pcs"
+        }
+      ],
+      "commitment_ref": null,
+      "agreement_state": "REQUESTED"
+    }
+  ],
+  "records": [
+    {
+      "scenario_id": "valid",
+      "title": "New customer request",
+      "message": {
+        "message_id": "msg_valid",
+        "raw": {
+          "tenant_id": "synthetic_tenant_a",
+          "channel": "WHATSAPP",
+          "provider_message_id": "provider_valid",
+          "sender_identity_id": "synthetic_identity_a",
+          "sender_alias": "Demo buyer A",
+          "received_at": "2026-10-20T10:00:00+08:00",
+          "business_timezone": "Asia/Kuala_Lumpur",
+          "text": "I need 100 burgers tomorrow before 3pm",
+          "attachments": [],
+          "language": "en",
+          "thread_ref": "synthetic_thread_a",
+          "reply_to_provider_message_id": null,
+          "adapter_mode": "SYNTHETIC"
+        },
+        "content_sha256": "83a262f01fd447f9c0431250574db121e7b2fb21b274d13f6c54622193f99309",
+        "processing_status": "PROCESSED",
+        "fields": [
+          {
+            "field_name": "sku",
+            "value": "BURGER",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_valid_sku",
+                "message_id": "msg_valid",
+                "quote": "burgers",
+                "start": 11,
+                "end": 18,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "quantity",
+            "value": "100",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_valid_quantity",
+                "message_id": "msg_valid",
+                "quote": "100",
+                "start": 7,
+                "end": 10,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "unit",
+            "value": "pcs",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_valid_unit",
+                "message_id": "msg_valid",
+                "quote": "burgers",
+                "start": 11,
+                "end": 18,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "requested_delivery_at",
+            "value": "2026-10-21T15:00:00+08:00",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_valid_requested_delivery_at",
+                "message_id": "msg_valid",
+                "quote": "tomorrow before 3pm",
+                "start": 19,
+                "end": 38,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          }
+        ],
+        "diagnostic": null
+      },
+      "context": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_valid",
+        "source_message_ids": [
+          "msg_valid"
+        ],
+        "customer_id": "synthetic_customer_a",
+        "customer_identity_status": "LINK_VERIFIED",
+        "order_id": null,
+        "requested_items": [
+          {
+            "sku": "BURGER",
+            "quantity": "100",
+            "unit": "pcs"
+          }
+        ],
+        "requested_delivery_at": "2026-10-21T15:00:00+08:00",
+        "field_evidence": {
+          "sku": [
+            "ev_valid_sku"
+          ],
+          "quantity": [
+            "ev_valid_quantity"
+          ],
+          "unit": [
+            "ev_valid_unit"
+          ],
+          "requested_delivery_at": [
+            "ev_valid_requested_delivery_at"
+          ]
+        },
+        "conflicts": [],
+        "missing_fields": [],
+        "context_version": 1,
+        "status": "READY"
+      },
+      "review": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_valid",
+        "review_id": "review_valid",
+        "expected_context_version": 1,
+        "status": "PENDING",
+        "note": "Hand-labelled fixture; no processing or review action has run"
+      }
+    },
+    {
+      "scenario_id": "missing",
+      "title": "Delivery time missing",
+      "message": {
+        "message_id": "msg_missing",
+        "raw": {
+          "tenant_id": "synthetic_tenant_a",
+          "channel": "EMAIL",
+          "provider_message_id": "provider_missing",
+          "sender_identity_id": "synthetic_identity_a",
+          "sender_alias": "Demo buyer A",
+          "received_at": "2026-10-20T10:00:00+08:00",
+          "business_timezone": "Asia/Kuala_Lumpur",
+          "text": "Please send 40 burgers",
+          "attachments": [],
+          "language": "en",
+          "thread_ref": "synthetic_thread_a",
+          "reply_to_provider_message_id": null,
+          "adapter_mode": "SYNTHETIC"
+        },
+        "content_sha256": "c523d2331576dda16d50c28d0c74891ef5e9eb309e47c32f1c956382fdedc7ed",
+        "processing_status": "PROCESSED",
+        "fields": [
+          {
+            "field_name": "sku",
+            "value": "BURGER",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_missing_sku",
+                "message_id": "msg_missing",
+                "quote": "burgers",
+                "start": 15,
+                "end": 22,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "quantity",
+            "value": "40",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_missing_quantity",
+                "message_id": "msg_missing",
+                "quote": "40",
+                "start": 12,
+                "end": 14,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "requested_delivery_at",
+            "value": null,
+            "validation_status": "MISSING",
+            "evidence": []
+          }
+        ],
+        "diagnostic": null
+      },
+      "context": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_missing",
+        "source_message_ids": [
+          "msg_missing"
+        ],
+        "customer_id": "synthetic_customer_a",
+        "customer_identity_status": "LINK_VERIFIED",
+        "order_id": null,
+        "requested_items": [
+          {
+            "sku": "BURGER",
+            "quantity": "40",
+            "unit": "pcs"
+          }
+        ],
+        "requested_delivery_at": null,
+        "field_evidence": {
+          "sku": [
+            "ev_missing_sku"
+          ],
+          "quantity": [
+            "ev_missing_quantity"
+          ]
+        },
+        "conflicts": [],
+        "missing_fields": [
+          "requested_delivery_at"
+        ],
+        "context_version": 1,
+        "status": "PARTIAL"
+      },
+      "review": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_missing",
+        "review_id": "review_missing",
+        "expected_context_version": 1,
+        "status": "PENDING",
+        "note": "Hand-labelled fixture; no processing or review action has run"
+      }
+    },
+    {
+      "scenario_id": "duplicate",
+      "title": "Repeated provider delivery",
+      "message": {
+        "message_id": "msg_duplicate",
+        "raw": {
+          "tenant_id": "synthetic_tenant_a",
+          "channel": "WHATSAPP",
+          "provider_message_id": "provider_valid",
+          "sender_identity_id": "synthetic_identity_a",
+          "sender_alias": "Demo buyer A",
+          "received_at": "2026-10-20T10:00:00+08:00",
+          "business_timezone": "Asia/Kuala_Lumpur",
+          "text": "I need 100 burgers tomorrow before 3pm",
+          "attachments": [],
+          "language": "en",
+          "thread_ref": "synthetic_thread_a",
+          "reply_to_provider_message_id": null,
+          "adapter_mode": "SYNTHETIC"
+        },
+        "content_sha256": "83a262f01fd447f9c0431250574db121e7b2fb21b274d13f6c54622193f99309",
+        "processing_status": "PROCESSED",
+        "fields": [
+          {
+            "field_name": "sku",
+            "value": "BURGER",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_duplicate_sku",
+                "message_id": "msg_duplicate",
+                "quote": "burgers",
+                "start": 11,
+                "end": 18,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "quantity",
+            "value": "100",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_duplicate_quantity",
+                "message_id": "msg_duplicate",
+                "quote": "100",
+                "start": 7,
+                "end": 10,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "unit",
+            "value": "pcs",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_duplicate_unit",
+                "message_id": "msg_duplicate",
+                "quote": "burgers",
+                "start": 11,
+                "end": 18,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "requested_delivery_at",
+            "value": "2026-10-21T15:00:00+08:00",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_duplicate_requested_delivery_at",
+                "message_id": "msg_duplicate",
+                "quote": "tomorrow before 3pm",
+                "start": 19,
+                "end": 38,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          }
+        ],
+        "diagnostic": null
+      },
+      "context": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_duplicate",
+        "source_message_ids": [
+          "msg_duplicate"
+        ],
+        "customer_id": "synthetic_customer_a",
+        "customer_identity_status": "LINK_VERIFIED",
+        "order_id": null,
+        "requested_items": [
+          {
+            "sku": "BURGER",
+            "quantity": "100",
+            "unit": "pcs"
+          }
+        ],
+        "requested_delivery_at": "2026-10-21T15:00:00+08:00",
+        "field_evidence": {
+          "sku": [
+            "ev_duplicate_sku"
+          ],
+          "quantity": [
+            "ev_duplicate_quantity"
+          ],
+          "unit": [
+            "ev_duplicate_unit"
+          ],
+          "requested_delivery_at": [
+            "ev_duplicate_requested_delivery_at"
+          ]
+        },
+        "conflicts": [],
+        "missing_fields": [],
+        "context_version": 1,
+        "status": "READY"
+      },
+      "review": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_duplicate",
+        "review_id": "review_duplicate",
+        "expected_context_version": 1,
+        "status": "PENDING",
+        "note": "Hand-labelled fixture; no processing or review action has run"
+      }
+    },
+    {
+      "scenario_id": "followup",
+      "title": "Follow-up for order A-101",
+      "message": {
+        "message_id": "msg_followup",
+        "raw": {
+          "tenant_id": "synthetic_tenant_a",
+          "channel": "WHATSAPP",
+          "provider_message_id": "provider_followup",
+          "sender_identity_id": "synthetic_identity_a",
+          "sender_alias": "Demo buyer A",
+          "received_at": "2026-10-20T10:00:00+08:00",
+          "business_timezone": "Asia/Kuala_Lumpur",
+          "text": "For A-101, make it 120 burgers tomorrow before 3pm",
+          "attachments": [],
+          "language": "en",
+          "thread_ref": "synthetic_thread_a",
+          "reply_to_provider_message_id": "provider_valid",
+          "adapter_mode": "SYNTHETIC"
+        },
+        "content_sha256": "11bf65a5b3e6cf15bb620bbc763db4fb1410dea8ccee5c4861e82c29b8f6f5a7",
+        "processing_status": "PROCESSED",
+        "fields": [
+          {
+            "field_name": "order_id",
+            "value": "synthetic_order_a101",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_followup_order_id",
+                "message_id": "msg_followup",
+                "quote": "A-101",
+                "start": 4,
+                "end": 9,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "quantity",
+            "value": "120",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_followup_quantity",
+                "message_id": "msg_followup",
+                "quote": "120",
+                "start": 19,
+                "end": 22,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "sku",
+            "value": "BURGER",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_followup_sku",
+                "message_id": "msg_followup",
+                "quote": "burgers",
+                "start": 23,
+                "end": 30,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "requested_delivery_at",
+            "value": "2026-10-21T15:00:00+08:00",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_followup_requested_delivery_at",
+                "message_id": "msg_followup",
+                "quote": "tomorrow before 3pm",
+                "start": 31,
+                "end": 50,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          }
+        ],
+        "diagnostic": null
+      },
+      "context": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_followup",
+        "source_message_ids": [
+          "msg_followup"
+        ],
+        "customer_id": "synthetic_customer_a",
+        "customer_identity_status": "LINK_VERIFIED",
+        "order_id": "synthetic_order_a101",
+        "requested_items": [
+          {
+            "sku": "BURGER",
+            "quantity": "120",
+            "unit": "pcs"
+          }
+        ],
+        "requested_delivery_at": "2026-10-21T15:00:00+08:00",
+        "field_evidence": {
+          "order_id": [
+            "ev_followup_order_id"
+          ],
+          "quantity": [
+            "ev_followup_quantity"
+          ],
+          "sku": [
+            "ev_followup_sku"
+          ],
+          "requested_delivery_at": [
+            "ev_followup_requested_delivery_at"
+          ]
+        },
+        "conflicts": [],
+        "missing_fields": [],
+        "context_version": 1,
+        "status": "READY"
+      },
+      "review": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_followup",
+        "review_id": "review_followup",
+        "expected_context_version": 1,
+        "status": "PENDING",
+        "note": "Hand-labelled fixture; no processing or review action has run"
+      }
+    },
+    {
+      "scenario_id": "ambiguous",
+      "title": "Several possible orders",
+      "message": {
+        "message_id": "msg_ambiguous",
+        "raw": {
+          "tenant_id": "synthetic_tenant_a",
+          "channel": "TELEGRAM",
+          "provider_message_id": "provider_ambiguous",
+          "sender_identity_id": "synthetic_identity_a",
+          "sender_alias": "Demo buyer A",
+          "received_at": "2026-10-20T10:00:00+08:00",
+          "business_timezone": "Asia/Kuala_Lumpur",
+          "text": "Same as last time please",
+          "attachments": [],
+          "language": "en",
+          "thread_ref": "synthetic_thread_a",
+          "reply_to_provider_message_id": null,
+          "adapter_mode": "SYNTHETIC"
+        },
+        "content_sha256": "1e88842122170c9a16aeb7def91863c4a7f65323d6d952726001456770b4ba8c",
+        "processing_status": "PROCESSED",
+        "fields": [],
+        "diagnostic": null
+      },
+      "context": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_ambiguous",
+        "source_message_ids": [
+          "msg_ambiguous"
+        ],
+        "customer_id": null,
+        "customer_identity_status": "AMBIGUOUS",
+        "order_id": null,
+        "requested_items": [],
+        "requested_delivery_at": null,
+        "field_evidence": {},
+        "conflicts": [],
+        "missing_fields": [],
+        "context_version": 1,
+        "status": "UNRESOLVED"
+      },
+      "review": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_ambiguous",
+        "review_id": "review_ambiguous",
+        "expected_context_version": 1,
+        "status": "PENDING",
+        "note": "Hand-labelled fixture; no processing or review action has run"
+      }
+    },
+    {
+      "scenario_id": "conflict",
+      "title": "Change to confirmed terms",
+      "message": {
+        "message_id": "msg_conflict",
+        "raw": {
+          "tenant_id": "synthetic_tenant_a",
+          "channel": "EMAIL",
+          "provider_message_id": "provider_conflict",
+          "sender_identity_id": "synthetic_identity_a",
+          "sender_alias": "Demo buyer A",
+          "received_at": "2026-10-20T10:00:00+08:00",
+          "business_timezone": "Asia/Kuala_Lumpur",
+          "text": "A-102: change 80 burgers to 150 tomorrow before 3pm",
+          "attachments": [],
+          "language": "en",
+          "thread_ref": "synthetic_thread_a",
+          "reply_to_provider_message_id": null,
+          "adapter_mode": "SYNTHETIC"
+        },
+        "content_sha256": "5f7345e2ec1904d930f4c42ff805895924ecd6cf95025b3ed124eb8e8675572a",
+        "processing_status": "PROCESSED",
+        "fields": [
+          {
+            "field_name": "quantity",
+            "value": "150",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_conflict_quantity",
+                "message_id": "msg_conflict",
+                "quote": "150",
+                "start": 28,
+                "end": 31,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "sku",
+            "value": "BURGER",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_conflict_sku",
+                "message_id": "msg_conflict",
+                "quote": "burgers",
+                "start": 17,
+                "end": 24,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "requested_delivery_at",
+            "value": "2026-10-21T15:00:00+08:00",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_conflict_requested_delivery_at",
+                "message_id": "msg_conflict",
+                "quote": "tomorrow before 3pm",
+                "start": 32,
+                "end": 51,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          }
+        ],
+        "diagnostic": null
+      },
+      "context": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_conflict",
+        "source_message_ids": [
+          "msg_conflict"
+        ],
+        "customer_id": "synthetic_customer_a",
+        "customer_identity_status": "LINK_VERIFIED",
+        "order_id": "synthetic_order_a102",
+        "requested_items": [
+          {
+            "sku": "BURGER",
+            "quantity": "150",
+            "unit": "pcs"
+          }
+        ],
+        "requested_delivery_at": "2026-10-21T15:00:00+08:00",
+        "field_evidence": {
+          "quantity": [
+            "ev_conflict_quantity"
+          ],
+          "sku": [
+            "ev_conflict_sku"
+          ],
+          "requested_delivery_at": [
+            "ev_conflict_requested_delivery_at"
+          ]
+        },
+        "conflicts": [
+          "Quantity differs from confirmed 80 pcs; propose amendment to Core"
+        ],
+        "missing_fields": [],
+        "context_version": 1,
+        "status": "CONFLICT"
+      },
+      "review": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_conflict",
+        "review_id": "review_conflict",
+        "expected_context_version": 1,
+        "status": "PENDING",
+        "note": "Hand-labelled fixture; no processing or review action has run"
+      }
+    },
+    {
+      "scenario_id": "cross_tenant",
+      "title": "Foreign order reference",
+      "message": {
+        "message_id": "msg_cross_tenant",
+        "raw": {
+          "tenant_id": "synthetic_tenant_a",
+          "channel": "WHATSAPP",
+          "provider_message_id": "provider_cross_tenant",
+          "sender_identity_id": "synthetic_identity_a",
+          "sender_alias": "Demo buyer A",
+          "received_at": "2026-10-20T10:00:00+08:00",
+          "business_timezone": "Asia/Kuala_Lumpur",
+          "text": "Please update B-201 to 100 burgers",
+          "attachments": [],
+          "language": "en",
+          "thread_ref": "synthetic_thread_a",
+          "reply_to_provider_message_id": null,
+          "adapter_mode": "SYNTHETIC"
+        },
+        "content_sha256": "ccbc505a56707747f90ff0d3969f395c3f521424455250634064e1315efb8079",
+        "processing_status": "PROCESSED",
+        "fields": [],
+        "diagnostic": null
+      },
+      "context": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_cross_tenant",
+        "source_message_ids": [
+          "msg_cross_tenant"
+        ],
+        "customer_id": null,
+        "customer_identity_status": "UNVERIFIED",
+        "order_id": null,
+        "requested_items": [],
+        "requested_delivery_at": null,
+        "field_evidence": {},
+        "conflicts": [],
+        "missing_fields": [],
+        "context_version": 1,
+        "status": "UNRESOLVED"
+      },
+      "review": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_cross_tenant",
+        "review_id": "review_cross_tenant",
+        "expected_context_version": 1,
+        "status": "PENDING",
+        "note": "Hand-labelled fixture; no processing or review action has run"
+      }
+    },
+    {
+      "scenario_id": "unavailable",
+      "title": "Extraction unavailable",
+      "message": {
+        "message_id": "msg_unavailable",
+        "raw": {
+          "tenant_id": "synthetic_tenant_a",
+          "channel": "UNKNOWN",
+          "provider_message_id": "provider_unavailable",
+          "sender_identity_id": "synthetic_identity_a",
+          "sender_alias": "Demo buyer A",
+          "received_at": "2026-10-20T10:00:00+08:00",
+          "business_timezone": "Asia/Kuala_Lumpur",
+          "text": "See attached request details",
+          "attachments": [],
+          "language": "en",
+          "thread_ref": "synthetic_thread_a",
+          "reply_to_provider_message_id": null,
+          "adapter_mode": "SYNTHETIC"
+        },
+        "content_sha256": "89b78121227a9e1af787b15de67200b80d58ef5a69d83bdeb043d30336a4576c",
+        "processing_status": "PROCESSING_FAILED",
+        "fields": [],
+        "diagnostic": "Model unavailable; manual review required"
+      },
+      "context": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_unavailable",
+        "source_message_ids": [
+          "msg_unavailable"
+        ],
+        "customer_id": "synthetic_customer_a",
+        "customer_identity_status": "LINK_VERIFIED",
+        "order_id": null,
+        "requested_items": [],
+        "requested_delivery_at": null,
+        "field_evidence": {},
+        "conflicts": [],
+        "missing_fields": [],
+        "context_version": 1,
+        "status": "UNRESOLVED"
+      },
+      "review": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_unavailable",
+        "review_id": "review_unavailable",
+        "expected_context_version": 1,
+        "status": "PENDING",
+        "note": "Hand-labelled fixture; no processing or review action has run"
+      }
+    },
+    {
+      "scenario_id": "multilingual",
+      "title": "Code-switching request",
+      "message": {
+        "message_id": "msg_multilingual",
+        "raw": {
+          "tenant_id": "synthetic_tenant_a",
+          "channel": "TELEGRAM",
+          "provider_message_id": "provider_multilingual",
+          "sender_identity_id": "synthetic_identity_a",
+          "sender_alias": "Demo buyer A",
+          "received_at": "2026-10-20T10:00:00+08:00",
+          "business_timezone": "Asia/Kuala_Lumpur",
+          "text": "Saya nak 100 burgers, esok sebelum 3pm",
+          "attachments": [],
+          "language": "en",
+          "thread_ref": "synthetic_thread_a",
+          "reply_to_provider_message_id": null,
+          "adapter_mode": "SYNTHETIC"
+        },
+        "content_sha256": "bd602865661518ea2c49e1584d96f168b80dc3aa1f165bb1996c1319cca1afd5",
+        "processing_status": "PROCESSED",
+        "fields": [
+          {
+            "field_name": "quantity",
+            "value": "100",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_multilingual_quantity",
+                "message_id": "msg_multilingual",
+                "quote": "100",
+                "start": 9,
+                "end": 12,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "sku",
+            "value": "BURGER",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_multilingual_sku",
+                "message_id": "msg_multilingual",
+                "quote": "burgers",
+                "start": 13,
+                "end": 20,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          },
+          {
+            "field_name": "requested_delivery_at",
+            "value": "2026-10-21T15:00:00+08:00",
+            "validation_status": "VALID",
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_id": "ev_multilingual_requested_delivery_at",
+                "message_id": "msg_multilingual",
+                "quote": "esok sebelum 3pm",
+                "start": 22,
+                "end": 38,
+                "method": "FIXTURE",
+                "method_version": "p1-00-hand-labelled-v1"
+              }
+            ]
+          }
+        ],
+        "diagnostic": null
+      },
+      "context": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_multilingual",
+        "source_message_ids": [
+          "msg_multilingual"
+        ],
+        "customer_id": "synthetic_customer_a",
+        "customer_identity_status": "LINK_VERIFIED",
+        "order_id": null,
+        "requested_items": [
+          {
+            "sku": "BURGER",
+            "quantity": "100",
+            "unit": "pcs"
+          }
+        ],
+        "requested_delivery_at": "2026-10-21T15:00:00+08:00",
+        "field_evidence": {
+          "quantity": [
+            "ev_multilingual_quantity"
+          ],
+          "sku": [
+            "ev_multilingual_sku"
+          ],
+          "requested_delivery_at": [
+            "ev_multilingual_requested_delivery_at"
+          ]
+        },
+        "conflicts": [],
+        "missing_fields": [],
+        "context_version": 1,
+        "status": "READY"
+      },
+      "review": {
+        "tenant_id": "synthetic_tenant_a",
+        "context_id": "ctx_multilingual",
+        "review_id": "review_multilingual",
+        "expected_context_version": 1,
+        "status": "PENDING",
+        "note": "Hand-labelled fixture; no processing or review action has run"
+      }
+    }
+  ],
+  "expectations": [
+    {
+      "scenario_id": "valid",
+      "behavior": "New request is information-ready, not a confirmed commitment",
+      "expected_readiness": "READY",
+      "expected_order_id": null,
+      "expected_quantity": "100",
+      "expected_delivery_at": "2026-10-21T15:00:00+08:00",
+      "expected_next_action": "REVIEW_REQUEST",
+      "candidate_order_ids": [],
+      "duplicate_of": null
+    },
+    {
+      "scenario_id": "missing",
+      "behavior": "Absent delivery remains missing",
+      "expected_readiness": "PARTIAL",
+      "expected_order_id": null,
+      "expected_quantity": "40",
+      "expected_delivery_at": null,
+      "expected_next_action": "REQUEST_INFORMATION",
+      "candidate_order_ids": [],
+      "duplicate_of": null
+    },
+    {
+      "scenario_id": "duplicate",
+      "behavior": "Future ingestion must deduplicate tenant/channel/provider key",
+      "expected_readiness": "READY",
+      "expected_order_id": null,
+      "expected_quantity": "100",
+      "expected_delivery_at": "2026-10-21T15:00:00+08:00",
+      "expected_next_action": "DEDUPLICATE_IN_P1_01",
+      "candidate_order_ids": [],
+      "duplicate_of": "valid"
+    },
+    {
+      "scenario_id": "followup",
+      "behavior": "Verified identity + explicit order may propose existing context update",
+      "expected_readiness": "READY",
+      "expected_order_id": "synthetic_order_a101",
+      "expected_quantity": "120",
+      "expected_delivery_at": "2026-10-21T15:00:00+08:00",
+      "expected_next_action": "VERSIONED_UPDATE_IN_P1_01",
+      "candidate_order_ids": [],
+      "duplicate_of": null
+    },
+    {
+      "scenario_id": "ambiguous",
+      "behavior": "Fuzzy wording must not auto-link either order",
+      "expected_readiness": "UNRESOLVED",
+      "expected_order_id": null,
+      "expected_quantity": null,
+      "expected_delivery_at": null,
+      "expected_next_action": "MANUAL_ASSOCIATION",
+      "candidate_order_ids": [
+        "synthetic_order_a101",
+        "synthetic_order_a102"
+      ],
+      "duplicate_of": null
+    },
+    {
+      "scenario_id": "conflict",
+      "behavior": "Preserve confirmed 80 pcs; route 150 pcs as proposed amendment",
+      "expected_readiness": "CONFLICT",
+      "expected_order_id": "synthetic_order_a102",
+      "expected_quantity": "150",
+      "expected_delivery_at": "2026-10-21T15:00:00+08:00",
+      "expected_next_action": "PROPOSE_AMENDMENT",
+      "candidate_order_ids": [],
+      "duplicate_of": null
+    },
+    {
+      "scenario_id": "cross_tenant",
+      "behavior": "Foreign order must not be linked or disclosed to sender",
+      "expected_readiness": "UNRESOLVED",
+      "expected_order_id": null,
+      "expected_quantity": null,
+      "expected_delivery_at": null,
+      "expected_next_action": "DENY_FOREIGN_ASSOCIATION",
+      "candidate_order_ids": [],
+      "duplicate_of": null
+    },
+    {
+      "scenario_id": "unavailable",
+      "behavior": "Unavailable extraction leaves unresolved information",
+      "expected_readiness": "UNRESOLVED",
+      "expected_order_id": null,
+      "expected_quantity": null,
+      "expected_delivery_at": null,
+      "expected_next_action": "MANUAL_REVIEW",
+      "candidate_order_ids": [],
+      "duplicate_of": null
+    },
+    {
+      "scenario_id": "multilingual",
+      "behavior": "Hand-labelled Malay/English date uses fixed message-local timezone",
+      "expected_readiness": "READY",
+      "expected_order_id": null,
+      "expected_quantity": "100",
+      "expected_delivery_at": "2026-10-21T15:00:00+08:00",
+      "expected_next_action": "REVIEW_REQUEST",
+      "candidate_order_ids": [],
+      "duplicate_of": null
+    }
+  ]
+}
