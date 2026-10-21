@@ -3,8 +3,8 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import CommunicationRequestRecord, CommunicationSourceEventRecord
-from .schemas import CommunicationRequestView, RecoveryCommunicationReference, RequestStatus
+from .models import CommunicationRequestRecord, CommunicationSourceEventRecord, MessageDraftRecord
+from .schemas import CommunicationRequestView, MessageDraftView, RecoveryCommunicationReference, RequestStatus
 
 
 class CommunicationRequestRepository:
@@ -62,3 +62,34 @@ class CommunicationRequestRepository:
     @staticmethod
     def view(record: CommunicationRequestRecord) -> CommunicationRequestView:
         return CommunicationRequestView.model_validate(record.snapshot)
+
+
+class MessageDraftRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get(self, tenant_id: str, communication_id: str, draft_id: str) -> MessageDraftRecord | None:
+        return self.db.scalar(select(MessageDraftRecord).where(
+            MessageDraftRecord.tenant_id == tenant_id,
+            MessageDraftRecord.communication_id == communication_id,
+            MessageDraftRecord.draft_id == draft_id,
+        ))
+
+    def by_variant(self, tenant_id: str, communication_id: str, validation_hash: str):
+        return self.db.scalar(select(MessageDraftRecord).where(
+            MessageDraftRecord.tenant_id == tenant_id,
+            MessageDraftRecord.communication_id == communication_id,
+            MessageDraftRecord.validation_hash == validation_hash,
+        ))
+
+    def add(self, draft: MessageDraftView) -> None:
+        self.db.add(MessageDraftRecord(
+            tenant_id=draft.tenant_id, draft_id=draft.draft_id,
+            communication_id=draft.communication_id, validation_hash=draft.validation_hash,
+            snapshot=draft.model_dump(mode="json"), created_at=draft.created_at,
+        ))
+        self.db.flush()
+
+    @staticmethod
+    def view(record: MessageDraftRecord) -> MessageDraftView:
+        return MessageDraftView.model_validate(record.snapshot)

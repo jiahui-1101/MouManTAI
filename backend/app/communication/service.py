@@ -1,7 +1,7 @@
 """Communication request intake; retains the Commit 01 pure inspection helper."""
 
 from datetime import datetime, timezone
-from typing import Protocol
+from typing import Callable, Protocol
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -82,6 +82,7 @@ class RequestAuthority(Protocol):
     Must authorize this actor to create this request and read real approval evidence,
     versioned terms and optional verified recipient/channel data. Raise DomainError
     on policy denial; return None if approval evidence cannot be established.
+    Query through the supplied Session without committing or mutating Core records.
     """
 
     def authorize_request(
@@ -150,9 +151,23 @@ class CommunicationRequestService:
                 raise
         raise AssertionError("unreachable")
 
-    def _create_once(
+    def resolve_current(
         self, context: RequestContext, command: CreateCommunicationRequest, now: datetime,
-    ) -> CommunicationRequestView:
+        *, authorize: Callable[
+            [Session, RequestContext, RecoveryCommunicationReference, CommitmentTerms],
+            RequestAuthorization | None,
+        ] | None = None,
+    ) -> tuple[RecoveryCommunicationReference, CommitmentTerms, RequestAuthorization, str, list[str]]:
+        """Read/lock current authority without creating a request or committing.
+
+        Shared by request intake and drafting. The caller owns commit/rollback and
+        must supply its action-specific authorization callback when not creating.
+        """
+        _require_context(context)
+        if authorize is None:
+            if self.authority is None:
+                _fail("COMMUNICATION_AUTHORITY_UNAVAILABLE", "Trusted authority is required", 503)
+            authorize = self.authority.authorize_request
         source = self.db.scalar(select(OutboxEventRecord).where(
             OutboxEventRecord.event_id == command.source_event_id,
             OutboxEventRecord.tenant_id == context.tenant_id,
@@ -198,7 +213,7 @@ class CommunicationRequestService:
             raise DomainError("INVALID_PROPOSAL_TERMS", "Proposal terms are invalid", status_code=422) from exc
         if terms.deadline <= now:
             _fail("PROPOSED_DEADLINE_PASSED", "Proposal delivery deadline has passed")
-        authorization = self.authority.authorize_request(
+        authorization = authorize(
             self.db, context, ref.model_copy(deep=True), terms.model_copy(deep=True),
         )
         if authorization is None:
@@ -223,6 +238,13 @@ class CommunicationRequestService:
         if authorization.recipient_customer_id not in (None, commitment.customer_id):
             _fail("RECIPIENT_MISMATCH", "Recipient is linked to a different customer", 403)
 
+        return ref, terms, authorization, commitment.order_id, list(proposal.evidence_refs)
+
+    def _create_once(
+        self, context: RequestContext, command: CreateCommunicationRequest, now: datetime,
+    ) -> CommunicationRequestView:
+        ref, terms, authorization, _, proposal_evidence = self.resolve_current(context, command, now)
+
         existing = self.repository.by_event(ref.tenant_id, ref.source_event_id)
         if existing is None:
             existing = self.repository.by_proposal(ref)
@@ -241,7 +263,7 @@ class CommunicationRequestService:
             reasons.append("PROPOSAL_EXPIRY_REQUIRED")
         if not (
             authorization.recipient_identity_id and authorization.recipient_evidence_refs
-            and authorization.recipient_customer_id == commitment.customer_id
+            and authorization.recipient_customer_id is not None
         ):
             reasons.append("VERIFIED_RECIPIENT_REQUIRED")
         if authorization.channel in (None, CommunicationChannel.UNKNOWN) or not authorization.channel_evidence_refs:
@@ -256,7 +278,7 @@ class CommunicationRequestService:
             blocking_reasons=reasons, proposed_terms=terms,
             approval_evidence_refs=authorization.approval_evidence_refs,
             approval_expires_at=authorization.approval_expires_at,
-            proposal_evidence_refs=proposal.evidence_refs,
+            proposal_evidence_refs=proposal_evidence,
             recipient_identity_id=authorization.recipient_identity_id,
             recipient_evidence_refs=authorization.recipient_evidence_refs,
             channel=authorization.channel, channel_evidence_refs=authorization.channel_evidence_refs,
