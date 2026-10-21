@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "PromiseFlow P1 development only",
+    "title": "MonManTAI P1 development only",
     "version": "0.0.1"
   },
   "paths": {

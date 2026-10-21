@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from .fixture_models import InboxPreview
 from .fixture_repository import load_preview
 
-app = FastAPI(title="PromiseFlow P1 development only", version="0.0.1")
+app = FastAPI(title="MonManTAI P1 development only", version="0.0.1")
 
 
 @app.get("/dev/p1/health")
