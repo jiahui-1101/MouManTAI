@@ -1,5 +1,67 @@
 # P2 Feasibility & Impact Progress
 
+## Current checkpoint — Phase 7B-1 integration readiness (2026-10-21)
+
+**P2-local readiness validated; production integration PARTIAL/BLOCKED.** The new
+`feat/p2-phase7b-integration` branch starts from approved Main
+`03d5928e060271585a617afb3733b83732e6d4cd` (PR #5). Existing feasibility and
+impact engines were not rewritten.
+
+P2 now has an injected public GET adapter that maps Core commitment and P2
+assessment/impact responses without inventing current snapshot authority, source
+change values, or Core risk transitions. The internal pure evaluator rejects
+non-SERVICE/SYSTEM contexts before authority resolution; production authorization
+is still unconfigured and fails closed. Exact interface matrix, P5/P3 dependencies,
+and E2E sequence are in `PHASE7B1_INTEGRATION_READINESS.md`.
+
+Validation: **229 P2 backend tests**, **79 P5/shared backend tests**, **118 frontend
+tests passed / 5 skipped**, frontend typecheck/build passed, and the synthetic P2
+demo exits successfully. Combined backend rerun: **308 passed**. See the Phase
+7B-1 report for commands and warnings.
+No authenticated API, live DB, migrations, mounted P2 pages, durable writer,
+or joint P2/P5/P3 E2E was run. Validated implementation checkpoint
+`1507b5918b8ea9200aba4edca9b618929386e1fd` was pushed only to
+`origin/feat/p2-phase7b-integration` and its remote ref matched. Stop for
+independent review before 7B-2 or production wiring.
+
+## Current post-review follow-up — first-insert result integrity
+
+Approved Phase 7A baseline `0f82ced0cdbac248d49efaaa10b0b223f27152af`.
+SyntheticHistoryRepository now verifies complete results against the existing
+`evaluate` / `recalculate_supplier_delay` flows before first insertion. Input hashes
+are not authenticity proof. Tampered result/classification/intents reject; genuine
+UNKNOWN, supported proposals and identical replay remain accepted. Producer math
+and P5/P3 code unchanged. Exact production trusted-writer boundary documented in
+`ports.py` and PHASE7A_HANDOFF; it remains a P5 integration dependency.
+
+Focused history/impact **52 passed**; full backend **307 passed** (228 P2 + 79 P5),
+one existing warning; frontend **108 passed / 5 skipped**, typecheck/build passed.
+See latest P2_PHASE_REPORTS entry for commands and red/green evidence. Stop for
+review after feature-only push; no Phase 7B or production authenticity claim.
+
+
+## Current checkpoint — Phase 7A (2026-10-21)
+
+**Independent implementation ready for review; production integration PARTIAL/BLOCKED.**
+New branch `feat/p2-phase7-integration`, starting Main `ee4dfc73deb998a5af902422220cb1a34e0182cc`.
+Current Phase 7A report at end of P2_PHASE_REPORTS.md supersedes old NOT_STARTED
+and empty-set/P3-placeholder notes below. 131 current trace rows; runnable
+`python -B -m app.feasibility.demo` and `python -B -m app.feasibility.benchmark --iterations 10`
+from backend. Complete supplier flow, same evaluator, synthetic history + content
+binding, actual limited P5 resource read, canonical mapping and measured metrics.
+
+Final backend: **291 passed** (212 P2 + 79 P5), one existing warning.
+Frontend: **108 passed / 5 skipped**, typecheck/build passed. No live E2E run.
+Synthetic metrics: false-feasible 0/2, impacted recall 3/3, false-alert 0/3,
+actual current-version guard stale acceptance 0/2. Nine impact UNKNOWN outputs retained.
+
+Exact P3/P5 source/auth/version/history/transaction/outbox/UI dependencies and
+proposed schema in PHASE7A_HANDOFF.md. Synthetic history is not durable; resource
+summary is INCOMPLETE, never a fabricated global EvaluationSnapshot. No production
+router, auth, migration or shared module changes. No Phase 7B or PR/Main integration.
+Git final SHA and remote push verification are recorded in the task response.
+
+
 ## Current Main synchronization checkpoint — VALIDATED (2026-10-21)
 
 - **Main:** `origin/main` `0c082ceb0d1fa926a8b5fdf53b451505d3bd2250`, containing P5 PR #3 and D-013 `2f06a6ac7451def712aa080eb6c1189b8d57f216`.

@@ -837,3 +837,314 @@ changed. Tests use injected synthetic/runtime JSON, not production evidence.
 
 **STOP after feature-only commit/push verification for independent Phase 6 review.
 Do not begin Phase 7. Previously documented P3/P5 integration blockers remain.**
+
+
+## Phase 7A — Independent implementation ready; production integration BLOCKED — 2026-10-21
+
+### A. Git scope and baseline
+
+- New branch `feat/p2-phase7-integration` created directly from fetched Main
+  `ee4dfc73deb998a5af902422220cb1a34e0182cc`; expected PR #4 ancestry passed.
+- Initial worktree/index clean; no merge/rebase/cherry-pick/revert state; target
+  local/remote branch absent. Old P2 branch stayed `b7b2c60f1859c83b5060ae982caf57d02985858b`.
+- Commit/push only this new branch is explicitly authorized. No PR, merge,
+  force-push or Main/old-branch push. Final commit/remote verification is recorded
+  in the task response after publication (a commit cannot embed its own SHA).
+
+### B. Requirement coverage and gap audit
+
+The current section of `P2_REQUIREMENT_TRACE.md` audits 131 unique owner/system,
+API/event/data/test/metric/handoff criteria individually. Historical statuses are
+retained below it. The audit preceded implementation; this report records the
+final observed results. No required criterion was silently made optional.
+
+Closed independently: P0 complete two-commitment supplier pipeline, complete
+F2-06 two-impacted fixture, supplier input/source/ETA binding, canonical assessment
+mapping, typed history contracts/reference semantics, available stock read adapter,
+all five measured synthetic metrics and accurate early P3/P5 handoffs.
+
+Partial: authoritative snapshot assembly can only consume fields actually exposed
+by P5; reference history is not durable; event intents are not publication; frontend
+views remain unmounted. Blocked: P5 trusted auth, complete source contracts/version
+read token, DB migrations/persistence/transactional writer/outbox, production route
+mounting and public UI detail transport; P3 full snapshot and typed recovery adapter
+acceptance. Direct P1 requested BusinessContext-to-evaluator mapping remains a joint
+P1/P5/P2 contract task; current evaluator requires a confirmed Core target. Optional
+CP-SAT, graph library, forecasting and live connectors were not introduced.
+
+### C. Actual implementation and safeguards
+
+- `supplier_pipeline.py`: immutable SupplierDelayInputs binds declared snapshot IDs,
+  previous/updated ETA, exact delivery/supplier/SKU/quantity/unit/warehouse/confirmation
+  identity, typed source claim and tenant. Existing `assess_impact` validates source
+  links, event interval, resource change and version progression, then reuses the
+  single `evaluate` for before/after candidate calculations. No operational writes.
+- `pipeline_fixtures.py`: explicit synthetic production rates, exclusive line,
+  continuous shifts, plans/transit and complete empty job ledger; original
+  material-only fixtures and UNKNOWN expectations remain unchanged. The NEW complete
+  two-impact fixture explicitly books com-002 at 10:40 after the 09:00–10:40
+  first job, before the delayed 11:00 receipt; both baseline assessments are
+  FEASIBLE and both after assessments INFEASIBLE, with two at-risk intents.
+- `demo.py`: eight runnable synthetic scenarios, showing event, source claim,
+  snapshots, candidates, full before/after calculations, classifications/deltas,
+  buffer/evidence/reasons and replay result. Process-local repository returns no
+  new intents on identical replay. Different causes retain distinct event IDs.
+- `history.py`: canonical FeasibilityAssessment mapper, exact impact-to-result
+  binding and actual Impact Set (including empty), AssessmentRecord with complete
+  snapshot/Core/proposal reproduction, typed repository interface, tenant lookup,
+  defensive serialized copies, immutable/idempotent history and cause conflicts.
+  SyntheticHistoryRepository is never installed as a public durable adapter.
+- `service.py`: extracted existing deterministic evaluation identity without
+  changing arithmetic, status, assumptions or hash inputs. History verifies that
+  identity so hypothetical results cannot be stored as baseline calculations.
+- `impact.py`: additive local calculation_input_digest binds complete snapshots,
+  change and before/after Core inputs, including unresolved results. Existing
+  impact/event/dedup identities and all five classification semantics unchanged.
+  Hashes bind content; they are not signatures or source trust guarantees.
+- `resource_adapter.py`: actual P5 get_resource_snapshot read under no_autoflush;
+  exact total/reserved/available, units, timestamps and per-resource versions,
+  explicit absent resources and INCOMPLETE/UNAVAILABLE diagnostics. No global
+  snapshot version, lot provenance, validity interval or reservation owner invented.
+- `currentness.py`/`router.py`: extracted existing 503 missing-version / 409 stale
+  guard unchanged and reused in benchmark; P5 transaction must still recheck it.
+- `benchmark.py`/labels/tests: independent fact-based labels and metric arithmetic;
+  deliberate erroneous predictions and disabled-current-guard mutation are caught.
+- No P1/P3/P4/P5 implementation, shared schema, migration, package manifest,
+  authentication, app shell/router mount or approved original fixture was changed.
+
+### Intermediate 7A-1 / 7A-2 checkpoint
+
+P3 official example: FEASIBLE / COMPLETED. Supplier pipeline 14 passed. Early
+`PHASE7A_HANDOFF.md` documented exact P3 and P5 interfaces before optional domain
+work. The runnable P0 remained protected throughout; no Phase 7B started.
+
+Internal requesting-code-review review found two gaps: history accepted mixed
+calculation/input contents, and stale metric initially used a benchmark-only gate.
+Both were reproduced with failing tests and fixed. A follow-up reproduced missing
+Core results paired with complete Core input; full impact input binding fixes it
+while preserving legitimate missing-Core UNKNOWN. This internal review is not
+external independent approval or authorization for Phase 7B.
+
+### D. Commands and observed validation
+
+Backend commands below run from `D:/dunno/0.SDC/MouManTAI/backend`:
+
+| Command | Observed result | Kind / dependency |
+|---|---|---|
+| `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_supplier_pipeline.py -q -p no:cacheprovider` | 14 passed, 0 failed, 0 skipped | Synthetic pipeline; no DB/network |
+| `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_history.py app/feasibility/tests/test_resource_adapter.py -q -p no:cacheprovider` | Initial 11 passed, 0 failed/skipped; later history binding regressions added | Domain + isolated in-memory SQLite actual Core stock query |
+| `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_history.py app/feasibility/tests/test_benchmark.py app/feasibility/tests/test_router.py app/feasibility/tests/test_service.py -q -p no:cacheprovider` | 70 passed, 0 failed/skipped, 1 warning | After first review fixes; additional missing-Core regression added afterward |
+| `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_history.py app/feasibility/tests/test_impact.py app/feasibility/tests/test_supplier_pipeline.py app/feasibility/tests/test_benchmark.py -q -p no:cacheprovider` | 53 passed, 0 failed/skipped | Final focused content-binding/metric changes |
+| `python -B -m pytest -o 'addopts=' app/feasibility/tests tests -q -p no:cacheprovider` | Final 291 passed, 0 failed, 0 skipped; 1 warning | 212 P2 + 79 P5; unit/synthetic/API and isolated SQLite integration, not live E2E |
+| `python -B -m app.feasibility.benchmark --iterations 10 > app/feasibility/PHASE7A_METRICS.json` | Exit 0; counts/results below | Synthetic labels and actual shared public current-version guard |
+| `python -B -m app.feasibility.demo > $env:TEMP\moumantai-p2-phase7a-demo.json` | Exit 0; 8 scenarios, all replay_new_intent_count=0 | Synthetic calculation and reference history only |
+
+Runtime probe (backend, exit 0):
+
+```powershell
+python -B -c "from fastapi import FastAPI; from app.core.router import router as core; from app.feasibility.router import router as p2; from app.core.schemas import FeasibilityAssessment as canonical; from app.feasibility.history import FeasibilityAssessment as mapped; from app.feasibility.service import Commitment as consumed; from app.core.schemas import Commitment; keys=[(m,r.path) for r in [*core.routes,*p2.routes] if hasattr(r,'methods') for m in r.methods]; assert len(keys)==len(set(keys)); assert keys.count(('POST','/v1/commitments/{commitment_id}/assess'))==1; assert canonical is mapped and Commitment is consumed; app=FastAPI(); app.include_router(core); app.include_router(p2); assert 'post' in app.openapi()['paths']['/v1/commitments/{commitment_id}/assess']; print('PASS: canonical class identity; unique combined routes; one P2 assess POST'); from app.feasibility.production_fixtures import build_production_example; from app.feasibility.service import evaluate; s,c=build_production_example(); r=evaluate(s,None,c); print('P3 fixture:',r.status.value,r.solver_status.value)"
+```
+
+Frontend commands from `D:/dunno/0.SDC/MouManTAI/frontend`:
+
+| Command | Result | Kind |
+|---|---|---|
+| `cmd /c npm test` | 108 passed, 0 failed, 5 skipped (7 files passed, 1 skipped) | jsdom/UI tests; live API tests skipped without LIVE_API=1 |
+| `cmd /c npm run typecheck` | Exit 0, no errors | TypeScript |
+| `cmd /c npm run build` | Exit 0; 94 modules; Vite 7.3.7 | TypeScript application build + production bundle |
+
+Environment: Python 3.14.3, pytest 9.1.1 (outside declared >=8.3,<9), Node
+24.14.0, npm 11.9.0. No dependency install/change. Existing Starlette/httpx
+TestClient deprecation warning remains. Vitest prints a jsdom pooling performance
+suggestion; no frontend failure. No destructive seed/reset, migration, live
+PostgreSQL, authenticated production API or actual browser/API E2E was run.
+
+### E. Independent synthetic metrics
+
+Labels: `benchmark_labels.json`, authored from stock/reservation/ETA/production
+facts, never copied from evaluator predictions. Six feasibility cases (five
+historical status observations plus a missing-current-authority acceptance case),
+eight impact scenarios / 16 commitment observations; only six causal labels known.
+Ten null causal labels are explicitly excluded from recall/false-alert denominators;
+nine actual impact outputs remain UNKNOWN. Unknown on a labelled positive would
+count as missed recall; UNKNOWN never counts as FEASIBLE or an alert.
+
+| Metric | Definition / observed numerator and denominator | Result |
+|---|---|---|
+| False-feasible | FEASIBLE among independently INFEASIBLE cases | 0 / 2 = 0% |
+| Impacted recall | Confirmed impact among genuinely impacted labelled commitments | 3 / 3 = 100% |
+| False-alert | Confirmed impact among labelled no-new-impact commitments | 0 / 3 = 0% |
+| Stale-result | Invalid/missing current version accepted as current FEASIBLE through actual public-route guard | 0 / 2 = 0% |
+
+Missing current authority can still yield historical FEASIBLE in the pure evaluator;
+the actual guard rejects it with 503. Stale version rejects with 409. Disabling the
+guard in a test changes measured stale rate to 1/2. This is not a DB concurrency,
+transaction rollback or stale UI production measurement. Zero denominator returns
+null, never invented 0%/100%. Counts describe unique labels, not repetitions.
+
+Latency, 10 repetitions after one untimed warmup: feasibility median 2.2536 ms / p95 3.4925 ms (n=60); impact median 20.3921 ms / p95 28.1276 ms (n=80). Measured with perf_counter_ns; validation/calculation included, fixture creation/network/storage excluded. Small synthetic samples do not establish live SME accuracy or production reliability.
+
+### F. P3 handoff
+
+Exact imports/signature, complete typed Snapshot, validation/version/tenant rules,
+supported quantity/deadline/start hypotheses, unsupported strategies and integration
+commands are in `PHASE7A_HANDOFF.md`. Official fixture observed FEASIBLE/COMPLETED.
+Read-only P3 branch `ca7517c` has an integrations adapter accepting the module
+function, while its older adapter expects metadata-only references/dictionaries.
+P3 must supply authoritative full snapshot and typed ProposedChanges; no second
+ATP/BOM/capacity engine, synthetic-to-authoritative promotion or unmerged import.
+
+### G. P5 handoff
+
+`PHASE7A_HANDOFF.md` specifies priority/owner/input/output/reuse/missing interface
+and joint tests for source authority/version vector, safe requester-to-SERVICE
+identity, canonical result-to-Core writer, append-only history schema/indexes,
+unique cause/payload binding, atomic state/history/audit/outbox, supplier source
+verification, five production routes, and public frontend transport/detail mapping.
+P2 reference history and input hashes are implemented; shared SQLAlchemy/Alembic
+and transaction adapters are proposals awaiting P5 review. No Core guard weakened.
+
+### H. Remaining work / review gate
+
+Independent P2 Phase 7A work is implemented and locally validated; overall P2
+production integration remains PARTIAL/BLOCKED. No production durability, external
+source authentication, current atomic snapshot, live UI/DB/API or end-to-end
+operational correctness is claimed. Public defaults remain unavailable.
+
+Recommended Phase 7B sequence, only after external approval: P5 review source and
+version contracts → P2 full source assembly → P5 transaction/history/Core/outbox
+adapter → P3 typed authoritative reuse → public API/detail transport and route
+mounting → real API/UI joint happy/unsafe/replay/race tests. Stop after the new
+feature branch push for independent review; do not create a PR or integrate Main.
+
+### Phase 7A implementation commit evidence
+
+```text
+d16aa45c73e7b09dfb00b9036e7c654cdbfa7a1e test(p2): measure independent feasibility and impact metrics
+6de2e7b8cdf1450887db282b9dc6094c575d0f7d feat(p2): add bound history and resource readiness adapters
+653936ade06a705fa265bbaf711aa79cf79afa78 feat(p2): add validated supplier-delay impact pipeline
+```
+
+Final documentation commit and remote SHA: see task response after feature-only push.
+
+
+## Phase 7A post-review first-insert integrity correction — 2026-10-21
+
+**Status:** locally validated follow-up to approved baseline
+`0f82ced0cdbac248d49efaaa10b0b223f27152af`; stop for review after feature-only push.
+Phase 7A was approved with this non-blocking follow-up. Phase 7B is not started.
+
+### Finding and minimal correction
+
+An empty SyntheticHistoryRepository accepted altered result contents when the
+original assessment ID/input identity or impact input digest was retained. The
+existing duplicate-payload guard rejected conflicting later inserts, but could
+not establish that the first result was actually produced by the recorded P2
+calculation. An input hash proves neither result authenticity nor source trust.
+AssessmentRecord remains a structurally bound value object, not a certificate
+that arbitrary supplied output is genuine.
+
+`SyntheticHistoryRepository.append_assessment` now calls the existing pure
+`evaluate(snapshot, proposed_changes, commitment)` using the complete recorded
+inputs and compares the **entire EvaluationResult** before storing anything.
+`append_impact` calls the existing `recalculate_supplier_delay(inputs,
+tenant_id=...)` and compares the **entire ImpactAssessment**, including nested
+assessments/classifications/evidence and top-level/per-row event intents/payloads.
+Mismatches raise `ValueError` result verification conflict before any history,
+cause or intent is accepted. Existing binding and duplicate conflict checks remain.
+
+No fields are excluded or normalized away for comparison. The current evaluators
+are deterministic: assessment time is explicit snapshot.as_of; event timestamps
+come from the recorded change; identities, ordering and content derive from the
+recorded inputs. No legitimate nondeterministic field was found. Future introduced
+nondeterminism requires individual review rather than weakening this comparison.
+
+This extra evaluation is limited to the **synthetic reference repository**. It
+reuses the existing calculators and adds no feasibility/impact rules, authenticity
+token, producer semantics or shared infrastructure. Service/evaluator, impact
+engine, P5/P3 implementation, app wiring and migrations are unchanged.
+
+### Regression evidence
+
+From `backend/`:
+
+- Red: `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_history.py -q -p no:cacheprovider`
+  — **13 failed, 15 passed** before implementation. Every new tampering rejection
+  failed because insertion did not raise, with genuine identity/digest retained.
+- Green focused: `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_history.py app/feasibility/tests/test_impact.py -q -p no:cacheprovider`
+  — **52 passed, 0 failed, 0 skipped**.
+- Complete applicable backend: `python -B -m pytest -o 'addopts=' app/feasibility/tests tests -q -p no:cacheprovider`
+  — **307 passed, 0 failed, 0 skipped** (228 P2 + 79 P5), one existing
+  Starlette/httpx TestClient deprecation warning.
+
+From `frontend/`:
+
+- `cmd /c npm test` — **108 passed, 0 failed, 5 skipped** (live API suite gated).
+- `cmd /c npm run typecheck` — exit 0, no errors.
+- `cmd /c npm run build` — exit 0, 94 modules transformed.
+
+Tests start from empty repositories and modify status, constraints, solver status,
+evidence, assumptions and nested material/capacity evidence while retaining the
+input identity. Impact cases modify classification, top-level intents, per-row
+intents, event payload, evidence and discovery status while retaining the input
+digest. Each rejection leaves history empty, then the genuine result inserts and
+replays idempotently. Supported hypothetical assessments and genuine material-only,
+stale-inventory, stale-production and missing-Core UNKNOWN results are preserved.
+
+No dependencies changed. Existing Python 3.14.3 / pytest 9.1.1 host version mismatch
+with declared pytest <9 remains. No live DB/authenticated API/UI E2E, destructive
+seed/reset, production persistence or source authenticity is claimed.
+
+### Production trust boundary / remaining owner dependency
+
+The P2-owned AssessmentWriter contract now explicitly requires the **exact
+P2-produced result through a trusted server-side execution boundary**. P5 must
+bind the authenticated requester and server-resolved SERVICE identity, recheck
+commitment/resource/snapshot versions inside the approved transaction, and atomically
+persist result/history/Core/audit/outbox. Arbitrary caller-supplied assessment
+objects and matching input hashes must not authorize persistence. The production
+writer must not independently recalculate, replace or change the trusted result;
+changed versions reject and return control to the P2 evaluation flow for a new
+calculation. Synthetic deterministic comparison is not proof of production source
+authenticity. This P5 adapter remains unimplemented/unconfigured and is not changed
+in this follow-up.
+
+## Phase 7B-1 — P2 integration readiness — 2026-10-21
+
+**State:** P2-local readiness changes PASS and are ready for independent review. Production integration remains PARTIAL/BLOCKED pending P5's trusted source, identity, durable writer/reader, supplier processor, app mounting, and authenticated frontend contracts; P3 evaluator handoff confirmation is also pending.
+
+**Approved baseline and Git:** fetched `origin/main` and verified PR #5 merge SHA `03d5928e060271585a617afb3733b83732e6d4cd` is Main HEAD and contains the approved Phase 7A implementation. Starting branch `feat/p2-phase7b-integration` was created directly from that commit. The pre-existing `feat/p2-phase7-integration` checkout was clean and left unchanged. P3 `ca7517c7c09390f0926d01825e689dbf1a8c8ca6` and P5 `5823db8c89d509243f904d988f865a6777ea6c4a` were inspected read-only and were not treated as Main code or as confirmed owner responses.
+
+**Scope:** no feasibility or impact engine rewrite; no shared schema, Core, DB, migration, auth, app-shell, P3 or P5 implementation changes. Changes are P2 backend router/test, P2 frontend data adapter/tests and P2 documentation/log only.
+
+**P2 implementation:**
+
+- Added an injected P2 public API source for the existing Core commitment, P2 assessment-history and P2 impact GET endpoints. It adds no request identity headers and remains unwired because P5's authenticated transport and route mounting are not approved/available.
+- Maps the latest assessment by timestamp but supplies no current snapshot version or detail rows. Current feasibility remains UNKNOWN until P5 returns authoritative currentness. Recalculation remains disabled.
+- Maps canonical impact classifications, deltas, buffers, evidence and dependency paths after checking root and row tenant/snapshot bindings. Trigger source values and Core risk transitions remain unavailable; the adapter does not infer them from event intents.
+- The P2 internal evaluator now rejects non-SERVICE/SYSTEM contexts before authority resolution. Its dependency remains unset by default, returning 503. This role check does not authenticate the context; P5 must provide a server-resolved service identity separate from the requester.
+- Test-first evidence: the new internal-caller regression first received 200 for a MANAGER context and then passed after the guard. Frontend cases first failed because the adapter/currentness behavior was absent; additional nested impact-binding cases first showed that row tenant/version details were being discarded. Final focused adapter/currentness tests pass.
+
+**Exact P5/P3 findings and dependency matrix:** see `PHASE7B1_INTEGRATION_READINESS.md`. Main already provides P2 pure `evaluate`, complete synthetic supplier recalculation, canonical assessment mapping, local reference history and an aggregate stock read that remains explicitly incomplete. P2 dependencies remain unconfigured by default. Production router mounting, trusted requester/SERVICE contexts, authoritative full snapshots/current version, durable assessment and impact storage, atomic Core/history/audit/outbox writer, `SupplierDelayProcessor`, authenticated P2 detail transport and route mounting require P5. P3's latest branch has a newer callable evaluator adapter requiring an authoritative `VersionedSnapshot`; its older adapter remains interface-incompatible and the owner must confirm the production path.
+
+**Validation actually run:**
+
+- From `backend/`: focused P2 router suite — **25 passed**; P2 feature suite — **229 passed**; P5/shared suite — **79 passed**; combined P2/P5 suite — **308 passed**. Each pytest invocation emitted one existing Starlette warning that `httpx` with `TestClient` is deprecated.
+- `python -B -m app.feasibility.demo` — **exit 0**. Output marks data `SYNTHETIC_P2_PIPELINE` and persistence `process-local reference only; nothing published`.
+- From `frontend/`: focused adapter/currentness suite — **18 passed**; full `npm.cmd test` — **118 passed, 5 skipped**; `npm.cmd run typecheck` — exit 0; `npm.cmd run build` — exit 0, 94 modules transformed. Five skips include the gated live-API suite; Vitest emitted its jsdom worker performance advisory.
+
+All P2/P5 API tests used isolated local dependencies (SQLite/injected providers/writers or frontend request doubles). No live PostgreSQL/migrations, authenticated API, mounted P2 page, persistent P2 writer, browser route, or joint P2/P5/P3 E2E was run. The P2 demo remains synthetic and process-local.
+
+**Files:** `backend/app/feasibility/router.py`; `backend/app/feasibility/tests/test_router.py`; `backend/app/feasibility/PHASE7B1_PLAN.md`; `backend/app/feasibility/PHASE7B1_INTEGRATION_READINESS.md`; P2 progress/trace/report; `frontend/src/features/feasibility/apiSource.ts`; `frontend/src/features/feasibility/apiSource.test.ts`; `frontend/src/features/feasibility/data.ts`; `frontend/src/features/feasibility/data.test.ts`; and a P2-only `docs/TEAM_LOG.md` status/log update.
+
+**Recommended joint sequence:** P5 configures authenticated requester/service contexts, source authority, writer/history/impact/supplier processor and app routes; seed two commitments with full synthetic operational evidence; submit supplier ETA change and assert one affected plus one buffered-unaffected result; verify atomic history/Core risk/audit/outbox and duplicate replay; inject transactional failure and verify complete rollback; exercise stale/tenant/evidence/untrusted negatives; then load P2 pages and P5 overview through real authenticated API/browser paths. Full ordering and assertions are in the readiness report.
+
+**Git checkpoint:** implementation commit `1507b5918b8ea9200aba4edca9b618929386e1fd` was pushed only to `origin/feat/p2-phase7b-integration`; `git ls-remote` confirmed the remote ref matched. Follow-up documentation records that checkpoint; the final branch head is reported with the task result.
+
+**Gate:** stop for independent review before Phase 7B-2 or joint production wiring. No PR or Main merge was created.
+
+Changed files: `history.py`, `ports.py`, `tests/test_history.py`,
+`PHASE7A_HANDOFF.md`, `P2_PROGRESS.md`, `P2_REQUIREMENT_TRACE.md`,
+`P2_PHASE_REPORTS.md`, and P2-only `docs/TEAM_LOG.md` entry. Final commit/remote SHA
+is reported after pushing only `origin/feat/p2-phase7-integration`. No PR or Main
+integration; stop for review.
