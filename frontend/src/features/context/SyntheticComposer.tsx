@@ -115,7 +115,7 @@ export function SyntheticComposer({ tenantId, ingest, onSuccess, onCancel }: {
       <fieldset disabled={pending || frozen !== null}><legend className="p1-sr-only">Synthetic message input</legend>
         <div style={{ marginBottom: '14px' }}>
           <label style={{ fontSize: '11px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>
-            Quick Load Realistic Scenario Template (常用场景模版)
+            Quick Load Realistic Scenario Template
           </label>
           <select
             aria-label="Scenario Template Preset"
