@@ -1358,6 +1358,393 @@
         }
       }
     },
+    "/v1/attachments/upload": {
+      "post": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Upload Attachment",
+        "operationId": "upload_attachment_v1_attachments_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_attachment_v1_attachments_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentRecord"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Content Too Large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/attachments/{evidence_ref}/content": {
+      "get": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Get Attachment Content",
+        "operationId": "get_attachment_content_v1_attachments__evidence_ref__content_get",
+        "parameters": [
+          {
+            "name": "evidence_ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Evidence Ref"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/attachments/{evidence_ref}/metadata": {
+      "get": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Get Attachment Metadata",
+        "operationId": "get_attachment_metadata_v1_attachments__evidence_ref__metadata_get",
+        "parameters": [
+          {
+            "name": "evidence_ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Evidence Ref"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentRecord"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/attachments/{evidence_ref}/extract": {
+      "post": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Extract Attachment",
+        "operationId": "extract_attachment_v1_attachments__evidence_ref__extract_post",
+        "parameters": [
+          {
+            "name": "evidence_ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Evidence Ref"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentExtractionResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/attachments/{evidence_ref}/extraction": {
+      "get": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Get Attachment Extraction",
+        "operationId": "get_attachment_extraction_v1_attachments__evidence_ref__extraction_get",
+        "parameters": [
+          {
+            "name": "evidence_ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Evidence Ref"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentExtractionResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dev/p1/health": {
       "get": {
         "summary": "Health",
@@ -1644,6 +2031,116 @@
           "evidence_ref"
         ],
         "title": "Attachment"
+      },
+      "AttachmentRecord": {
+        "properties": {
+          "attachment_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_\\-\\.:]+$",
+            "title": "Attachment Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_\\-\\.:]+$",
+            "title": "Tenant Id"
+          },
+          "evidence_ref": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_\\-\\.:]+$",
+            "title": "Evidence Ref"
+          },
+          "filename": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Filename"
+          },
+          "media_type": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Media Type"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "maximum": 25000000.0,
+            "minimum": 0.0,
+            "title": "Size Bytes"
+          },
+          "content_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Content Sha256"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "attachment_id",
+          "tenant_id",
+          "evidence_ref",
+          "filename",
+          "media_type",
+          "size_bytes",
+          "content_sha256"
+        ],
+        "title": "AttachmentRecord",
+        "description": "Metadata record for a stored attachment."
+      },
+      "Body_upload_attachment_v1_attachments_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_attachment_v1_attachments_upload_post"
+      },
+      "BoundingBox": {
+        "properties": {
+          "x0": {
+            "type": "number",
+            "title": "X0"
+          },
+          "y0": {
+            "type": "number",
+            "title": "Y0"
+          },
+          "x1": {
+            "type": "number",
+            "title": "X1"
+          },
+          "y1": {
+            "type": "number",
+            "title": "Y1"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "x0",
+          "y0",
+          "x1",
+          "y1"
+        ],
+        "title": "BoundingBox",
+        "description": "Bounding box coordinates [x0, y0, x1, y1] normalized or in points/pixels."
       },
       "BusinessContext": {
         "properties": {
@@ -2142,6 +2639,195 @@
           "tenant_id"
         ],
         "title": "DevelopmentContext"
+      },
+      "DocumentEvidence": {
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_\\-\\.:]+$",
+            "title": "Evidence Id"
+          },
+          "evidence_ref": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_\\-\\.:]+$",
+            "title": "Evidence Ref"
+          },
+          "attachment_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_\\-\\.:]+$",
+            "title": "Attachment Id"
+          },
+          "page_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page Number",
+            "description": "1-indexed page number where the text appears"
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Quote",
+            "description": "Exact text snippet recognized from document or OCR"
+          },
+          "bounding_box": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoundingBox"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "PDF_TEXT",
+              "OCR"
+            ],
+            "title": "Method"
+          },
+          "method_version": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_\\-\\.:]+$",
+            "title": "Method Version"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "is_payment_evidence": {
+            "type": "boolean",
+            "title": "Is Payment Evidence",
+            "description": "Whether this evidence comes from a payment screenshot or bank receipt",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "evidence_id",
+          "evidence_ref",
+          "attachment_id",
+          "page_number",
+          "quote",
+          "method",
+          "method_version"
+        ],
+        "title": "DocumentEvidence",
+        "description": "Traceable evidence extracted from a document page, distinct from message text spans."
+      },
+      "DocumentExtractionResult": {
+        "properties": {
+          "attachment_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_\\-\\.:]+$",
+            "title": "Attachment Id"
+          },
+          "evidence_ref": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_\\-\\.:]+$",
+            "title": "Evidence Ref"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SUCCESS",
+              "PARTIAL",
+              "FAILED",
+              "UNSUPPORTED"
+            ],
+            "title": "Status"
+          },
+          "document_type": {
+            "type": "string",
+            "enum": [
+              "PDF",
+              "IMAGE",
+              "UNKNOWN"
+            ],
+            "title": "Document Type"
+          },
+          "page_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Page Count"
+          },
+          "text_content": {
+            "type": "string",
+            "maxLength": 100000,
+            "title": "Text Content",
+            "default": ""
+          },
+          "extracted_fields": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Extracted Fields"
+          },
+          "evidence_items": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentEvidence"
+            },
+            "type": "array",
+            "title": "Evidence Items"
+          },
+          "is_payment_notice": {
+            "type": "boolean",
+            "title": "Is Payment Notice",
+            "default": false
+          },
+          "diagnostic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic"
+          },
+          "extracted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Extracted At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "attachment_id",
+          "evidence_ref",
+          "status",
+          "document_type",
+          "page_count"
+        ],
+        "title": "DocumentExtractionResult",
+        "description": "Result of document parsing or OCR on an attachment."
       },
       "ExtractedField": {
         "properties": {

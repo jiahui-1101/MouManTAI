@@ -1,10 +1,12 @@
 import { PreviewError } from './api';
 import type {
   AssociationDecisionRequest,
+  AttachmentRecord,
   ContextReviewRecord,
   ContextReviewRequest,
   ContextUpdateRequest,
   DevelopmentContext,
+  DocumentExtractionResult,
   ExtractionAttemptRecord,
   ExtractionHistoryResponse,
   IngestResponse,
@@ -41,6 +43,10 @@ export interface OperationalApi {
   updateContext(id: string, req: ContextUpdateRequest, headers?: Record<string, string>): Promise<OrderContextRecord>;
   listContextVersions(id: string): Promise<OrderContextVersionRecord[]>;
   listContextReviews(id: string): Promise<ContextReviewRecord[]>;
+  uploadAttachment(file: File): Promise<AttachmentRecord>;
+  extractAttachment(evidenceRef: string): Promise<DocumentExtractionResult>;
+  getAttachmentExtraction(evidenceRef: string): Promise<DocumentExtractionResult>;
+  getAttachmentMetadata(evidenceRef: string): Promise<AttachmentRecord>;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -97,5 +103,19 @@ export const operationalApi: OperationalApi = {
     }),
   listContextVersions: id => request(`/v1/contexts/${encodeURIComponent(id)}/versions`),
   listContextReviews: id => request(`/v1/contexts/${encodeURIComponent(id)}/reviews`),
+  uploadAttachment: file => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request('/v1/attachments/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+  extractAttachment: evidenceRef =>
+    request(`/v1/attachments/${encodeURIComponent(evidenceRef)}/extract`, { method: 'POST' }),
+  getAttachmentExtraction: evidenceRef =>
+    request(`/v1/attachments/${encodeURIComponent(evidenceRef)}/extraction`),
+  getAttachmentMetadata: evidenceRef =>
+    request(`/v1/attachments/${encodeURIComponent(evidenceRef)}/metadata`),
 };
 

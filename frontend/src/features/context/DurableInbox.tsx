@@ -5,7 +5,9 @@ import { operationalApi } from './operationalApi';
 import type { OperationalApi } from './operationalApi';
 import { SyntheticComposer } from './SyntheticComposer';
 import { OrderContextDetail } from './OrderContextDetail';
+import { AttachmentViewer } from './AttachmentViewer';
 import type {
+  AttachmentRecord,
   DevelopmentContext,
   ExtractedField,
   ExtractionAttemptRecord,
@@ -138,6 +140,9 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
   const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [selectedEvidenceRef, setSelectedEvidenceRef] = useState<string | null>(null);
+  const [uploadingAttachment, setUploadingAttachment] = useState<boolean>(false);
+  const [uploadedAttachments, setUploadedAttachments] = useState<AttachmentRecord[]>([]);
   const panel = useRef<HTMLElement>(null);
   useEffect(() => { panel.current?.focus(); }, []);
 
@@ -145,6 +150,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
     let active = true;
     setData(null); setExtraction(null); setAttempts([]); setAssociation(null); setError(null); setAssocError(null);
     setActiveContext(null); setShowContextModal(false); setContextLoading(false); setContextError(null);
+    setSelectedEvidenceRef(null); setUploadedAttachments([]);
     api.detail(id).then(message => {
       if (active) {
         setData(message);
@@ -401,7 +407,90 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
         )}
       </section>
 
-      <section className="p1-evidence"><h3>Attachment metadata</h3>{data.raw.attachments?.length ? <ul>{data.raw.attachments.map(attachment => <li key={attachment.attachment_id}>{attachment.filename} · {attachment.media_type} · {attachment.size_bytes} bytes · reference {attachment.evidence_ref}</li>)}</ul> : <p>No attachments supplied.</p>}<p className="p1-muted">Metadata only; upload, download and OCR are not implemented.</p></section>
+      <section className="p1-evidence" aria-label="Attachments and OCR Evidence">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3>Attachments & Document Evidence</h3>
+          <label className="p1-action-btn" style={{ cursor: 'pointer', fontSize: '11px', padding: '4px 8px' }}>
+            {uploadingAttachment ? '⏳ Uploading...' : '➕ Upload Attachment'}
+            <input
+              type="file"
+              data-testid="attachment-upload-input"
+              accept=".pdf,.png,.jpg,.jpeg"
+              style={{ display: 'none' }}
+              disabled={uploadingAttachment}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setUploadingAttachment(true);
+                try {
+                  const record = await api.uploadAttachment(file);
+                  setUploadedAttachments((prev) => [...prev, record]);
+                  setSelectedEvidenceRef(record.evidence_ref);
+                } catch (err: unknown) {
+                  alert(err instanceof Error ? err.message : 'Attachment upload failed');
+                } finally {
+                  setUploadingAttachment(false);
+                  e.target.value = '';
+                }
+              }}
+            />
+          </label>
+        </div>
+
+        {(() => {
+          const rawAtts = (data.raw.attachments as AttachmentRecord[] | undefined) || [];
+          const allAtts = [...rawAtts, ...uploadedAttachments];
+          if (!allAtts.length) {
+            return <p className="p1-muted">No attachments associated with this message. You can upload a PDF or image to inspect document text and OCR.</p>;
+          }
+          return (
+            <ul className="p1-attachment-list" style={{ listStyle: 'none', padding: 0, marginTop: '10px' }}>
+              {allAtts.map((att) => (
+                <li
+                  key={att.evidence_ref}
+                  className="p1-candidate-card"
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}
+                  data-testid={`attachment-row-${att.evidence_ref}`}
+                >
+                  <div>
+                    <strong>{att.media_type.startsWith('image/') ? '🖼️' : '📄'} {att.filename}</strong>
+                    <div className="p1-muted" style={{ fontSize: '11px', marginTop: '2px' }}>
+                      {att.media_type} · {(att.size_bytes / 1024).toFixed(1)} KB · Ref: <code>{att.evidence_ref}</code>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      className="p1-action-btn"
+                      onClick={() => setSelectedEvidenceRef(att.evidence_ref)}
+                      data-testid={`inspect-att-${att.evidence_ref}`}
+                    >
+                      🔍 Inspect / OCR
+                    </button>
+                    <a
+                      href={`/v1/attachments/${encodeURIComponent(att.evidence_ref)}/content`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p1-secondary"
+                      style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                    >
+                      ⬇️
+                    </a>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          );
+        })()}
+      </section>
+
+      {selectedEvidenceRef && (
+        <AttachmentViewer
+          evidenceRef={selectedEvidenceRef}
+          onClose={() => setSelectedEvidenceRef(null)}
+          api={api}
+        />
+      )}
       {showContextModal && activeContext && (
         <div className="p1-modal-backdrop" role="dialog" aria-modal="true" aria-label="Order Context Details">
           <div className="p1-modal-card">

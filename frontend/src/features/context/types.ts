@@ -28,4 +28,8 @@ export type ContextReviewRecord = components['schemas']['ContextReviewRecord'];
 export type ContextReviewRequest = components['schemas']['ContextReviewRequest'];
 export type ContextUpdateRequest = components['schemas']['ContextUpdateRequest'];
 export type RequestedItem = components['schemas']['app__context__order_context_schemas__RequestedItem'];
+export type AttachmentRecord = components['schemas']['AttachmentRecord'];
+export type DocumentExtractionResult = components['schemas']['DocumentExtractionResult'];
+export type DocumentEvidence = components['schemas']['DocumentEvidence'];
+export type BoundingBox = components['schemas']['BoundingBox'];
 

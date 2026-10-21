@@ -244,6 +244,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/attachments/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Attachment */
+        post: operations["upload_attachment_v1_attachments_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/attachments/{evidence_ref}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Attachment Content */
+        get: operations["get_attachment_content_v1_attachments__evidence_ref__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/attachments/{evidence_ref}/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Attachment Metadata */
+        get: operations["get_attachment_metadata_v1_attachments__evidence_ref__metadata_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/attachments/{evidence_ref}/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Extract Attachment */
+        post: operations["extract_attachment_v1_attachments__evidence_ref__extract_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/attachments/{evidence_ref}/extraction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Attachment Extraction */
+        get: operations["get_attachment_extraction_v1_attachments__evidence_ref__extraction_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dev/p1/health": {
         parameters: {
             query?: never;
@@ -357,6 +442,50 @@ export interface components {
             size_bytes: number;
             /** Evidence Ref */
             evidence_ref: string;
+        };
+        /**
+         * AttachmentRecord
+         * @description Metadata record for a stored attachment.
+         */
+        AttachmentRecord: {
+            /** Attachment Id */
+            attachment_id: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Evidence Ref */
+            evidence_ref: string;
+            /** Filename */
+            filename: string;
+            /** Media Type */
+            media_type: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Content Sha256 */
+            content_sha256: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+        };
+        /** Body_upload_attachment_v1_attachments_upload_post */
+        Body_upload_attachment_v1_attachments_upload_post: {
+            /** File */
+            file: string;
+        };
+        /**
+         * BoundingBox
+         * @description Bounding box coordinates [x0, y0, x1, y1] normalized or in points/pixels.
+         */
+        BoundingBox: {
+            /** X0 */
+            x0: number;
+            /** Y0 */
+            y0: number;
+            /** X1 */
+            x1: number;
+            /** Y1 */
+            y1: number;
         };
         /** BusinessContext */
         BusinessContext: {
@@ -523,6 +652,89 @@ export interface components {
              * @constant
              */
             authentication: "NOT_IMPLEMENTED";
+        };
+        /**
+         * DocumentEvidence
+         * @description Traceable evidence extracted from a document page, distinct from message text spans.
+         */
+        DocumentEvidence: {
+            /** Evidence Id */
+            evidence_id: string;
+            /** Evidence Ref */
+            evidence_ref: string;
+            /** Attachment Id */
+            attachment_id: string;
+            /**
+             * Page Number
+             * @description 1-indexed page number where the text appears
+             */
+            page_number: number;
+            /**
+             * Quote
+             * @description Exact text snippet recognized from document or OCR
+             */
+            quote: string;
+            bounding_box?: components["schemas"]["BoundingBox"] | null;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "PDF_TEXT" | "OCR";
+            /** Method Version */
+            method_version: string;
+            /** Confidence */
+            confidence?: number | null;
+            /**
+             * Is Payment Evidence
+             * @description Whether this evidence comes from a payment screenshot or bank receipt
+             * @default false
+             */
+            is_payment_evidence: boolean;
+        };
+        /**
+         * DocumentExtractionResult
+         * @description Result of document parsing or OCR on an attachment.
+         */
+        DocumentExtractionResult: {
+            /** Attachment Id */
+            attachment_id: string;
+            /** Evidence Ref */
+            evidence_ref: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "SUCCESS" | "PARTIAL" | "FAILED" | "UNSUPPORTED";
+            /**
+             * Document Type
+             * @enum {string}
+             */
+            document_type: "PDF" | "IMAGE" | "UNKNOWN";
+            /** Page Count */
+            page_count: number;
+            /**
+             * Text Content
+             * @default
+             */
+            text_content: string;
+            /** Extracted Fields */
+            extracted_fields?: {
+                [key: string]: unknown;
+            }[];
+            /** Evidence Items */
+            evidence_items?: components["schemas"]["DocumentEvidence"][];
+            /**
+             * Is Payment Notice
+             * @default false
+             */
+            is_payment_notice: boolean;
+            /** Diagnostic */
+            diagnostic?: string | null;
+            /**
+             * Extracted At
+             * Format: date-time
+             */
+            extracted_at?: string;
         };
         /** ExtractedField */
         ExtractedField: {
@@ -1864,6 +2076,325 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContextReviewRecord"][];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    upload_attachment_v1_attachments_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_attachment_v1_attachments_upload_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentRecord"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unsupported Media Type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_attachment_content_v1_attachments__evidence_ref__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidence_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_attachment_metadata_v1_attachments__evidence_ref__metadata_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidence_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentRecord"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    extract_attachment_v1_attachments__evidence_ref__extract_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidence_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentExtractionResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unsupported Media Type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_attachment_extraction_v1_attachments__evidence_ref__extraction_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidence_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentExtractionResult"];
                 };
             };
             /** @description Forbidden */

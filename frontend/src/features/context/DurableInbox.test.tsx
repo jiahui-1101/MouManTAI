@@ -204,6 +204,10 @@ function fakeApi(): OperationalApi {
     }),
     listContextVersions: vi.fn().mockResolvedValue([]),
     listContextReviews: vi.fn().mockResolvedValue([]),
+    uploadAttachment: vi.fn(),
+    extractAttachment: vi.fn(),
+    getAttachmentExtraction: vi.fn(),
+    getAttachmentMetadata: vi.fn(),
   };
 }
 
