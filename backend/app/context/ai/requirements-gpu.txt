@@ -1,0 +1,13 @@
+# Container-only optional inference runtime; never install into the app .venv.
+# torch/CUDA are supplied by the digest-pinned PyTorch base image.
+gliner==0.2.22
+transformers==4.51.0
+huggingface-hub==0.30.2
+tokenizers==0.21.4
+safetensors==0.5.3
+sentencepiece==0.2.1
+numpy==2.2.6
+onnxruntime==1.22.0
+accelerate==1.6.0
+pydantic==2.11.4
+runpod==1.7.13
