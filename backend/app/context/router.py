@@ -254,6 +254,75 @@ def get_attachment_content(
     )
 
 
+@router.get("/v1/attachments/{evidence_ref}/page-count",
+            responses={**errors, 404: {"model": ApiError}})
+def get_attachment_page_count(
+    evidence_ref: str,
+    tenant: Tenant,
+    repository: Repository,
+) -> dict:
+    res = repository.get_attachment(tenant.tenant_id, evidence_ref)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    rec, content = res
+    if rec.media_type == "application/pdf":
+        try:
+            import pymupdf
+            doc = pymupdf.open(stream=content, filetype="pdf")
+            return {"total_pages": len(doc), "media_type": rec.media_type}
+        except Exception:
+            return {"total_pages": 1, "media_type": rec.media_type}
+    return {"total_pages": 1, "media_type": rec.media_type}
+
+
+@router.get("/v1/attachments/{evidence_ref}/pages/{page_number}",
+            responses={**errors, 404: {"model": ApiError}, 400: {"model": ApiError}, 415: {"model": ApiError}})
+def get_attachment_page(
+    evidence_ref: str,
+    page_number: int,
+    tenant: Tenant,
+    repository: Repository,
+    rotate: int = 0,
+) -> Response:
+    res = repository.get_attachment(tenant.tenant_id, evidence_ref)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    rec, content = res
+    if rec.media_type == "application/pdf":
+        try:
+            import pymupdf
+            doc = pymupdf.open(stream=content, filetype="pdf")
+            total = len(doc)
+            if page_number < 1 or page_number > total:
+                raise HTTPException(status_code=400, detail=f"Page number {page_number} out of range (1..{total})")
+            page = doc[page_number - 1]
+            if rotate % 360 != 0:
+                page.set_rotation(rotate % 360)
+            pix = page.get_pixmap(dpi=150)
+            return Response(
+                content=pix.tobytes("png"),
+                media_type="image/png",
+                headers={
+                    "X-Total-Pages": str(total),
+                    "X-Current-Page": str(page_number),
+                    "Cache-Control": "public, max-age=3600",
+                },
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to render PDF page: {exc}")
+    elif rec.media_type.startswith("image/"):
+        return Response(
+            content=content,
+            media_type=rec.media_type,
+            headers={"X-Total-Pages": "1", "X-Current-Page": "1"},
+        )
+    else:
+        raise HTTPException(status_code=415, detail="Unsupported media type for page rendering")
+
+
+
 @router.get("/v1/attachments/{evidence_ref}/metadata", response_model=AttachmentRecord,
             responses={**errors, 404: {"model": ApiError}})
 def get_attachment_metadata(
