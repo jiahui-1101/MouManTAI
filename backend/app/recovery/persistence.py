@@ -13,6 +13,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy import (
     JSON,
     CheckConstraint,
@@ -174,7 +175,20 @@ class SqlAlchemyRecoveryRepository:
 
     @classmethod
     def _case_from_record(cls, record: RecoveryCaseRecord) -> RecoveryCase:
-        case = RecoveryCase.model_validate(record.case_payload)
+        if record.payload_schema_version != 1:
+            raise DomainError(
+                "RECOVERY_CASE_SCHEMA_UNSUPPORTED",
+                "Persisted Recovery Case payload schema is unsupported",
+                status_code=500,
+            )
+        try:
+            case = RecoveryCase.model_validate(record.case_payload)
+        except (ValidationError, TypeError, ValueError) as exc:
+            raise DomainError(
+                "RECOVERY_CASE_INTEGRITY_ERROR",
+                "Persisted Recovery Case payload is invalid",
+                status_code=500,
+            ) from exc
         if (record.tenant_id, record.case_id, record.commitment_id) != (
             case.tenant_id,
             case.case_id,
@@ -185,31 +199,84 @@ class SqlAlchemyRecoveryRepository:
                 "Persisted Recovery Case identity does not match its indexed row identity",
                 status_code=500,
             )
+        if (
+            record.status != case.status.value
+            or record.case_version != case.case_version
+            or record.commitment_version != case.commitment_version
+            or not record.risk_episode_id
+            or not record.opening_event_id
+            or (case.commitment.tenant_id, case.commitment.commitment_id)
+            != (record.tenant_id, record.commitment_id)
+            or case.commitment.commitment_version != case.commitment_version
+            or case.storage_mode != "DURABLE_DATABASE"
+        ):
+            raise DomainError(
+                "RECOVERY_CASE_INTEGRITY_ERROR",
+                "Persisted Recovery Case columns contradict its payload",
+                status_code=500,
+            )
+        if record.resolution_refs != [item.model_dump(mode="json") for item in case.resolution_events]:
+            raise DomainError(
+                "RECOVERY_CASE_INTEGRITY_ERROR",
+                "Persisted Recovery Case resolution history contradicts its payload",
+                status_code=500,
+            )
+        if case.resolution_events:
+            latest = case.resolution_events[-1]
+            if (record.resolution_event_id, record.resolution_commitment_version) != (
+                latest.event_id,
+                latest.commitment_version,
+            ):
+                raise DomainError(
+                    "RECOVERY_CASE_INTEGRITY_ERROR",
+                    "Persisted Recovery Case resolution identity is inconsistent",
+                    status_code=500,
+                )
+        elif record.resolution_event_id is not None or record.resolution_commitment_version is not None:
+            raise DomainError(
+                "RECOVERY_CASE_INTEGRITY_ERROR",
+                "Persisted Recovery Case resolution identity is inconsistent",
+                status_code=500,
+            )
         return case.model_copy(update={"storage_mode": "DURABLE_DATABASE"})
 
-    @staticmethod
-    def _trigger_from_record(record: RecoveryCaseTriggerRecord) -> RecoveryTriggerReference:
-        occurred_at = record.occurred_at
-        if occurred_at.tzinfo is None:
-            occurred_at = occurred_at.replace(tzinfo=UTC)
-        return RecoveryTriggerReference(
-            event_id=record.event_id,
-            tenant_id=record.tenant_id,
-            commitment_id=record.commitment_id,
-            commitment_version=record.commitment_version,
-            assessment_id=record.assessment_id,
-            assessment_commitment_version=record.assessment_commitment_version,
-            source_event_digest=record.source_event_digest,
-            assessment_provenance_status=record.assessment_provenance_status,
-            snapshot_id=record.snapshot_id,
-            snapshot_version=record.snapshot_version,
-            constraints=[ConstraintReason.model_validate(item) for item in record.constraints],
-            affected_commitment_ids=record.affected_commitment_ids,
-            correlation_id=record.correlation_id,
-            causation_id=record.causation_id,
-            evidence_refs=record.evidence_refs,
-            occurred_at=occurred_at,
-        )
+    @classmethod
+    def _trigger_from_record(cls, record: RecoveryCaseTriggerRecord) -> RecoveryTriggerReference:
+        try:
+            occurred_at = record.occurred_at
+            if occurred_at.tzinfo is None:
+                occurred_at = occurred_at.replace(tzinfo=UTC)
+            trigger = RecoveryTriggerReference(
+                event_id=record.event_id,
+                tenant_id=record.tenant_id,
+                commitment_id=record.commitment_id,
+                commitment_version=record.commitment_version,
+                assessment_id=record.assessment_id,
+                assessment_commitment_version=record.assessment_commitment_version,
+                source_event_digest=record.source_event_digest,
+                assessment_provenance_status=record.assessment_provenance_status,
+                snapshot_id=record.snapshot_id,
+                snapshot_version=record.snapshot_version,
+                constraints=[ConstraintReason.model_validate(item) for item in record.constraints],
+                affected_commitment_ids=record.affected_commitment_ids,
+                correlation_id=record.correlation_id,
+                causation_id=record.causation_id,
+                evidence_refs=record.evidence_refs,
+                occurred_at=occurred_at,
+            )
+        except (ValidationError, TypeError, ValueError, AttributeError) as exc:
+            raise DomainError(
+                "RECOVERY_TRIGGER_INTEGRITY_ERROR",
+                "Persisted Recovery Case trigger is invalid",
+                status_code=500,
+            ) from exc
+        if record.event_digest != cls._digest(trigger):
+            raise DomainError(
+                "RECOVERY_TRIGGER_INTEGRITY_ERROR",
+                "Persisted Recovery Case trigger digest is inconsistent",
+                status_code=500,
+            )
+        return trigger
 
     @staticmethod
     def _lock_commitment(session: Session, tenant_id: str, commitment_id: str) -> CommitmentRecord:
@@ -257,23 +324,60 @@ class SqlAlchemyRecoveryRepository:
         session: Session,
         tenant_id: str,
         case_id: str,
+        *,
+        commitment_id: str | None = None,
     ) -> list[RecoveryTriggerReference]:
-        records = session.scalars(
-            select(RecoveryCaseTriggerRecord)
-            .where(
-                RecoveryCaseTriggerRecord.tenant_id == tenant_id,
-                RecoveryCaseTriggerRecord.case_id == case_id,
+        with session.no_autoflush:
+            records = session.scalars(
+                select(RecoveryCaseTriggerRecord)
+                .where(
+                    RecoveryCaseTriggerRecord.tenant_id == tenant_id,
+                    RecoveryCaseTriggerRecord.case_id == case_id,
+                )
+                .order_by(RecoveryCaseTriggerRecord.occurred_at, RecoveryCaseTriggerRecord.event_id)
+            ).all()
+        if commitment_id is not None and any(row.commitment_id != commitment_id for row in records):
+            raise DomainError(
+                "RECOVERY_TRIGGER_INTEGRITY_ERROR",
+                "Persisted Recovery Case trigger binding is inconsistent",
+                status_code=500,
             )
-            .order_by(RecoveryCaseTriggerRecord.occurred_at, RecoveryCaseTriggerRecord.event_id)
-        ).all()
         return [self._trigger_from_record(row) for row in records]
 
-    def get_case_by_id(self, session: Session, tenant_id: str, case_id: str) -> RecoveryCase | None:
-        record = session.get(RecoveryCaseRecord, (tenant_id, case_id))
+    def _read_case(self, session: Session, record: RecoveryCaseRecord) -> RecoveryCase:
+        case = self._case_from_record(record)
+        history = self.list_case_triggers(
+            session, record.tenant_id, record.case_id, commitment_id=record.commitment_id
+        )
+        if (
+            not history
+            or record.opening_event_id not in {item.event_id for item in history}
+            or len(history) != len(case.trigger_events)
+            or {item.event_id: item.model_dump(mode="json") for item in history}
+            != {item.event_id: item.model_dump(mode="json") for item in case.trigger_events}
+        ):
+            raise DomainError(
+                "RECOVERY_CASE_INTEGRITY_ERROR",
+                "Persisted Recovery Case trigger history contradicts its payload",
+                status_code=500,
+            )
+        return case.model_copy(update={"trigger_events": history})
+
+    def get_case_by_id(
+        self,
+        session: Session,
+        tenant_id: str,
+        case_id: str,
+        *,
+        commitment_id: str | None = None,
+    ) -> RecoveryCase | None:
+        with session.no_autoflush:
+            record = session.get(RecoveryCaseRecord, (tenant_id, case_id))
         if record is None:
             return None
-        case = self._case_from_record(record)
-        return case.model_copy(update={"trigger_events": self.list_case_triggers(session, tenant_id, case_id)})
+        if commitment_id is not None and record.commitment_id != commitment_id:
+            return None
+        return self._read_case(session, record)
 
     def get_active_case(
         self,
@@ -290,19 +394,27 @@ class SqlAlchemyRecoveryRepository:
         )
         if for_update:
             statement = statement.with_for_update()
-        record = session.scalar(statement)
-        if record is None:
+        with session.no_autoflush:
+            records = session.scalars(statement.limit(2)).all()
+        if not records:
             return None
-        case = self._case_from_record(record)
-        return case.model_copy(update={"trigger_events": self.list_case_triggers(session, tenant_id, case.case_id)})
+        if len(records) != 1:
+            raise DomainError(
+                "RECOVERY_CASE_INTEGRITY_ERROR",
+                "Multiple active Recovery Cases exist for one Commitment",
+                status_code=500,
+            )
+        return self._read_case(session, records[0])
 
     def read_case_and_history(
         self,
         session: Session,
         tenant_id: str,
         case_id: str,
+        *,
+        commitment_id: str | None = None,
     ) -> tuple[RecoveryCase, list[RecoveryTriggerReference]] | None:
-        case = self.get_case_by_id(session, tenant_id, case_id)
+        case = self.get_case_by_id(session, tenant_id, case_id, commitment_id=commitment_id)
         if case is None:
             return None
         return case, list(case.trigger_events)

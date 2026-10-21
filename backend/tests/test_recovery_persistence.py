@@ -4,8 +4,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.core.errors import DomainError
 from app.core.models import CommitmentRecord
@@ -465,6 +466,223 @@ def test_serialized_case_identity_must_match_indexed_row(session) -> None:
     with pytest.raises(DomainError) as exc_info:
         repository.get_case_by_id(session, commitment.tenant_id, case.case_id)
     assert exc_info.value.code == "RECOVERY_CASE_IDENTITY_CONFLICT"
+
+
+def test_strict_case_query_preserves_scoped_active_case_and_trigger_history(session) -> None:
+    commitment = _commitment()
+    _persist_commitment(session, commitment)
+    repository = SqlAlchemyRecoveryRepository()
+    first = _trigger(commitment, event_id="evt_query_first", source_event_digest="a" * 64)
+    second = _trigger(commitment, event_id="evt_query_second", assessment_id="fa_query_second")
+    case, _, _ = repository.create_or_get_active_case(session, _candidate(commitment, first), first)
+    repository.create_or_get_active_case(session, _candidate(commitment, second), second)
+    row = session.get(RecoveryCaseRecord, (commitment.tenant_id, case.case_id))
+    assert row is not None
+    before = dict(row.case_payload)
+
+    found = repository.get_case_by_id(
+        session, commitment.tenant_id, case.case_id, commitment_id=commitment.commitment_id
+    )
+    assert found is not None
+    assert found == repository.get_active_case(session, commitment.tenant_id, commitment.commitment_id)
+    assert found.storage_mode == "DURABLE_DATABASE"
+    assert [trigger.event_id for trigger in found.trigger_events] == ["evt_query_first", "evt_query_second"]
+    assert found.trigger_events[0].source_event_digest == "a" * 64
+    assert found.trigger_events[0].assessment_provenance_status == "SOURCE_COMMITMENT_VERSION_MISSING"
+    assert row.opening_event_id == "evt_query_first"
+    assert row.risk_episode_id == "evt_query_first"
+    assert row.case_payload == before
+    assert not session.dirty
+    assert repository.read_case_and_history(session, commitment.tenant_id, case.case_id)[1] == found.trigger_events
+    assert repository.get_case_by_id(session, "tenant_other", case.case_id) is None
+    assert repository.get_case_by_id(session, commitment.tenant_id, "missing") is None
+    assert repository.get_case_by_id(
+        session, commitment.tenant_id, case.case_id, commitment_id="wrong_commitment"
+    ) is None
+    assert repository.get_active_case(session, "tenant_other", commitment.commitment_id) is None
+
+
+@pytest.mark.parametrize(
+    ("column", "value", "code"),
+    [
+        ("payload_schema_version", 2, "RECOVERY_CASE_SCHEMA_UNSUPPORTED"),
+        ("case_payload", [], "RECOVERY_CASE_INTEGRITY_ERROR"),
+        ("status", "NEEDS_REPLAN", "RECOVERY_CASE_INTEGRITY_ERROR"),
+        ("case_version", 99, "RECOVERY_CASE_INTEGRITY_ERROR"),
+        ("commitment_version", 99, "RECOVERY_CASE_INTEGRITY_ERROR"),
+        ("opening_event_id", "evt_missing", "RECOVERY_CASE_INTEGRITY_ERROR"),
+        ("risk_episode_id", "", "RECOVERY_CASE_INTEGRITY_ERROR"),
+        ("resolution_refs", [{"event_id": "fabricated"}], "RECOVERY_CASE_INTEGRITY_ERROR"),
+    ],
+)
+def test_strict_case_query_rejects_bad_columns_and_payload(session, column, value, code) -> None:
+    commitment = _commitment()
+    _persist_commitment(session, commitment)
+    trigger = _trigger(commitment)
+    repository = SqlAlchemyRecoveryRepository()
+    case, _, _ = repository.create_or_get_active_case(session, _candidate(commitment, trigger), trigger)
+    row = session.get(RecoveryCaseRecord, (commitment.tenant_id, case.case_id))
+    assert row is not None
+    setattr(row, column, value)
+    with pytest.raises(DomainError) as error:
+        repository.get_case_by_id(session, commitment.tenant_id, case.case_id)
+    assert error.value.code == code
+    assert error.value.status_code == 500
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        ("tenant_id", "another_tenant", "RECOVERY_CASE_IDENTITY_CONFLICT"),
+        ("case_id", "another_case", "RECOVERY_CASE_IDENTITY_CONFLICT"),
+        ("commitment_id", "another_commitment", "RECOVERY_CASE_IDENTITY_CONFLICT"),
+        ("status", "NEEDS_REPLAN", "RECOVERY_CASE_INTEGRITY_ERROR"),
+        ("case_version", 99, "RECOVERY_CASE_INTEGRITY_ERROR"),
+        ("commitment_version", 99, "RECOVERY_CASE_INTEGRITY_ERROR"),
+        ("storage_mode", "IN_MEMORY_SYNTHETIC", "RECOVERY_CASE_INTEGRITY_ERROR"),
+        ("preferences", None, "RECOVERY_CASE_INTEGRITY_ERROR"),
+        ("commitment", None, "RECOVERY_CASE_INTEGRITY_ERROR"),
+    ],
+)
+def test_strict_case_query_rejects_sql_json_contradictions(session, field, value, code) -> None:
+    commitment = _commitment()
+    _persist_commitment(session, commitment)
+    trigger = _trigger(commitment)
+    repository = SqlAlchemyRecoveryRepository()
+    case, _, _ = repository.create_or_get_active_case(session, _candidate(commitment, trigger), trigger)
+    row = session.get(RecoveryCaseRecord, (commitment.tenant_id, case.case_id))
+    assert row is not None
+    row.case_payload = {**row.case_payload, field: value}
+    with pytest.raises(DomainError) as error:
+        repository.get_case_by_id(session, commitment.tenant_id, case.case_id)
+    assert error.value.code == code
+
+
+def test_strict_case_query_rejects_missing_required_payload_field(session) -> None:
+    commitment = _commitment()
+    _persist_commitment(session, commitment)
+    trigger = _trigger(commitment)
+    repository = SqlAlchemyRecoveryRepository()
+    case, _, _ = repository.create_or_get_active_case(session, _candidate(commitment, trigger), trigger)
+    row = session.get(RecoveryCaseRecord, (commitment.tenant_id, case.case_id))
+    assert row is not None
+    payload = dict(row.case_payload)
+    payload.pop("commitment")
+    row.case_payload = payload
+    with pytest.raises(DomainError) as error:
+        repository.get_case_by_id(session, commitment.tenant_id, case.case_id)
+    assert error.value.code == "RECOVERY_CASE_INTEGRITY_ERROR"
+
+
+def test_strict_case_query_rejects_tampered_trigger_and_payload_history(session) -> None:
+    commitment = _commitment()
+    _persist_commitment(session, commitment)
+    trigger = _trigger(commitment)
+    repository = SqlAlchemyRecoveryRepository()
+    case, _, _ = repository.create_or_get_active_case(session, _candidate(commitment, trigger), trigger)
+    trigger_row = session.get(RecoveryCaseTriggerRecord, (commitment.tenant_id, trigger.event_id))
+    assert trigger_row is not None
+    trigger_row.evidence_refs = ["altered_without_digest"]
+    with pytest.raises(DomainError) as error:
+        repository.get_case_by_id(session, commitment.tenant_id, case.case_id)
+    assert error.value.code == "RECOVERY_TRIGGER_INTEGRITY_ERROR"
+
+    trigger_row.evidence_refs = trigger.evidence_refs
+    case_row = session.get(RecoveryCaseRecord, (commitment.tenant_id, case.case_id))
+    assert case_row is not None
+    case_row.case_payload = {**case_row.case_payload, "trigger_events": []}
+    with pytest.raises(DomainError) as error:
+        repository.get_case_by_id(session, commitment.tenant_id, case.case_id)
+    assert error.value.code == "RECOVERY_CASE_INTEGRITY_ERROR"
+
+
+def test_strict_case_query_rejects_wrong_trigger_commitment_binding(session) -> None:
+    commitment = _commitment()
+    _persist_commitment(session, commitment)
+    trigger = _trigger(commitment)
+    repository = SqlAlchemyRecoveryRepository()
+    case, _, _ = repository.create_or_get_active_case(session, _candidate(commitment, trigger), trigger)
+    row = session.get(RecoveryCaseTriggerRecord, (commitment.tenant_id, trigger.event_id))
+    assert row is not None
+    row.commitment_id = "wrong_commitment"
+    with pytest.raises(DomainError) as error:
+        repository.get_case_by_id(session, commitment.tenant_id, case.case_id)
+    assert error.value.code == "RECOVERY_TRIGGER_INTEGRITY_ERROR"
+
+
+def test_strict_case_query_detects_multiple_active_rows_without_unique_index(session, test_engine) -> None:
+    commitment = _commitment()
+    _persist_commitment(session, commitment)
+    trigger = _trigger(commitment)
+    repository = SqlAlchemyRecoveryRepository()
+    case, _, _ = repository.create_or_get_active_case(session, _candidate(commitment, trigger), trigger)
+    session.commit()
+    with test_engine.begin() as connection:
+        connection.execute(text("DROP INDEX uq_recovery_cases_one_active_per_commitment"))
+    original = session.get(RecoveryCaseRecord, (commitment.tenant_id, case.case_id))
+    assert original is not None
+    second = _trigger(commitment, event_id="evt_second_active", assessment_id="fa_second_active")
+    second_case = case.model_copy(update={
+        "case_id": "rc_second_active",
+        "trigger_events": [second],
+    })
+    session.add(RecoveryCaseRecord(
+        tenant_id=commitment.tenant_id,
+        case_id=second_case.case_id,
+        commitment_id=commitment.commitment_id,
+        risk_episode_id=second.event_id,
+        opening_event_id=second.event_id,
+        status=second_case.status.value,
+        case_version=second_case.case_version,
+        commitment_version=second_case.commitment_version,
+        payload_schema_version=1,
+        case_payload=second_case.model_dump(mode="json"),
+        resolution_refs=[],
+        created_at=second_case.created_at,
+        updated_at=second_case.updated_at,
+    ))
+    session.add(repository._trigger_record(second, second_case.case_id))
+    session.flush()
+    with pytest.raises(DomainError) as error:
+        repository.get_active_case(session, commitment.tenant_id, commitment.commitment_id)
+    assert error.value.code == "RECOVERY_CASE_INTEGRITY_ERROR"
+
+
+def test_strict_case_query_does_not_autoflush_or_take_session_ownership(session) -> None:
+    commitment = _commitment()
+    _persist_commitment(session, commitment)
+    trigger = _trigger(commitment)
+    repository = SqlAlchemyRecoveryRepository()
+    case, _, _ = repository.create_or_get_active_case(session, _candidate(commitment, trigger), trigger)
+    session.autoflush = True
+    pending = RecoveryCaseRecord(tenant_id="pending_unrelated", case_id="pending")
+    session.add(pending)
+    try:
+        assert repository.get_case_by_id(session, commitment.tenant_id, case.case_id) is not None
+        assert repository.get_active_case(session, commitment.tenant_id, commitment.commitment_id) is not None
+        assert repository.list_case_triggers(session, commitment.tenant_id, case.case_id) == [trigger]
+        assert pending in session.new
+        assert session.is_active
+    finally:
+        session.expunge(pending)
+        session.autoflush = False
+
+
+def test_strict_case_query_restores_committed_case_in_new_session(session, test_engine) -> None:
+    commitment = _commitment()
+    _persist_commitment(session, commitment)
+    trigger = _trigger(commitment, source_event_digest="b" * 64)
+    repository = SqlAlchemyRecoveryRepository()
+    case, _, _ = repository.create_or_get_active_case(session, _candidate(commitment, trigger), trigger)
+    session.commit()
+
+    with Session(test_engine) as reader:
+        loaded = repository.get_case_by_id(reader, commitment.tenant_id, case.case_id)
+        assert loaded is not None
+        assert loaded.trigger_events == [trigger]
+        assert loaded.storage_mode == "DURABLE_DATABASE"
+        assert repository.get_active_case(reader, commitment.tenant_id, commitment.commitment_id) == loaded
+        assert reader.is_active
 
 
 def test_resolution_preserves_history_and_allows_a_new_risk_episode(session) -> None:
