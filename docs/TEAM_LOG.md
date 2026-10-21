@@ -272,7 +272,7 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | ID | Opened | Blocked owner | Blocking owner | Issue | Impact | Decision / ETA | Status |
 |---|---|---|---|---|---|---|---|
 | BLOCK-20261021-001 | 2026-10-21 | P5 | Environment | Docker Desktop Linux engine unavailable because host exposes WSL1; existing PostgreSQL on 5432 is unrelated | Live PostgreSQL migration and DB smoke test cannot run safely | Enable WSL2 or provide isolated PostgreSQL on host 5433 | OPEN |
-| BLOCK-P2-P3-001 | 2026-10-21 | P2 | P5 | Empty actual Impact Set schema fix | Final shared assessment adapter | Resolved via D-CONTRACT-005; merged in PR #2 and PR #6 | CLOSED |
+| BLOCK-20261021-002 | 2026-10-21 | P2 | P5 | FeasibilityAssessment.affected_commitment_ids empty-list constraint ambiguity | P2 evaluator mapping & false P3 recovery alerts | Resolved via P5 Contract Decision (D-CONTRACT-005); merged in PR #2 and PR #6 | CLOSED |
 | BLOCK-P2-P3-002 | 2026-10-21 | P2 | P3 | ProposedChanges fixed-booking serialization | Cross-feature evaluator reuse | Resolved; P3 directly uses P2 pure evaluate() | CLOSED |
 | BLOCK-P2-P3-003 | 2026-10-21 | P2 | P2 + P5 | Shared summary lacks complete operational evidence; SAUCE/PACKAGING vs WRAP catalog mismatch | Shared demo cannot be safely treated as a full trusted snapshot | Review source/catalog adapter and fixture extension; missing data stays UNKNOWN | OPEN |
 | BLOCK-P2-P5-004 | 2026-10-21 | P2 | P5 | Mounting P2 router in main.py, implementing P5 adapters in api_dependencies.py for CommitmentService.assess() and reservations.get_resource_snapshot(), mounting App.tsx routes | Live P2 HTTP routes return 503 until adapters provided; App.tsx uses FeaturePlaceholder | P5 Phase 7B-2 implementation currently in progress | IN_PROGRESS |
@@ -283,6 +283,51 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | BLOCK-TEMPLATE | — | — | — | Add concrete blockers here | — | — | TEMPLATE |
 
 **Escalation rule**: Any blocking contract dispute >2 hours → write blocker and involve P5 + affected owner; choose narrow contract fix, not silent ad hoc field changes. Any P0 at-risk task by 23 Oct → alert entire team and cut P1/P2 extras before core journey.
+
+### BLOCK-20261021-002: FeasibilityAssessment.affected_commitment_ids min_length Semantics Ambiguity
+- **Blocker ID & Title**: `BLOCK-20261021-002: FeasibilityAssessment.affected_commitment_ids min_length Semantics Ambiguity`
+- **Affected Owners**: `P5` + `P2` (downstream `P3`)
+- **Contract / Endpoint / Event Affected**: `REQUIREMENTS_SYSTEM.md` §3.3 (`FeasibilityAssessment`) and `POST /internal/feasibility/evaluate` / `CommitmentService.assess` (§4 handshake)
+- **Observed Mismatch**:
+  - `FeasibilityAssessment.affected_commitment_ids` was constrained with `min_length=1` in schema validation (`Field(..., min_length=1)`).
+  - When P2 evaluates a standard `FEASIBLE` or `UNKNOWN` commitment where no downstream operational commitments are disrupted, the calculated impact set is empty (`[]`).
+  - Core validation rejected `[]` with HTTP 422 Unprocessable Entity, forcing P2 to either falsely include the target `commitment_id` in `affected_commitment_ids` (which downstream P3 interprets as an adverse impact alert, triggering unwanted recovery planning) or fail schema validation.
+- **Proposed Compatible Resolution**:
+  - **P5 Contract Decision**: The field `affected_commitment_ids` strictly represents downstream commitments demonstrably impacted by operational/resource changes (the impact set), NOT the scope or target of the assessment itself. For standard `FEASIBLE` or `UNKNOWN` evaluations where no downstream commitments are disrupted, this field must allow an empty list (`[]`). It must not be forced to contain `min_length=1`.
+  - **Assigned Actions**:
+    - **P5 (Core)**: Relax constraint on `affected_commitment_ids` in `backend/app/core/schemas.py` and `contracts/types.ts` to `min_length=0` with `default_factory=list`.
+    - **P2 (Feasibility)**: Update evaluation mapping to emit `affected_commitment_ids=[]` for clean evaluations without synthesizing dummy impacted IDs.
+    - **P3 (Recovery)**: Treat `affected_commitment_ids` as strictly downstream impacted commitments; do not trigger recovery if `affected_commitment_ids` is empty or only references healthy commitments.
+  - **Status**: **RESOLVED / CLOSED** (Contract decision ratified by P5 in D-CONTRACT-005; schema relaxed in PR #2; synced in PR #6).
+
+### BLOCK-P4-001: P4 Communication Slice Delivery Delay
+- **Blocker ID & Title**: `BLOCK-P4-001: P4 Communication Slice Delivery Delay`
+- **Affected Owners**: `P5` + `P4` (downstream full-team integration)
+- **Contract / Endpoint / Event Affected**: `REQUIREMENTS_SYSTEM.md` §3.5 (`CommunicationRequest`, `Confirmation`), §4 handshake (`confirmation.accepted|rejected|counteroffer_received`), and UI routes `/communications`, `/confirmations/:id` (§5)
+- **Observed Mismatch**: Only scaffold schemas and 14 foundation tests exist on `origin/P4-communication`; no live draft/send/confirm API routes or confirmation workspace UI have been authored, blocking the customer closed-loop confirmation and proposal acceptance flow required for the Oct 22 integration milestone.
+- **Proposed Compatible Resolution**: P4 owner must immediately scaffold the confirmation workspace UI and implement the core communication endpoints (`POST /v1/communications/draft`, `POST /v1/confirmations/{id}/respond`) adhering to `REQUIREMENTS_SYSTEM.md` §3.5.
+
+### BLOCK-P1-001: P1 Context Intelligence Unmerged Branch & Config Drift
+- **Blocker ID & Title**: `BLOCK-P1-001: P1 Context Intelligence Unmerged Branch & Config Drift`
+- **Affected Owners**: `P5` + `P1`
+- **Contract / Endpoint / Event Affected**: `REQUIREMENTS_SYSTEM.md` §3.1 (`BusinessContext`), §4 handshake (`business.context_updated`), root `pyproject.toml`, `frontend/package.json`, and `/inbox` route
+- **Observed Mismatch**: P1 has functional ingestion and extraction code on `feat/p1-context-intelligence`, but the branch contains uncoordinated edits to root configuration files and has not submitted a clean PR to `main`, leaving `/inbox` as a placeholder on `main`.
+- **Proposed Compatible Resolution**: P1 to rebase onto latest `origin/main`, revert uncoordinated modifications to shared config files (`pyproject.toml`, `package.json`, `vite.config.ts`), and open a clean PR to `main`.
+
+### BLOCK-P3-001: P3 Recovery Slice PR Merge & Auth Adapter Wiring
+- **Blocker ID & Title**: `BLOCK-P3-001: P3 Recovery Slice PR Merge & Auth Adapter Wiring`
+- **Affected Owners**: `P5` + `P3`
+- **Contract / Endpoint / Event Affected**: `REQUIREMENTS_SYSTEM.md` §3.4 (`RecoveryPlan`), §4 handshake (`recovery.communication_requested`), and router mounting under `/v1/recovery`
+- **Observed Mismatch**: P3 slice on `feat/p3-recovery` passed Task T4.2-A audit, but PR to `main` is unmerged; planner `RecoveryPlanner._get_commitment` hardcodes `com_001` lookup; HTTP approval endpoints use unverified context adapter returning 403 on live calls.
+- **Proposed Compatible Resolution**: P3 to open clean PR to `main`; wire verified role adapter mapping server-side headers (`X-Tenant-ID`, `X-Actor-ID`) to `context.actor_role in {"OWNER", "MANAGER"}`; fall back to `P5CommitmentReader` for arbitrary commitment IDs.
+
+### BLOCK-P2-P5-004: P2/P5 Phase 7B-2 Joint Adapter Integration & Route Mounting
+- **Blocker ID & Title**: `BLOCK-P2-P5-004: P2/P5 Phase 7B-2 Joint Adapter Integration & Route Mounting`
+- **Affected Owners**: `P5` + `P2`
+- **Contract / Endpoint / Event Affected**: `backend/app/feasibility/api_dependencies.py`, `backend/app/main.py`, and `frontend/src/App.tsx` routes `/commitments/:id`, `/impact/:id`
+- **Observed Mismatch**: Feasibility engine is merged (PR #6), but P2 router is unmounted in `main.py` and returns 503 until P5 provides integration adapters for `CommitmentService.assess()` and `reservations.get_resource_snapshot()`; `App.tsx` uses `FeaturePlaceholder`.
+- **Proposed Compatible Resolution**: P5 (in Task Phase 7B-2) implements adapters in `backend/app/feasibility/api_dependencies.py`, mounts `feasibility_router` in `backend/app/main.py`, and wires `CommitmentFeasibilityPage` and `ImpactDetailPage` into `frontend/src/App.tsx`.
+
 
 ## 7. Integration & Contract Change Log
 
