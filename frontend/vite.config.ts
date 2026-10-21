@@ -7,6 +7,8 @@ export default defineConfig({
     proxy: {
       "/dev/p1": "http://127.0.0.1:8000",
       "/v1/messages": "http://127.0.0.1:8000",
+      "/v1/contexts": "http://127.0.0.1:8000",
+      "/v1/attachments": "http://127.0.0.1:8000",
     },
   },
   test: {
