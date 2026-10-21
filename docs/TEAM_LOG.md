@@ -981,6 +981,44 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - Frontend typecheck: `tsc --noEmit` passed (0 errors).
   - Frontend build: `cmd /c npm run build` passed (production bundle built in 881ms).
 
+### 2026-10-22 — Task T5.3: Final P5 Integration Handoff Sign-Off & Checklist Audit (PERSON_5 §10, HO-1)
+- **Status**: Complete, Verified & Signed Off by Person 5 (Core Architecture, Registry, Outbox/Audit, Shell & Contracts).
+- **Handoff Checklist Verification (`PERSON_5` §10)**:
+  1. [x] **Exact contracts/types usable on frontend and backend**:
+     - Backend Pydantic v2 domain schemas (`backend/app/core/schemas.py`) and TypeScript interfaces (`contracts/types.ts`, `frontend/src/shared/types/`) are 100% synchronized, type-safe, and frozen.
+     - Verified by `backend/tests/test_contracts.py` and `frontend/src/app/__tests__/RoleGuardAndNavigation.test.tsx`.
+  2. [x] **All modules share `tenant_id`, `commitment_id`, and 5-dimension state semantics**:
+     - Unified authoritative `CommitmentRecord` aggregate with composite primary key `(tenant_id, commitment_id)` and independent lifecycle dimensions (`agreement_state`, `feasibility_state`, `risk_state`, `recovery_state`, `fulfilment_state`).
+     - Invariants enforced server-side: `REQUESTED != CONFIRMED`, `FEASIBLE` snapshot-specific, `CONFIRMED + AT_RISK` valid, `SENT != ACCEPTED != FULFILLED`, `APPROVED != EXECUTED`, and direct `PATCH` prohibited (`HTTP 405`).
+  3. [x] **Domain events persisted and traceable, no dropped audit**:
+     - Atomic dual-write writes `AuditEventRecord` (with full JSON state snapshots, evidence refs, causation/correlation) and `OutboxEventRecord` in the exact same database transaction.
+     - 100.0% completeness verified across all 13 evaluated lifecycle transitions (`scripts/evaluate_metrics.py`).
+     - Chronological timeline API (`GET /v1/commitments/{id}/timeline`) operational.
+  4. [x] **Role gates validated server-side and in demo role UX**:
+     - Server-side header inspection (`X-Tenant-ID`, `X-Actor-ID` mapped to `ACTOR_ROLES`) enforces RBAC (`OWNER`, `MANAGER`, `STAFF`).
+     - Request body role/tenant spoofing strictly rejected with HTTP 422 (`extra="forbid"` on `ContractModel`).
+     - Manager write actions (confirm proposal, execute recovery, record fulfilment) reject staff with HTTP 403 `APPROVAL_REQUIRED`.
+     - Frontend `RoleSwitcher` and dynamic navigation badges active in app shell.
+  5. [x] **Main journey, negative-case tests, and deployment docs reproducible**:
+     - Single-commitment Hero Journey (`com_001` through v1 to v9) verified in `backend/tests/integration/test_e2e_hero_journey.py`.
+     - 12-scenario negative test matrix (`E2E-01` through `E2E-12`) verified in `backend/tests/integration/test_e2e_negative_matrix.py`.
+     - Seed script (`scripts/seed_demo.py`) and quantitative evaluation script (`scripts/evaluate_metrics.py`) verified and reproducible.
+     - `README.md` documents environment setup, Windows PowerShell DevEx (`cmd /c npm ...`), database migrations, and testing commands.
+  6. [x] **`TEAM_LOG.md` reflects actual PR status, blocked tasks, and architectural decisions (no fake checkmarks)**:
+     - Architectural baseline decisions (`D-001` through `D-012`, `D-013`, `D-CONTRACT-005`, `ADR-001` through `ADR-010`) documented with zero silent reversals.
+     - Cross-module handoff status honestly reflected:
+       - **P5**: All Core components, audit/outbox, application shell, overview/activity, integration facade, metrics, and security audits complete.
+       - **P2**: Feasibility, impact, supplier pipeline merged to `main` (PR #5, PR #6); Phase 7B merged to P5; Phase 7B-2 adapter integration ready.
+       - **P3**: Recovery planner audited & approved (Task T4.2-A); PR to `main` pending (`BLOCK-P3-001`).
+       - **P1**: Context extraction functional on branch; PR to `main` pending (`BLOCK-P1-001`).
+       - **P4**: Communication slice scaffolded; UI and live endpoints critically delayed (`BLOCK-P4-001`).
+- **Final Validation Test Evidence**:
+  - Backend tests: `315 passed, 0 failed` (`pytest tests app/feasibility/tests -q`).
+  - Frontend typecheck: `tsc --noEmit` passed (0 errors).
+  - Frontend unit/component tests: `118 passed, 5 skipped (live smoke), 0 failed` (`cmd /c npm test -- --run`).
+  - Frontend production build: `tsc -b && vite build` built in 841ms (0 errors).
+  - Quantitative metrics report: Generated with measured numbers only (`docs/metrics_report.md`).
+
 ## 2026-10-22 — P4 Commit 03: Template-Based Message Drafting
 
 - Baseline: local `P4-communication`, HEAD `443ff6cab6178ad3109669a46262701073e81ad2`. Implementation and verification performed in an isolated copy; real repository unchanged.
