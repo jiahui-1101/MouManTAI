@@ -247,15 +247,16 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
   - P5 (Gan): Align ContextStatus enum naming (P1 using ContextStatus.INFORMATION_READY) and coordinate Alembic migration 0006 for order_contexts table.
   - P2 (Mei Shuet): Confirmed SKU 'BURGER' with unit 'pcs' aligns directly with P2 Feasibility Engine fixtures.
 
-### 2026-10-21 — P1 Batch 5 (Actual P1 → Core → P2 Integration Verified)
-- P1: Completed: Batch 5 (Actual P1 → Core → P2 Integration without bypassing boundaries, commits `a5cb3ac`, `f3c3b7c`, `52f90dd`, `d5af49c`, `c626326`).
+### 2026-10-21 — P1 Batch 5 (Actual P1 → Core → P2 Integration Verified & P5 Boundaries Aligned)
+- P1: Completed: Batch 5 (Actual P1 → Core → P2 Integration without bypassing boundaries, commits `a5cb3ac`, `f3c3b7c`, `52f90dd`, `d5af49c`, `c626326`, `da82110`, `1a7a517`, `03f4076`).
   - Implemented `CoreContextPublisher` (`backend/app/context/core_publisher.py`): zero-guessing eligibility guard strictly blocks unready/conflict/ambiguous contexts from Core; publishes eligible contexts idempotently with bidirectional pointers.
-  - Implemented confirmed-term protection in `CoreIntegrationFacade.handle_context_updated` (`backend/app/core/integration.py`): updates with differing terms to `CONFIRMED` commitments automatically create an active proposal in `OFFERED` status, emitting `COMMITMENT_PROPOSAL_OFFERED` instead of overwriting confirmed terms.
+  - Aligned confirmed-term protection with P5 (Decision H1.1-Q1): Core approved in principle; P5 will incorporate the `handle_context_updated` proposal creation logic in `backend/app/core/integration.py` in Task T5.2. P1 branch reverted Core file edits per AGENTS §3.
+  - Aligned migration sequencing (Decision H1.1-Q2): P1 retains `p1_dev` schema for local isolation; P5 will coordinate shared migration `0007_order_contexts.py` branching off `0006_recovery_cases`.
+  - Aligned shell mounting (Decision H1.1-Q3): P1 exports `context_router` from `backend/app/context/__init__.py`, and `<DurableInbox />` and `<OrderContextDetail />` from `frontend/src/features/context/index.ts`. P5 will coordinate centralized mounting in `main.py` and `App.tsx` in Task T5.2.
   - Implemented `P2FeasibilityConsumer` (`backend/app/context/p2_consumer.py`): subscribes to `commitment.context_ready` and `commitment.proposal_offered`, resolves typed `EvaluationSnapshot` + `ProposedChanges`, invokes pure P2 `evaluate()`, and persists `FeasibilityAssessmentRecord` with idempotency via `ProcessedEventRecord`.
-  - Mounted P1 `context_router` in `backend/app/main.py` and registered P2 subscribers on `default_dispatcher`. Mounted `<DurableInbox />` (/inbox) and `<OrderContextDetail />` (/orders/:id) in `frontend/src/App.tsx`.
-  - Verified real PostgreSQL E2E suite `backend/tests/integration/test_p1_core_p2_e2e.py` covering all 8 required scenarios: new request to Core/P2, reviewed correction re-evaluation, ambiguous identity publication block, confirmed term proposal creation, duplicate event idempotency, old version rejection, failure/retry consistency, and cross-tenant isolation (all 8 passed).
-- P1 Next: P1 capabilities fully delivered; ready for team demo, PR review, and final handoff.
-- Integration status: Full P1 → Core → P2 flow verified on real PostgreSQL without mocking or manual conversions. All 149 frontend tests pass; build passes.
+  - Verified real PostgreSQL E2E suite `backend/tests/integration/test_p1_core_p2_e2e.py` covering all 8 required scenarios: new request to Core/P2, reviewed correction re-evaluation, ambiguous identity publication block, confirmed term proposal creation, duplicate event idempotency, old version rejection, failure/retry consistency, and cross-tenant isolation (all passed).
+- P1 Next: Open PR for `feat/p1-context-intelligence` containing strictly P1-owned files; proceed with BATCH 6 (Real GPU Model Deployment and Evaluation).
+- Integration status: Full P1 → Core → P2 flow verified on real PostgreSQL without mocking or manual conversions. All P1 frontend tests pass; build passes. PR boundaries strictly clean.
 
 
 ## 6. Blocker / Dependency Ledger

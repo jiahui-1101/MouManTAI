@@ -22,9 +22,12 @@
   - 幂等消费防线：通过 `ProcessedEventRecord` 登记 `(tenant_id, event_id, consumer_name)`，针对同一事件的重复调度自动跳过无操作，绝不重复触发状态流转。
   - 事务与回滚安全：若评估或下游写入失败，事务安全回退，Outbox 事件状态转入 `FAILED` 并保留 `last_error` 供补偿重试。
   - 陈旧版本防线：利用 `is_stale_event` 与版本单调递增约束，陈旧版本事件（版本号低于当前承诺版本）拒绝覆盖新状态。
-- **应用壳层挂载与全局路由集成**：
-  - 后端：在 `backend/app/main.py` 挂载 `context_router` 并向全局 `default_dispatcher` 注册 P2 订阅者。
-  - 前端：在 `frontend/src/App.tsx` 挂载持久化收件箱 `<DurableInbox />`（路径 `/inbox`）与上下文详情 `<OrderContextDetail />`（路径 `/orders/:id`）。
+- **应用壳层挂载与全局路由集成 (P5 决策 H1.1-Q3 对齐)**：
+  - 后端：P1 在 `backend/app/context/__init__.py` 导出 `context_router`；`backend/app/main.py` 由 P5 在 Task T5.2 中统一挂载。
+  - 前端：P1 在 `frontend/src/features/context/index.ts` 导出 `<DurableInbox />` 与 `<OrderContextDetail />`；`frontend/src/App.tsx` 由 P5 在 Task T5.2 中统一挂载。
+  - Core 条款保护（H1.1-Q1）：P5 确认在 Task T5.2 中直接采纳并合入 `handle_context_updated` 提案逻辑。
+  - Alembic 迁移（H1.1-Q2）：P1 保持 `p1_dev` 显式初始化，P5 将在 `0006_recovery_cases` 后统一排期 `0007_order_contexts.py`。
+  - 纯净 PR 边界：本 PR 严格仅包含 P1 归属文件（`backend/app/context/`, `frontend/src/features/context/`, `backend/tests/`）。
 - **真实 PostgreSQL 端到端 8 场景集成测试矩阵 (`backend/tests/integration/test_p1_core_p2_e2e.py`)**：
   1. `test_scenario_1_new_request_through_p1_to_core_and_p2`：新消息提取成 ready 上下文，提报 Core 创建承诺，派发事件触发 P2 评估并持久化可行性评定。
   2. `test_scenario_2_reviewed_correction_updates_context_and_re_evaluates`：人工修正数量并提报，Core 更新条款并触发 P2 重新计算可行性（120 数量导致产能瓶颈）。
