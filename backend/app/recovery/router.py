@@ -77,6 +77,9 @@ def generate_recovery_plans(
         expected_commitment_version=request.expected_commitment_version,
         assessment_id=request.assessment_id,
         preferences=request.preferences,
+        correlation_id=context.correlation_id,
+        causation_id=request.causation_id or context.causation_id,
+        request_context=context,
     )
 
 
@@ -101,7 +104,12 @@ def request_plan_approval(plan_id: str, request: ApprovalRequestInput, actor: Ap
     plan = default_recovery_planner.get_plan(actor.tenant_id, plan_id)
     current_version = _current_commitment_version(db, actor, plan.commitment_id)
     return default_recovery_planner.request_approval(
-        actor, plan_id, request, current_commitment_version=current_version
+        actor, plan_id, request, current_commitment_version=current_version,
+        db=db,
+        request_context=CoreRequestContext(
+            tenant_id=actor.tenant_id, actor_id=actor.actor_id, actor_role=actor.actor_role,
+            correlation_id=actor.correlation_id, causation_id=actor.causation_id,
+        ),
     )
 
 

@@ -7,10 +7,20 @@ from threading import RLock
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy.orm import Session
+
+from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
 from app.core.integration import CoreIntegrationFacade
 from app.core.schemas import ApprovalState, Commitment, ExecutionState, FeasibilityState
 
+from .eventing import (
+    ApprovalRequiredPayload,
+    PlanGeneratedPayload,
+    RecoveryEventCoordinator,
+    RecoveryEventType,
+    ReplanRequiredPayload,
+)
 from .feasibility import FeasibilityEvaluator, SyntheticP2Evaluator
 from .fixtures import DemoRecoveryInputs, load_demo_recovery_inputs
 from .integrations import ActorContext, require_verified_actor
@@ -83,6 +93,10 @@ class RecoveryRepository:
         self._plans: dict[tuple[str, str], RecoveryPlanVersion] = {}
         self._lock = RLock()
 
+    @property
+    def durable(self) -> bool:
+        return False
+
     @staticmethod
     def _copy(value: RecoveryCase | RecoveryPlanVersion) -> RecoveryCase | RecoveryPlanVersion:
         return type(value).model_validate(value.model_dump(mode="python"))
@@ -112,10 +126,12 @@ class RecoveryPlanner:
         inputs: DemoRecoveryInputs | None = None,
         repository: RecoveryRepository | None = None,
         evaluator: FeasibilityEvaluator | None = None,
+        event_coordinator: RecoveryEventCoordinator | None = None,
     ) -> None:
         self.inputs = inputs or load_demo_recovery_inputs()
         self.repository = repository or RecoveryRepository()
         self.evaluator = evaluator or SyntheticP2Evaluator()
+        self.event_coordinator = event_coordinator or RecoveryEventCoordinator()
 
     def _assert_tenant(self, tenant_id: str, commitment: Commitment) -> None:
         if tenant_id != commitment.tenant_id:
@@ -258,6 +274,10 @@ class RecoveryPlanner:
         expected_commitment_version: int,
         assessment_id: str | None = None,
         preferences: BusinessPreferences | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+        db: Session | None = None,
+        request_context: RequestContext | None = None,
     ) -> RecoveryCase:
         commitment = self._get_commitment(tenant_id, commitment_id)
         if expected_commitment_version != commitment.commitment_version:
@@ -472,7 +492,30 @@ class RecoveryPlanner:
         )
         case.commitment_version = commitment.commitment_version
         case.updated_at = generated_at
-        return self.repository.save_case(case)
+        saved = self.repository.save_case(case)
+        for plan in saved.plans:
+            event = self.event_coordinator.prepare(
+                event_type=RecoveryEventType.PLAN_GENERATED,
+                tenant_id=saved.tenant_id,
+                commitment_id=saved.commitment_id,
+                commitment_version=saved.commitment_version,
+                recovery_case_id=saved.case_id,
+                plan_id=plan.plan_id,
+                plan_version=plan.plan_version,
+                snapshot_version=plan.snapshot_version,
+                correlation_id=correlation_id or f"recovery:{saved.case_id}",
+                causation_id=causation_id or assessment.assessment_id,
+                evidence_refs=tuple(plan.evidence_refs),
+                payload=PlanGeneratedPayload(
+                    evaluation_id=plan.evaluation.evaluation_id,
+                    feasibility_status=plan.feasibility_status,
+                    action_types=tuple(action.type for action in plan.actions),
+                    recommended_under_policy=plan.recommendation_label == "RECOMMENDED_UNDER_POLICY",
+                ),
+                occurred_at=generated_at,
+            )
+            self.event_coordinator.publish(event, db=db, context=request_context)
+        return saved
 
     def list_plans(self, tenant_id: str, commitment_id: str) -> RecoveryPlanList:
         case = self.get_case(tenant_id, commitment_id)
@@ -575,7 +618,8 @@ class RecoveryPlanner:
 
     def request_approval(
         self, actor: ActorContext, plan_id: str, request: ApprovalRequestInput,
-        *, current_commitment_version: int | None = None,
+        *, current_commitment_version: int | None = None, db: Session | None = None,
+        request_context: RequestContext | None = None,
     ) -> ApprovalDecision:
         self._require_approval_actor(actor)
         with self.repository._lock:
@@ -630,6 +674,26 @@ class RecoveryPlanner:
             case.approval_decisions.append(record)
             case.updated_at = now
             self.repository.save_case(case)
+            event = self.event_coordinator.prepare(
+                event_type=RecoveryEventType.APPROVAL_REQUIRED,
+                tenant_id=case.tenant_id,
+                commitment_id=case.commitment_id,
+                commitment_version=case.commitment_version,
+                recovery_case_id=case.case_id,
+                plan_id=plan.plan_id,
+                plan_version=plan.plan_version,
+                snapshot_version=plan.snapshot_version,
+                correlation_id=actor.correlation_id,
+                causation_id=actor.causation_id or record.approval_id,
+                evidence_refs=tuple(record.evidence_refs),
+                payload=ApprovalRequiredPayload(
+                    approval_id=record.approval_id,
+                    action_scope=tuple(record.action_scope),
+                    maximum_approved_amount_myr=record.approved_cost_limit or Decimal(0),
+                    approval_expires_at=record.expires_at,
+                ),
+            )
+            self.event_coordinator.publish(event, db=db, context=request_context)
             return record
 
     def _decide_approval(
@@ -724,9 +788,59 @@ class RecoveryPlanner:
         return self._decide_approval(actor, plan_id, request, ApprovalDecisionState.REVISION_REQUESTED,
                                      current_commitment_version=current_commitment_version)
 
+    def invalidate_for_customer_response(
+        self, *, tenant_id: str, commitment_id: str, plan_id: str, plan_version: int,
+        commitment_version: int,
+        correlation_id: str, causation_id: str, evidence_refs: list[str], reason: str,
+    ) -> None:
+        """Invalidate only P3 recovery state; never transition the P5 Commitment."""
+        with self.repository._lock:
+            case = self.repository.get_case(tenant_id, commitment_id)
+            if case is None:
+                raise DomainError("RECOVERY_CASE_NOT_FOUND", "Recovery case was not found", status_code=404)
+            plan = next((item for item in case.plans if item.plan_id == plan_id), None)
+            if plan is None:
+                raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Recovery plan was not found", status_code=404)
+            if plan.plan_version != plan_version:
+                raise DomainError("RECOVERY_PLAN_VERSION_CONFLICT", "Customer response refers to a stale plan", status_code=409)
+            if case.commitment_version != commitment_version or plan.evaluation.commitment_version != commitment_version:
+                raise DomainError("COMMITMENT_VERSION_CONFLICT", "Customer response refers to a stale commitment version", status_code=409)
+            if plan.approval_state == ApprovalState.INVALIDATED and plan.execution_state == "NEEDS_REPLAN":
+                return
+            plan.approval_state = ApprovalState.INVALIDATED
+            plan.execution_state = "NEEDS_REPLAN"
+            case.status = RecoveryCaseStatus.NEEDS_REPLAN
+            latest = next((item for item in reversed(case.approval_decisions)
+                           if item.plan_id == plan_id and item.plan_version == plan_version
+                           and item.decision == ApprovalDecisionState.APPROVED), None)
+            if latest is not None:
+                system_actor = ActorContext(tenant_id, "system:p3", "SYSTEM", correlation_id, causation_id, True)
+                case.approval_decisions.append(self._new_approval_record(
+                    actor=system_actor, case=case, plan=plan,
+                    decision=ApprovalDecisionState.INVALIDATED, reason=reason,
+                    evidence_refs=evidence_refs, approved_cost_limit=latest.approved_cost_limit,
+                    expires_at=latest.expires_at, action_scope=latest.action_scope,
+                    idempotency_key=f"customer-response:{causation_id}",
+                ))
+            case.updated_at = _now()
+            self.repository.save_case(case)
+            event = self.event_coordinator.prepare(
+                event_type=RecoveryEventType.REPLAN_REQUIRED,
+                tenant_id=tenant_id, commitment_id=commitment_id,
+                commitment_version=case.commitment_version, recovery_case_id=case.case_id,
+                plan_id=plan_id, plan_version=plan_version, snapshot_version=plan.snapshot_version,
+                correlation_id=correlation_id, causation_id=causation_id,
+                evidence_refs=tuple(evidence_refs),
+                payload=ReplanRequiredPayload(
+                    reason_code="CUSTOMER_RESPONSE_REQUIRES_REPLAN",
+                    source_event_id=causation_id, invalidated_plan_ids=(plan_id,),
+                ),
+            )
+            self.event_coordinator.publish(event)
+
     def get_active_approval(
         self, actor: ActorContext, plan_id: str, request: ApprovalDecisionInput,
-        *, current_commitment_version: int | None = None,
+        *, current_commitment_version: int | None = None, allow_test_double: bool = False,
     ) -> ApprovalDecision:
         """Validate approval freshness/scope for a future executor; performs no action."""
         self._require_approval_actor(actor)
@@ -759,7 +873,9 @@ class RecoveryPlanner:
                 case.updated_at = now
                 self.repository.save_case(case)
                 raise DomainError("APPROVAL_EXPIRED", "Approval has expired", status_code=409)
-            if plan.evaluation.validation_source != ValidationSource.REAL_P2_VALIDATED:
+            if (plan.evaluation.validation_source != ValidationSource.REAL_P2_VALIDATED
+                    and not (allow_test_double
+                             and plan.evaluation.validation_source == ValidationSource.TEST_DOUBLE_VALIDATED)):
                 raise DomainError("AUTHORITATIVE_VALIDATION_REQUIRED",
                                   "Synthetic feasibility results cannot authorize a consequential plan", status_code=409)
             if approval.action_scope != self._action_scope(plan):
