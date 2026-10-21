@@ -76,11 +76,17 @@ def test_p2_consumer_evaluates_published_context(pg_engine):
         causation_id=ctx_id,
     )
 
-    # 1. Publish context to Core
+    # 1. Publish context to Core (initially REQUESTED, feasibility NOT_ASSESSED)
     with Session(pg_engine) as session:
         commitment = publisher.publish_to_core(session, req_context, saved)
         assert commitment.commitment_id.startswith("com_")
         assert commitment.feasibility_state == FeasibilityState.NOT_ASSESSED
+
+        # Advance to CONFIRMED to authorize operational P2 feasibility evaluation (Invariant 1)
+        row = session.get(CommitmentRecord, (tenant_id, commitment.commitment_id))
+        assert row is not None
+        row.agreement_state = AgreementState.CONFIRMED.value
+        session.commit()
 
     # 2. Check pending outbox events
     with Session(pg_engine) as session:
