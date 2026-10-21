@@ -226,7 +226,10 @@ class FeasibilityAssessment(ContractModel):
     snapshot_version: int = Field(ge=1)
     status: FeasibilityState
     constraints: list[ConstraintReason] = Field(default_factory=list)
-    affected_commitment_ids: list[str] = Field(min_length=1)
+    affected_commitment_ids: list[str] = Field(
+        default_factory=list,
+        description="List of commitment IDs demonstrably impacted by operational changes. Empty list if none or unconfirmed.",
+    )
     evidence_refs: list[str] = Field(default_factory=list)
     solver_status: SolverStatus
     assumptions: list[str] = Field(default_factory=list)
@@ -317,6 +320,7 @@ class AuditEvent(ContractModel):
     evidence_refs: list[str] = Field(default_factory=list)
     reason: str = Field(min_length=1)
     correlation_id: str = Field(min_length=1)
+    causation_id: str | None = None
     occurred_at: OffsetAwareDatetime
 
 
@@ -325,6 +329,7 @@ class CommitmentCreateRequest(ContractModel):
     customer_id: str = Field(min_length=1)
     terms: CommitmentTerms
     evidence_refs: list[str] = Field(min_length=1)
+    causation_id: str | None = None
 
 
 class CommitmentTransitionRequest(ContractModel):
@@ -333,9 +338,149 @@ class CommitmentTransitionRequest(ContractModel):
     expected_commitment_version: int = Field(ge=1)
     evidence_refs: list[str] = Field(default_factory=list)
     reason: str = Field(min_length=1)
+    causation_id: str | None = None
 
 
 class CommitmentTransitionResponse(ContractModel):
     commitment: Commitment
     audit_event: AuditEvent
     domain_event: DomainEvent
+
+
+class AttentionCategory(StrEnum):
+    STALE_PLAN = "STALE_PLAN"
+    UNKNOWN_FEASIBILITY = "UNKNOWN_FEASIBILITY"
+    MANUAL_REVIEW = "MANUAL_REVIEW"
+    FAILED_EXECUTION = "FAILED_EXECUTION"
+    UNRESOLVED_CONFIRMATION = "UNRESOLVED_CONFIRMATION"
+
+
+class AttentionSeverity(StrEnum):
+    CRITICAL = "CRITICAL"
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
+class AttentionItem(ContractModel):
+    commitment_id: str = Field(min_length=1)
+    order_id: str = Field(min_length=1)
+    category: AttentionCategory
+    severity: AttentionSeverity
+    summary: str = Field(min_length=1)
+    deep_link_path: str = Field(min_length=1)
+    updated_at: OffsetAwareDatetime
+
+
+class OverviewCounts(ContractModel):
+    requested: int = Field(ge=0)
+    confirmed: int = Field(ge=0)
+    at_risk: int = Field(ge=0)
+    pending_approval: int = Field(ge=0)
+    execution_in_progress: int = Field(ge=0)
+    awaiting_confirmation: int = Field(ge=0)
+    fulfilled: int = Field(ge=0)
+
+
+class OverviewCommitmentSummary(ContractModel):
+    commitment_id: str = Field(min_length=1)
+    order_id: str = Field(min_length=1)
+    customer_id: str = Field(min_length=1)
+    agreement_state: AgreementState
+    feasibility_state: FeasibilityState
+    risk_state: RiskState
+    recovery_state: RecoveryState
+    fulfilment_state: FulfilmentState
+    commitment_version: int = Field(ge=1)
+    terms: CommitmentTerms
+    evidence_refs: list[str] = Field(default_factory=list)
+    updated_at: OffsetAwareDatetime
+
+
+class OverviewResponse(ContractModel):
+    tenant_id: str = Field(min_length=1)
+    actor_id: str = Field(min_length=1)
+    actor_role: str = Field(min_length=1)
+    integration_mode: Literal["SYNTHETIC"] = "SYNTHETIC"
+    last_updated_at: OffsetAwareDatetime
+    counts: OverviewCounts
+    attention_queue: list[AttentionItem] = Field(default_factory=list)
+    commitments: list[OverviewCommitmentSummary] = Field(default_factory=list)
+
+
+class SourceFeature(StrEnum):
+    F1_CONTEXT = "F1_CONTEXT"
+    F2_FEASIBILITY = "F2_FEASIBILITY"
+    F3_RECOVERY = "F3_RECOVERY"
+    F4_COMMUNICATION = "F4_COMMUNICATION"
+    CORE = "CORE"
+
+
+class TimelineEntry(ContractModel):
+    entry_id: str = Field(min_length=1)
+    occurred_at: OffsetAwareDatetime
+    actor_id: str = Field(min_length=1)
+    actor_role: str = Field(min_length=1)
+    source_feature: SourceFeature
+    event_type: str = Field(min_length=1)
+    action: str = Field(min_length=1)
+    previous_state: dict[str, Any] | None = None
+    new_state: dict[str, Any] = Field(default_factory=dict)
+    commitment_version: int | None = None
+    correlation_id: str = Field(min_length=1)
+    causation_id: str | None = None
+    approval_reason: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+    context_id: str | None = None
+    assessment_id: str | None = None
+    recovery_case_id: str | None = None
+    communication_id: str | None = None
+    proposal_id: str | None = None
+
+
+class ProposalCreateRequest(ContractModel):
+    proposal_id: str | None = None
+    proposal_version: int = Field(default=1, ge=1)
+    expected_commitment_version: int = Field(ge=1)
+    revised_terms: CommitmentTerms | None = None
+    reason: str = Field(min_length=1)
+    evidence_refs: list[str] = Field(default_factory=list)
+    causation_id: str | None = None
+
+
+class ProposalConfirmRequest(ContractModel):
+    proposal_id: str = Field(min_length=1)
+    proposal_version: int = Field(default=1, ge=1)
+    expected_commitment_version: int = Field(ge=1)
+    decision: Literal["ACCEPT", "REJECT"] = "ACCEPT"
+    evidence_refs: list[str] = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    causation_id: str | None = None
+    customer_identity_status: CustomerIdentityStatus | None = None
+
+
+class RecordFulfilmentRequest(ContractModel):
+    expected_commitment_version: int = Field(ge=1)
+    fulfilment_state: Literal["FULFILLED", "PARTIALLY_FULFILLED"] = "FULFILLED"
+    evidence_refs: list[str] = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    causation_id: str | None = None
+
+
+class RecoveryStartRequest(ContractModel):
+    expected_commitment_version: int = Field(ge=1)
+    reason: str = Field(min_length=1)
+    causation_id: str | None = None
+
+
+class RecoveryExecuteRequest(ContractModel):
+    expected_commitment_version: int = Field(ge=1)
+    plan: RecoveryPlan
+    current_snapshot_version: int = Field(ge=1)
+    approved_at: OffsetAwareDatetime
+    approval_expires_at: OffsetAwareDatetime
+    revised_terms: CommitmentTerms | None = None
+    reason: str = Field(min_length=1)
+    causation_id: str | None = None
+
+

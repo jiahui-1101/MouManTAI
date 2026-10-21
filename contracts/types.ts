@@ -148,6 +148,7 @@ export interface FeasibilityAssessment {
   snapshot_version: number;
   status: FeasibilityState;
   constraints: ConstraintReason[];
+  /** List of commitment IDs demonstrably impacted by operational changes. Empty list if none or unconfirmed. */
   affected_commitment_ids: string[];
   evidence_refs: string[];
   solver_status: SolverStatus;
@@ -226,11 +227,14 @@ export interface DomainEvent {
   payload: Record<string, unknown>;
 }
 
+export type OutboxStatus = "PENDING" | "PUBLISHED" | "FAILED" | "DEAD_LETTER";
+
 export interface CommitmentCreateRequest {
   order_id: string;
   customer_id: string;
   terms: CommitmentTerms;
   evidence_refs: string[];
+  causation_id?: string | null;
 }
 
 export type CommitmentTransitionDimension =
@@ -246,6 +250,7 @@ export interface CommitmentTransitionRequest {
   expected_commitment_version: number;
   evidence_refs: string[];
   reason: string;
+  causation_id?: string | null;
 }
 
 export interface AuditEvent {
@@ -261,6 +266,7 @@ export interface AuditEvent {
   evidence_refs: string[];
   reason: string;
   correlation_id: string;
+  causation_id?: string | null;
   occurred_at: ISO8601;
 }
 
@@ -269,3 +275,133 @@ export interface CommitmentTransitionResponse {
   audit_event: AuditEvent;
   domain_event: DomainEvent;
 }
+
+export type AttentionCategory =
+  | "STALE_PLAN"
+  | "UNKNOWN_FEASIBILITY"
+  | "MANUAL_REVIEW"
+  | "FAILED_EXECUTION"
+  | "UNRESOLVED_CONFIRMATION";
+
+export type AttentionSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+
+export interface AttentionItem {
+  commitment_id: string;
+  order_id: string;
+  category: AttentionCategory;
+  severity: AttentionSeverity;
+  summary: string;
+  deep_link_path: string;
+  updated_at: ISO8601;
+}
+
+export interface OverviewCounts {
+  requested: number;
+  confirmed: number;
+  at_risk: number;
+  pending_approval: number;
+  execution_in_progress: number;
+  awaiting_confirmation: number;
+  fulfilled: number;
+}
+
+export interface OverviewCommitmentSummary {
+  commitment_id: string;
+  order_id: string;
+  customer_id: string;
+  agreement_state: AgreementState;
+  feasibility_state: FeasibilityState;
+  risk_state: RiskState;
+  recovery_state: RecoveryState;
+  fulfilment_state: FulfilmentState;
+  commitment_version: number;
+  terms: CommitmentTerms;
+  evidence_refs: string[];
+  updated_at: ISO8601;
+}
+
+export interface OverviewResponse {
+  tenant_id: string;
+  actor_id: string;
+  actor_role: string;
+  integration_mode: "SYNTHETIC";
+  last_updated_at: ISO8601;
+  counts: OverviewCounts;
+  attention_queue: AttentionItem[];
+  commitments: OverviewCommitmentSummary[];
+}
+
+export type SourceFeature =
+  | "F1_CONTEXT"
+  | "F2_FEASIBILITY"
+  | "F3_RECOVERY"
+  | "F4_COMMUNICATION"
+  | "CORE";
+
+export interface TimelineEntry {
+  entry_id: string;
+  occurred_at: ISO8601;
+  actor_id: string;
+  actor_role: string;
+  source_feature: SourceFeature;
+  event_type: string;
+  action: string;
+  previous_state: Record<string, unknown> | null;
+  new_state: Record<string, unknown>;
+  commitment_version?: number | null;
+  correlation_id: string;
+  causation_id?: string | null;
+  approval_reason?: string | null;
+  evidence_refs: string[];
+  context_id?: string | null;
+  assessment_id?: string | null;
+  recovery_case_id?: string | null;
+  communication_id?: string | null;
+  proposal_id?: string | null;
+}
+
+export interface ProposalCreateRequest {
+  proposal_id?: string | null;
+  proposal_version: number;
+  expected_commitment_version: number;
+  revised_terms?: CommitmentTerms | null;
+  reason: string;
+  evidence_refs: string[];
+  causation_id?: string | null;
+}
+
+export interface ProposalConfirmRequest {
+  proposal_id: string;
+  proposal_version: number;
+  expected_commitment_version: number;
+  decision: "ACCEPT" | "REJECT";
+  evidence_refs: string[];
+  reason: string;
+  causation_id?: string | null;
+}
+
+export interface RecordFulfilmentRequest {
+  expected_commitment_version: number;
+  fulfilment_state: "FULFILLED" | "PARTIALLY_FULFILLED";
+  evidence_refs: string[];
+  reason: string;
+  causation_id?: string | null;
+}
+
+export interface RecoveryStartRequest {
+  expected_commitment_version: number;
+  reason: string;
+  causation_id?: string | null;
+}
+
+export interface RecoveryExecuteRequest {
+  expected_commitment_version: number;
+  plan: RecoveryPlan;
+  current_snapshot_version: number;
+  approved_at: ISO8601;
+  approval_expires_at: ISO8601;
+  revised_terms?: CommitmentTerms | null;
+  reason: string;
+  causation_id?: string | null;
+}
+
