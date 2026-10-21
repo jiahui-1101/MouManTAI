@@ -13,10 +13,12 @@ from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
 from app.core.integration import CoreIntegrationFacade
 from app.core.schemas import (
+    AgreementState,
     ApprovalState,
     Commitment,
     ExecutionState,
     FeasibilityState,
+    FulfilmentState,
     RecoveryState,
     RiskState,
 )
@@ -30,7 +32,7 @@ from .eventing import (
 )
 from .feasibility import FeasibilityEvaluator, SyntheticP2Evaluator
 from .fixtures import DemoRecoveryInputs, load_demo_recovery_inputs
-from .integrations import ActorContext, require_verified_actor
+from .integrations import ActorContext, CommitmentReader, P5CommitmentReader, require_verified_actor
 from .models import (
     ApprovalDecision,
     ApprovalDecisionInput,
@@ -331,11 +333,13 @@ class RecoveryPlanner:
         repository: RecoveryRepository | None = None,
         evaluator: FeasibilityEvaluator | None = None,
         event_coordinator: RecoveryEventCoordinator | None = None,
+        commitment_reader: CommitmentReader | None = None,
     ) -> None:
         self.inputs = inputs or load_demo_recovery_inputs()
         self.repository = repository or RecoveryRepository()
         self.evaluator = evaluator or SyntheticP2Evaluator()
         self.event_coordinator = event_coordinator or RecoveryEventCoordinator()
+        self.commitment_reader = commitment_reader
 
     def _assert_tenant(self, tenant_id: str, commitment: Commitment) -> None:
         if tenant_id != commitment.tenant_id:
@@ -346,8 +350,19 @@ class RecoveryPlanner:
                 details={"commitment_id": commitment.commitment_id},
             )
 
-    def _get_commitment(self, tenant_id: str, commitment_id: str) -> Commitment:
-        commitment = self.inputs.commitment
+    def _get_commitment(
+        self, tenant_id: str, commitment_id: str, *, db: Session | None = None,
+        request_context: RequestContext | None = None,
+    ) -> Commitment:
+        if self.commitment_reader is not None:
+            if db is None or request_context is None:
+                raise DomainError("COMMITMENT_READER_UNAVAILABLE", "Core lookup requires a server session and context", status_code=503)
+            if request_context.tenant_id != tenant_id:
+                raise DomainError("TENANT_SCOPE_VIOLATION", "Recovery case is not available for this tenant", status_code=404)
+            commitment = self.commitment_reader.get_commitment(db, request_context, commitment_id)
+        else:
+            # Fixture-only planners are never the default Core-backed API planner.
+            commitment = self.inputs.commitment
         if commitment_id != commitment.commitment_id:
             raise DomainError(
                 "RECOVERY_CASE_NOT_FOUND",
@@ -380,10 +395,19 @@ class RecoveryPlanner:
             updated_at=now,
         )
 
-    def get_case(self, tenant_id: str, commitment_id: str) -> RecoveryCase:
+    def get_case(
+        self, tenant_id: str, commitment_id: str, *, db: Session | None = None,
+        request_context: RequestContext | None = None,
+    ) -> RecoveryCase:
+        if self.commitment_reader is not None:
+            self._get_commitment(tenant_id, commitment_id, db=db, request_context=request_context)
         stored = self.repository.get_case(tenant_id, commitment_id)
         if stored:
+            if (stored.tenant_id, stored.commitment_id) != (tenant_id, commitment_id):
+                raise DomainError("RECOVERY_CASE_SCOPE_MISMATCH", "Recovery case identity is inconsistent", status_code=409)
             return stored
+        if self.commitment_reader is not None:
+            raise DomainError("RECOVERY_CASE_NOT_FOUND", "Recovery case was not found", status_code=404)
         self._get_commitment(tenant_id, commitment_id)
         return self.repository.save_case(self._skeleton(tenant_id, commitment_id))
 
@@ -451,7 +475,9 @@ class RecoveryPlanner:
                 "Recovery planning requires the complete triggering P2 assessment",
                 status_code=409,
             )
-        evidence_refs = _unique(assessment.evidence_refs + self.inputs.snapshot.evidence_refs)
+        evidence_refs = _unique(assessment.evidence_refs + (
+            case.operational_snapshot.evidence_refs if case.operational_snapshot is not None else []
+        ))
         plan_prefix = "" if case.case_id == "rc_001" else f"{case.case_id}_"
         return [
             _Candidate(
@@ -546,7 +572,7 @@ class RecoveryPlanner:
         db: Session | None = None,
         request_context: RequestContext | None = None,
     ) -> RecoveryCase:
-        commitment = self._get_commitment(tenant_id, commitment_id)
+        commitment = self._get_commitment(tenant_id, commitment_id, db=db, request_context=request_context)
         if expected_commitment_version != commitment.commitment_version:
             raise DomainError(
                 "COMMITMENT_VERSION_CONFLICT",
@@ -557,8 +583,37 @@ class RecoveryPlanner:
                     "current_commitment_version": commitment.commitment_version,
                 },
             )
+        if self.commitment_reader is not None and not (
+            commitment.agreement_state == AgreementState.CONFIRMED
+            and commitment.feasibility_state == FeasibilityState.INFEASIBLE
+            and commitment.risk_state == RiskState.AT_RISK
+            and commitment.recovery_state in {
+                RecoveryState.RECOVERY_REQUIRED, RecoveryState.PLANNING,
+                RecoveryState.PENDING_APPROVAL, RecoveryState.EXECUTING,
+            }
+            and commitment.fulfilment_state != FulfilmentState.FULFILLED
+        ):
+            raise DomainError("RECOVERY_COMMITMENT_NOT_ELIGIBLE",
+                              "Core Commitment is not currently eligible for recovery planning", status_code=409)
 
-        assessment = self.inputs.assessment
+        existing = self.repository.get_case(tenant_id, commitment_id)
+        if self.commitment_reader is not None:
+            if existing is None:
+                raise DomainError("RECOVERY_CASE_NOT_FOUND", "Recovery case was not found", status_code=404)
+            if not existing.trigger_events:
+                raise DomainError("RECOVERY_TRIGGER_REQUIRED",
+                                  "Core-backed planning requires a recorded risk trigger", status_code=409)
+            if existing.trigger_assessment is None or existing.operational_snapshot is None:
+                raise DomainError("AUTHORITATIVE_RECOVERY_INPUT_REQUIRED",
+                                  "The case needs P2 assessment and operational snapshot before planning", status_code=409)
+            assessment = existing.trigger_assessment
+            if assessment.status != FeasibilityState.INFEASIBLE:
+                raise DomainError("INFEASIBLE_ASSESSMENT_REQUIRED",
+                                  "Recovery planning requires an infeasible P2 assessment", status_code=409)
+        else:
+            assessment = self.inputs.assessment
+        if (assessment.tenant_id, assessment.commitment_id) != (tenant_id, commitment_id):
+            raise DomainError("ASSESSMENT_SCOPE_MISMATCH", "Assessment is for a different commitment", status_code=409)
         if assessment_id and assessment_id != assessment.assessment_id:
             raise DomainError(
                 "ASSESSMENT_NOT_FOUND",
@@ -577,7 +632,6 @@ class RecoveryPlanner:
                 },
             )
 
-        existing = self.repository.get_case(tenant_id, commitment_id)
         if existing and existing.status == RecoveryCaseStatus.COMPLETED:
             raise DomainError(
                 "RECOVERY_CASE_COMPLETED",
@@ -807,8 +861,11 @@ class RecoveryPlanner:
             self.event_coordinator.publish(event, db=db, context=request_context)
         return saved
 
-    def list_plans(self, tenant_id: str, commitment_id: str) -> RecoveryPlanList:
-        case = self.get_case(tenant_id, commitment_id)
+    def list_plans(
+        self, tenant_id: str, commitment_id: str, *, db: Session | None = None,
+        request_context: RequestContext | None = None,
+    ) -> RecoveryPlanList:
+        case = self.get_case(tenant_id, commitment_id, db=db, request_context=request_context)
         return RecoveryPlanList(
             tenant_id=tenant_id,
             commitment_id=commitment_id,
@@ -816,7 +873,10 @@ class RecoveryPlanner:
             plans=case.plans,
         )
 
-    def get_plan(self, tenant_id: str, plan_id: str) -> RecoveryPlanVersion:
+    def get_plan(
+        self, tenant_id: str, plan_id: str, *, db: Session | None = None,
+        request_context: RequestContext | None = None,
+    ) -> RecoveryPlanVersion:
         plan = self.repository.get_plan(tenant_id, plan_id)
         if not plan:
             raise DomainError(
@@ -825,6 +885,13 @@ class RecoveryPlanner:
                 status_code=404,
                 details={"plan_id": plan_id},
             )
+        case = self.repository.get_case_by_id(tenant_id, plan.recovery_case_id)
+        if case is None or (case.tenant_id, case.commitment_id, case.case_id) != (
+            plan.tenant_id, plan.commitment_id, plan.recovery_case_id
+        ) or not any(item.plan_id == plan_id and item.plan_version == plan.plan_version for item in case.plans):
+            raise DomainError("RECOVERY_PLAN_SCOPE_MISMATCH", "Recovery plan parent case is unavailable", status_code=409)
+        if self.commitment_reader is not None:
+            self._get_commitment(tenant_id, plan.commitment_id, db=db, request_context=request_context)
         return plan
 
     @staticmethod
@@ -1186,4 +1253,5 @@ class RecoveryPlanner:
             return approval
 
 
-default_recovery_planner = RecoveryPlanner()
+default_recovery_planner = RecoveryPlanner(commitment_reader=P5CommitmentReader())
+demo_recovery_planner = RecoveryPlanner()  # Explicit /demo fixture only; isolated repository.

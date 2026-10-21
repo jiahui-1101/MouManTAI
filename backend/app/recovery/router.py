@@ -28,7 +28,7 @@ from .models import (
     RecoveryPlanVersion,
     RecoveryTriggerCaseView,
 )
-from .service import default_recovery_planner
+from .service import default_recovery_planner, demo_recovery_planner
 
 router = APIRouter(prefix="/v1/recovery", tags=["recovery"])
 Context = Annotated[RequestContext, Depends(get_request_context)]
@@ -59,13 +59,25 @@ def _current_commitment_version(db: Session, actor: ActorContext, commitment_id:
     return commitment.commitment_version
 
 
-def _canonical_commitment_id(commitment_id: str) -> str:
-    return "com_001" if commitment_id == "demo" else commitment_id
+def _planner_for_commitment(commitment_id: str):
+    # /demo has separate fixture storage; ordinary IDs never fall back to it.
+    if commitment_id == "demo":
+        return demo_recovery_planner, demo_recovery_planner.inputs.commitment.commitment_id
+    return default_recovery_planner, commitment_id
+
+
+def _planner_for_plan(tenant_id: str, plan_id: str):
+    if default_recovery_planner.repository.get_plan(tenant_id, plan_id) is not None:
+        return default_recovery_planner
+    if demo_recovery_planner.repository.get_plan(tenant_id, plan_id) is not None:
+        return demo_recovery_planner
+    return default_recovery_planner
 
 
 @router.get("/cases/{commitment_id}", response_model=RecoveryCase)
-def get_recovery_case(commitment_id: str, context: Context) -> RecoveryCase:
-    case = default_recovery_planner.get_case(context.tenant_id, _canonical_commitment_id(commitment_id))
+def get_recovery_case(commitment_id: str, context: Context, db: Db) -> RecoveryCase:
+    planner, requested_id = _planner_for_commitment(commitment_id)
+    case = planner.get_case(context.tenant_id, requested_id, db=db, request_context=context)
     if case.status == RecoveryCaseStatus.COMPLETED:
         raise DomainError(
             "RECOVERY_CASE_COMPLETED",
@@ -89,8 +101,9 @@ def get_recovery_case(commitment_id: str, context: Context) -> RecoveryCase:
 
 
 @router.get("/cases/{commitment_id}/trigger", response_model=RecoveryTriggerCaseView)
-def get_trigger_only_recovery_case(commitment_id: str, context: Context) -> RecoveryTriggerCaseView:
-    case = default_recovery_planner.get_case(context.tenant_id, _canonical_commitment_id(commitment_id))
+def get_trigger_only_recovery_case(commitment_id: str, context: Context, db: Db) -> RecoveryTriggerCaseView:
+    planner, requested_id = _planner_for_commitment(commitment_id)
+    case = planner.get_case(context.tenant_id, requested_id, db=db, request_context=context)
     if not case.trigger_events or (
         case.trigger_assessment is not None and case.operational_snapshot is not None
     ):
@@ -128,32 +141,40 @@ def generate_recovery_plans(
     commitment_id: str,
     request: GenerateRecoveryRequest,
     context: Context,
+    db: Db,
 ) -> RecoveryCase:
-    return default_recovery_planner.generate(
+    planner, requested_id = _planner_for_commitment(commitment_id)
+    return planner.generate(
         context.tenant_id,
-        _canonical_commitment_id(commitment_id),
+        requested_id,
         expected_commitment_version=request.expected_commitment_version,
         assessment_id=request.assessment_id,
         preferences=request.preferences,
         correlation_id=context.correlation_id,
         causation_id=request.causation_id or context.causation_id,
         request_context=context,
+        db=db,
     )
 
 
 @router.get("/cases/{commitment_id}/plans", response_model=RecoveryPlanList)
-def list_recovery_plans(commitment_id: str, context: Context) -> RecoveryPlanList:
-    return default_recovery_planner.list_plans(context.tenant_id, _canonical_commitment_id(commitment_id))
+def list_recovery_plans(commitment_id: str, context: Context, db: Db) -> RecoveryPlanList:
+    planner, requested_id = _planner_for_commitment(commitment_id)
+    return planner.list_plans(context.tenant_id, requested_id, db=db, request_context=context)
 
 
 @router.get("/plans/{plan_id}/evaluation", response_model=PlanEvaluation)
-def get_plan_evaluation(plan_id: str, context: Context) -> PlanEvaluation:
-    return default_recovery_planner.get_plan(context.tenant_id, plan_id).evaluation
+def get_plan_evaluation(plan_id: str, context: Context, db: Db) -> PlanEvaluation:
+    return _planner_for_plan(context.tenant_id, plan_id).get_plan(
+        context.tenant_id, plan_id, db=db, request_context=context
+    ).evaluation
 
 
 @router.get("/plans/{plan_id}", response_model=RecoveryPlanVersion)
-def get_recovery_plan(plan_id: str, context: Context) -> RecoveryPlanVersion:
-    return default_recovery_planner.get_plan(context.tenant_id, plan_id)
+def get_recovery_plan(plan_id: str, context: Context, db: Db) -> RecoveryPlanVersion:
+    return _planner_for_plan(context.tenant_id, plan_id).get_plan(
+        context.tenant_id, plan_id, db=db, request_context=context
+    )
 
 
 @router.post("/plans/{plan_id}/approval-requests", response_model=ApprovalDecision)

@@ -24,13 +24,13 @@ def _headers(tenant: str = "tenant_demo_01") -> dict[str, str]:
 
 
 def test_recovery_generation_produces_two_options_on_one_snapshot_and_is_idempotent(client: TestClient) -> None:
-    initial = client.get("/v1/recovery/cases/com_001", headers=_headers())
+    initial = client.get("/v1/recovery/cases/demo", headers=_headers())
     assert initial.status_code == 200, initial.text
     assert initial.json()["plans"] == []
     assert initial.json()["trigger_assessment"]["assessment_id"] == "fa_001"
 
     generated = client.post(
-        "/v1/recovery/cases/com_001/generate",
+        "/v1/recovery/cases/demo/generate",
         headers=_headers(),
         json={"expected_commitment_version": 3, "assessment_id": "fa_001"},
     )
@@ -51,7 +51,7 @@ def test_recovery_generation_produces_two_options_on_one_snapshot_and_is_idempot
     assert sum(1 for option in body["options"] if option["recommended"]) == 1
 
     repeated = client.post(
-        "/v1/recovery/cases/com_001/generate",
+        "/v1/recovery/cases/demo/generate",
         headers=_headers(),
         json={"expected_commitment_version": 3, "assessment_id": "fa_001"},
     )
@@ -64,18 +64,18 @@ def test_recovery_generation_produces_two_options_on_one_snapshot_and_is_idempot
     assert evaluation.status_code == 200
     assert evaluation.json()["plan_id"] == plan_id
 
-    plans = client.get("/v1/recovery/cases/com_001/plans", headers=_headers())
+    plans = client.get("/v1/recovery/cases/demo/plans", headers=_headers())
     assert plans.status_code == 200
     assert len(plans.json()["plans"]) == 2
 
 
 def test_recovery_enforces_tenant_and_commitment_version(client: TestClient) -> None:
-    wrong_tenant = client.get("/v1/recovery/cases/com_001", headers=_headers("tenant_other"))
+    wrong_tenant = client.get("/v1/recovery/cases/demo", headers=_headers("tenant_other"))
     assert wrong_tenant.status_code == 404
     assert wrong_tenant.json()["code"] == "TENANT_SCOPE_VIOLATION"
 
     stale = client.post(
-        "/v1/recovery/cases/com_001/generate",
+        "/v1/recovery/cases/demo/generate",
         headers=_headers(),
         json={"expected_commitment_version": 2},
     )
