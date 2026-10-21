@@ -1,6 +1,36 @@
 # P2 Requirement Trace — Feasibility & Impact Intelligence
 
-## Latest Main synchronization compatibility audit — BLOCKED (2026-10-21)
+## Final Main synchronization compatibility audit — PASS (2026-10-21)
+
+Main `0c082ceb0d1fa926a8b5fdf53b451505d3bd2250` contains P5 PR #3 and D-013
+`2f06a6ac7451def712aa080eb6c1189b8d57f216`. The P2 sync merge is
+`f82f9a4279de6263236bc3d7ec04772441eb2c8b`; its second parent is exactly that
+Main SHA. The earlier PR #2 merge was preserved in intermediate merge
+`d242c31788b7d0ee97a6e95278f2e11c7137e7a9`. The sole conflict was
+`docs/TEAM_LOG.md`, resolved by retaining P2 history and both incoming P5
+records. Recovery refs preserve the approved P2 baseline and interrupted staged
+tree.
+
+| Check | Result | Evidence / limitation |
+|---|---|---|
+| D-013 public assess route ownership | PASS | Core duplicate POST was removed. Runtime temporary FastAPI app including Core and P2 routers has no duplicate method/path. Production `app/main.py` still mounts Core only; P2 is not production-mounted. |
+| Shared assessment / empty Impact Set | PASS | P2 imports canonical Core `FeasibilityAssessment`; `affected_commitment_ids: []` is accepted for no impacted commitments. P2 local `EvaluationResult` is a calculation projection, not a second shared assessment contract. |
+| UNKNOWN, evidence, version binding | PASS | P2 full suite passes missing/stale evidence and UNKNOWN cases. P2 binds commitment and snapshot versions; D-013 Core guards tenant, commitment identity and commitment version. A P5 writer must transactionally recheck current snapshot authority. |
+| Pure calculation / Phase 6 guards | PASS | P2 evaluator and impact calculation remain side-effect free. No Phase 6 source/test changed; positive evidence-backed buffer, fail-closed UNKNOWN and evidence validation coverage remain. |
+| Core SERVICE/SYSTEM authorization | INTEGRATION PENDING | D-013 tests normal user contexts denied with 403 and a directly constructed trusted service context accepted. P2 writer is `None` by default; P2 passes the requester context to its writer seam and returns 503 until configured. P5 must provide a server-side SERVICE identity and retain the requesting user for audit. Do not derive SERVICE from client headers. |
+| Assessment persistence/current snapshot | NOT INTEGRATED | No configured P2 writer, authoritative input provider, assessment history, or transactional snapshot recheck. Core state/audit/outbox behavior does not itself provide P2 assessment history. |
+| Supplier delay / impact | NOT INTEGRATED | Supplier-delay processor and impact reader ports remain unconfigured; no persisted recalculation/outbox flow. |
+| Frontend route/data | NOT INTEGRATED | P2 routes remain placeholders in `App.tsx`; P2 pages use injected data sources and are not wired to authenticated production APIs. |
+| Backend regression | PASS | P2 181, P2 router/API 24, P5 79, D-013 identity/version 16, combined P2/P5 260 tests passed. Runtime import/model identity/route uniqueness probe passed. One Starlette/httpx deprecation warning per pytest run. |
+| Frontend regression | PASS | Full Vitest run: 108 passed, 5 skipped. TypeScript typecheck and production build passed after installing the lockfile-pinned missing package into local `node_modules`; manifests unchanged. Live API suite, database, migrations and real E2E were not run. |
+
+P5's D-013 Core tests and simulated handshakes apply caller-authored assessment
+objects directly to Core; they do not invoke P2 `evaluate()`. Shared P2/P5
+production integration remains partial. P3 may reuse the pure evaluator, while
+its serialized request/response shape still needs owner confirmation. The sync
+is ready for independent review; Phase 7 is NOT_STARTED.
+
+## Prior PR #2 synchronization audit — superseded by the PR #3 sync
 
 This section supersedes the older branch/ref and empty-Impact-Set status below.
 The sync fetched Main `0485d3d3490d9dacb97aedb634e99c6538327bbf`, containing P5

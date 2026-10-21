@@ -1,6 +1,16 @@
 # P2 Feasibility & Impact Progress
 
-## Current Main synchronization checkpoint — BLOCKED
+## Current Main synchronization checkpoint — VALIDATED (2026-10-21)
+
+- **Main:** `origin/main` `0c082ceb0d1fa926a8b5fdf53b451505d3bd2250`, containing P5 PR #3 and D-013 `2f06a6ac7451def712aa080eb6c1189b8d57f216`.
+- **P2 sync:** intermediate merge `d242c31788b7d0ee97a6e95278f2e11c7137e7a9` preserves the earlier PR #2 merge; final Main merge `f82f9a4279de6263236bc3d7ec04772441eb2c8b` has P2 and exact latest Main as parents. Approved P2 baseline remains protected by `backup/p2-pre-sync-4e04a66-20261021`; interrupted staged state is recoverable at `backup/p2-interrupted-merge-0485-before-pr3-20261021`.
+- **Conflict:** only `docs/TEAM_LOG.md`; P2 history, P5 T3.4 and D-013 records were retained. No shared code or contracts required conflict decisions.
+- **Compatibility:** D-013 removed Core's duplicate public assess route; a temporary app with both routers has no duplicate method/path. Shared `FeasibilityAssessment` accepts empty `affected_commitment_ids`. P2 keeps the canonical shared response, version bindings, pure evaluator, fail-closed `UNKNOWN`, and Phase 6 positive-buffer/evidence guards.
+- **Validation:** P2 backend 181 passed; P2 router/API 24 passed (including prior 12 failures); P5 backend 79 passed; D-013 identity/version guards 16 passed; combined backend 260 passed. Runtime imports/model identity/route uniqueness passed. Frontend 108 passed, 5 skipped; typecheck and production build passed. See `MAIN_SYNC_REPORT.md` for exact commands, host versions, warning and the initial incomplete dependency install.
+- **Authorization and integration status:** Core's internal assessment writer requires `SERVICE`/`SYSTEM`. P2's writer and current snapshot authority remain unconfigured, so P2 assessment returns 503; no authenticated requester-to-service adapter exists. P2 router is not mounted in `app/main.py`, P2 frontend routes remain placeholders, and persistence/history, supplier-delay processing, impact reads, and real P2/P5 E2E are not integrated. P5 must create the trusted server-side writer boundary without deriving SERVICE from client headers and preserve the requesting user's audit identity.
+- **Gate:** Sync is committed and locally validated; final report/progress documentation follows in a separate P2-owned commit. No P2 PR was created and Phase 7 remains NOT_STARTED. Await independent review.
+
+## Previous Main sync checkpoint — blocked before P5 PR #3 (superseded)
 
 - **Requested operation:** sync fetched Main `0485d3d3490d9dacb97aedb634e99c6538327bbf` (including P5 PR #2, tip `6e09a5584000ed1b93d1f568d56e9675016b2e25`) into P2 branch `feat/p2-feasibility-engine` only. Pre-sync P2 HEAD `4e04a662eda8c2b96505e27db976727b2f9d336f` is preserved by `backup/p2-pre-sync-4e04a66-20261021`.
 - **Merge state:** prepared with `git merge --no-ff --no-commit`; only `docs/TEAM_LOG.md` conflicted, and the resolution retains both P2 and P5 history. Merge remains uncommitted and unpushed pending shared review.
