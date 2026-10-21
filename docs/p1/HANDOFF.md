@@ -1,3 +1,49 @@
+# P1 BATCH 3 handoff — 2026-10-21 (Context Lifecycle, Version History and Human Review)
+
+当前分支 `feat/p1-context-intelligence`；本次实现提交：
+- 存储与模型：`8c18730` (`feat(p1): implement OrderContext models, optimistic concurrency, and storage in p1_dev`)
+- 业务服务与 API 接口：`d38f6c5` (`feat(p1): implement ContextService, review endpoints, message merge, and optimistic locking`)
+- 前端审阅抽屉、上下文详情与收件箱联动：`5e73ff0` (`feat(p1): implement OrderContextDetail, ReviewDrawer, and context actions in DurableInbox`)
+
+### 1. 核心交付与业务规则落实
+- **OrderContext 独立存储 (`p1_dev.order_contexts`)**：
+  - 字段：`context_id`, `tenant_id`, `order_id`, `customer_id`, `customer_identity_status`, `status` (`INFORMATION_READY`, `INFORMATION_PARTIAL`, `CONFLICT`, `UNRESOLVED`), `requested_items`, `requested_delivery_at`, `delivery_qualifier`, `special_instructions`, `missing_fields`, `conflicts`, `source_message_ids`, `field_evidence`, `context_version`, `last_reviewed_by`, `last_reviewed_role`, `created_at`, `updated_at`。
+- **全链路不可变快照审计 (`p1_dev.order_context_versions`)**：
+  - 每次上下文演进（创建、合并后续消息、人工字段修订、人工接受）均自动沉淀带版本号的不可变版本快照，记录变更类型（`INITIAL_CREATION`, `MESSAGE_MERGE`, `HUMAN_EDIT`, `HUMAN_ACCEPT`）、操作人（`actor_id`/`actor_role`）及理由。
+- **后续消息安全合并与冲突检测 (Follow-up Message Merge)**：
+  - 后续消息到达同一订单时自动演化现有上下文，但**绝不静默覆盖已有已验证条款**。
+  - 若后续消息对已存在字段产生实质性分歧（如 SKU 改变、数量由 50 变为 100、交期改变等），安全转为 `CONFLICT` 状态，将分歧详细记录于 `conflicts` 列表，保留基线数据供人工决策。
+- **人工审核与字段修正 (`p1_dev.context_reviews`)**：
+  - 审核端点：`POST /v1/contexts/{context_id}/review`（支持 `EDIT_FIELD`, `ACCEPT_EXTRACTION`, `REQUEST_MORE_INFO`, `MARK_UNRESOLVED` 操作）及 `PATCH /v1/contexts/{context_id}`。
+  - 完整记录经办人身份（`X-Actor-ID`）、角色（`X-Actor-Role`）、审核说明（`note`）、具体字段差异对照（`field_changes`）及前后版本号跳变（`context_version_before` → `context_version_after`）。
+- **数据库级与 API 级乐观并发控制 (Optimistic Concurrency)**：
+  - 审核与修改操作必须携带 `expected_context_version`；
+  - 借助数据库行级锁与版本对比校验，陈旧请求直接返回 HTTP 409 Conflict（`StaleContextVersion`），杜绝多人并发审核时的覆盖与状态脏写。
+- **RESTful API 清单**：
+  - `GET /v1/contexts/{context_id}`：获取上下文详情。
+  - `GET /v1/contexts/by-order/{order_id}`：根据订单号获取上下文。
+  - `POST /v1/contexts/from-message/{message_id}`：由消息自动触发提取、关联与上下文生成/合并。
+  - `POST /v1/contexts/{context_id}/review`：人工提交审核决定或字段修订。
+  - `PATCH /v1/contexts/{context_id}`：人工直接编辑上下文。
+  - `GET /v1/contexts/{context_id}/versions`：获取该上下文的所有历史版本快照。
+  - `GET /v1/contexts/{context_id}/reviews`：获取该上下文的人工审核历史记录。
+- **前端操作型界面**：
+  - `ReviewDrawer` (FE-02)：提供抽屉式交互，支持直接修正 SKU、数量、单位、交期/限定词、特殊指示，并附带审阅笔记和四种标准决断操作。
+  - `OrderContextDetail` (FE-03)：展示商品明细表格、原文 Unicode 代码点证据引用片段、维度卡片、安全冲突警告条、字段缺失警告条，以及可展开的历史版本与人工审核时间线。
+  - `DurableInbox` 消息详情操作联动：对于 `PROCESSED` 消息，提供一键打开 `[📋 Generate / View Order Context]` 弹窗，直观查看与审阅上下文。
+
+### 2. 验证结果
+- **后端测试**：
+  - `backend/app/context/tests/test_order_context_storage.py`（4 个存储与并发单测全部通过）。
+  - `backend/app/context/tests/test_context_api.py`（3 个端到端 API 单测全部通过）。
+  - P1 后端测试集：**280 passed, 2 skipped, 0 failed**。
+- **前端测试与打包**：
+  - `frontend/src/features/context/OrderContextDetail.test.tsx`（6 个组件与交互单测全部通过）。
+  - 前端测试集：**135 passed, 5 skipped (LiveApiSmoke), 0 failed**。
+  - 前端类型校验与构建：`tsc -b && vite build` 成功（0 错误，耗时 1.35s）。
+
+---
+
 # P1 BATCH 2 handoff — 2026-10-21 (Verified Identity and Order Association)
 
 当前分支 `feat/p1-context-intelligence`；本次实现提交：
