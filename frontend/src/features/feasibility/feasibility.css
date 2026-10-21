@@ -1,0 +1,18 @@
+.p2-feature { min-width: 0; overflow-wrap: anywhere; }
+.p2-feature .notice-card { margin-bottom: 1rem; }
+.p2-feature .p2-warning { color: #fcd34d; line-height: 1.6; }
+.p2-feature .p2-status { display: inline-block; color: #e2e8f0; border: 1px solid #64748b; border-radius: 0.4rem; padding: 0.4rem 0.7rem; }
+.p2-feature button { color: #f8fafc; background: #1e293b; border: 1px solid #64748b; border-radius: 0.4rem; padding: 0.6rem 0.85rem; cursor: pointer; }
+.p2-feature button:disabled { opacity: 0.65; cursor: not-allowed; }
+.p2-feature :focus-visible { outline: 3px solid #fcd34d; outline-offset: 3px; }
+.p2-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 1rem; }
+.p2-facts dt { color: #94a3b8; margin-bottom: 0.35rem; }
+.p2-facts dd { margin: 0; }
+.p2-scroll { max-width: 100%; overflow-x: auto; margin: 1rem 0; }
+.p2-feature table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.p2-feature caption { text-align: left; padding: 0.5rem; color: #cbd5e1; }
+.p2-feature th, .p2-feature td { text-align: left; vertical-align: top; padding: 0.7rem; border-bottom: 1px solid #334155; min-width: 7rem; }
+.p2-feature small { display: block; color: #94a3b8; margin-top: 0.35rem; }
+.p2-evidence { padding-left: 1.1rem; font-size: 0.85rem; line-height: 1.6; }
+.p2-impact-card { padding: 0.75rem 0; border-top: 1px solid #334155; }
+@media (max-width: 600px) { .p2-feature .notice-card { padding: 0.85rem; } .p2-feature .page-heading { flex-direction: column; } }

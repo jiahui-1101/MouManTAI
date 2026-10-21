@@ -1,10 +1,13 @@
 """P4-local integration references; authoritative business models remain in Core."""
 
-from typing import Annotated
+from enum import StrEnum
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, Field
 
-from app.core.schemas import ContractModel, OffsetAwareDatetime
+from app.core.schemas import (
+    CommitmentTerms, CommunicationChannel, ContractModel, MessageStatus, OffsetAwareDatetime,
+)
 
 
 def _nonblank(value: str) -> str:
@@ -35,3 +38,59 @@ class RecoveryCommunicationReference(ContractModel):
     plan_version: ReferenceVersion
     proposal_id: ReferenceId
     proposal_version: ReferenceVersion
+
+
+class CreateCommunicationRequest(ContractModel):
+    """Client selects a persisted event; all authority is resolved server-side."""
+
+    source_event_id: str = Field(strict=True, min_length=1, max_length=128, pattern=r"\S")
+
+
+class RequestStatus(StrEnum):
+    BLOCKED = "BLOCKED"
+    READY_FOR_DRAFTING = "READY_FOR_DRAFTING"
+
+
+class RequestAuthorization(ContractModel):
+    """Server-only P3/P5 adapter result, never an HTTP request body.
+
+    The installed adapter must enforce create policy and read trusted approval records.
+    This DTO is a P4 integration boundary, not a second approval workflow.
+    """
+
+    reference: RecoveryCommunicationReference
+    approved_terms: CommitmentTerms
+    approval_evidence_refs: list[ReferenceId] = Field(min_length=1)
+    approval_expires_at: OffsetAwareDatetime
+    proposal_expires_at: OffsetAwareDatetime | None = None
+    recipient_identity_id: ReferenceId | None = None
+    recipient_customer_id: ReferenceId | None = None
+    recipient_evidence_refs: list[ReferenceId] = Field(default_factory=list)
+    channel: CommunicationChannel | None = None
+    channel_evidence_refs: list[ReferenceId] = Field(default_factory=list)
+
+
+class CommunicationRequestView(ContractModel):
+    """P4 request-intake view, not a replacement for Core CommunicationRequest.
+
+    No confirmation or message is created here. The Core contract requires template,
+    recipient and confirmation fields that are not yet known at intake time.
+    Readiness is a creation-time snapshot and must be rechecked before future drafting.
+    """
+
+    communication_id: ReferenceId
+    reference: RecoveryCommunicationReference
+    request_status: RequestStatus
+    blocking_reasons: list[str]
+    proposed_terms: CommitmentTerms
+    message_status: Literal[MessageStatus.DRAFT] = MessageStatus.DRAFT
+    approval_evidence_refs: list[ReferenceId]
+    approval_expires_at: OffsetAwareDatetime
+    proposal_evidence_refs: list[ReferenceId]
+    recipient_identity_id: ReferenceId | None
+    recipient_evidence_refs: list[ReferenceId]
+    channel: CommunicationChannel | None
+    channel_evidence_refs: list[ReferenceId]
+    expires_at: OffsetAwareDatetime | None
+    created_by: ReferenceId
+    created_at: OffsetAwareDatetime

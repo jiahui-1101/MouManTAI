@@ -173,7 +173,7 @@ def _to_event(record: OutboxEventRecord) -> DomainEvent:
 class CommitmentService:
     def create_request(self, db: Session, context: RequestContext, request: CommitmentCreateRequest) -> Commitment:
         now = _now()
-        commitment_id = _id("com")
+        commitment_id = request.commitment_id or _id("com")
         causation_id = request.causation_id or context.causation_id
         record = CommitmentRecord(
             tenant_id=context.tenant_id,
@@ -745,6 +745,31 @@ class CommitmentService:
         commitment_id: str,
         assessment: FeasibilityAssessment,
     ) -> Commitment:
+        # 1. Caller Authorization Guard: only trusted internal/service principal is permitted (D-013)
+        if context.actor_role not in {"SERVICE", "SYSTEM"}:
+            raise DomainError(
+                "CALLER_NOT_AUTHORIZED",
+                f"Actor '{context.actor_id}' with role '{context.actor_role}' is not authorized to invoke internal assessment writer; trusted service principal required",
+                status_code=403,
+            )
+
+        # 2. Identity Guard: Assessment tenant must match authenticated context tenant
+        if assessment.tenant_id != context.tenant_id:
+            raise DomainError(
+                "TENANT_MISMATCH",
+                f"Assessment tenant_id '{assessment.tenant_id}' does not match authenticated context tenant '{context.tenant_id}'",
+                status_code=400,
+            )
+
+        # 3. Identity Guard: Assessment commitment_id must match target argument
+        if assessment.commitment_id != commitment_id:
+            raise DomainError(
+                "COMMITMENT_ID_MISMATCH",
+                f"Assessment commitment_id '{assessment.commitment_id}' does not match target commitment '{commitment_id}'",
+                status_code=400,
+            )
+
+        # 4. Tenant Isolation: Load commitment strictly by (tenant_id, commitment_id)
         record = db.scalar(
             select(CommitmentRecord)
             .where(
@@ -756,6 +781,11 @@ class CommitmentService:
         if record is None:
             raise DomainError("COMMITMENT_NOT_FOUND", "Commitment not found", status_code=404)
 
+        # 5. Idempotency Guard: if assessment_id has already been applied, return without duplicate mutation/audit
+        if assessment.assessment_id in record.evidence_refs:
+            return _to_commitment(record)
+
+        # 6. Concurrency Guard: check commitment_version against expected version
         if assessment.commitment_version != record.commitment_version:
             raise DomainError(
                 "COMMITMENT_VERSION_CONFLICT",
@@ -766,8 +796,8 @@ class CommitmentService:
 
         previous_state = _commitment_snapshot(record)
         record.feasibility_state = assessment.status.value
-        if assessment.evidence_refs:
-            record.evidence_refs = list(dict.fromkeys([*record.evidence_refs, *assessment.evidence_refs]))
+        new_evidence = [assessment.assessment_id, *assessment.evidence_refs]
+        record.evidence_refs = list(dict.fromkeys([*record.evidence_refs, *new_evidence]))
 
         causation_id = context.causation_id
         if record.agreement_state == AgreementState.CONFIRMED.value and assessment.status == FeasibilityState.INFEASIBLE:
