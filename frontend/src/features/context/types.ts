@@ -22,4 +22,10 @@ export type AssociationDecision = components['schemas']['AssociationDecision'];
 export type AssociationDecisionRequest = components['schemas']['AssociationDecisionRequest'];
 export type CustomerAccount = components['schemas']['CustomerAccount'];
 export type OrderReference = components['schemas']['OrderReference'];
+export type OrderContextRecord = components['schemas']['OrderContextRecord'];
+export type OrderContextVersionRecord = components['schemas']['OrderContextVersionRecord'];
+export type ContextReviewRecord = components['schemas']['ContextReviewRecord'];
+export type ContextReviewRequest = components['schemas']['ContextReviewRequest'];
+export type ContextUpdateRequest = components['schemas']['ContextUpdateRequest'];
+export type RequestedItem = components['schemas']['app__context__order_context_schemas__RequestedItem'];
 

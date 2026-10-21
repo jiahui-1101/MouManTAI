@@ -118,3 +118,67 @@
 .p1-decision-box { background: #f4f8fe; border: 1px solid #d3e1f5; border-radius: 4px; padding: 8px 10px; margin: 10px 0; font-size: 11px; }
 .p1-assoc-controls { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
 
+/* Order Context Detail & Review Drawer Styles */
+.p1-context-container { padding: 24px; max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; font-family: inherit; }
+.p1-context-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 1px solid #dce4f2; padding-bottom: 16px; }
+.p1-context-title-group h2 { margin: 0 0 8px; font-size: 20px; font-weight: 700; color: #1e293b; }
+.p1-context-actions { display: flex; gap: 10px; align-items: center; }
+.p1-dimensions-card { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 18px; }
+.p1-dim-item { display: flex; flex-direction: column; gap: 3px; }
+.p1-dim-label { font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 600; letter-spacing: 0.5px; }
+.p1-dim-val { font-size: 13px; font-weight: 600; color: #0f172a; }
+.p1-missing-box { background: #fffbeb; border: 1px solid #fef3c7; color: #92400e; border-radius: 6px; padding: 10px 14px; font-size: 12px; }
+.p1-missing-box ul { margin: 6px 0 0; padding-left: 18px; }
+.p1-section-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; }
+.p1-section-card h3 { margin: 0 0 12px; font-size: 15px; font-weight: 600; color: #1e293b; }
+.p1-items-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.p1-items-table th { background: #f1f5f9; padding: 8px 12px; text-align: left; font-size: 11px; color: #475569; font-weight: 600; border-bottom: 1px solid #cbd5e1; }
+.p1-items-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; }
+.p1-evidence-tag { display: inline-block; background: #e0f2fe; color: #0369a1; border-radius: 4px; padding: 2px 6px; font-size: 11px; margin-right: 4px; }
+.p1-instructions-box { margin-top: 12px; font-size: 12px; color: #334155; background: #f8fafc; border: 1px dashed #cbd5e1; padding: 8px 12px; border-radius: 4px; }
+.p1-message-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+.p1-message-badge { background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-family: monospace; }
+
+/* Timeline */
+.p1-timeline-list { display: flex; flex-direction: column; gap: 12px; }
+.p1-timeline-item { border-left: 2px solid #3b82f6; padding-left: 12px; font-size: 12px; }
+.p1-timeline-header { display: flex; gap: 8px; align-items: center; }
+.p1-timeline-version { font-weight: 700; color: #1e293b; }
+.p1-timeline-action { background: #dbeafe; color: #1d4ed8; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+.p1-timeline-time { color: #64748b; font-size: 11px; }
+.p1-timeline-meta { color: #475569; margin-top: 3px; }
+
+/* Review Drawer Modal */
+.p1-drawer-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.45); z-index: 1000; display: flex; justify-content: flex-end; }
+.p1-drawer-panel { width: 100%; max-width: 520px; height: 100%; background: #ffffff; box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15); display: flex; flex-direction: column; }
+.p1-drawer-header { padding: 16px 20px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+.p1-drawer-header h3 { margin: 0 0 4px; font-size: 16px; font-weight: 700; color: #0f172a; }
+.p1-drawer-body { padding: 20px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 16px; }
+.p1-drawer-section { border-bottom: 1px solid #f1f5f9; padding-bottom: 14px; }
+.p1-drawer-section h4 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: #334155; }
+.p1-drawer-footer { padding: 16px 20px; border-top: 1px solid #e2e8f0; display: flex; gap: 8px; flex-wrap: wrap; background: #f8fafc; }
+.p1-form-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.p1-form-group label { font-size: 11px; font-weight: 600; color: #475569; }
+.p1-form-group input, .p1-form-group select, .p1-form-group textarea { border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px 10px; font-size: 12px; font-family: inherit; }
+.p1-form-group input:focus, .p1-form-group select:focus, .p1-form-group textarea:focus { outline: none; border-color: #2563eb; }
+.p1-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.p1-error-banner { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 10px 14px; margin: 12px 20px 0; border-radius: 4px; font-size: 12px; }
+
+/* Buttons */
+.p1-btn { padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s ease; }
+.p1-btn-primary { background: #2563eb; color: #ffffff; border: none; }
+.p1-btn-primary:hover { background: #1d4ed8; }
+.p1-btn-success { background: #16a34a; color: #ffffff; border: none; }
+.p1-btn-success:hover { background: #15803d; }
+.p1-btn-warning { background: #f59e0b; color: #ffffff; border: none; }
+.p1-btn-warning:hover { background: #d97706; }
+.p1-btn-danger { background: #dc2626; color: #ffffff; border: none; }
+.p1-btn-danger:hover { background: #b91c1c; }
+.p1-btn-outline { background: transparent; border: 1px solid #cbd5e1; color: #334155; }
+.p1-btn-outline:hover { background: #f8fafc; }
+.p1-btn-subtle { background: transparent; border: none; font-size: 16px; color: #64748b; cursor: pointer; }
+
+/* Modal overlay for OrderContextDetail */
+.p1-modal-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.55); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.p1-modal-card { width: 100%; max-width: 960px; max-height: 90vh; background: #ffffff; border-radius: 8px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); overflow-y: auto; position: relative; }
+

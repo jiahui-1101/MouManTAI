@@ -4,6 +4,7 @@ import { PreviewError } from './api';
 import { operationalApi } from './operationalApi';
 import type { OperationalApi } from './operationalApi';
 import { SyntheticComposer } from './SyntheticComposer';
+import { OrderContextDetail } from './OrderContextDetail';
 import type {
   DevelopmentContext,
   ExtractedField,
@@ -11,6 +12,7 @@ import type {
   IngestResponse,
   MessageAssociationRecord,
   MessagePage,
+  OrderContextRecord,
   StoredMessage,
 } from './types';
 import './inbox.css';
@@ -131,6 +133,10 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
   const [processing, setProcessing] = useState(false);
   const [deciding, setDeciding] = useState(false);
   const [assocError, setAssocError] = useState<string | null>(null);
+  const [activeContext, setActiveContext] = useState<OrderContextRecord | null>(null);
+  const [showContextModal, setShowContextModal] = useState(false);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const panel = useRef<HTMLElement>(null);
   useEffect(() => { panel.current?.focus(); }, []);
@@ -138,6 +144,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
   useEffect(() => {
     let active = true;
     setData(null); setExtraction(null); setAttempts([]); setAssociation(null); setError(null); setAssocError(null);
+    setActiveContext(null); setShowContextModal(false); setContextLoading(false); setContextError(null);
     api.detail(id).then(message => {
       if (active) {
         setData(message);
@@ -148,6 +155,20 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
     }).catch(failure => { if (active) setError(failure instanceof Error ? failure.message : 'Message unavailable'); });
     return () => { active = false; };
   }, [id, api, attempt]);
+
+  async function handleOpenOrderContext() {
+    setContextLoading(true);
+    setContextError(null);
+    try {
+      const ctx = await api.createContextFromMessage(id);
+      setActiveContext(ctx);
+      setShowContextModal(true);
+    } catch (err) {
+      setContextError(err instanceof Error ? err.message : 'Failed to generate/view order context');
+    } finally {
+      setContextLoading(false);
+    }
+  }
 
   async function handleProcess(reprocess: boolean) {
     setProcessing(true);
@@ -199,9 +220,19 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
           </button>
         )}
         {data.processing_status === 'PROCESSED' && (
-          <button type="button" className="p1-secondary" disabled={processing} onClick={() => handleProcess(true)}>
-            {processing ? 'Reprocessing…' : '↻ Reprocess extraction'}
-          </button>
+          <>
+            <button type="button" className="p1-secondary" disabled={processing} onClick={() => handleProcess(true)}>
+              {processing ? 'Reprocessing…' : '↻ Reprocess extraction'}
+            </button>
+            <button
+              type="button"
+              className="p1-primary"
+              disabled={contextLoading}
+              onClick={handleOpenOrderContext}
+            >
+              {contextLoading ? 'Opening Context…' : '📋 Generate / View Order Context'}
+            </button>
+          </>
         )}
         {data.processing_status === 'PROCESSING_FAILED' && (
           <button type="button" className="p1-primary" disabled={processing} onClick={() => handleProcess(true)}>
@@ -209,6 +240,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
           </button>
         )}
       </div>
+      {contextError && <p className="p1-conflict-box" role="alert">{contextError}</p>}
       <dl className="p1-dimensions">
         <div><dt>Processing</dt><dd>{data.processing_status}</dd></div>
         <div><dt>Information</dt><dd>{extraction ? `Extracted (${(extraction.fields ?? []).length} fields)` : 'Not extracted'}</dd></div>
@@ -370,6 +402,16 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
       </section>
 
       <section className="p1-evidence"><h3>Attachment metadata</h3>{data.raw.attachments?.length ? <ul>{data.raw.attachments.map(attachment => <li key={attachment.attachment_id}>{attachment.filename} · {attachment.media_type} · {attachment.size_bytes} bytes · reference {attachment.evidence_ref}</li>)}</ul> : <p>No attachments supplied.</p>}<p className="p1-muted">Metadata only; upload, download and OCR are not implemented.</p></section>
+      {showContextModal && activeContext && (
+        <div className="p1-modal-backdrop" role="dialog" aria-modal="true" aria-label="Order Context Details">
+          <div className="p1-modal-card">
+            <OrderContextDetail
+              contextId={activeContext.context_id}
+              onClose={() => setShowContextModal(false)}
+            />
+          </div>
+        </div>
+      )}
     </>}
   </section>;
 }

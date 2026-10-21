@@ -1,12 +1,17 @@
 import { PreviewError } from './api';
 import type {
   AssociationDecisionRequest,
+  ContextReviewRecord,
+  ContextReviewRequest,
+  ContextUpdateRequest,
   DevelopmentContext,
   ExtractionAttemptRecord,
   ExtractionHistoryResponse,
   IngestResponse,
   MessageAssociationRecord,
   MessagePage,
+  OrderContextRecord,
+  OrderContextVersionRecord,
   ProcessResponse,
   RawMessageEnvelope,
   StoredMessage,
@@ -29,6 +34,13 @@ export interface OperationalApi {
   listAttempts(id: string): Promise<ExtractionHistoryResponse>;
   getAssociation(id: string): Promise<MessageAssociationRecord>;
   decideAssociation(id: string, request: AssociationDecisionRequest, headers?: Record<string, string>): Promise<MessageAssociationRecord>;
+  getContext(id: string): Promise<OrderContextRecord>;
+  getContextByOrder(orderId: string): Promise<OrderContextRecord>;
+  createContextFromMessage(messageId: string): Promise<OrderContextRecord>;
+  reviewContext(id: string, req: ContextReviewRequest, headers?: Record<string, string>): Promise<OrderContextRecord>;
+  updateContext(id: string, req: ContextUpdateRequest, headers?: Record<string, string>): Promise<OrderContextRecord>;
+  listContextVersions(id: string): Promise<OrderContextVersionRecord[]>;
+  listContextReviews(id: string): Promise<ContextReviewRecord[]>;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -67,4 +79,23 @@ export const operationalApi: OperationalApi = {
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(req),
     }),
+  getContext: id => request(`/v1/contexts/${encodeURIComponent(id)}`),
+  getContextByOrder: orderId => request(`/v1/contexts/by-order/${encodeURIComponent(orderId)}`),
+  createContextFromMessage: messageId =>
+    request(`/v1/contexts/from-message/${encodeURIComponent(messageId)}`, { method: 'POST' }),
+  reviewContext: (id, req, headers = {}) =>
+    request(`/v1/contexts/${encodeURIComponent(id)}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify(req),
+    }),
+  updateContext: (id, req, headers = {}) =>
+    request(`/v1/contexts/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify(req),
+    }),
+  listContextVersions: id => request(`/v1/contexts/${encodeURIComponent(id)}/versions`),
+  listContextReviews: id => request(`/v1/contexts/${encodeURIComponent(id)}/reviews`),
 };
+
