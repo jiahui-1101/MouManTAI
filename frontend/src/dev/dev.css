@@ -3,4 +3,7 @@ body { margin: 0; background: #f4f7fc; }
 .p1-dev-shell a { text-decoration: none; font-weight: 750; font-size: 17px; color: #173b76; }
 .p1-dev-shell a span { font-size: 11px; color: #75849b; font-weight: 400; }
 .p1-dev-shell a:focus-visible { outline: 2px solid #0866ed; outline-offset: 4px; }
+.p1-dev-shell nav { display: flex; gap: 15px; margin-left: auto; margin-right: 14px; }
+.p1-dev-shell nav a { font-size: 11px; font-weight: 500; color: #738299; }
+.p1-dev-shell nav a[aria-current=page] { color: #0866ed; }
 @media (max-width: 620px) { .p1-dev-shell { padding: 10px 12px; flex-wrap: wrap; gap: 4px; } .p1-dev-shell > span { font-size: 9px; } }

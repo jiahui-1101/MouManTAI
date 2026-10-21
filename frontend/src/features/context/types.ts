@@ -8,3 +8,7 @@ export type BusinessContext = components['schemas']['BusinessContext'];
 export type ContextReview = components['schemas']['ContextReview'];
 export type InboxRecord = components['schemas']['InboxRecord'];
 export type InboxPreview = components['schemas']['InboxPreview'];
+export type StoredMessage = components['schemas']['StoredMessage'];
+export type MessagePage = components['schemas']['MessagePage'];
+export type IngestResponse = components['schemas']['IngestResponse'];
+export type DevelopmentContext = components['schemas']['DevelopmentContext'];
