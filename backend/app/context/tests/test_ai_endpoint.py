@@ -83,3 +83,29 @@ def test_protocol_rejects_excess_context_and_authority_fields():
     invalid = answer(fields=[dict(field="identity_verified", message_id="m1", quote="bread", start=8, end=13)])
     with pytest.raises(ValueError):
         InferenceOutput.model_validate(invalid)
+
+
+def test_queued_job_is_polled_not_resubmitted():
+    calls = []
+    def handler(req):
+        calls.append((req.method, req.url.path))
+        if req.method == "POST":
+            return httpx.Response(200, json={"id": "job_1", "status": "IN_QUEUE"})
+        return httpx.Response(200, json={"id": "job_1", "status": "COMPLETED", "executionTime": 100,
+                                         "output": answer()})
+    adapter = EndpointAdapter(EndpointConfig("https://test.invalid/run", "key"), transport=httpx.MockTransport(handler))
+    assert asyncio.run(adapter.infer(request())).status == "ok"
+    assert calls == [("POST", "/run"), ("GET", "/status/job_1")]
+    assert adapter.last_provider_metrics["executionTime"] == 100
+
+
+def test_timeout_attempts_bounded_cancellation_of_known_job_only():
+    calls = []
+    def handler(req):
+        calls.append(req.url.path)
+        return httpx.Response(200, json={"id": "job_1", "status": "CANCELLED" if "/cancel/" in req.url.path else "IN_PROGRESS"})
+    adapter = EndpointAdapter(EndpointConfig("https://test.invalid/run", "key", timeout_seconds=0.02), transport=httpx.MockTransport(handler))
+    with pytest.raises(InferenceFailure, match="timeout"):
+        asyncio.run(adapter.infer(request()))
+    assert calls == ["/run", "/cancel/job_1"]
+    assert adapter.last_provider_metrics["cancel_status"] == "CANCELLED"
