@@ -776,3 +776,64 @@ backend enum/calculation, persistence or Phase 7 work.
 
 **STOP after feature-only commit/push verification for independent Phase 6
 correction review. P5/P3 integration blockers remain as documented previously.**
+
+## Phase 6 external review #2 — PH6-R2 minimal fail-closed correction
+
+- **Reviewed baseline:** `de8749a06a117c06ec3eede57725749bb8ca4557`; clean
+  `feat/p2-feasibility-engine` verified before edits. User requested removal of
+  the R1 frontend metadata-proof exception and a minimal buffer support gate.
+- **State:** local correction implemented/tested, independent Phase 6 review pending.
+  Overall production integration PARTIAL; Phase 7 NOT_STARTED. Commit/pushed feature
+  SHA and final clean-state verification: see phase response.
+
+### Changes and presentation rules
+
+Removed `hasIndependentUnaffectedProof()` and its use from `data.ts`, and removed
+the unused `unaffected_proof` property/assessment-proof helper type from `models.ts`.
+There is no frontend before/after classification algorithm or metadata-proof bypass.
+
+VERIFIED_UNAFFECTED now requires at least one positive evidence-backed supporting
+buffer and adequate nonblank refs for every conservatively required buffer. If the
+list is empty, no positive supported buffer exists, or required buffer evidence is
+missing, the projection becomes UNKNOWN with
+`UNAFFECTED_BUFFER_EVIDENCE_INSUFFICIENT`. Row-level classification evidence remains
+mandatory. FEASIBLE/COMPLETED/evidence-complete before/after metadata cannot override
+either gate, including legacy runtime payloads with the removed proof property.
+Decimal-string sign/nonzero validation avoids float rounding/underflow and rejects
+zero, negative, nonfinite and malformed values as positive proof. It is a structural
+display gate, not an implementation of backend `_classify()` or feasibility arithmetic.
+
+PH6-R1 unsupported runtime classification rejection, all five classifications,
+buffer labels, FE-01/FE-02 structures, tenant/version binding, prior-result retention
+and no-fixture-fallback are unchanged. Inputs remain unmodified. Independent proof
+is documented only as a future P5 authoritative-contract decision, not a frontend
+exception. P5 still owns source authenticity and production integration.
+
+### Validation (from frontend/)
+
+| Command | Observed result |
+|---|---|
+| `npm test -- src/features/feasibility/impact-safety.test.tsx -t 'metadata\|buffer value\|positive decimal\|required buffer'` | Red: **10 failed, 1 passed, 26 skipped** before correction. Same focused rerun: **11 passed, 26 skipped** after correction. |
+| `npm test -- src/features/feasibility/impact-safety.test.tsx` | **37 passed**, exit0, no warnings. The former metadata-only preservation test now requires UNKNOWN; new empty-list/zero/invalid value/missing-row-evidence regressions and positive exact-decimal cases included. |
+| `npm test -- src/features/feasibility` | **80 passed, 3 files**, exit0, no warnings. |
+| `npm run typecheck` | **PASS**, exit0. |
+| `npx tsc --noEmit -p tsconfig.app.json` | **PASS**, exit0; actual application project checked. |
+| `npm run build` | **PASS**, exit0; `tsc -b && vite build`, 45 shell modules. P2 pages remain unmounted, as previously documented. |
+
+No backend tests, live HTTP/auth/database, P3/P5/outbox integration, E2E, browser QA
+or metrics run for this frontend-only correction. No shared dependencies or APIs
+changed. Tests use injected synthetic/runtime JSON, not production evidence.
+
+### Exact changed files
+
+- `frontend/src/features/feasibility/data.ts` — remove bypass; minimal positive-buffer/refs gate.
+- `frontend/src/features/feasibility/models.ts` — remove unused proof property/type.
+- `frontend/src/features/feasibility/impact-safety.test.tsx` — update metadata-only preservation expectation; add fail-closed/positive decimal and input-preservation coverage.
+- `backend/app/feasibility/P2_PROGRESS.md` — current correction checkpoint.
+- `backend/app/feasibility/P2_REQUIREMENT_TRACE.md` — superseding PH6-R2 evidence.
+- `backend/app/feasibility/P2_PHASE_REPORTS.md` — this appended report; R1 report preserved as historical.
+- `backend/app/feasibility/PHASE6_HANDOFF.md` — current minimal gate; independent proof deferred to P5.
+- `docs/TEAM_LOG.md` — appended P2-only PH6-R2 record.
+
+**STOP after feature-only commit/push verification for independent Phase 6 review.
+Do not begin Phase 7. Previously documented P3/P5 integration blockers remain.**

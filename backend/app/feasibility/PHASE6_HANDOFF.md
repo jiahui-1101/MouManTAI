@@ -96,7 +96,7 @@ full live source is wired. Do not call `/internal/feasibility/evaluate` from a b
    Error and loses status; P5's unmerged new helper must be integrated/reviewed
    before relying on its structured errors. No P2 duplicate client was introduced.
 
-### PH6-R1 presentation boundary correction
+### Presentation boundary — PH6-R1 retained, PH6-R2 supersedes the proof exception
 
 - The P2 runtime classification list contains exactly the five existing backend
   values. An unsupported runtime value rejects the entire response with
@@ -108,27 +108,25 @@ full live source is wired. Do not call `/internal/feasibility/evaluate` from a b
   `Reported buffer — evidence unavailable` and no verified claim for that buffer.
   Reference presence indicates supplied support, not authenticity. P5 remains
   responsible for authoritative evidence validation and complete trusted inputs.
-- Without an explicit independently sufficient proof, all displayed buffers of a
-  VERIFIED_UNAFFECTED row are conservatively treated as required support. Missing
-  buffers or missing evidence for any required buffer downgrades the row to UNKNOWN
-  with `UNAFFECTED_BUFFER_EVIDENCE_INSUFFICIENT`, even if unrelated row-level
-  evidence_refs exist. Other classifications retain their existing semantics.
-- The optional **P2 presentation projection only** `unaffected_proof` allows
-  preservation when an unevidenced displayed buffer is unrelated to the proof:
-  `basis: "INDEPENDENT_RECALCULATION"`, with `before` and `after` metadata projected
-  from existing P2 evaluator results: tenant_id, commitment_id, snapshot_version,
-  status, solver_status, evidence_complete and evidence_refs. Both sides must match
-  the impact tenant/row commitment and respective snapshot versions, be FEASIBLE,
-  COMPLETED, evidence_complete=true, and carry nonempty/nonblank supporting refs.
-  Incomplete, unresolved, mismatched or absent independent proof cannot override
-  missing buffer support. Row-level refs or a narrative reason alone are not proof.
-- P5's future approved adapter may populate that projection only when independently
-  sufficient before/after recalculation establishes unaffected status **without
-  relying on the buffer evidence that is missing**. Do not manufacture the basis
-  flag from unrelated refs or copy a buffer-dependent conclusion into it. The UI
-  checks metadata consistency; it does not authenticate sources or recompute proof.
-  This is not a new public API/shared contract or backend enum change; public
-  mapping and authenticated integration remain pending P5 review.
+- All displayed buffers of a VERIFIED_UNAFFECTED row are conservatively treated
+  as required support. At least one must have a strictly positive decimal-string
+  value and adequate references; every required buffer must have adequate refs.
+  An empty list, no positive supported buffer, or missing evidence for any required
+  buffer yields UNKNOWN with `UNAFFECTED_BUFFER_EVIDENCE_INSUFFICIENT`. Zero,
+  negative and invalid values cannot count as positive proof. The structural
+  positivity check supports decimal/exponent strings without floating-point
+  underflow; it does not recompute feasibility or implement backend `_classify()`.
+- Row-level classification evidence remains mandatory; neither unrelated row refs
+  nor FEASIBLE/COMPLETED/evidence-complete before/after metadata can bypass missing
+  buffer proof. Conversely, complete buffer refs cannot bypass missing row refs.
+  The former frontend `unaffected_proof` property, helper type and bypass function
+  have been removed. Legacy runtime metadata has no authority in this gate.
+- Genuinely independent proof is a **future P5 integration decision** requiring an
+  approved authoritative contract and validation. There is no active frontend
+  schema/flag/bypass for it. P5 must not wire the removed presentation property.
+  Public mapping/authenticated integration and evidence authenticity remain P5
+  responsibilities. Other classifications and PH6-R1 rejection/label behavior
+  remain unchanged; no backend enum/shared contract changes were made.
 
 `createCoreOnlySource(tenantId, readCommitment)` reuses a supplied P5 reader and
 can show actual Core identity/terms without implying an assessment. It cannot

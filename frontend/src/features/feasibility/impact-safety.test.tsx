@@ -13,6 +13,7 @@ function malformedPayload(): ImpactView {
   payload.impacts[1].classification = "UNSUPPORTED_UPSTREAM_VALUE";
   return payload;
 }
+// Legacy runtime metadata must not bypass the buffer-evidence gate.
 function independentProof(view: ImpactView) {
   const assessment = {
     tenant_id: view.tenant_id, commitment_id: "com-002", status: "FEASIBLE" as const,
@@ -82,17 +83,57 @@ describe("PH6-R1-02 buffer evidence", () => {
     expect(screen.getByRole("region", { name: "Verified unaffected commitments" })).toHaveTextContent("None verified");
     expect(JSON.stringify(view)).toBe(original);
   });
-  it("retains independently proven unaffected status while cautiously labeling an unrelated unevidenced buffer", async () => {
-    const view = structuredClone(previewImpact);
+  it("does not let complete FEASIBLE/COMPLETED metadata override missing buffer evidence", async () => {
+    const view = JSON.parse(JSON.stringify(previewImpact));
     view.impacts[1].buffers[0].evidence_refs = [];
     view.impacts[1].unaffected_proof = independentProof(view);
     const original = JSON.stringify(view);
-    expect(validateImpact(view, view.impact_id, view.tenant_id)!.impacts[1].classification).toBe("VERIFIED_UNAFFECTED");
+    expect(validateImpact(view, view.impact_id, view.tenant_id)!.impacts[1].classification).toBe("UNKNOWN");
     mount(view);
-    const region = await screen.findByRole("region", { name: "Verified unaffected commitments" });
+    const region = await screen.findByRole("region", { name: "UNKNOWN impact attribution" });
     expect(region).toHaveTextContent("com-002");
     expect(region).toHaveTextContent("Reported buffer — evidence unavailable");
+    expect(screen.getByRole("region", { name: "Verified unaffected commitments" })).toHaveTextContent("None verified");
     expect(JSON.stringify(view)).toBe(original);
+  });
+  it("does not let complete FEASIBLE/COMPLETED metadata override an empty buffer list", () => {
+    const payload = JSON.parse(JSON.stringify(previewImpact));
+    payload.impacts[1].buffers = [];
+    payload.impacts[1].unaffected_proof = independentProof(payload);
+    const original = JSON.stringify(payload);
+    const result = validateImpact(payload, payload.impact_id, payload.tenant_id)!;
+    expect(result.impacts[1].classification).toBe("UNKNOWN");
+    expect(result.impacts[1].reasons).toContain("UNAFFECTED_BUFFER_EVIDENCE_INSUFFICIENT");
+    expect(JSON.stringify(payload)).toBe(original);
+  });
+  it.each(["0", "0.000", "0E+30", "-1", "NaN", "Infinity", "invalid"])("does not use buffer value %s as positive proof despite complete metadata", (value) => {
+    const payload = JSON.parse(JSON.stringify(previewImpact));
+    payload.impacts[1].buffers[0].value = value;
+    payload.impacts[1].unaffected_proof = independentProof(payload);
+    const original = JSON.stringify(payload);
+    expect(validateImpact(payload, payload.impact_id, payload.tenant_id)!.impacts[1].classification).toBe("UNKNOWN");
+    expect(JSON.stringify(payload)).toBe(original);
+  });
+  it.each(["0.001", "1E-1000", "2E+1000"])("preserves positive evidence-backed decimal buffer %s without floating-point arithmetic", (value) => {
+    const view = structuredClone(previewImpact); view.impacts[1].buffers[0].value = value;
+    const original = JSON.stringify(view);
+    expect(validateImpact(view, view.impact_id, view.tenant_id)!.impacts[1].classification).toBe("VERIFIED_UNAFFECTED");
+    expect(JSON.stringify(view)).toBe(original);
+  });
+  it("does not let a supported positive buffer conceal missing evidence for another required buffer", () => {
+    const view = structuredClone(previewImpact);
+    view.impacts[1].buffers.push({ resource_id: "required-time-buffer", value: "30", unit: "minutes", evidence_refs: [] });
+    const original = JSON.stringify(view);
+    expect(validateImpact(view, view.impact_id, view.tenant_id)!.impacts[1].classification).toBe("UNKNOWN");
+    expect(JSON.stringify(view)).toBe(original);
+  });
+  it("does not let metadata bypass missing row-level classification evidence", () => {
+    const payload = JSON.parse(JSON.stringify(previewImpact));
+    payload.impacts[1].evidence_refs = [];
+    payload.impacts[1].unaffected_proof = independentProof(payload);
+    const original = JSON.stringify(payload);
+    expect(validateImpact(payload, payload.impact_id, payload.tenant_id)!.impacts[1].classification).toBe("UNKNOWN");
+    expect(JSON.stringify(payload)).toBe(original);
   });
   it("cautiously renders a missing buffer evidence_refs field from runtime JSON", async () => {
     const payload = JSON.parse(JSON.stringify(previewImpact));

@@ -1,5 +1,5 @@
 import { IMPACT_CLASSIFICATIONS } from "./models";
-import type { Commitment, CommitmentImpactView, FeasibilityView, ImpactView, P2DataSource } from "./models";
+import type { Commitment, FeasibilityView, ImpactView, P2DataSource } from "./models";
 
 export class FeatureDataError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) { super(message); }
@@ -67,13 +67,13 @@ export function validateImpact(view: ImpactView | null, id: string, tenant: stri
     throw new FeatureDataError(502, "INVALID_IMPACT_CLASSIFICATION", "Impact response contains an unsupported classification. No impact results can be displayed until the data contract is corrected.");
   }
   return { ...view, impacts: view.impacts.map((row) => {
-    const independent = hasIndependentUnaffectedProof(row, view);
     if (row.classification === "VERIFIED_UNAFFECTED" &&
-        (!row.buffers.length || row.buffers.some((buffer) => !hasEvidenceReferences(buffer.evidence_refs))) && !independent) {
+        (!row.buffers.some((buffer) => hasPositiveBufferValue(buffer.value) && hasEvidenceReferences(buffer.evidence_refs)) ||
+         row.buffers.some((buffer) => !hasEvidenceReferences(buffer.evidence_refs)))) {
       return { ...row, classification: "UNKNOWN", reasons: [...row.reasons, "UNAFFECTED_BUFFER_EVIDENCE_INSUFFICIENT"] };
     }
     if ((row.classification === "CONFIRMED_IMPACT" || row.classification === "VERIFIED_UNAFFECTED") &&
-        !hasEvidenceReferences(row.evidence_refs) && !independent) {
+        !hasEvidenceReferences(row.evidence_refs)) {
       return { ...row, classification: "UNKNOWN", reasons: [...row.reasons, "Classification evidence unavailable"] };
     }
     return row;
@@ -83,16 +83,10 @@ export function validateImpact(view: ImpactView | null, id: string, tenant: stri
 export function hasEvidenceReferences(refs: unknown): refs is string[] {
   return Array.isArray(refs) && refs.length > 0 && refs.every((ref) => typeof ref === "string" && ref.trim().length > 0);
 }
-function hasIndependentUnaffectedProof(row: CommitmentImpactView, view: ImpactView): boolean {
-  const proof = row.unaffected_proof;
-  if (row.classification !== "VERIFIED_UNAFFECTED" || proof?.basis !== "INDEPENDENT_RECALCULATION") return false;
-  return (["before", "after"] as const).every((side) => {
-    const assessment = proof[side];
-    return assessment?.tenant_id === view.tenant_id && assessment.commitment_id === row.commitment_id &&
-      assessment.snapshot_version === (side === "before" ? view.before_snapshot_version : view.after_snapshot_version) &&
-      assessment.status === "FEASIBLE" && assessment.solver_status === "COMPLETED" &&
-      assessment.evidence_complete === true && hasEvidenceReferences(assessment.evidence_refs);
-  });
+function hasPositiveBufferValue(value: unknown): boolean {
+  // Structural positivity gate only, without rounding/underflow or recalculating impact.
+  return typeof value === "string" && /^\+?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value) &&
+    /[1-9]/.test(value.split(/[eE]/, 1)[0]);
 }
 // Reuses P5's injected Core reader, not a second HTTP/auth implementation.
 // P5 can wire this to its existing apiRequest<Commitment> once session context is approved.
