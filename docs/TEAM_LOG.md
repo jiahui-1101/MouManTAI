@@ -1,5 +1,32 @@
 # MouManTAI — Team Execution Log & Decision Register
 
+### 2026-10-22 — P1 BATCH 8: final P1 acceptance and delivery (audit, 12 E2E scenarios, demo script, P1 COMPLETE)
+
+- Branch: `feat/p1-ai-pipeline`; commits: demo script `abf75db`, acceptance suite `d8e3a6b`, documentation `docs/p1/FINAL_DELIVERY_AND_ACCEPTANCE.md`.
+- Completion Declaration & Traceability:
+  - Audited all functional, contract, and testing requirements in `PERSON_1_CONTEXT_REQUIREMENTS.md`, `REQUIREMENTS_SYSTEM.md`, and `AGENTS.md`. **P1 IS DECLARED COMPLETE.**
+  - Implemented and verified all 12 E2E scenarios against real PostgreSQL in `test_batch8_acceptance.py`:
+    1. New message -> real extraction -> evidence -> review -> Context -> Core/P2.
+    2. Follow-up updates the correct context while preserving history.
+    3. Ambiguous identity/order does not auto-link.
+    4. Conflicting delivery terms remain visible.
+    5. Human correction survives reprocessing.
+    6. Confirmed Commitment changes become proposals.
+    7. Duplicate ingestion/processing/events do not duplicate logical effects.
+    8. Stale concurrent updates fail safely (409 StaleContextVersion).
+    9. Cross-tenant and unauthorized access is blocked.
+    10. Model/provider outage preserves safe operation.
+    11. PDF/image evidence is traceable and payment remains unverified.
+    12. Restart preserves durable business state.
+  - Implemented reproducible demo script `backend/app/context/demo.py` exercising 6 normal and abnormal scenarios.
+- Active Resources & Safety:
+  - Zero active cloud compute or serverless instances ($0.00 USD). Teardown complete.
+- Validation:
+  - Backend context suite: 317 passed, 4 skipped, 0 failed.
+  - Batch 8 acceptance suite: 11 passed, 1 skipped (P5 coordination), 0 failed.
+  - Frontend suite: 151 passed, 5 skipped, 0 failed.
+  - TypeScript typecheck & production build clean (0 errors).
+
 ### 2026-10-22 — P1 BATCH 7: integrate validated AI pipeline (deterministic rules + selective Qwen + human review)
 
 - Branch: `feat/p1-ai-pipeline`; commits: proposal service `31b1d05`, postgres repo pipeline `d113732`, frontend provenance badges `c7467b7`, integration suite & serialization `49f586d`, OCR guard `ce47ad4`, P2 invariant alignment `6716f09`.

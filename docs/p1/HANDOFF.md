@@ -1,3 +1,30 @@
+# P1 BATCH 8 Handoff — 2026-10-22 (Final P1 Acceptance and Delivery)
+
+Active branch: `feat/p1-ai-pipeline`; commits for this batch:
+- Demo Script: `abf75db` (`feat(p1): add reproducible normal and abnormal demo script`)
+- Acceptance Suite: `d8e3a6b` (`test(p1): add 12 comprehensive Batch 8 E2E acceptance scenarios against PostgreSQL`)
+- Final Delivery Report: `docs/p1/FINAL_DELIVERY_AND_ACCEPTANCE.md`
+
+### 1. Final Acceptance Audit & Traceability
+- **Completion Declaration**: All P1 obligations from `p1.md`, `REQUIREMENTS_SYSTEM.md`, and `AGENTS.md` are fulfilled. **P1 IS DECLARED COMPLETE.**
+- **12 E2E Scenarios Verified against PostgreSQL**:
+  1. New message -> real extraction -> evidence -> review -> Context -> Core/P2.
+  2. Follow-up updates the correct context while preserving history.
+  3. Ambiguous identity/order does not auto-link.
+  4. Conflicting delivery terms remain visible.
+  5. Human correction survives reprocessing.
+  6. Confirmed Commitment changes become proposals.
+  7. Duplicate ingestion/processing/events do not duplicate logical effects.
+  8. Stale concurrent updates fail safely (409 StaleContextVersion).
+  9. Cross-tenant and unauthorized access is blocked.
+  10. Model/provider outage preserves safe operation.
+  11. PDF/image evidence is traceable and payment remains unverified.
+  12. Restart preserves durable business state.
+- **Reproducible Demo Script**: `backend/app/context/demo.py` verifies 6 normal & abnormal scenarios end-to-end.
+- **Active Paid Resources**: $0.00 USD active expenditure; teardown complete and safe.
+
+---
+
 # P1 BATCH 7 Handoff — 2026-10-22 (Integrate the Validated AI Pipeline)
 
 Active branch: `feat/p1-ai-pipeline`; commits for this batch:
