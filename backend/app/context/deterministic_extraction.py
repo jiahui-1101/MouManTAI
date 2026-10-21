@@ -59,13 +59,12 @@ UNIT_NORMALIZATION: dict[str, str] = {
 # Regular Expressions
 # ---------------------------------------------------------------------------
 
-ORDER_RE = re.compile(r"(?<!\w)(?:ORD-[0-9]+|synthetic_order_[a-z0-9]+)(?!\w)", re.IGNORECASE)
-NUMBER_RE = re.compile(r"(?<![\w.,+\-])[+\-]?[0-9]+(?:[.,][0-9]+)?(?![\w.,])")
+ORDER_RE = re.compile(r"(?<![A-Za-z0-9_])(?:ORD-[0-9]+|synthetic_order_[a-z0-9]+)(?![A-Za-z0-9_])", re.IGNORECASE)
+NUMBER_RE = re.compile(r"(?<![A-Za-z0-9_.,+\-])[+\-]?[0-9]+(?:[.,][0-9]+)?(?![A-Za-z0-9_.,])")
 
 # Quantity + optional unit prefix before product mention
-# Supports: "100 pcs ", "100 ", "100个", "100 件 ", "100boxes "
 QUANTITY_PREFIX_RE = re.compile(
-    r"(?<![\w.,+\-])(?P<quantity>[+\-]?[0-9]+(?:[.,][0-9]+)?)"
+    r"(?<![A-Za-z0-9_.,+\-])(?P<quantity>[+\-]?[0-9]+(?:[.,][0-9]+)?)"
     r"(?:\s*(?P<unit>[A-Za-z]+|[\u4e00-\u9fff]))?\s*$"
 )
 
@@ -114,7 +113,7 @@ DATE_ZH_SHORT_RE = re.compile(r"(?<!\d)(?P<month>\d{1,2})月(?P<day>\d{1,2})[日
 
 # Time patterns
 TIME_12H_RE = re.compile(
-    r"\b(?P<hour>1[0-2]|0?[1-9])(?::(?P<minute>[0-5]\d))?\s*(?P<meridiem>am|pm)\b",
+    r"\b(?P<hour>1[0-2]|0?[1-9])(?::(?P<minute>[0-5]\d))?\s*(?P<meridiem>am|pm)(?![A-Za-z0-9_])",
     re.IGNORECASE
 )
 TIME_24H_RE = re.compile(
@@ -126,14 +125,14 @@ TIME_ZH_RE = re.compile(
 
 # Deadline indicators
 DEADLINE_PRE_RE = re.compile(
-    r"\b(?:before|by|no\s+later\s+than|prior\s+to|until)\b|(?<!\w)(?:最晚|不迟于)",
+    r"\b(?:before|by|no\s+later\s+than|prior\s+to|until)\b|(?:最晚|不迟于)",
     re.IGNORECASE
 )
-DEADLINE_POST_RE = re.compile(r"(?:之前|前)(?![\w\u4e00-\u9fff])")
+DEADLINE_POST_RE = re.compile(r"^(?:之前|前)")
 EXACT_INDICATOR_RE = re.compile(r"\b(?:at|on|for|precisely)\b|在|于", re.IGNORECASE)
 
-DELIVERY_LEAD_IN_RE = re.compile(
-    r"\b(?:deliver(?:y)?|need|deliver\s+on|by|at|before|on)\b|派送|送达|送|交付|要",
+DELIVERY_CONFLICT_CONNECTOR_RE = re.compile(
+    r"\b(?:or|and|或者|和)\b|[/或]",
     re.IGNORECASE
 )
 
@@ -166,29 +165,36 @@ def _safe_date(year: int, month: int, day: int) -> date | None:
         return None
 
 
-def _find_date(text: str, local_date: date | None) -> tuple[ParsedDate | None, bool, tuple[int, int] | None]:
-    """Find date expression. Returns (ParsedDate, is_invalid_calendar_date, invalid_span)."""
-    # 1. Relative dates (require local_date)
+def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate], list[tuple[int, int]], list[tuple[int, int]]]:
+    """Find all dates in text. Returns (valid_dates, invalid_calendar_date_spans, timezone_required_spans)."""
+    valid: list[ParsedDate] = []
+    invalid_calendar: list[tuple[int, int]] = []
+    tz_required: list[tuple[int, int]] = []
+
+    # 1. Relative dates
     for m in REL_DATE_EN_RE.finditer(text):
         if local_date is None:
-            return None, False, (m.start(), m.end())
-        rel = m.group("rel").lower()
-        d = local_date + timedelta(days=1) if rel == "tomorrow" else local_date
-        return ParsedDate(d, m.start(), m.end(), m.group()), False, None
+            tz_required.append((m.start(), m.end()))
+        else:
+            rel = m.group("rel").lower()
+            d = local_date + timedelta(days=1) if rel == "tomorrow" else local_date
+            valid.append(ParsedDate(d, m.start(), m.end(), m.group()))
 
     for m in REL_DATE_ZH_RE.finditer(text):
         if local_date is None:
-            return None, False, (m.start(), m.end())
-        rel = m.group("rel")
-        delta = 2 if rel == "后天" else 1 if rel == "明天" else 0
-        return ParsedDate(local_date + timedelta(days=delta), m.start(), m.end(), m.group()), False, None
+            tz_required.append((m.start(), m.end()))
+        else:
+            rel = m.group("rel")
+            delta = 2 if rel == "后天" else 1 if rel == "明天" else 0
+            valid.append(ParsedDate(local_date + timedelta(days=delta), m.start(), m.end(), m.group()))
 
     # 2. ISO Date
     for m in ISO_DATE_RE.finditer(text):
         d = _safe_date(int(m.group("year")), int(m.group("month")), int(m.group("day")))
         if d is None:
-            return None, True, (m.start(), m.end())
-        return ParsedDate(d, m.start(), m.end(), m.group()), False, None
+            invalid_calendar.append((m.start(), m.end()))
+        else:
+            valid.append(ParsedDate(d, m.start(), m.end(), m.group()))
 
     # 3. Formatted English Date
     for m in DATE_DMY_RE.finditer(text):
@@ -196,35 +202,42 @@ def _find_date(text: str, local_date: date | None) -> tuple[ParsedDate | None, b
         month_num = MONTH_NAMES.get(m_name, 0)
         d = _safe_date(int(m.group("year")), month_num, int(m.group("day")))
         if d is None:
-            return None, True, (m.start(), m.end())
-        return ParsedDate(d, m.start(), m.end(), m.group()), False, None
+            invalid_calendar.append((m.start(), m.end()))
+        else:
+            valid.append(ParsedDate(d, m.start(), m.end(), m.group()))
 
     for m in DATE_MDY_RE.finditer(text):
         m_name = m.group("month").lower()
         month_num = MONTH_NAMES.get(m_name, 0)
         d = _safe_date(int(m.group("year")), month_num, int(m.group("day")))
         if d is None:
-            return None, True, (m.start(), m.end())
-        return ParsedDate(d, m.start(), m.end(), m.group()), False, None
+            invalid_calendar.append((m.start(), m.end()))
+        else:
+            valid.append(ParsedDate(d, m.start(), m.end(), m.group()))
 
     # 4. Chinese Date
     for m in DATE_ZH_FULL_RE.finditer(text):
         d = _safe_date(int(m.group("year")), int(m.group("month")), int(m.group("day")))
         if d is None:
-            return None, True, (m.start(), m.end())
-        return ParsedDate(d, m.start(), m.end(), m.group()), False, None
+            invalid_calendar.append((m.start(), m.end()))
+        else:
+            valid.append(ParsedDate(d, m.start(), m.end(), m.group()))
 
     for m in DATE_ZH_SHORT_RE.finditer(text):
         yr = local_date.year if local_date else 2026
         d = _safe_date(yr, int(m.group("month")), int(m.group("day")))
         if d is None:
-            return None, True, (m.start(), m.end())
-        return ParsedDate(d, m.start(), m.end(), m.group()), False, None
+            invalid_calendar.append((m.start(), m.end()))
+        else:
+            valid.append(ParsedDate(d, m.start(), m.end(), m.group()))
 
-    return None, False, None
+    valid.sort(key=lambda x: x.start)
+    return valid, invalid_calendar, tz_required
 
 
-def _find_time(text: str) -> ParsedTime | None:
+def _find_all_times(text: str) -> list[ParsedTime]:
+    times: list[ParsedTime] = []
+
     # 1. 12-hour English time: 3pm, 3:30pm
     for m in TIME_12H_RE.finditer(text):
         hr = int(m.group("hour"))
@@ -234,7 +247,7 @@ def _find_time(text: str) -> ParsedTime | None:
             hr += 12
         elif mer == "am" and hr == 12:
             hr = 0
-        return ParsedTime(hr, mn, m.start(), m.end(), m.group())
+        times.append(ParsedTime(hr, mn, m.start(), m.end(), m.group()))
 
     # 2. Chinese time: 下午3点, 3点半, 下午3点前
     for m in TIME_ZH_RE.finditer(text):
@@ -245,28 +258,17 @@ def _find_time(text: str) -> ParsedTime | None:
             hr += 12
         elif mer in ("上午", "早上") and hr == 12:
             hr = 0
-        return ParsedTime(hr, mn, m.start(), m.end(), m.group())
+        times.append(ParsedTime(hr, mn, m.start(), m.end(), m.group()))
 
     # 3. 24-hour time: 15:00
     for m in TIME_24H_RE.finditer(text):
         hr = int(m.group("hour"))
         mn = int(m.group("minute"))
         if 0 <= hr <= 23 and 0 <= mn <= 59:
-            return ParsedTime(hr, mn, m.start(), m.end(), m.group())
+            times.append(ParsedTime(hr, mn, m.start(), m.end(), m.group()))
 
-    return None
-
-
-def _detect_conflicts(text: str) -> tuple[int, int] | None:
-    """Detect if the message contains multiple conflicting date/time alternatives."""
-    or_re = re.compile(
-        r"(?:today|tomorrow|\d{4}-\d{2}-\d{2}|\d+:\d{2}|\d+\s*(?:am|pm)|今天|明天)"
-        r"\s*(?:or|and|或者|和|/)\s*"
-        r"(?:today|tomorrow|\d{4}-\d{2}-\d{2}|\d+:\d{2}|\d+\s*(?:am|pm)|今天|明天)",
-        re.IGNORECASE
-    )
-    m = or_re.search(text)
-    return (m.start(), m.end()) if m else None
+    times.sort(key=lambda x: x.start)
+    return times
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +320,6 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     delivery_spans: list[tuple[int, int]] = []
     delivery_field: ExtractedField | None = None
 
-    # Check for timezone validity
     tz: ZoneInfo | None = None
     tz_error: str | None = None
     if not message.raw.business_timezone:
@@ -334,9 +335,20 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
 
     # Check for unsupported or ambiguous relative expressions
     ambig_match = AMBIGUOUS_DELIVERY_RE.search(text)
-    conflict_span = _detect_conflicts(text)
+    dates_found, invalid_calendar_spans, tz_required_spans = _find_all_dates(text, local_date)
+    times_found = _find_all_times(text)
 
-    if conflict_span:
+    # Detect conflicts: multiple dates or times with connector
+    has_conflict = False
+    conflict_span: tuple[int, int] | None = None
+    if len(dates_found) > 1 and DELIVERY_CONFLICT_CONNECTOR_RE.search(text):
+        has_conflict = True
+        conflict_span = (dates_found[0].start, dates_found[-1].end)
+    elif len(times_found) > 1 and DELIVERY_CONFLICT_CONNECTOR_RE.search(text):
+        has_conflict = True
+        conflict_span = (times_found[0].start, times_found[-1].end)
+
+    if has_conflict and conflict_span:
         c_start, c_end = conflict_span
         delivery_spans.append((c_start, c_end))
         delivery_field = field(
@@ -356,136 +368,132 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
             [(a_start, a_end)],
             metadata={"reason": "Unsupported or ambiguous natural-language delivery expression; manual review required"},
         )
-    else:
-        parsed_date, is_invalid_date, date_err_span = _find_date(text, local_date)
-        parsed_time = _find_time(text)
+    elif invalid_calendar_spans:
+        err_span = invalid_calendar_spans[0]
+        delivery_spans.append(err_span)
+        delivery_field = field(
+            "requested_delivery_at",
+            None,
+            "INVALID",
+            [err_span],
+            metadata={"reason": "Impossible calendar date"},
+        )
+    elif tz_required_spans and tz is None:
+        err_span = tz_required_spans[0]
+        delivery_spans.append(err_span)
+        delivery_field = field(
+            "requested_delivery_at",
+            None,
+            "UNRESOLVED",
+            [err_span],
+            metadata={"reason": f"{tz_error or 'Missing timezone'}; relative date cannot be resolved"},
+        )
+    elif dates_found:
+        parsed_date = dates_found[0]
+        parsed_time = times_found[0] if times_found else None
 
-        if is_invalid_date and date_err_span:
-            delivery_spans.append(date_err_span)
-            delivery_field = field(
-                "requested_delivery_at",
-                None,
-                "INVALID",
-                [date_err_span],
-                metadata={"reason": "Impossible calendar date"},
-            )
-        elif parsed_date is None and date_err_span:
-            # Relative date with missing or invalid timezone
-            delivery_spans.append(date_err_span)
-            delivery_field = field(
-                "requested_delivery_at",
-                None,
-                "UNRESOLVED",
-                [date_err_span],
-                metadata={"reason": f"{tz_error}; relative date cannot be resolved"},
-            )
-        elif parsed_date is not None:
-            # Determine qualifier and evidence span
-            span_start = parsed_date.start
-            span_end = parsed_date.end
-            qualifier = "EXACT"
+        span_start = parsed_date.start
+        span_end = parsed_date.end
+        qualifier = "EXACT"
 
-            if parsed_time is not None:
-                span_start = min(span_start, parsed_time.start)
-                span_end = max(span_end, parsed_time.end)
+        if parsed_time is not None:
+            span_start = min(span_start, parsed_time.start)
+            span_end = max(span_end, parsed_time.end)
 
-            # Check surrounding context for deadline markers
-            # Preceding context up to 20 chars before span_start
-            pre_start = max(0, span_start - 20)
-            pre_text = text[pre_start:span_start]
-            post_end = min(len(text), span_end + 15)
-            post_text = text[span_end:post_end]
+        # Surrounding context check
+        pre_start = max(0, span_start - 20)
+        pre_text = text[pre_start:span_start]
+        post_end = min(len(text), span_end + 15)
+        post_text = text[span_end:post_end]
 
-            # In-between context if date and time are separated
-            in_between = ""
-            if parsed_time and parsed_date:
-                gap_start = min(parsed_date.end, parsed_time.end)
-                gap_end = max(parsed_date.start, parsed_time.start)
-                if gap_start < gap_end:
-                    in_between = text[gap_start:gap_end]
+        in_between = ""
+        if parsed_time and parsed_date:
+            gap_start = min(parsed_date.end, parsed_time.end)
+            gap_end = max(parsed_date.start, parsed_time.start)
+            if gap_start < gap_end:
+                in_between = text[gap_start:gap_end]
 
-            m_pre = DEADLINE_PRE_RE.search(pre_text)
-            m_post = DEADLINE_POST_RE.search(post_text)
-            m_in = DEADLINE_PRE_RE.search(in_between)
+        m_pre = DEADLINE_PRE_RE.search(pre_text)
+        m_post = DEADLINE_POST_RE.search(post_text)
+        m_in = DEADLINE_PRE_RE.search(in_between)
 
-            if m_pre:
-                qualifier = "DEADLINE"
-                span_start = pre_start + m_pre.start()
-            elif m_in:
-                qualifier = "DEADLINE"
-            elif m_post:
-                qualifier = "DEADLINE"
-                span_end = span_end + m_post.end()
-            elif EXACT_INDICATOR_RE.search(pre_text):
-                m_exact = EXACT_INDICATOR_RE.search(pre_text)
-                if m_exact:
-                    span_start = pre_start + m_exact.start()
+        if m_pre:
+            qualifier = "DEADLINE"
+            span_start = pre_start + m_pre.start()
+        elif m_in:
+            qualifier = "DEADLINE"
+        elif m_post:
+            qualifier = "DEADLINE"
+            span_end = span_end + m_post.end()
+        elif EXACT_INDICATOR_RE.search(pre_text):
+            m_exact = EXACT_INDICATOR_RE.search(pre_text)
+            if m_exact:
+                span_start = pre_start + m_exact.start()
 
-            # Include leading 'on', 'by', 'before' if present just before span_start
-            lead_slice = text[max(0, span_start - 8):span_start]
-            m_lead = re.search(r"\b(?:on|by|before|at)\s+$", lead_slice, re.IGNORECASE)
-            if m_lead:
-                span_start = span_start - (len(lead_slice) - m_lead.start())
+        # Leading connector word (on, by, before, at)
+        lead_slice = text[max(0, span_start - 8):span_start]
+        m_lead = re.search(r"\b(?:on|by|before|at)\s+$", lead_slice, re.IGNORECASE)
+        if m_lead:
+            span_start = span_start - (len(lead_slice) - m_lead.start())
 
-            delivery_spans.append((span_start, span_end))
+        delivery_spans.append((span_start, span_end))
 
-            if parsed_time is not None:
-                if tz is None:
-                    delivery_field = field(
-                        "requested_delivery_at",
-                        None,
-                        "UNRESOLVED",
-                        [(span_start, span_end)],
-                        qualifier=qualifier,
-                        metadata={"reason": tz_error or "Missing timezone"},
-                    )
-                else:
-                    combined = datetime(
-                        parsed_date.date_val.year,
-                        parsed_date.date_val.month,
-                        parsed_date.date_val.day,
-                        parsed_time.hour,
-                        parsed_time.minute,
-                        tzinfo=tz,
-                    )
-                    delivery_field = field(
-                        "requested_delivery_at",
-                        combined.isoformat(),
-                        "VALID",
-                        [(span_start, span_end)],
-                        qualifier=qualifier,
-                        metadata={
-                            "qualifier": qualifier,
-                            "raw_expression": text[span_start:span_end],
-                            "timezone": message.raw.business_timezone,
-                            "local_time": combined.strftime("%Y-%m-%d %H:%M:%S"),
-                        },
-                    )
-            else:
-                # Date-only: do not invent midnight or 3pm!
-                qualifier = "DATE_ONLY"
+        if parsed_time is not None:
+            if tz is None:
                 delivery_field = field(
                     "requested_delivery_at",
-                    parsed_date.date_val.isoformat(),
+                    None,
+                    "UNRESOLVED",
+                    [(span_start, span_end)],
+                    qualifier=qualifier,
+                    metadata={"reason": tz_error or "Missing timezone"},
+                )
+            else:
+                combined = datetime(
+                    parsed_date.date_val.year,
+                    parsed_date.date_val.month,
+                    parsed_date.date_val.day,
+                    parsed_time.hour,
+                    parsed_time.minute,
+                    tzinfo=tz,
+                )
+                delivery_field = field(
+                    "requested_delivery_at",
+                    combined.isoformat(),
                     "VALID",
                     [(span_start, span_end)],
                     qualifier=qualifier,
                     metadata={
                         "qualifier": qualifier,
                         "raw_expression": text[span_start:span_end],
-                        "timezone": message.raw.business_timezone,
+                        "timezone": message.raw.business_timezone or "",
+                        "local_time": combined.strftime("%Y-%m-%d %H:%M:%S"),
                     },
                 )
-        elif parsed_time is not None:
-            # Time given without any date: incomplete/ambiguous
-            delivery_spans.append((parsed_time.start, parsed_time.end))
+        else:
+            qualifier = "DATE_ONLY"
             delivery_field = field(
                 "requested_delivery_at",
-                None,
-                "UNRESOLVED",
-                [(parsed_time.start, parsed_time.end)],
-                metadata={"reason": "Time specified without delivery date; ambiguous"},
+                parsed_date.date_val.isoformat(),
+                "VALID",
+                [(span_start, span_end)],
+                qualifier=qualifier,
+                metadata={
+                    "qualifier": qualifier,
+                    "raw_expression": text[span_start:span_end],
+                    "timezone": message.raw.business_timezone or "",
+                },
             )
+    elif times_found:
+        pt = times_found[0]
+        delivery_spans.append((pt.start, pt.end))
+        delivery_field = field(
+            "requested_delivery_at",
+            None,
+            "UNRESOLVED",
+            [(pt.start, pt.end)],
+            metadata={"reason": "Time specified without delivery date; ambiguous"},
+        )
 
     if delivery_field is None:
         delivery_field = field("requested_delivery_at", None, "MISSING")
@@ -495,12 +503,16 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     # -----------------------------------------------------------------------
     # 3. Known SKU Mention Matching
     # -----------------------------------------------------------------------
+    # Non-alphanumeric boundaries allow Chinese characters to boundary-match English SKUs
+    ALIAS_BOUNDARY_PRE = r"(?<![A-Za-z0-9_])"
+    ALIAS_BOUNDARY_POST = r"(?![A-Za-z0-9_])"
+
     mentions = []
     for product in catalog:
         if product.tenant_id != message.raw.tenant_id:
             continue
         for alias in product.aliases:
-            for match in re.finditer(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", text, re.IGNORECASE):
+            for match in re.finditer(ALIAS_BOUNDARY_PRE + re.escape(alias) + ALIAS_BOUNDARY_POST, text, re.IGNORECASE):
                 key = (match.start(), match.end(), product.sku, product.unit)
                 if not any(key == entry[0] for entry in mentions):
                     mentions.append((key, product, match))

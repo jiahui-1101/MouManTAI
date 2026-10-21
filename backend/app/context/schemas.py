@@ -50,7 +50,7 @@ class RawMessageEnvelope(P1Model):
     sender_alias: Annotated[str, StringConstraints(min_length=1, max_length=200)]
     received_at: Timestamp
     message_at: Timestamp | None = None
-    business_timezone: str = Field(default="Asia/Kuala_Lumpur", max_length=100)
+    business_timezone: str | None = Field(default="Asia/Kuala_Lumpur", max_length=100)
     text: str = Field(min_length=1, max_length=20_000)
     attachments: list[Attachment] = Field(default_factory=list, max_length=10)
     thread_ref: str | None = Field(default=None, max_length=200)
@@ -76,7 +76,9 @@ class RawMessageEnvelope(P1Model):
 
     @field_validator("business_timezone")
     @classmethod
-    def known_timezone(cls, value: str) -> str:
+    def known_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         try:
             ZoneInfo(value)
         except (ZoneInfoNotFoundError, ValueError) as exc:
