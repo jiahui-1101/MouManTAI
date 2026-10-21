@@ -29,6 +29,7 @@ from app.recovery.service import RecoveryPlanner, RecoveryRepository
 from app.recovery.triggers import (
     RecoveryTriggerConsumer,
     RecoveryTriggerStatus,
+    canonical_domain_event_digest,
     register_with_p5_dispatcher,
 )
 
@@ -75,6 +76,9 @@ def _event(
     tenant_id: str | None = None,
     feasibility_status: str | None = None,
     assessment_commitment_version: int | None = None,
+    evaluated_commitment_version: int | None = None,
+    snapshot_id: str | None = None,
+    evidence_refs: list[str] | None = None,
 ):
     payload = {
         "commitment_id": commitment.commitment_id,
@@ -90,10 +94,16 @@ def _event(
         ).model_dump(mode="json")],
         "affected_commitment_ids": [commitment.commitment_id],
     }
+    if snapshot_id is not None:
+        payload["snapshot_id"] = snapshot_id
+    if evidence_refs is not None:
+        payload["evidence_refs"] = evidence_refs
     if feasibility_status is not None:
         payload["feasibility_status"] = feasibility_status
     if assessment_commitment_version is not None:
         payload["assessment_commitment_version"] = assessment_commitment_version
+    if evaluated_commitment_version is not None:
+        payload["evaluated_commitment_version"] = evaluated_commitment_version
     return create_domain_event(
         event_id=event_id,
         event_type="commitment.at_risk",
@@ -127,7 +137,11 @@ def _resolution_event(commitment: Commitment, *, event_id: str = "evt_resolved_0
 
 def _consumer() -> tuple[RecoveryTriggerConsumer, RecoveryPlanner]:
     planner = RecoveryPlanner(repository=RecoveryRepository())
-    return RecoveryTriggerConsumer(planner=planner, commitment_reader=P5CommitmentReader()), planner
+    return RecoveryTriggerConsumer(
+        planner=planner,
+        commitment_reader=P5CommitmentReader(),
+        allow_synthetic_processing_for_tests=True,
+    ), planner
 
 
 def test_at_risk_event_creates_trigger_only_case_and_preserves_event_without_core_mutation(session) -> None:
@@ -225,6 +239,24 @@ def test_duplicate_event_is_idempotent_and_distinct_alert_for_same_assessment_re
     assert [item.event_id for item in case.trigger_events] == ["evt_risk_001", "evt_risk_retry"]
 
 
+def test_same_event_id_with_changed_domain_event_content_is_an_integrity_conflict(session) -> None:
+    commitment = _commitment()
+    _save_commitment(session, commitment)
+    consumer, _ = _consumer()
+    original = _event(commitment, event_id="evt_content_conflict")
+    assert consumer.handle(session, original).status == RecoveryTriggerStatus.CASE_CREATED
+
+    changed = _event(
+        commitment,
+        event_id="evt_content_conflict",
+        evidence_refs=["ev_changed_after_delivery"],
+    )
+    with pytest.raises(DomainError) as exc_info:
+        consumer.handle(session, changed)
+
+    assert exc_info.value.code == "RECOVERY_EVENT_ID_CONFLICT"
+
+
 def test_stale_and_future_event_versions_are_rejected_without_case_creation(session) -> None:
     commitment = _commitment()
     _save_commitment(session, commitment)
@@ -259,6 +291,71 @@ def test_pre_transition_assessment_version_is_not_compared_equal_to_event_versio
     )
     assert same_version.status == RecoveryTriggerStatus.REJECTED_MALFORMED
     assert len(planner.get_case(commitment.tenant_id, commitment.commitment_id).trigger_events) == 1
+
+
+def test_canonical_p2_assessment_fields_and_constraints_are_preserved_as_unverified(session) -> None:
+    commitment = _commitment()
+    _save_commitment(session, commitment)
+    consumer, planner = _consumer()
+    event = _event(
+        commitment,
+        event_id="evt_canonical_payload",
+        evaluated_commitment_version=3,
+        snapshot_id="snapshot_p2_142",
+        evidence_refs=["ev_p2_top_level"],
+    )
+
+    outcome = consumer.handle(session, event)
+
+    assert outcome.status == RecoveryTriggerStatus.CASE_CREATED
+    trigger = planner.get_case(commitment.tenant_id, commitment.commitment_id).trigger_events[0]
+    assert trigger.assessment_commitment_version == 3
+    assert trigger.assessment_provenance_status == "SOURCE_COMMITMENT_VERSION_RECORDED_UNVERIFIED"
+    assert trigger.commitment_version == 5
+    assert (trigger.snapshot_id, trigger.snapshot_version) == ("snapshot_p2_142", 142)
+    assert trigger.evidence_refs == ["ev_p2_top_level", "ev_shortage_01"]
+    assert trigger.constraints[0].code == "MATERIAL_SHORTAGE"
+    assert trigger.constraints[0].severity == "HARD"
+    assert trigger.constraints[0].evidence_refs == ["ev_shortage_01"]
+    assert (trigger.correlation_id, trigger.causation_id) == ("corr_trigger_01", "assessment-command-01")
+    assert trigger.source_event_digest == canonical_domain_event_digest(event)
+    assert trigger.source_event_digest is not None
+
+
+def test_conflicting_canonical_and_legacy_assessed_version_aliases_fail_closed(session) -> None:
+    commitment = _commitment()
+    _save_commitment(session, commitment)
+    consumer, planner = _consumer()
+    conflicting = _event(
+        commitment,
+        event_id="evt_conflicting_version_aliases",
+        assessment_commitment_version=2,
+        evaluated_commitment_version=3,
+    )
+
+    outcome = consumer.handle(session, conflicting)
+
+    assert outcome.status == RecoveryTriggerStatus.REJECTED_MALFORMED
+    assert planner.repository.get_case(commitment.tenant_id, commitment.commitment_id) is None
+
+
+def test_offered_agreement_state_remains_ineligible_until_p5_separates_proposal_lifecycle() -> None:
+    commitment = _commitment().model_copy(update={"agreement_state": AgreementState.OFFERED})
+    planner = RecoveryPlanner(repository=RecoveryRepository())
+
+    class OfferedCommitmentReader:
+        def get_commitment(self, db, context, commitment_id):
+            return commitment
+
+    consumer = RecoveryTriggerConsumer(
+        planner=planner,
+        commitment_reader=OfferedCommitmentReader(),
+        allow_synthetic_processing_for_tests=True,
+    )
+    outcome = consumer.handle(None, _event(commitment))
+
+    assert outcome.status == RecoveryTriggerStatus.REJECTED_INELIGIBLE
+    assert planner.repository.get_case(commitment.tenant_id, commitment.commitment_id) is None
 
 
 def test_wrong_tenant_and_non_infeasible_authoritative_commitments_are_rejected(session) -> None:
@@ -380,7 +477,11 @@ def test_new_trigger_reuses_case_and_marks_old_plans_for_replan_without_mutating
     )
     original_plans = [plan.model_dump(mode="json") for plan in existing.plans]
     original_decisions = [item.model_dump(mode="json") for item in existing.approval_decisions]
-    consumer = RecoveryTriggerConsumer(planner=planner, commitment_reader=P5CommitmentReader())
+    consumer = RecoveryTriggerConsumer(
+        planner=planner,
+        commitment_reader=P5CommitmentReader(),
+        allow_synthetic_processing_for_tests=True,
+    )
 
     outcome = consumer.handle(session, _event(commitment, event_id="evt_material_new_assessment"))
 
@@ -409,18 +510,16 @@ def test_new_trigger_reuses_case_and_marks_old_plans_for_replan_without_mutating
     assert exc_info.value.code == "COMMITMENT_VERSION_CONFLICT"
 
 
-def test_registration_uses_existing_core_dispatcher_interface() -> None:
+def test_registration_fails_closed_until_durable_p3_and_authoritative_p2_are_wired() -> None:
     dispatcher = OutboxDispatcher()
     consumer = RecoveryTriggerConsumer(planner=RecoveryPlanner(repository=RecoveryRepository()))
 
-    register_with_p5_dispatcher(consumer, dispatcher=dispatcher)
+    with pytest.raises(DomainError) as exc_info:
+        register_with_p5_dispatcher(consumer, dispatcher=dispatcher)
 
-    subscribers = dispatcher.get_subscribers("commitment.at_risk")
-    resolution_subscribers = dispatcher.get_subscribers("commitment.lifecycle_changed")
-    assert subscribers == [(consumer.consumer_name, consumer.handle)]
-    assert resolution_subscribers == [
-        (f"{consumer.consumer_name}.resolution", consumer.handle_commitment_lifecycle_changed),
-    ]
+    assert exc_info.value.code == "DURABLE_RECOVERY_INTEGRATION_PENDING"
+    assert dispatcher.get_subscribers("commitment.at_risk") == []
+    assert dispatcher.get_subscribers("commitment.lifecycle_changed") == []
 
 
 def test_existing_p5_outbox_dispatcher_invokes_registered_p3_handler(session) -> None:
@@ -441,15 +540,18 @@ def test_existing_p5_outbox_dispatcher_invokes_registered_p3_handler(session) ->
     ))
     session.commit()
     dispatcher = OutboxDispatcher()
-    consumer, planner = _consumer()
-    register_with_p5_dispatcher(consumer, dispatcher=dispatcher)
+    planner = RecoveryPlanner(repository=RecoveryRepository())
+    consumer = RecoveryTriggerConsumer(planner=planner, commitment_reader=P5CommitmentReader())
+    # Simulate an accidental direct registration: the handler must still fail
+    # closed and the P5 dispatcher must not persist a success marker.
+    dispatcher.register_subscriber(event.event_type, consumer.consumer_name, consumer.handle)
 
     result = dispatcher.process_outbox_batch(session)
 
-    assert result.failed_count == 0
-    assert result.published_count == 1
-    assert session.get(ProcessedEventRecord, (event.tenant_id, event.event_id, consumer.consumer_name)) is not None
-    assert planner.repository.get_case(commitment.tenant_id, commitment.commitment_id) is not None
+    assert result.failed_count == 1
+    assert result.published_count == 0
+    assert session.get(ProcessedEventRecord, (event.tenant_id, event.event_id, consumer.consumer_name)) is None
+    assert planner.repository.get_case(commitment.tenant_id, commitment.commitment_id) is None
 
 
 def test_resolution_closes_old_episode_and_later_risk_creates_separate_case(session) -> None:
@@ -585,7 +687,11 @@ def test_concurrent_delivery_creates_one_case_and_one_trigger_record() -> None:
         def get_commitment(self, db, context, commitment_id):
             return commitment
 
-    consumer = RecoveryTriggerConsumer(planner=planner, commitment_reader=StaticCommitmentReader())
+    consumer = RecoveryTriggerConsumer(
+        planner=planner,
+        commitment_reader=StaticCommitmentReader(),
+        allow_synthetic_processing_for_tests=True,
+    )
     event = _event(commitment)
     with ThreadPoolExecutor(max_workers=8) as pool:
         outcomes = list(pool.map(lambda _: consumer.handle(None, event), range(16)))

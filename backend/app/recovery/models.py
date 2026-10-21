@@ -9,6 +9,7 @@ from pydantic import ConfigDict, Field, model_validator
 from app.core.schemas import (
     ApprovalState,
     Commitment,
+    ConstraintReason,
     ContractModel,
     FeasibilityAssessment,
     FeasibilityState,
@@ -96,11 +97,14 @@ class RecoveryTriggerReference(ContractModel):
     commitment_version: int = Field(ge=1)
     assessment_id: str = Field(min_length=1)
     assessment_commitment_version: int | None = Field(default=None, ge=1)
+    source_event_digest: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     assessment_provenance_status: Literal[
         "SOURCE_COMMITMENT_VERSION_MISSING",
         "SOURCE_COMMITMENT_VERSION_RECORDED_UNVERIFIED",
     ]
+    snapshot_id: str | None = None
     snapshot_version: int = Field(ge=1)
+    constraints: list[ConstraintReason] = Field(default_factory=list)
     affected_commitment_ids: list[str] = Field(default_factory=list)
     correlation_id: str = Field(min_length=1)
     causation_id: str | None = None
@@ -114,6 +118,11 @@ class RecoveryTriggerReference(ContractModel):
                 raise ValueError("missing assessment source version must be reported explicitly")
         elif self.assessment_provenance_status != "SOURCE_COMMITMENT_VERSION_RECORDED_UNVERIFIED":
             raise ValueError("provided assessment source version must remain labeled unverified")
+        if (
+            self.assessment_commitment_version is not None
+            and self.assessment_commitment_version >= self.commitment_version
+        ):
+            raise ValueError("evaluated Commitment version must precede the post-transition event version")
         return self
 
 
@@ -394,7 +403,7 @@ class RecoveryCase(ContractModel):
     customer_confirmation_evidence_refs: list[str] = Field(default_factory=list)
     fulfilment_evidence_refs: list[str] = Field(default_factory=list)
     evidence_refs: list[str] = Field(default_factory=list)
-    storage_mode: Literal["IN_MEMORY_SYNTHETIC"] = "IN_MEMORY_SYNTHETIC"
+    storage_mode: Literal["IN_MEMORY_SYNTHETIC", "DURABLE_DATABASE"] = "IN_MEMORY_SYNTHETIC"
     created_at: OffsetAwareDatetime
     updated_at: OffsetAwareDatetime
 
@@ -415,7 +424,7 @@ class RecoveryTriggerCaseView(ContractModel):
     missing_evaluation_inputs: list[str]
     trigger_events: list[RecoveryTriggerReference]
     resolution_events: list[RecoveryResolutionReference] = Field(default_factory=list)
-    storage_mode: Literal["IN_MEMORY_SYNTHETIC"] = "IN_MEMORY_SYNTHETIC"
+    storage_mode: Literal["IN_MEMORY_SYNTHETIC", "DURABLE_DATABASE"] = "IN_MEMORY_SYNTHETIC"
     created_at: OffsetAwareDatetime
     updated_at: OffsetAwareDatetime
 

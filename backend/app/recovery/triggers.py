@@ -1,18 +1,19 @@
 """P3 consumer for P5's commitment.at_risk outbox events.
 
 The consumer is intentionally not auto-registered at import time. P5 owns the
-outbox worker/bootstrap; it may register this handler through its existing
-subscriber registry once the P3 in-memory case repository is accepted for the
-target runtime.
+outbox worker/bootstrap. It remains unavailable for live registration until
+durable P3 persistence and trusted P2 assessment-history lookup are connected.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable
 from enum import StrEnum
 from typing import Any, Protocol
 
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, model_validator
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext
@@ -36,17 +37,35 @@ from .service import RecoveryPlanner, default_recovery_planner
 
 
 class CommitmentAtRiskPayload(ContractModel):
-    """Typed subset of the currently emitted P5 at-risk payload."""
+    """Canonical P5 payload plus the legacy P3 assessed-version alias."""
 
     commitment_id: str | None = None
     assessment_id: str = Field(min_length=1)
+    evaluated_commitment_version: int | None = Field(default=None, ge=1)
+    # Compatibility with the earlier P3-only payload spelling.
     assessment_commitment_version: int | None = Field(default=None, ge=1)
+    evidence_refs: list[str] = Field(default_factory=list)
+    # Compatibility with earlier P3 fixtures; both evidence collections are retained.
     assessment_evidence_refs: list[str] = Field(default_factory=list)
+    snapshot_id: str | None = None
     snapshot_version: int = Field(ge=1)
     feasibility_status: FeasibilityState | None = None
     constraints: list[ConstraintReason] = Field(default_factory=list)
     affected_commitment_ids: list[str] = Field(default_factory=list)
-    evidence_refs: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def version_aliases_agree(self) -> CommitmentAtRiskPayload:
+        if (
+            self.evaluated_commitment_version is not None
+            and self.assessment_commitment_version is not None
+            and self.evaluated_commitment_version != self.assessment_commitment_version
+        ):
+            raise ValueError("evaluated_commitment_version conflicts with legacy assessment_commitment_version")
+        return self
+
+    @property
+    def assessed_commitment_version(self) -> int | None:
+        return self.evaluated_commitment_version or self.assessment_commitment_version
 
 
 class CommitmentAtRiskEvent(ContractModel):
@@ -72,12 +91,23 @@ class CommitmentAtRiskEvent(ContractModel):
             raise ValueError("payload commitment_id does not match event envelope")
         if parsed.payload.feasibility_status not in (None, FeasibilityState.INFEASIBLE):
             raise ValueError("at-risk trigger payload is not INFEASIBLE")
-        if (parsed.payload.assessment_commitment_version is not None
-                and parsed.payload.assessment_commitment_version >= parsed.commitment_version):
+        assessed_version = parsed.payload.assessed_commitment_version
+        if assessed_version is not None and assessed_version >= parsed.commitment_version:
             raise ValueError(
                 "source assessment commitment version must precede the post-transition event version"
             )
         return parsed
+
+
+def canonical_domain_event_digest(event: DomainEvent) -> str:
+    """Hash the complete canonical DomainEvent when the original envelope exists."""
+    canonical = json.dumps(
+        event.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 class CommitmentLifecyclePayload(ContractModel):
@@ -155,9 +185,33 @@ class RecoveryTriggerConsumer:
         *,
         planner: RecoveryPlanner | None = None,
         commitment_reader: CommitmentReader | None = None,
+        allow_synthetic_processing_for_tests: bool = False,
     ) -> None:
         self.planner = planner or default_recovery_planner
         self.commitment_reader = commitment_reader or P5CommitmentReader()
+        self._allow_synthetic_processing_for_tests = allow_synthetic_processing_for_tests
+
+    @property
+    def live_ready(self) -> bool:
+        # The SQLAlchemy repository is not yet wired into this handler, and P2's
+        # authoritative assessment-history reader has no configured adapter.
+        return False
+
+    def _require_processing_mode(self) -> None:
+        if self._allow_synthetic_processing_for_tests:
+            return
+        raise DomainError(
+            "DURABLE_RECOVERY_INTEGRATION_PENDING",
+            "P3 cannot acknowledge this event until durable case storage and authoritative P2 assessment lookup are wired",
+            status_code=503,
+            details={
+                "missing_dependencies": [
+                    "P3_SQLALCHEMY_RECOVERY_REPOSITORY",
+                    "P2_AUTHORITATIVE_ASSESSMENT_LOOKUP",
+                    "P5_ATOMIC_PROCESSED_EVENT_TRANSACTION",
+                ]
+            },
+        )
 
     @staticmethod
     def _rejected(
@@ -184,6 +238,7 @@ class RecoveryTriggerConsumer:
         )
 
     def handle(self, db: Session, event: DomainEvent) -> RecoveryTriggerOutcome:
+        self._require_processing_mode()
         try:
             trigger = CommitmentAtRiskEvent.from_domain_event(event)
         except (ValidationError, ValueError, TypeError) as exc:
@@ -193,12 +248,32 @@ class RecoveryTriggerConsumer:
                 reason=str(exc),
             )
 
+        source_event_digest = canonical_domain_event_digest(event)
         if self.planner.repository.has_processed_trigger_event(trigger.tenant_id, trigger.event_id):
             case = self.planner.repository.get_case_for_trigger_event(trigger.tenant_id, trigger.event_id)
+            if case is None:
+                raise DomainError(
+                    "RECOVERY_EVENT_HISTORY_MISSING",
+                    "Processed trigger event has no retained Recovery Case history",
+                    status_code=500,
+                )
+            prior = next((item for item in case.trigger_events if item.event_id == trigger.event_id), None)
+            if prior is None or prior.source_event_digest is None:
+                raise DomainError(
+                    "RECOVERY_EVENT_IDENTITY_UNVERIFIABLE",
+                    "The stored trigger lacks full-event digest coverage; redelivery cannot be verified",
+                    status_code=409,
+                )
+            if prior.source_event_digest != source_event_digest:
+                raise DomainError(
+                    "RECOVERY_EVENT_ID_CONFLICT",
+                    "The same tenant/event ID was received with different full DomainEvent content",
+                    status_code=409,
+                )
             return RecoveryTriggerOutcome(
                 status=RecoveryTriggerStatus.DUPLICATE,
                 event_id=trigger.event_id,
-                recovery_case_id=case.case_id if case else None,
+                recovery_case_id=case.case_id,
             )
 
         # Construct a service context only inside this P5 outbox-consumer seam.
@@ -258,19 +333,23 @@ class RecoveryTriggerConsumer:
             *trigger.payload.assessment_evidence_refs,
             *(evidence for constraint in trigger.payload.constraints for evidence in constraint.evidence_refs),
         ])
+        assessed_version = trigger.payload.assessed_commitment_version
         reference = RecoveryTriggerReference(
             event_id=trigger.event_id,
             tenant_id=trigger.tenant_id,
             commitment_id=trigger.commitment_id,
             commitment_version=trigger.commitment_version,
             assessment_id=trigger.payload.assessment_id,
-            assessment_commitment_version=trigger.payload.assessment_commitment_version,
+            assessment_commitment_version=assessed_version,
+            source_event_digest=source_event_digest,
             assessment_provenance_status=(
                 "SOURCE_COMMITMENT_VERSION_RECORDED_UNVERIFIED"
-                if trigger.payload.assessment_commitment_version is not None
+                if assessed_version is not None
                 else "SOURCE_COMMITMENT_VERSION_MISSING"
             ),
+            snapshot_id=trigger.payload.snapshot_id,
             snapshot_version=trigger.payload.snapshot_version,
+            constraints=trigger.payload.constraints,
             affected_commitment_ids=trigger.payload.affected_commitment_ids,
             correlation_id=trigger.correlation_id,
             causation_id=trigger.causation_id,
@@ -310,6 +389,7 @@ class RecoveryTriggerConsumer:
         not registered automatically. P5 must preserve per-commitment event order
         or supply durable event-history reconciliation before enabling it.
         """
+        self._require_processing_mode()
         if event.event_type != "commitment.lifecycle_changed":
             return self._rejected(
                 RecoveryTriggerStatus.REJECTED_MALFORMED,
@@ -435,6 +515,12 @@ def register_with_p5_dispatcher(
     dispatcher: SubscriberRegistry | None = None,
 ) -> None:
     """Register through P5's existing dispatcher; P5 must call this at startup."""
+    if not consumer.live_ready or consumer._allow_synthetic_processing_for_tests:
+        raise DomainError(
+            "DURABLE_RECOVERY_INTEGRATION_PENDING",
+            "P3's risk consumer is not ready for dispatcher registration",
+            status_code=503,
+        )
     if dispatcher is None:
         from app.core.outbox import default_dispatcher
 
