@@ -466,3 +466,53 @@ canonical app imports, `python -B`, no path aliases and no shared config changes
 - **P5 contract:** actual Impact Set semantics are RESOLVED by P5. Current `FeasibilityAssessment.affected_commitment_ids` still has `min_length=1`; empty-set schema support is PENDING merge/verification. Final shared adapter remains BLOCKED. No P5-owned code changed.
 - **Files changed in this review follow-up:** `backend/app/feasibility/service.py`, `backend/app/feasibility/tests/test_service.py`, `backend/app/feasibility/P2_PROGRESS.md`, `backend/app/feasibility/P2_REQUIREMENT_TRACE.md`, `backend/app/feasibility/PHASE3_HANDOFF.md`, `backend/app/feasibility/PHASE3_PLAN.md`, `backend/app/feasibility/P2_PHASE_REPORTS.md`, and the P2-only entry in `docs/TEAM_LOG.md`.
 - **Remaining blockers:** P3 ProposedChanges integration/serialization and P2/P5 operational snapshot/catalog adapter remain provisional; the shared demo is not complete operational evidence. Phase 3 remains PARTIAL and STOPPED for independent review. Phase 4 has not started.
+
+## Phase 4 — Dependency graph and incremental impact recalculation
+
+- **State:** PARTIAL. P2-local implementation and required tests pass; stop for independent external Phase 4 review. Shared P5 assessment adapter and event publication remain blocked. Phase 5 is not started.
+- **Date / branch:** 2026-10-21 / `feat/p2-feasibility-engine`.
+- **Approved starting point:** `650b702fbbdef3f2f0160db0bf3dc12cad3d2b2c`, the user-approved P2-local Phase 3 correction. Before edits, branch and `origin/feat/p2-feasibility-engine` matched that exact SHA and worktree was clean.
+- **Scope:** deterministic P2-local dependency graph and resource-keyed invalidation; actual before/after recomputation using the existing pure `evaluate()`; conservative classifications/deltas/buffers; local canonical DomainEvent intents only. No P5 schema, migration, route, UI, DB/outbox/Core state, P3 module, external event or reservation was changed.
+
+### Implementation
+
+- Added `backend/app/feasibility/impact.py` with typed tenant-bound change/resource keys, evidence-bearing dependency graph/path models, material/HARD-constraint deltas, explicit classifications, output metadata and in-memory future event intents. Paths index supplier delivery and lot → SKU → BOM parent → production resource/plan → order/commitment, plus production resource → job → plan.
+- Resource keys for supplier ETA, SKU, inventory lot, production job, production resource/capacity calendar, order and commitment changes validate against actual before/after rows and linked source evidence. Traversal and output order are deterministic. Incomplete graph evidence expands only within the tenant and causes UNKNOWN results; candidate discovery alone never confirms an impact.
+- Every candidate is passed through the existing `service.evaluate()` against both snapshots. P2 now exposes `EvaluationResult.evidence_complete` and `allocation_dependent` so independent hard proof remains distinguishable from stale/missing data and allocation-policy uncertainty. `CommitmentImpact.verified_material_deterioration` reports material-level evidence separately from full feasibility impact.
+- P2 creates canonical-envelope `commitment.feasibility_assessed`, `operational.impact_updated`, `commitment.at_risk`, and `operational.insufficient_data` intents. Event IDs bind the triggering cause; deduplication keys remain stable for identical detection state. No publish, DB write, outbox, or Core transition occurs.
+
+### Observed outcomes
+
+| Case | Before/after evidence | Observed P2-local result |
+|---|---|---|
+| Buffered supplier material-only fixture | PATTY shortages `com-001: 0→40 pcs`, `com-002: 0→0 pcs`; no production evidence | Both candidates UNKNOWN; empty confirmed Impact Set; measured deterioration is separately exposed for `com-001` |
+| Two-affected material-only fixture | PATTY shortages `com-001: 0→70 pcs`, `com-002: 0→40 pcs` | Both candidates UNKNOWN; material deltas are not promoted to full feasibility impact |
+| Buffered supplier with complete synthetic production evidence | `com-001`: FEASIBLE→INFEASIBLE; `com-002`: remains FEASIBLE with positive buffer | Only `com-001` CONFIRMED_IMPACT and receives an at-risk intent; `com-002` VERIFIED_UNAFFECTED and receives no risk intent |
+| Resource-keyed production job conflict | New overlapping external job on `com-001`'s fixed booking; later `com-002` booking has buffer | `com-001` confirmed; `com-002` verified unaffected |
+| Capacity calendar reduction | New `CAPACITY_WINDOW_VIOLATION` on `com-001` booking; later `com-002` booking remains feasible | `com-001` confirmed; `com-002` verified unaffected |
+| Inventory lot change | PATTY shortage `0→10 pcs` | Lot key discovers both BOM dependents; no production evidence means UNKNOWN, not a confirmed full-feasibility impact |
+| SKU catalog change | PATTY changes to a synthetic manufactured SKU source revision | Both dependent commitments are candidates; unsupported intermediate production evidence keeps both UNKNOWN |
+| Order request change | Only `com-001` order version changes; PATTY shortage `0→20 pcs` | Only that order is a candidate; UNKNOWN because production evidence is absent |
+| Stale production source after supplier delay | Material delta is present; production process source is stale | UNKNOWN and `operational.insufficient_data`; hard/material evidence cannot override stale evidence |
+| Stale inventory source after supplier delay | Inventory source validity ends before the after-snapshot capture | Material determination remains UNKNOWN; no verified material deterioration is claimed |
+| Allocation uncertainty / independent hard failure | Allocation-only case remains uncertain; a separate overlapping evidenced job adds a new HARD `JOB_CONFLICT` | Allocation-only case remains UNKNOWN/no risk; complete-evidence hard conflict is confirmed. The evaluator retains the fixed-booking scope limitation. |
+| Existing shortage unchanged | Before/after statuses INFEASIBLE with unchanged material shortage | PRE_EXISTING_UNCHANGED; no at-risk intent |
+
+### Tests and validation
+
+Test-first development observed the expected initial red (`app.feasibility.impact` did not exist). New regressions also exposed Decimal subtraction rounded by ambient precision, calendar changes not recognized as actual resource changes, and same-state event IDs ignoring causal event identity. These defects were corrected; fixture setup errors were corrected without changing acceptance criteria.
+
+From `backend/`:
+
+1. `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_impact.py -q -p no:cacheprovider` — **14 passed in 1.55s**.
+2. `python -B -m pytest -o 'addopts=' app/feasibility/tests tests -q -p no:cacheprovider` — **154 passed, 1 existing Starlette/httpx deprecation warning in 3.89s**. This includes P2 Phase 1–3 feasibility tests and shared backend contract/health/SQLite registry tests.
+3. `python -m ruff check app/feasibility/impact.py app/feasibility/service.py app/feasibility/tests/test_impact.py` — **NOT RUN**; Ruff is not installed. No dependency was added.
+4. Frontend typecheck/Vitest/build, live API, PostgreSQL migration, event publication, P3/P5 integration, E2E and production latency/accuracy metrics — **NOT RUN**; outside Phase 4 P2-local scope and still owner-blocked.
+
+### Files and handoff
+
+- New: `backend/app/feasibility/impact.py`, `backend/app/feasibility/tests/test_impact.py`, `backend/app/feasibility/PHASE4_PLAN.md`, `backend/app/feasibility/PHASE4_HANDOFF.md`.
+- Updated P2 code/docs: `backend/app/feasibility/service.py`, `P2_PROGRESS.md`, `P2_REQUIREMENT_TRACE.md`, `P2_PHASE_REPORTS.md`, `PHASE3_HANDOFF.md`; only P2 status/history rows in `docs/TEAM_LOG.md`.
+- P5 contract inspection: `backend/app/core/schemas.py` still rejects empty `affected_commitment_ids` (`min_length=1`). P5 has resolved the meaning as actual Impact Set, but schema support for `[]` and final shared FeasibilityAssessment adapter remain pending. No IDs were fabricated.
+- P3 `ProposedChanges` serialization and P2/P5 operational snapshot/catalog/source alignment remain provisional. P5 owns durable event deduplication/outbox/persistence and authoritative risk transitions. External source authenticity and current DB version races are not established by synthetic local snapshots.
+- **Commit SHA:** see phase response. **Gate:** stop here for independent external Phase 4 review; do not begin Phase 5.

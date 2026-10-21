@@ -2,20 +2,21 @@
 
 ## Current checkpoint
 
-- **Phase:** 3 only — production capacity/deadlines and pure evaluator.
-- **State:** PARTIAL; evidence-aware status precedence is implemented and independently reviewed changes are pending. Final shared-output integration remains BLOCKED pending P5 schema support for an empty actual Impact Set. No Phase 4 work.
+- **Phase:** 4 only — dependency graph and incremental impact recalculation.
+- **State:** PARTIAL; Phase 4 P2-local graph, before/after recalculation, classifications and event intents are implemented and focused/regression tests pass. STOP for independent external Phase 4 review. Shared FeasibilityAssessment serialization remains BLOCKED pending P5's empty actual Impact Set schema support and adapter review.
 - **Branch:** feat/p2-feasibility-engine.
-- **Reviewed baseline:** external review #2 of `40c526a0bf05b215333a0832e13a88c275d61cad` found allocation-policy UNKNOWN could mask independent HARD proof. Branch and exact baseline were verified before this correction.
-- **Scope:** P2-local evaluator status precedence, focused mixed-evidence regressions, and P2 progress/trace/handoff/report/TEAM_LOG updates. Existing ATP/BOM algorithms, capacity scheduling, P5 schemas/Core/DB/dependencies/UI remain unchanged.
-- **Validation:** Phase 3 command (backend): `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_capacity.py app/feasibility/tests/test_service.py -q -p no:cacheprovider` — 67 passed. Existing P2/shared regression command — 73 passed, one existing Starlette/httpx warning. Exact evidence in phase report.
+- **Approved Phase 3 baseline:** user approved P2-local Phase 3 correction commit `650b702fbbdef3f2f0160db0bf3dc12cad3d2b2c`; Phase 3 shared integration remained PARTIAL. Before this phase the branch and origin ref matched that SHA and the worktree was clean.
+- **Scope:** P2-local dependency graph, resource-keyed invalidation, use of the same pure `evaluate()` before and after changes, conservative classification and in-memory DomainEvent intents. P5 schema/Core/DB/outbox/routes/UI remain unchanged.
+- **Validation:** Phase 4 focused suite: 14 passed. Combined existing P2 Phase 1–3 and shared backend regression: 154 passed, one existing Starlette/httpx deprecation warning. Exact commands and observed classifications are recorded in the Phase 4 report.
 - **Interface:** app.feasibility.service.evaluate(EvaluationSnapshot, ProposedChanges | None, app.core.schemas.Commitment) -> P2-local EvaluationResult. Uses actual Core enums/ConstraintReason; does not fabricate affected IDs or claim to return FeasibilityAssessment. See PHASE3_HANDOFF.md.
-- **Semantics:** evidence/data uncertainty (missing, stale, incomplete, unsupported or stale-version inputs) keeps UNKNOWN precedence, including when a HARD constraint is also retained. With complete trusted evidence, independent HARD proof yields INFEASIBLE for the target or supplied fixed booking; a capacity/job conflict does not prove every reschedule impossible. Allocation-dependent shortage alone remains UNKNOWN with INFORMATIONAL current-batch aggregate evidence; independent HARD proof is not masked by that policy uncertainty. Proven residual shortages stay HARD. Protected reservations and time/location-ineligible supply are not transferable. Hypothetical changes remain CONDITIONAL only when otherwise supported and pending identified approval/customer agreement; new competitor shortage stays HARD.
-- **Purity:** version-bound target quantity/deadline/start proposals use a validated private copy and same batch ATP/BOM. Newly displaced competing material demand rejects a proposal. No stock/job/reservation/terms/Core lifecycle writes.
+- **Impact semantics:** candidate discovery is not an Impact Set. Confirmed impacts require actual adverse before/after material or HARD-constraint evidence and complete evidence for the relevant assessment; allocation-policy-only shortages remain UNKNOWN while `verified_material_deterioration` exposes measured material deltas. Independently proven HARD changes can confirm impact through allocation uncertainty only when both snapshots' evidence is complete. Missing/stale evidence remains UNKNOWN. A failed fixed booking does not prove all reschedules impossible. Unchanged pre-existing failures do not create a new risk intent.
+- **Impact purity:** `evaluate()` remains a version-bound pure calculation; impact processing evaluates every candidate before and after without changing inventory, reservations, jobs, commitment terms, risk or fulfilment state. Resource-keyed paths preserve source evidence, versions and deterministic ordering. Event envelopes are in-memory P2-local intents only; no publish/persist/outbox work.
+- **Proposal purity:** version-bound target quantity/deadline/start proposals use a validated private copy and same batch ATP/BOM. Newly displaced competing material demand rejects a proposal. No stock/job/reservation/terms/Core lifecycle writes.
 - **Shared blocker:** P5 confirmed `affected_commitment_ids` is the actual Impact Set (semantic decision RESOLVED). The current Core schema still rejects `[]`; P5's schema implementation is PENDING merge/verification. Do not fabricate IDs or edit P5 schemas. Final shared adapter remains BLOCKED. P3 serialization and P2/P5 source/catalog adapter also remain provisional.
 - **Environment:** Python 3.14.3, Pydantic 2.13.4, pytest 9.1.1 (outside P5 >=8.3,<9). No dependency changes. Existing seven shared tests use SQLite, not live PostgreSQL.
 - **Canonical instructions:** old docs/AGENTS.md absent; root AGENTS.md is canonical per TEAM_LOG and current user instruction. Current Master path P2_CODEX_MASTER.txt exists. External requirements remain read-only.
 - **Git:** local commit and feature-only push authorized by this task; exact SHA/ref/clean-state evidence in final response. No merge, force push or Main change.
-- **Gate:** STOP for independent external review. Phase 3 remains PARTIAL; do not begin Phase 4.
+- **Gate:** STOP for independent external Phase 4 review. Phase 5 is not started.
 
 ## Repository baseline
 
@@ -30,9 +31,9 @@ Local backup ref `backup/p2-before-main-sync-d28b63a` preserves approved P2 HEAD
 | 0 | Inspect repo, trace requirements, propose contracts and synthetic fixture | PASS — externally reviewed and approved | Trace/report/progress created; shared contract decisions remain unratified and explicitly blocked |
 | 1 | Validated operational snapshots and synthetic fixtures | PASS — externally reviewed and approved | Approved SHA `0d990d99bfe973f7b13295d1e005639a0f61adbd`; prior 21 tests preserved |
 | 2 | Decimal ATP, time-phased supply, recursive BOM and unit conversion | PASS — externally approved | Approved `d28b63ab5fa82c66633ad18211b9c4fa83ffbbe4`; 66 regressions pass after Main sync |
-| 3 | Capacity/deadline checks and pure evaluator | PARTIAL — local tests pass; shared output BLOCKED | 54 new + 73 existing passing tests; P5 affected-ID decision and external review pending |
-| 4 | Dependency graph and incremental impact recalculation | NOT_STARTED | Requires explicit approval after Phase 3 review |
-| 5 | Five P2 routes and P3/P5 contract handoff | NOT_STARTED | Requires explicit approval after Phase 4 review and shared API decisions |
+| 3 | Capacity/deadline checks and pure evaluator | PARTIAL — P2-local Phase 3 correction approved; shared output BLOCKED | User approved local correction at `650b702fbbdef3f2f0160db0bf3dc12cad3d2b2c`; empty Impact Set schema and P3/P5 adapters remain pending |
+| 4 | Dependency graph and incremental impact recalculation | PARTIAL — P2-local implementation/tests pass; external review pending | 14 focused + 154 combined P2/shared tests pass; final shared adapter remains blocked |
+| 5 | Five P2 routes and P3/P5 contract handoff | NOT_STARTED | Requires independent Phase 4 review approval and shared API/empty Impact Set decisions |
 | 6 | Feasibility and impact frontend views | NOT_STARTED | Requires explicit approval after Phase 5 review and shared frontend skeleton |
 | 7 | Mandatory gap closure, integration, metrics, and handoff | NOT_STARTED | Requires explicit approval after Phase 6 review and available P5/P3 integration |
 
@@ -132,4 +133,4 @@ Phase 2 batch ATP reproduces the material shortage labels in both snapshots. The
 
 ## Next action
 
-Review Phase 3 report and PHASE3_HANDOFF.md externally. P5's actual-Impact-Set semantics are resolved; the final shared-output adapter awaits merged and verified schema support for an empty list. P3 must confirm proposal serialization. Stop here. No Phase 4 until explicit approval.
+Review Phase 4 report and PHASE4_HANDOFF.md independently. P5's actual-Impact-Set semantics are resolved; the final shared-output adapter awaits merged and verified schema support for an empty list. P3 proposal serialization and P2/P5 operational snapshot/catalog alignment remain provisional. Stop here; do not begin Phase 5 until the independent review returns `APPROVED — CONTINUE P2`.

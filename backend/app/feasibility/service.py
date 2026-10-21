@@ -30,6 +30,8 @@ class EvaluationResult(FrozenModel):
     snapshot_version: int
     status: FeasibilityState
     solver_status: SolverStatus
+    evidence_complete: bool
+    allocation_dependent: bool
     assessed_at: datetime
     constraints: tuple[ConstraintReason, ...]
     assumptions: tuple[str, ...]
@@ -210,6 +212,7 @@ def evaluate(snapshot: EvaluationSnapshot, proposed_changes: ProposedChanges | N
         tenant_id=commitment.tenant_id, commitment_id=commitment.commitment_id,
         commitment_version=commitment.commitment_version, snapshot_id=original.snapshot_id,
         snapshot_version=original.snapshot_version, status=status,
+        evidence_complete=not evidence_unknown, allocation_dependent=allocation_dependent,
         solver_status=SolverStatus.STALE if stale else SolverStatus.UNKNOWN if (evidence_unknown or allocation_unknown)
         else SolverStatus.COMPLETED,
         assessed_at=snapshot.as_of, constraints=tuple(constraints), assumptions=tuple(assumptions),

@@ -171,4 +171,19 @@ jobs and transport evidence. Review data adapter and fixture/catalog extensions
 together. Keep missing data UNKNOWN; do not replace shared fixtures or invent facts.
 
 Host pytest 9.1.1 is outside P5's declared >=8.3,<9 range; dependencies unchanged.
-Validation is in P2_PHASE_REPORTS.md. Stop for external review; Phase 4 is gated.
+Validation is in P2_PHASE_REPORTS.md.
+
+## Phase 4 local impact extension
+
+`EvaluationResult` now exposes `evidence_complete` separately from
+`allocation_dependent`. These P2-local flags preserve the Phase 3 rule that
+missing/stale evidence dominates, while an independently evidenced HARD
+constraint is not masked by allocation-policy uncertainty. They are output
+metadata from the same `evaluate()` function; P3 should continue to consume the
+same evaluator and not implement a separate rule engine. The final shared
+assessment mapping is still blocked by P5's empty actual Impact Set support.
+
+Phase 4 candidate discovery, before/after results, impact classifications and
+future event intents are documented in `PHASE4_HANDOFF.md`. No route, event
+publication, persistence or authoritative Core update was added. Stop for
+independent Phase 4 review; Phase 5 is not started.
