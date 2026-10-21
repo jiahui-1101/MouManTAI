@@ -20,6 +20,7 @@ const reasons: Record<string, string> = {
   AUTHORITY_UNAVAILABLE: "Trusted approval validation is not connected yet.",
   DRAFT_PERSISTENCE_UNAVAILABLE: "Draft storage is unavailable. Please contact the integration owner.",
   COMMUNICATION_PERSISTENCE_UNAVAILABLE: "Communication storage is unavailable. Please contact the integration owner.",
+  COMMUNICATION_SUMMARY_UNAVAILABLE: "Dashboard statistics are unavailable. The request list can still be used.",
   DRAFT_REVALIDATION_REQUIRED: "The approval, channel or template changed. Prepare a new draft after review.",
   APPROVED_TERMS_MISMATCH: "The proposal terms changed. Review the current proposal before preparing a draft.",
   RESPONSE_SCOPE_MISMATCH: "The response does not match this tenant, request or proposal. Nothing was displayed.",
@@ -39,11 +40,12 @@ export function reasonText(code: string) {
   return "This request needs review before drafting can continue.";
 }
 
-export function errorText(error: unknown, resource: "list" | "detail" | "draft") {
+export function errorText(error: unknown, resource: "list" | "detail" | "draft" | "summary") {
   if (!(error instanceof ApiError)) return "Cannot reach the server. Check your connection and try again.";
   if (reasons[error.code] || /STALE|SUPERSEDED|VERSION|EXPIRED|REVOKED/.test(error.code)) return reasonText(error.code);
   if (error.status === 401) return "Your session is not authorized. Sign in again.";
   if (error.status === 403) return "You do not have permission for this action.";
+  if (error.status === 404 && resource === "summary") return "Dashboard statistics are not available. The summary route may still be awaiting integration.";
   if (error.status === 404) return resource === "list"
     ? "Communication service is not available. The route may still be awaiting integration."
     : resource === "draft" ? "Draft not found, or the draft route is unavailable. Check the ID and retry."
@@ -64,7 +66,7 @@ export function DisplayBadge({ label }: { label: string }) {
   return <StatusBadge state={label} label={label} className={`cc-status cc-status-${label.toLowerCase()}`} />;
 }
 export function ErrorNotice({ error, resource, onRetry }: {
-  error: unknown; resource: "list" | "detail" | "draft"; onRetry: () => void;
+  error: unknown; resource: "list" | "detail" | "draft" | "summary"; onRetry: () => void;
 }) {
   return <div className="cc-error" role="alert"><p>{errorText(error, resource)}</p>
     <button className="btn btn-secondary" onClick={onRetry}>Retry</button></div>;

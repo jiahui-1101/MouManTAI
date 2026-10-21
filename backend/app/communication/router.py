@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import RequestContext, get_db, get_request_context
 
 from .schemas import (
-    CommunicationRequestView, CreateCommunicationRequest, MessageDraftView,
+    CommunicationRequestView, CommunicationSummary, CreateCommunicationRequest, MessageDraftView,
     PrepareDraftRequest, RequestStatus,
 )
 from .drafting import DraftAuthority, MessageDraftService
@@ -71,6 +71,12 @@ def list_requests(
     request_status: RequestStatus | None = None,
 ):
     return service.list(context, commitment_id=commitment_id, request_status=request_status)
+
+
+# Static path must precede the dynamic /{communication_id} route.
+@router.get("/summary", response_model=CommunicationSummary)
+def communication_summary(service: DraftService, context: Context):
+    return service.summary(context)
 
 
 @router.get("/{communication_id}", response_model=CommunicationRequestView)

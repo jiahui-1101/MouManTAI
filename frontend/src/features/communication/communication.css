@@ -1,6 +1,6 @@
 .communication-center { min-width: 0; }
 .communication-center .page-heading { flex-wrap: wrap; }
-.cc-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-bottom: .75rem; }
+.cc-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: .75rem; }
 .cc-metric { display: grid; gap: .6rem; border: 1px solid #1e293b; border-radius: .75rem; padding: 1rem 1.25rem; background: #0b1120; }
 .cc-metric strong { color: #f8fafc; font-size: 1.8rem; }
 .cc-filters, .cc-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
@@ -42,7 +42,7 @@
 .cc-message { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .9rem; line-height: 1.8; background: #090e1a; color: #e2e8f0; border-radius: .5rem; padding: 1.25rem; margin: 1rem 0; }
 @media (max-width: 1000px) { .cc-workspace { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 520px) {
-  .cc-metrics { gap: .5rem; }
+  .cc-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
   .cc-metric { padding: .75rem .55rem; font-size: .73rem; }
   .cc-metric strong { font-size: 1.4rem; }
   .cc-facts { grid-template-columns: minmax(0, 1fr); }

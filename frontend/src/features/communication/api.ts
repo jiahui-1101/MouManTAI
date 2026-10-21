@@ -1,16 +1,29 @@
 import { ApiError, apiRequest, authHeaders, type RequestAuthHeaders } from "../../shared/api";
-import type { CommunicationRequestView, DraftReference, MessageDraftView, PrepareDraftRequest } from "./types";
+import type { CommunicationRequestView, CommunicationSummary, DraftReference, MessageDraftView, PrepareDraftRequest } from "./types";
 
 const base = "/v1/communications";
 export const communicationKeys = {
   scope: (auth: RequestAuthHeaders) => ["p4-communications", auth.tenantId, auth.actorId] as const,
   list: (auth: RequestAuthHeaders) => [...communicationKeys.scope(auth), "list"] as const,
+  summary: (auth: RequestAuthHeaders) => [...communicationKeys.scope(auth), "summary"] as const,
   detail: (auth: RequestAuthHeaders, id: string) => [...communicationKeys.scope(auth), "detail", id] as const,
   draft: (auth: RequestAuthHeaders, id: string, draftId: string) =>
     [...communicationKeys.scope(auth), "draft", id, draftId] as const,
 };
 const pathId = (value: string) => encodeURIComponent(value);
 const mismatch = () => new ApiError(409, "RESPONSE_SCOPE_MISMATCH", "Response does not match requested scope");
+
+export async function getCommunicationSummary(auth: RequestAuthHeaders, signal?: AbortSignal) {
+  const value = await apiRequest<CommunicationSummary>(`${base}/summary`, { headers: authHeaders(auth), signal });
+  if (value?.tenant_id !== auth.tenantId) throw mismatch();
+  const count = (number: unknown): number is number => typeof number === "number" && Number.isSafeInteger(number) && number >= 0;
+  if (!count(value.total) || !count(value.needs_attention) || value.needs_attention > value.total ||
+      [value.drafted, value.sent].some(number => number !== null && (!count(number) || number > value.total)) ||
+      !Number.isFinite(Date.parse(value.checked_at))) {
+    throw new ApiError(409, "UNSUPPORTED_RESPONSE", "Invalid summary response");
+  }
+  return value;
+}
 
 function scopedRequest(value: CommunicationRequestView, auth: RequestAuthHeaders, id?: string) {
   if (!value?.reference || value.reference.tenant_id !== auth.tenantId ||

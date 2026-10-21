@@ -1,6 +1,6 @@
 """SQLAlchemy repository only; never creates tables or substitutes a memory dictionary."""
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from .models import CommunicationRequestRecord, CommunicationSourceEventRecord, MessageDraftRecord
@@ -13,6 +13,19 @@ class CommunicationRequestRepository:
 
     def get(self, tenant_id: str, communication_id: str) -> CommunicationRequestRecord | None:
         return self.db.get(CommunicationRequestRecord, (tenant_id, communication_id))
+
+    def summary_counts(self, tenant_id: str) -> tuple[int, int]:
+        # One row per request: languages/drafts never inflate these counts.
+        total, blocked = self.db.execute(select(
+            func.count(),
+            func.coalesce(func.sum(case(
+                (CommunicationRequestRecord.request_status == RequestStatus.BLOCKED.value, 1),
+                else_=0,
+            )), 0),
+        ).select_from(CommunicationRequestRecord).where(
+            CommunicationRequestRecord.tenant_id == tenant_id,
+        )).one()
+        return int(total), int(blocked)
 
     def by_event(self, tenant_id: str, event_id: str) -> CommunicationRequestRecord | None:
         source = self.db.get(CommunicationSourceEventRecord, (tenant_id, event_id))
@@ -67,6 +80,11 @@ class CommunicationRequestRepository:
 class MessageDraftRepository:
     def __init__(self, db: Session):
         self.db = db
+
+    def for_tenant(self, tenant_id: str) -> list[MessageDraftRecord]:
+        return list(self.db.scalars(select(MessageDraftRecord).where(
+            MessageDraftRecord.tenant_id == tenant_id,
+        ).order_by(MessageDraftRecord.communication_id, MessageDraftRecord.draft_id)))
 
     def get(self, tenant_id: str, communication_id: str, draft_id: str) -> MessageDraftRecord | None:
         return self.db.scalar(select(MessageDraftRecord).where(

@@ -101,6 +101,18 @@ class PrepareDraftRequest(ContractModel):
     template_key: str = Field(default="delivery_change", strict=True, min_length=1, max_length=64)
 
 
+class CommunicationSummary(ContractModel):
+    """Tenant-wide database counts at checked_at; None means unavailable, not zero."""
+
+    tenant_id: ReferenceId
+    total: int = Field(ge=0)
+    drafted: int | None = Field(default=None, ge=0)
+    sent: int | None = Field(default=None, ge=0)
+    needs_attention: int = Field(ge=0)
+    checked_at: OffsetAwareDatetime
+    unavailable_reasons: dict[Literal["drafted", "sent"], str] = Field(default_factory=dict)
+
+
 class MessageDraftView(ContractModel):
     draft_id: ReferenceId
     tenant_id: ReferenceId

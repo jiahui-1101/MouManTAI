@@ -42,6 +42,16 @@ export interface CommunicationRequestView {
 
 export type DraftLanguage = "en" | "ms" | "zh";
 
+export interface CommunicationSummary {
+  tenant_id: DraftReference["tenant_id"];
+  total: number;
+  drafted: number | null;
+  sent: number | null;
+  needs_attention: number;
+  checked_at: ISO8601;
+  unavailable_reasons: Partial<Record<"drafted" | "sent", string>>;
+}
+
 export interface PrepareDraftRequest {
 language?: DraftLanguage;
 template_key?: string;

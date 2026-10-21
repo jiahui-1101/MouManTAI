@@ -17,7 +17,7 @@ from app.core.schemas import CommitmentTerms, CommunicationChannel
 from . import templates
 from .repository import MessageDraftRepository
 from .schemas import (
-    CreateCommunicationRequest, MessageDraftView, PrepareDraftRequest,
+    CommunicationSummary, CreateCommunicationRequest, MessageDraftView, PrepareDraftRequest,
     RecoveryCommunicationReference, RequestAuthorization,
 )
 from .service import CommunicationRequestService, _fail, _require_context
@@ -48,6 +48,76 @@ class MessageDraftService:
         self.authority = authority
         self.requests = CommunicationRequestService(db)
         self.repository = MessageDraftRepository(db)
+
+    def summary(self, context: RequestContext, *, now: datetime | None = None) -> CommunicationSummary:
+        """Read-only tenant summary, reusing READ_DRAFT policy/currentness checks.
+
+        No sending persistence exists in this repository. Neither request snapshots
+        nor generic audit/outbox status can prove a provider-confirmed send.
+        """
+        _require_context(context)
+        checked_at = self._time(now)
+        try:
+            total, blocked = self.requests.repository.summary_counts(context.tenant_id)
+        except SQLAlchemyError as exc:
+            self.db.rollback()
+            raise DomainError(
+                "COMMUNICATION_SUMMARY_UNAVAILABLE", "Communication statistics storage is unavailable", status_code=503,
+            ) from exc
+        try:
+            reasons = {"sent": "SENDING_RECORDS_UNAVAILABLE"}
+            drafted = None
+            if self.authority is None:
+                reasons["drafted"] = "DRAFT_REVALIDATION_UNAVAILABLE"
+            else:
+                try:
+                    drafted = self._count_current_drafts(context, checked_at)
+                except SQLAlchemyError:
+                    reasons["drafted"] = "DRAFT_STORAGE_UNAVAILABLE"
+                except DomainError:
+                    # Includes actor READ_DRAFT denial or an unavailable adapter.
+                    # A partial count must never masquerade as a complete total.
+                    reasons["drafted"] = "DRAFT_VALIDITY_UNAVAILABLE"
+                except ValidationError:
+                    reasons["drafted"] = "DRAFT_VALIDITY_UNAVAILABLE"
+            return CommunicationSummary(
+                tenant_id=context.tenant_id, total=total, drafted=drafted, sent=None,
+                needs_attention=blocked, checked_at=checked_at, unavailable_reasons=reasons,
+            )
+        finally:
+            self.db.rollback()  # Release currentness locks; summary writes nothing.
+
+    def _count_current_drafts(self, context: RequestContext, now: datetime) -> int:
+        # These are authoritative rejection outcomes: the saved draft cannot be
+        # used today. Unknown/infrastructure/policy errors make the metric unavailable.
+        ineligible = {
+            "COMMITMENT_NOT_FOUND", "PROPOSAL_NOT_FOUND", "SOURCE_EVENT_NOT_FOUND",
+            "COMMUNICATION_NOT_FOUND", "COMMITMENT_VERSION_CONFLICT", "STALE_PROPOSAL_VERSION",
+            "AMBIGUOUS_PROPOSAL_VERSION", "PROPOSAL_NOT_ELIGIBLE", "PROPOSED_DEADLINE_PASSED",
+            "APPROVED_TERMS_REQUIRED", "APPROVAL_EVIDENCE_REQUIRED", "AUTHORIZATION_SCOPE_MISMATCH",
+            "APPROVED_TERMS_MISMATCH", "APPROVAL_EXPIRED", "PROPOSAL_EXPIRED", "RECIPIENT_MISMATCH",
+            "PROPOSAL_EXPIRY_REQUIRED", "VERIFIED_RECIPIENT_REQUIRED", "AUTHORIZED_CHANNEL_REQUIRED",
+            "REQUEST_REFERENCE_CONFLICT", "DRAFT_REVALIDATION_REQUIRED", "DRAFT_INTEGRITY_ERROR",
+        }
+        valid_requests: set[str] = set()
+        for record in self.repository.for_tenant(context.tenant_id):
+            if record.communication_id in valid_requests:
+                continue
+            # Invalid persisted shape cannot be treated as a reliable numeric count.
+            saved = self.repository.view(record)
+            try:
+                expected = self._candidate(
+                    context, record.communication_id,
+                    PrepareDraftRequest(language=saved.language, template_key=saved.template_key),
+                    now, "READ_DRAFT",
+                )
+                self._verified_snapshot(record, expected)
+            except DomainError as exc:
+                if exc.code not in ineligible:
+                    raise
+                continue
+            valid_requests.add(record.communication_id)
+        return len(valid_requests)
 
     def _candidate(
         self, context: RequestContext, communication_id: str, command: PrepareDraftRequest,
