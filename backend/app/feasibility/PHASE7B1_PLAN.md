@@ -65,5 +65,5 @@
 
 - [x] Run combined backend P2/P5 regressions and frontend tests, typecheck, and production build.
 - [x] Record failures, warnings, skips and live DB/API/E2E tests that were not run without upgrading isolated evidence into production claims.
-- [ ] Review changed paths and ownership; commit validated checkpoints and push only `origin/feat/p2-phase7b-integration`.
-- [ ] Stop for independent review before joint production wiring or Phase 7B-2.
+- [x] Review changed paths and ownership; commit validated checkpoints and push only `origin/feat/p2-phase7b-integration`.
+- [x] Stop for independent review before joint production wiring or Phase 7B-2.

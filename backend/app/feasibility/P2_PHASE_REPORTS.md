@@ -1139,7 +1139,9 @@ All P2/P5 API tests used isolated local dependencies (SQLite/injected providers/
 
 **Recommended joint sequence:** P5 configures authenticated requester/service contexts, source authority, writer/history/impact/supplier processor and app routes; seed two commitments with full synthetic operational evidence; submit supplier ETA change and assert one affected plus one buffered-unaffected result; verify atomic history/Core risk/audit/outbox and duplicate replay; inject transactional failure and verify complete rollback; exercise stale/tenant/evidence/untrusted negatives; then load P2 pages and P5 overview through real authenticated API/browser paths. Full ordering and assertions are in the readiness report.
 
-**Gate:** stop for independent review after committing and pushing only `origin/feat/p2-phase7b-integration`. Do not start Phase 7B-2 or joint production wiring until separately approved. No PR or Main merge is authorized by this phase.
+**Git checkpoint:** implementation commit `1507b5918b8ea9200aba4edca9b618929386e1fd` was pushed only to `origin/feat/p2-phase7b-integration`; `git ls-remote` confirmed the remote ref matched. Follow-up documentation records that checkpoint; the final branch head is reported with the task result.
+
+**Gate:** stop for independent review before Phase 7B-2 or joint production wiring. No PR or Main merge was created.
 
 Changed files: `history.py`, `ports.py`, `tests/test_history.py`,
 `PHASE7A_HANDOFF.md`, `P2_PROGRESS.md`, `P2_REQUIREMENT_TRACE.md`,

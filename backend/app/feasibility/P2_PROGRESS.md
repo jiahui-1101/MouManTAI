@@ -16,11 +16,13 @@ and E2E sequence are in `PHASE7B1_INTEGRATION_READINESS.md`.
 
 Validation: **229 P2 backend tests**, **79 P5/shared backend tests**, **118 frontend
 tests passed / 5 skipped**, frontend typecheck/build passed, and the synthetic P2
-demo exits successfully. See the Phase 7B-1 report for commands and warnings.
+demo exits successfully. Combined backend rerun: **308 passed**. See the Phase
+7B-1 report for commands and warnings.
 No authenticated API, live DB, migrations, mounted P2 pages, durable writer,
-or joint P2/P5/P3 E2E was run. P2 feature changes are ready to commit/push only on
-this new feature branch; stop for independent review before 7B-2 or production
-wiring.
+or joint P2/P5/P3 E2E was run. Validated implementation checkpoint
+`1507b5918b8ea9200aba4edca9b618929386e1fd` was pushed only to
+`origin/feat/p2-phase7b-integration` and its remote ref matched. Stop for
+independent review before 7B-2 or production wiring.
 
 ## Current post-review follow-up — first-insert result integrity
 

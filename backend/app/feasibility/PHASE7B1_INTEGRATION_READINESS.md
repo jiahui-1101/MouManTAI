@@ -5,6 +5,7 @@
 **Approved Main:** `03d5928e060271585a617afb3733b83732e6d4cd` (PR #5 merge; approved Phase 7A and post-review history-integrity implementation included).
 **P2 branch:** `feat/p2-phase7b-integration`, created from that exact Main SHA.
 **Read-only refs inspected:** P3 `ca7517c7c09390f0926d01825e689dbf1a8c8ca6`; P5 `5823db8c89d509243f904d988f865a6777ea6c4a`.
+**Validated checkpoint:** `1507b5918b8ea9200aba4edca9b618929386e1fd`, pushed only to `origin/feat/p2-phase7b-integration`; remote ref matched at push time.
 
 No feasibility or impact calculation engine was rewritten. This report records local adapters and test doubles separately from real authenticated/database/API integration.
 
