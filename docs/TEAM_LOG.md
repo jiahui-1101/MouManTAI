@@ -93,9 +93,9 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 
 | ID | Deliverable | Owner | Status | Evidence / PR / Test | Blocker | Next action |
 |---|---|---|---|---|---|---|
-| P1-FE | Inbox + Context Review UI | P1 | NOT_STARTED | — | — | Scaffold route |
-| P1-BE | Ingestion/Extraction/Context API | P1 | NOT_STARTED | — | Shared contracts | Define fixtures |
-| P1-TST | Context tests and metrics | P1 | NOT_STARTED | — | — | Define expected labels |
+| P1-FE | Inbox + Context Review UI | P1 | IN_PROGRESS | DurableInbox & SyntheticComposer working in isolated dev runner; mounting to /inbox and Review Panel next | — | Wire route to App.tsx & build Review Drawer |
+| P1-BE | Ingestion/Extraction/Context API | P1 | IN_PROGRESS | Task 2B completed (7c6ab30, 243fab1, 9a83e3b): deterministic date/time, deadline qualifiers (DEADLINE/EXACT/DATE_ONLY), unit normalization (pcs/box/kg), timezone-aware midnight/boundary handling, exact Unicode evidence spans | Awaiting P5 ContextStatus enum & DB migration coordination | BusinessContext persistence & Process/Review API |
+| P1-TST | Context tests and metrics | P1 | IN_PROGRESS | 62 deterministic extraction tests passing; 218 total backend tests passing (100% green) | — | Integration tests for Process API & 409 optimistic locking |
 | P2-FE | Feasibility / Impact UI | P2 | IN_REVIEW | Phase 6 exportable pages, typed feature adapters, labeled preview; 43 focused tests and typecheck/build pass | P5 public detail/auth/persistence adapters and route mounting pending; no live page API integration | Independent external Phase 6 review; do not begin Phase 7 |
 | P2-BE | Constraint + Impact engine | P2 | IN_PROGRESS | Phase 5 local correction `85d46b2` externally approved; historical 24 router / 188 combined tests pass, backend unchanged in Phase 6 | P5 mounting/auth/snapshot/version/persistence/supplier processing/Core risk integration; empty Impact Set implemented on P5 branch pending integration; P3 HTTP confirmation | Preserve approved backend; shared integration handoff remains open |
 | P2-TST | Feasibility/Impact tests | P2 | IN_PROGRESS | Phase 6: 43 focused frontend tests and typecheck/build pass; historical Phase 5 backend tests preserved | Live authenticated API/UI/DB/outbox/P3/E2E remain unverified; browser viewport QA pending | Independent external Phase 6 review; no full P2 completion claim |
@@ -197,6 +197,13 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 - P5: Completed: Task T3.3 (Backend E2E Hero Journey & Full 12-Scenario Acceptance Matrix, UI-04, UI-05, E2E-01 to E2E-12); implemented test_e2e_hero_journey.py (full single-commitment_id 'com_001' lifecycle across 9 monotonic optimistic concurrency versions from ingestion to delivery POD) and test_e2e_negative_matrix.py (E2E-04 snapshot drift, E2E-05 ambiguous OK, E2E-06 stale proposal version rejection, E2E-07 delivery tracking without state advance, E2E-08 idempotency retry, E2E-09 unverified receipt guard, E2E-10 worker crash recovery, E2E-11 cross-tenant isolation); updated commitments.py attention queue is_ambiguous evaluation; 63 backend tests + 12 frontend tests passing; typecheck & build passing | Next: Cross-feature E2E rehearsal with team | Blocked by: BLOCK-20261021-001 (isolated PostgreSQL for live migration smoke)
 - Integration status: Full 12-scenario backend E2E acceptance matrix and Hero Journey verified on real database.
 - Risks and decisions: Invariant adherence verified: REQUESTED != CONFIRMED, CONFIRMED + AT_RISK coexists, SENT != ACCEPTED != FULFILLED, APPROVED != EXECUTED, OCR receipt != verified funds. CONTRACT-20261021-008.
+
+### 2026-10-21 — P1 Task 2B Delivery Date/Time & Unit Normalization
+- P1: Completed: Task 2B (Deterministic Delivery Date/Time & Unit Normalization, commits `7c6ab30`, `243fab1`, `9a83e3b`, `772bb1e`). Supports relative dates (today/tomorrow/今天/明天/后天) with timezone-aware midnight/boundary resolution, ISO and formatted English/Chinese dates, 12h/24h/Chinese times, deadline qualifiers (DEADLINE vs EXACT vs DATE_ONLY), multilingual unit normalization (pcs, piece, pieces, pc, 个, 件 -> pcs; box, boxes, 盒, 箱 -> box; kg, 公斤 -> kg), unsafe unit conversion prevention (24 kg burgers -> INVALID), and conflict/unsupported expressions -> UNRESOLVED. 62 focused unit tests pass; 218 total backend tests pass. Synced latest Main (PR #3 P5 and PR #4 P2 Feasibility Engine `ee4dfc7`) with 0 conflicts.
+- P1 Next: BusinessContext domain tables/persistence (Alembic migration coordination with P5) and P1 REST API endpoints (POST /v1/messages/{id}/process, GET/PATCH /v1/contexts/{id}, POST /v1/contexts/{id}/review).
+- P1 Blockers / Inquiries:
+  - P5 (Gan): Align ContextStatus enum naming (P1 using ContextStatus.INFORMATION_READY) and coordinate Alembic migration 0006 for order_contexts table.
+  - P2 (Mei Shuet): Confirmed SKU 'BURGER' with unit 'pcs' aligns directly with P2 Feasibility Engine fixtures.
 
 
 ## 6. Blocker / Dependency Ledger
