@@ -1,0 +1,41 @@
+{
+  "$schema-description": "Example canonical FeasibilityAssessment fixtures demonstrating FEASIBLE and UNKNOWN statuses with empty affected_commitment_ids ([]) when no downstream commitments are disrupted.",
+  "feasible_example": {
+    "assessment_id": "fa_feasible_001",
+    "tenant_id": "tenant_demo_01",
+    "commitment_id": "com_001",
+    "commitment_version": 1,
+    "snapshot_version": 100,
+    "status": "FEASIBLE",
+    "constraints": [],
+    "affected_commitment_ids": [],
+    "evidence_refs": ["ev_inventory_check_001"],
+    "solver_status": "COMPLETED",
+    "assumptions": ["Adequate stock and production capacity on hand."],
+    "assessed_at": "2026-10-21T09:00:00+08:00"
+  },
+  "unknown_example": {
+    "assessment_id": "fa_unknown_001",
+    "tenant_id": "tenant_demo_01",
+    "commitment_id": "com_002",
+    "commitment_version": 1,
+    "snapshot_version": 101,
+    "status": "UNKNOWN",
+    "constraints": [
+      {
+        "code": "MISSING_SUPPLIER_SCHEDULE",
+        "resource_id": "RAW_MATERIAL_X",
+        "shortage": null,
+        "unit": null,
+        "deadline": null,
+        "severity": "INFORMATIONAL",
+        "evidence_refs": ["ev_supplier_pending_001"]
+      }
+    ],
+    "affected_commitment_ids": [],
+    "evidence_refs": ["ev_supplier_pending_001"],
+    "solver_status": "UNKNOWN",
+    "assumptions": ["Awaiting supplier confirmation; impact set cannot be determined."],
+    "assessed_at": "2026-10-21T09:15:00+08:00"
+  }
+}

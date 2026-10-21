@@ -1,1 +1,1 @@
-"""P1-owned context module; shared contracts await P5 review."""
+"""P1 boundary: BusinessContext ingestion and review."""

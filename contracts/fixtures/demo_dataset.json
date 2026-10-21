@@ -1,0 +1,226 @@
+{
+  "tenant_id": "tenant_demo_01",
+  "business_context": {
+    "tenant_id": "tenant_demo_01",
+    "context_id": "ctx_001",
+    "source_message_ids": ["msg_001"],
+    "customer_id": "cust_001",
+    "customer_identity_status": "LINK_VERIFIED",
+    "order_id": "ord_001",
+    "requested_items": [{"sku": "BURGER", "quantity": "100", "unit": "pcs"}],
+    "requested_delivery_at": "2026-10-24T15:00:00+08:00",
+    "special_instructions": "Pack separately for pickup.",
+    "field_evidence": {
+      "sku": ["ev_msg_001_span_3"],
+      "quantity": ["ev_msg_001_span_2"],
+      "requested_delivery_at": ["ev_msg_001_span_5"]
+    },
+    "conflicts": [],
+    "missing_fields": [],
+    "context_version": 1,
+    "status": "INFORMATION_READY"
+  },
+  "commitment": {
+    "tenant_id": "tenant_demo_01",
+    "commitment_id": "com_001",
+    "order_id": "ord_001",
+    "customer_id": "cust_001",
+    "terms": {
+      "sku": "BURGER",
+      "quantity": "100",
+      "unit": "pcs",
+      "deadline": "2026-10-24T15:00:00+08:00",
+      "special_instructions": "Pack separately for pickup."
+    },
+    "agreement_state": "CONFIRMED",
+    "feasibility_state": "CONDITIONAL",
+    "risk_state": "AT_RISK",
+    "recovery_state": "COMPLETED",
+    "fulfilment_state": "NOT_STARTED",
+    "commitment_version": 3,
+    "evidence_refs": ["ev_confirm_001", "ev_customer_accept_001"],
+    "updated_at": "2026-10-21T14:00:00+08:00"
+  },
+  "operational_snapshot": {
+    "snapshot_id": "snap_142",
+    "snapshot_version": 142,
+    "captured_at": "2026-10-21T10:00:00+08:00",
+    "source": "SYNTHETIC_ERP",
+    "inventory": [
+      {"resource_id": "BUN", "usable_on_hand": "100", "reserved": "0", "unit": "pcs"},
+      {"resource_id": "PATTY", "usable_on_hand": "100", "reserved": "0", "unit": "pcs"},
+      {"resource_id": "SAUCE", "usable_on_hand": "120", "reserved": "0", "unit": "pcs"},
+      {"resource_id": "PACKAGING", "usable_on_hand": "80", "reserved": "0", "unit": "pcs"}
+    ],
+    "bom": {
+      "BURGER": [
+        {"resource_id": "BUN", "quantity_per_unit": "1", "unit": "pcs"},
+        {"resource_id": "PATTY", "quantity_per_unit": "1", "unit": "pcs"},
+        {"resource_id": "SAUCE", "quantity_per_unit": "1", "unit": "pcs"},
+        {"resource_id": "PACKAGING", "quantity_per_unit": "1", "unit": "pcs"}
+      ]
+    },
+    "capacity_hours_available": "8.0",
+    "capacity_hours_required": "6.0",
+    "freshness_status": "VALID"
+  },
+  "supplier_delay": {
+    "event_id": "evt_supplier_delay_001",
+    "supplier_id": "supplier_packaging_01",
+    "resource_id": "PACKAGING",
+    "confirmed_quantity": "20",
+    "original_eta": "2026-10-23T10:00:00+08:00",
+    "revised_eta": "2026-10-24T16:00:00+08:00",
+    "required_by": "2026-10-24T12:00:00+08:00",
+    "evidence_refs": ["ev_supplier_003"]
+  },
+  "feasibility_assessment": {
+    "assessment_id": "fa_001",
+    "tenant_id": "tenant_demo_01",
+    "commitment_id": "com_001",
+    "commitment_version": 2,
+    "snapshot_version": 142,
+    "status": "INFEASIBLE",
+    "constraints": [
+      {
+        "code": "MATERIAL_SHORTAGE",
+        "resource_id": "PACKAGING",
+        "shortage": "20",
+        "unit": "pcs",
+        "deadline": "2026-10-24T12:00:00+08:00",
+        "severity": "HARD",
+        "evidence_refs": ["ev_stock_001", "ev_supplier_003"]
+      }
+    ],
+    "affected_commitment_ids": ["com_001", "com_002"],
+    "evidence_refs": ["ev_stock_001", "ev_supplier_003"],
+    "solver_status": "COMPLETED",
+    "assumptions": ["One BURGER consumes one PACKAGING unit."],
+    "assessed_at": "2026-10-21T10:05:00+08:00"
+  },
+  "revalidated_assessment": {
+    "assessment_id": "fa_002",
+    "tenant_id": "tenant_demo_01",
+    "commitment_id": "com_001",
+    "commitment_version": 3,
+    "snapshot_version": 143,
+    "status": "CONDITIONAL",
+    "constraints": [],
+    "affected_commitment_ids": ["com_001"],
+    "evidence_refs": ["ev_alt_supply_request_001"],
+    "solver_status": "COMPLETED",
+    "assumptions": ["Alternative packaging request is accepted before production cutoff."],
+    "assessed_at": "2026-10-21T13:55:00+08:00"
+  },
+  "recovery_plans": [
+    {
+      "tenant_id": "tenant_demo_01",
+      "recovery_case_id": "rc_001",
+      "plan_id": "plan_a",
+      "plan_version": 1,
+      "commitment_id": "com_001",
+      "based_on_assessment_id": "fa_001",
+      "snapshot_version": 142,
+      "feasibility_status": "CONDITIONAL",
+      "estimated_extra_cost": "80.00",
+      "currency": "MYR",
+      "estimated_delay_minutes": 0,
+      "risks": ["ALTERNATIVE_SUPPLY_PENDING"],
+      "actions": [
+        {
+          "action_id": "act_001",
+          "type": "CREATE_PURCHASE_REQUEST",
+          "requires_approval": true,
+          "idempotency_key": "plan_a_act_001",
+          "parameters": {"resource_id": "PACKAGING", "quantity": "20", "supplier_id": "supplier_alt_01"},
+          "preconditions": ["Manager approval recorded", "P2 revalidation is not stale"]
+        }
+      ],
+      "approval_state": "APPROVED",
+      "execution_state": "SUCCEEDED"
+    },
+    {
+      "tenant_id": "tenant_demo_01",
+      "recovery_case_id": "rc_001",
+      "plan_id": "plan_b",
+      "plan_version": 1,
+      "commitment_id": "com_001",
+      "based_on_assessment_id": "fa_001",
+      "snapshot_version": 142,
+      "feasibility_status": "FEASIBLE",
+      "estimated_extra_cost": "0.00",
+      "currency": "MYR",
+      "estimated_delay_minutes": 1440,
+      "risks": ["CUSTOMER_ACCEPTANCE_REQUIRED"],
+      "actions": [
+        {
+          "action_id": "act_002",
+          "type": "CREATE_DELIVERY_CHANGE_PROPOSAL",
+          "requires_approval": true,
+          "idempotency_key": "plan_b_act_001",
+          "parameters": {"new_deadline": "2026-10-25T15:00:00+08:00"},
+          "preconditions": ["Manager approval recorded", "Customer accepts proposal version"]
+        }
+      ],
+      "approval_state": "PENDING",
+      "execution_state": "NOT_STARTED"
+    }
+  ],
+  "approval": {
+    "approval_id": "approval_001",
+    "tenant_id": "tenant_demo_01",
+    "actor_id": "user_manager_01",
+    "actor_role": "MANAGER",
+    "plan_id": "plan_a",
+    "plan_version": 1,
+    "snapshot_version": 143,
+    "approved_cost_limit": "100.00",
+    "decision": "APPROVED",
+    "decision_reason": "Protect the confirmed customer deadline within the approved cost limit.",
+    "expires_at": "2026-10-21T18:00:00+08:00",
+    "evidence_refs": ["ev_manager_approval_001"]
+  },
+  "communication_request": {
+    "communication_id": "comm_001",
+    "tenant_id": "tenant_demo_01",
+    "commitment_id": "com_001",
+    "proposal_id": "proposal_003",
+    "proposal_version": 3,
+    "recipient_identity_id": "identity_001",
+    "channel": "MOCK_WHATSAPP",
+    "message_status": "SENT",
+    "message_template_key": "delivery_change_v1",
+    "approval_state": "APPROVED",
+    "confirmation_id": "conf_001",
+    "confirmation_state": "ACCEPTED",
+    "expires_at": "2026-10-22T20:00:00+08:00",
+    "evidence_refs": ["ev_outbound_message_001"]
+  },
+  "confirmation": {
+    "confirmation_id": "conf_001",
+    "tenant_id": "tenant_demo_01",
+    "commitment_id": "com_001",
+    "proposal_id": "proposal_003",
+    "proposal_version": 3,
+    "recipient_identity_id": "identity_001",
+    "state": "ACCEPTED",
+    "accepted_terms": {
+      "sku": "BURGER",
+      "quantity": "100",
+      "deadline": "2026-10-24T15:00:00+08:00"
+    },
+    "response_evidence_refs": ["ev_customer_accept_001"],
+    "expires_at": "2026-10-22T20:00:00+08:00",
+    "responded_at": "2026-10-21T14:00:00+08:00"
+  },
+  "fulfilment_evidence": {
+    "evidence_id": "fev_001",
+    "tenant_id": "tenant_demo_01",
+    "commitment_id": "com_001",
+    "source": "SYNTHETIC_WMS",
+    "operational_event": "PICKING_NOT_STARTED",
+    "verified": false,
+    "status": "UNVERIFIED",
+    "note": "Customer acceptance is recorded, but no operational completion proof exists yet."
+  }
+}
