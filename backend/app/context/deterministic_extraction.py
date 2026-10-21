@@ -110,6 +110,9 @@ DATE_MDY_RE = re.compile(
 # Chinese Date: 2026年10月24日 / 10月24日
 DATE_ZH_FULL_RE = re.compile(r"(?P<year>\d{4})年(?P<month>\d{1,2})月(?P<day>\d{1,2})[日号]")
 DATE_ZH_SHORT_RE = re.compile(r"(?<!\d)(?P<month>\d{1,2})月(?P<day>\d{1,2})[日号]")
+YEARLESS_DMY_RE = re.compile(rf"\b[0-9]{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:{MONTH_PATTERN})\b", re.IGNORECASE)
+YEARLESS_MDY_RE = re.compile(rf"\b(?:{MONTH_PATTERN})\s+[0-9]{{1,2}}(?:st|nd|rd|th)?\b", re.IGNORECASE)
+NUMERIC_DATE_RE = re.compile(r"(?<![A-Za-z0-9])[0-9]{1,2}[/-][0-9]{1,2}(?:[/-][0-9]{2,4})?(?![A-Za-z0-9])")
 
 # Time patterns
 TIME_12H_RE = re.compile(
@@ -176,11 +179,17 @@ def _safe_date(year: int, month: int, day: int) -> date | None:
         return None
 
 
-def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate], list[tuple[int, int]], list[tuple[int, int]]]:
-    """Find all dates in text. Returns (valid_dates, invalid_calendar_date_spans, timezone_required_spans)."""
+def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate], list[tuple[int, int]], list[tuple[int, int]], list[tuple[int, int]]]:
+    """Find full dates; never assign a year to yearless/ambiguous formats.
+
+    Returns valid dates, invalid calendars, missing-relative-context spans,
+    and unresolved yearless/numeric date spans. Nested short matches do not
+    count as a second date inside a complete (even invalid) date token.
+    """
     valid: list[ParsedDate] = []
     invalid_calendar: list[tuple[int, int]] = []
     tz_required: list[tuple[int, int]] = []
+    yearless: list[tuple[int, int]] = []
 
     # 1. Relative dates
     for m in REL_DATE_EN_RE.finditer(text):
@@ -234,19 +243,15 @@ def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate
         else:
             valid.append(ParsedDate(d, m.start(), m.end(), m.group()))
 
-    for m in DATE_ZH_SHORT_RE.finditer(text):
-        if any(s <= m.start() and m.end() <= e for s, e in
-               [(d.start, d.end) for d in valid] + invalid_calendar):
-            continue
-        yr = local_date.year if local_date else 2026
-        d = _safe_date(yr, int(m.group("month")), int(m.group("day")))
-        if d is None:
-            invalid_calendar.append((m.start(), m.end()))
-        else:
-            valid.append(ParsedDate(d, m.start(), m.end(), m.group()))
+    for pattern in (DATE_ZH_SHORT_RE, YEARLESS_DMY_RE, YEARLESS_MDY_RE, NUMERIC_DATE_RE):
+        for m in pattern.finditer(text):
+            if any(m.start() < e and s < m.end() for s, e in
+                   [(d.start, d.end) for d in valid] + invalid_calendar + yearless):
+                continue
+            yearless.append(m.span())
 
     valid.sort(key=lambda x: x.start)
-    return valid, invalid_calendar, tz_required
+    return valid, invalid_calendar, tz_required, yearless
 
 
 def _find_all_times(text: str) -> tuple[list[ParsedTime], list[tuple[int, int]]]:
@@ -346,19 +351,25 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
         except (ZoneInfoNotFoundError, ValueError):
             tz_error = f"Invalid business timezone '{message.raw.business_timezone}'"
 
-    local_dt = message.raw.received_at.astimezone(tz) if tz else None
+    # Source-time policy: the preserved provider message timestamp, if supplied;
+    # otherwise the delivery observation timestamp. Never ingestion/processing
+    # wall clock. A message timestamp later than its receipt is inconsistent.
+    source_time = message.raw.message_at if message.raw.message_at is not None else message.raw.received_at
+    source_kind = "message_at" if message.raw.message_at is not None else "received_at"
+    source_time_error = "message_at is later than received_at; source timestamp requires review" if source_time > message.raw.received_at else None
+    local_dt = source_time.astimezone(tz) if tz else None
     local_date = local_dt.date() if local_dt else None
 
     # Check for unsupported or ambiguous relative expressions
     ambig_match = AMBIGUOUS_DELIVERY_RE.search(text)
-    dates_found, invalid_calendar_spans, tz_required_spans = _find_all_dates(text, local_date)
+    dates_found, invalid_calendar_spans, tz_required_spans, yearless_spans = _find_all_dates(text, local_date)
     times_found, invalid_time_spans = _find_all_times(text)
     unsupported_semantics = UNSUPPORTED_TIME_SEMANTICS_RE.search(text) if dates_found or times_found else None
     # Exclude every recognized temporal token from quantity candidates, even
     # when delivery is invalid/unresolved. Do not steal dates as order counts.
     delivery_spans.extend([(d.start, d.end) for d in dates_found]
                           + [(t.start, t.end) for t in times_found]
-                          + invalid_calendar_spans + invalid_time_spans + tz_required_spans)
+                          + invalid_calendar_spans + invalid_time_spans + tz_required_spans + yearless_spans)
 
     # Detect conflicts: multiple dates or times with connector
     has_conflict = False
@@ -409,16 +420,15 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
             [err_span],
             metadata={"reason": "Impossible calendar date"},
         )
-    elif tz_required_spans and tz is None:
-        err_span = tz_required_spans[0]
-        delivery_spans.append(err_span)
-        delivery_field = field(
-            "requested_delivery_at",
-            None,
-            "UNRESOLVED",
-            [err_span],
-            metadata={"reason": f"{tz_error or 'Missing timezone'}; relative date cannot be resolved"},
-        )
+    elif source_time_error and delivery_spans:
+        delivery_field = field("requested_delivery_at", None, "UNRESOLVED", delivery_spans,
+                               metadata={"reason": source_time_error})
+    elif yearless_spans:
+        delivery_field = field("requested_delivery_at", None, "UNRESOLVED", yearless_spans,
+                               metadata={"reason": "Yearless or ambiguous numeric date; explicit year and unambiguous format required"})
+    elif tz is None and delivery_spans:
+        delivery_field = field("requested_delivery_at", None, "UNRESOLVED", delivery_spans,
+                               metadata={"reason": tz_error or "Missing business timezone"})
     elif dates_found:
         parsed_date = dates_found[0]
         parsed_time = times_found[0] if times_found else None
@@ -528,6 +538,15 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
 
     if delivery_field is None:
         delivery_field = field("requested_delivery_at", None, "MISSING")
+
+    if delivery_field.validation_status != "MISSING":
+        delivery_field.metadata.update({
+            "source_timestamp_policy": "message_at_else_received_at_v1",
+            "source_timestamp_source": source_kind,
+            "source_timestamp": source_time.isoformat(),
+            "received_at": message.raw.received_at.isoformat(),
+            "timezone_source": "message.business_timezone" if message.raw.business_timezone else "missing",
+        })
 
     fields.append(delivery_field)
 

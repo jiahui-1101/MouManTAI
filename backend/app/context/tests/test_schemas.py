@@ -30,7 +30,7 @@ def context_data():
 def test_timezone_normalizes_to_utc_without_clock_dependency():
     raw = RawMessageEnvelope(**raw_data())
     assert raw.received_at.isoformat() == "2026-10-20T02:00:00+00:00"
-    assert raw.business_timezone == "Asia/Kuala_Lumpur"
+    assert raw.business_timezone is None  # Missing timezone must stay missing.
 
 
 @pytest.mark.parametrize("change", [
