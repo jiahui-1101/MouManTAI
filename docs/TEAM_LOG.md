@@ -1,5 +1,24 @@
 # MouManTAI — Team Execution Log & Decision Register
 
+### 2026-10-21 — P1 BATCH 4: attachment evidence, PDF text extraction, and image OCR with unverified payment guard (local only)
+
+- Branch: `feat/p1-context-intelligence`; commits: storage & validation `c364c07`, PyMuPDF extraction `d5e25a3`, PaddleOCR & payment guard `2937d59`, UI AttachmentViewer & inbox integration `ef58ac3`.
+- Backend:
+  - Implemented `p1_dev.attachments` and `p1_dev.document_extractions` storage with strict tenant scoping.
+  - Implemented `attachment_validator.py` with magic byte validation (PDF `%PDF-`, PNG `\x89PNG\r\n\x1a\n`, JPEG `\xff\xd8\xff`), 10MB size limit (413), filename path traversal protection (400), and unsupported format rejections (415).
+  - Implemented bounded machine-readable PDF extraction using `pymupdf` (2.0) with max 10 pages bound, page numbers, text blocks, and bounding boxes (`BoundingBox` [x0, y0, x1, y1]).
+  - Configured and integrated `PaddleOCR` (3.7.0) with PaddlePaddle (3.3.1), resolving Windows AMD64 PIR executor compatibility via `PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT=False`, with 4096×4096 px dimension bounds, recognition confidence scores, and bounding boxes.
+  - Strictly separated document evidence (`DocumentEvidence` with `evidence_ref`, `page_number`, `bounding_box`) from message text code-point offsets (`start`/`end`).
+  - Implemented Payment Screenshot Guard: detected transfer receipts, bank slips, and DuitNow payment notices; flagged them strictly as `UNVERIFIED_EVIDENCE` with a mandatory disclaimer that payment evidence is never inferred as verified payment or fulfillment.
+  - Endpoints: `POST /v1/attachments/upload`, `GET /v1/attachments/{evidence_ref}/content`, `GET /v1/attachments/{evidence_ref}/metadata`, `POST /v1/attachments/{evidence_ref}/extract`, `GET /v1/attachments/{evidence_ref}/extraction`.
+- Frontend:
+  - Implemented `AttachmentViewer.tsx` (FE-04) modal/drawer showing authorized document view/download, extracted order fields, confidence scores, bounding boxes, and a prominent yellow/red `⚠️ UNVERIFIED EVIDENCE` payment slip alert banner.
+  - Updated `DurableInbox.tsx` with interactive "Attachments & Document Evidence" cards, file upload action, download links, and one-click `[🔍 Inspect / OCR]` trigger.
+- Validation:
+  - Backend tests: 14 new tests in `test_attachment_storage.py`, `test_pdf_extraction.py`, and `test_image_ocr.py`; full backend regression: 284 passed / 2 skipped / 0 failed.
+  - Frontend tests: 4 new unit tests in `AttachmentViewer.test.tsx`; full frontend regression: 149 passed / 5 skipped / 0 failed.
+  - Frontend production build (`tsc -b && vite build`) passed with 0 errors.
+
 ### 2026-10-21 — P1 BATCH 3: context lifecycle, version history, and human review amendments (local only)
 
 - Branch: `feat/p1-context-intelligence`; commits: storage & models `8c18730`, context service & API `d38f6c5`, UI review drawer & context detail `5e73ff0`.

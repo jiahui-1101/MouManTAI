@@ -1,3 +1,58 @@
+# P1 BATCH 4 handoff — 2026-10-21 (Attachment Evidence, PDF Text and Image OCR)
+
+当前分支 `feat/p1-context-intelligence`；本次实现提交：
+- 阶段 4A（附件存储、安全校验与证据模型）：`c364c07` (`feat(p1): implement tenant-scoped attachment storage and magic byte validation`)
+- 阶段 4B（有界 PyMuPDF 机器可读文本提取）：`d5e25a3` (`feat(p1): implement bounded PyMuPDF text extraction with page references`)
+- 阶段 4C（PaddleOCR 图像识别与未验证支付防线）：`2937d59` (`feat(p1): implement PaddleOCR image recognition and unverified payment guard`)
+- 阶段 4D（前端 AttachmentViewer、OCR 证据展示与收件箱集成）：`ef58ac3` (`feat(p1): implement AttachmentViewer, OCR evidence display, and inbox integration`)
+
+### 1. 核心交付与安全规则落实
+- **租户隔离的附件存储与魔数真实性校验 (`p1_dev.attachments`)**：
+  - 严格限制支持的文件格式与魔数签名（PDF `%PDF-`、PNG `\x89PNG\r\n\x1a\n`、JPEG `\xff\xd8\xff`），拦截伪装扩展名的恶意文件与非白名单格式（如 `.exe` 返 415）。
+  - 最大单附件尺寸硬限制为 10MB（超额返 413 `AttachmentLimitExceeded`）。
+  - 路径遍历防御：净化文件名，拦截 `../`、`/`、`\` 等危险路径穿越字符。
+  - 租户严格隔离：附件与凭证引用（`evidence_ref`）严格限定在调用租户命名空间下，拒绝客户端控制的文件系统路径，不发起任意远程 URL 拉取。
+- **有界且可溯源的 PDF 文本提取 (`PyMuPDF`)**：
+  - 页数上限约束：`MAX_PDF_PAGES = 10`，若文档超过 10 页则截取前 10 页处理并置 `status="PARTIAL"` 附加明确诊断信息。
+  - 逐页提取文本块，记录页码（1-indexed）与文本块精确外接矩形框（`BoundingBox`，[x0, y0, x1, y1]）。
+  - 扫描件与纯文本 PDF 区分：对无文本块的 PDF 自动标识为扫描件/纯图片 PDF。
+  - 来源证据边界：文档证据采用 `DocumentEvidence`（包含 `evidence_ref`, `page_number`, `bounding_box`, `quote`, `method="PDF_TEXT"`），与原始消息的字符偏移量（`start`/`end`）严格区分，**绝不为附件捏造消息字符代码点偏移**。
+- **真实 PaddleOCR 图像与扫描件文字识别**：
+  - 针对 Windows AMD64 运行时与 Paddle 3.3.1 的 oneDNN 兼容性问题，启用 `PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT=False` 消除底层 PIR 异常，平稳运行 `PaddleOCR`。
+  - 图像尺寸有界防护：限制最大图像分辨率为 4096×4096 px，防止超大图像耗尽计算资源。
+  - 识别行文本、置信度分数（`rec_scores`）与精确像素外接多边形/边界框（`rec_boxes`）。
+- **未验证支付截图/水单防线 (Payment Screenshot Guard)**：
+  - 关键规则落实：检测银行水单、DuitNow 转账凭据、收据关键词（如 `DuitNow`、`Transfer Successful`、`Bank Slip`、`Amount RM` 等）。
+  - 命中时强制设置 `is_payment_notice = True`，所有关联文档证据均标记 `is_payment_evidence = True`。
+  - 状态强制为 `UNVERIFIED_EVIDENCE`，并附加法定免责警示：*“Bank slips, transfer receipts, and payment screenshots are strictly unverified evidence. P1 never infers verified payment, identity, or fulfillment from user-uploaded slips.”*
+  - **绝不凭借支付截图自动推定已收款、客户身份已确认或订单已履约**。
+- **持久化端点与服务 API**：
+  - `POST /v1/attachments/upload`：多部分附件上传与魔数校验。
+  - `GET /v1/attachments/{evidence_ref}/content`：受权下载与内联预览。
+  - `GET /v1/attachments/{evidence_ref}/metadata`：租户范围内元数据检索。
+  - `POST /v1/attachments/{evidence_ref}/extract`：执行并持久化 PDF 文本/OCR 提取。
+  - `GET /v1/attachments/{evidence_ref}/extraction`：获取已持久化的文档提取结果。
+- **前端操作型文档与 OCR 视窗 (`AttachmentViewer`)**：
+  - 支持原件受权预览（图像与 PDF 内联预览）及原件下载。
+  - 一键执行 `[🔍 Run Extraction / OCR]`。
+  - 突出的未验证支付警报条：以醒目红/黄警报框明确提示支付凭证未验证。
+  - 提取条款列表：结构化呈现提取到的订单号、交期、商品/数量及来源引用。
+  - 识别文本块与 Bounding Box 滚动列表：展示页码、方法、置信度（百分比）与坐标框。
+  - 收件箱联动：`DurableInbox` 详情面板集成“Attachments & Document Evidence”卡片列表，支持合成文件上传与一键调出 `AttachmentViewer` 模态弹窗。
+
+### 2. 验证结果
+- **后端测试集**：
+  - `backend/app/context/tests/test_attachment_storage.py`（4 passed）
+  - `backend/app/context/tests/test_pdf_extraction.py`（5 passed）
+  - `backend/app/context/tests/test_image_ocr.py`（5 passed）
+  - 全量后端回归：**284 passed, 2 skipped, 0 failed**。
+- **前端测试集与构建**：
+  - `frontend/src/features/context/AttachmentViewer.test.tsx`（4 passed）
+  - 全量前端回归：**149 passed, 5 skipped (LiveApiSmoke), 0 failed**。
+  - 前端类型校验与构建：`tsc -b && vite build` 成功（0 errors）。
+
+---
+
 # P1 BATCH 3 handoff — 2026-10-21 (Context Lifecycle, Version History and Human Review)
 
 当前分支 `feat/p1-context-intelligence`；本次实现提交：
