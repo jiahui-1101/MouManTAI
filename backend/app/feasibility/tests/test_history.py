@@ -90,6 +90,10 @@ def test_hypothetical_history_requires_exact_proposal_for_reproduction():
     saved = AssessmentRecord(snapshot=row.snapshot, commitment=row.commitment, result=result,
                             proposed_changes=proposal)
     assert saved.proposed_changes == proposal
+    repo = SyntheticHistoryRepository()
+    assert repo.append_assessment(saved)
+    assert not repo.append_assessment(saved)
+    assert repo.list_assessments(row.commitment.tenant_id, row.commitment.commitment_id) == (saved,)
 
 
 def test_impact_history_rejects_result_computed_from_other_snapshot_contents():
@@ -117,3 +121,88 @@ def test_missing_core_results_cannot_be_stored_against_other_complete_inputs():
         SyntheticHistoryRepository().append_impact(inputs, unknown_result)
     # Legitimate missing-Core UNKNOWN remains recordable against its own inputs.
     assert SyntheticHistoryRepository().append_impact(unknown_inputs, unknown_result)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('status', 'FEASIBLE'),
+    ('constraints', ()),
+    ('solver_status', 'UNKNOWN'),
+    ('evidence_refs', ('tampered-evidence',)),
+    ('assumptions', ('tampered-assumption',)),
+    ('materials.evidence_refs', ('tampered-material-evidence',)),
+    ('capacity.evidence_refs', ('tampered-capacity-evidence',)),
+])
+def test_first_assessment_insert_rejects_tampering_with_unchanged_input_identity(field, value):
+    repo = SyntheticHistoryRepository()
+    genuine = record()
+    data = genuine.model_dump(exclude_computed_fields=True)
+    target = data['result']
+    parts = field.split('.')
+    for part in parts[:-1]:
+        target = target[part]
+    target[parts[-1]] = value
+    tampered = AssessmentRecord.model_validate(data)
+    assert tampered.result != genuine.result
+    assert tampered.result.assessment_id == genuine.result.assessment_id
+    assert tampered.snapshot == genuine.snapshot
+    assert repo.list_assessments(genuine.result.tenant_id, genuine.result.commitment_id) == ()
+
+    with pytest.raises(ValueError, match='result verification'):
+        repo.append_assessment(tampered)
+
+    assert repo.list_assessments(genuine.result.tenant_id, genuine.result.commitment_id) == ()
+    assert repo.append_assessment(genuine)
+    assert not repo.append_assessment(genuine)
+    assert repo.list_assessments(genuine.result.tenant_id, genuine.result.commitment_id) == (genuine,)
+
+
+@pytest.mark.parametrize('field', [
+    'classification', 'event_intents', 'row_event_intents', 'event_payload', 'evidence', 'discovery_complete',
+])
+def test_first_impact_insert_rejects_tampering_with_unchanged_input_digest(field):
+    repo = SyntheticHistoryRepository()
+    inputs = build_pipeline_example()
+    tenant = inputs.request.change.tenant_id
+    genuine = recalculate_supplier_delay(inputs, tenant_id=tenant)
+    data = genuine.model_dump(exclude_computed_fields=True)
+    if field == 'classification':
+        data['impacts'][0]['classification'] = 'VERIFIED_UNAFFECTED'
+    elif field == 'event_intents':
+        data['event_intents'] = ()
+    elif field == 'row_event_intents':
+        data['impacts'][0]['event_intents'] = ()
+    elif field == 'event_payload':
+        data['event_intents'][0]['event']['payload']['tampered'] = True
+    elif field == 'evidence':
+        data['impacts'][0]['evidence_refs'] = ('tampered-evidence',)
+    else:
+        data['discovery_complete'] = not genuine.discovery_complete
+    tampered = type(genuine).model_validate(data)
+    assert tampered != genuine
+    assert tampered.impact_id == genuine.impact_id
+    assert tampered.calculation_input_digest == genuine.calculation_input_digest
+    assert repo.get_impact(tenant, genuine.impact_id) is None
+
+    with pytest.raises(ValueError, match='result verification'):
+        repo.append_impact(inputs, tampered)
+
+    assert repo.get_impact(tenant, genuine.impact_id) is None
+    assert repo.append_impact(inputs, genuine) == genuine.event_intents
+    assert repo.append_impact(inputs, genuine) == ()
+    assert repo.get_impact(tenant, genuine.impact_id) == genuine
+
+
+@pytest.mark.parametrize('mode', ['material_only', 'stale_inventory', 'stale_production'])
+def test_deterministic_verification_preserves_genuine_unknown_assessments_and_impacts(mode):
+    inputs = build_pipeline_example(mode=mode)
+    commitment = inputs.after_commitments[0]
+    result = evaluate(inputs.after, None, commitment)
+    assert result.status == 'UNKNOWN'
+    row = AssessmentRecord(snapshot=inputs.after, commitment=commitment, result=result)
+    repo = SyntheticHistoryRepository()
+    assert repo.append_assessment(row)
+    assert not repo.append_assessment(row)
+    impact = recalculate_supplier_delay(inputs, tenant_id=commitment.tenant_id)
+    assert 'com-001' in impact.unknown_commitment_ids
+    assert repo.append_impact(inputs, impact) == impact.event_intents
+    assert repo.append_impact(inputs, impact) == ()

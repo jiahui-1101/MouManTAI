@@ -1026,3 +1026,91 @@ d16aa45c73e7b09dfb00b9036e7c654cdbfa7a1e test(p2): measure independent feasibili
 ```
 
 Final documentation commit and remote SHA: see task response after feature-only push.
+
+
+## Phase 7A post-review first-insert integrity correction — 2026-10-21
+
+**Status:** locally validated follow-up to approved baseline
+`0f82ced0cdbac248d49efaaa10b0b223f27152af`; stop for review after feature-only push.
+Phase 7A was approved with this non-blocking follow-up. Phase 7B is not started.
+
+### Finding and minimal correction
+
+An empty SyntheticHistoryRepository accepted altered result contents when the
+original assessment ID/input identity or impact input digest was retained. The
+existing duplicate-payload guard rejected conflicting later inserts, but could
+not establish that the first result was actually produced by the recorded P2
+calculation. An input hash proves neither result authenticity nor source trust.
+AssessmentRecord remains a structurally bound value object, not a certificate
+that arbitrary supplied output is genuine.
+
+`SyntheticHistoryRepository.append_assessment` now calls the existing pure
+`evaluate(snapshot, proposed_changes, commitment)` using the complete recorded
+inputs and compares the **entire EvaluationResult** before storing anything.
+`append_impact` calls the existing `recalculate_supplier_delay(inputs,
+tenant_id=...)` and compares the **entire ImpactAssessment**, including nested
+assessments/classifications/evidence and top-level/per-row event intents/payloads.
+Mismatches raise `ValueError` result verification conflict before any history,
+cause or intent is accepted. Existing binding and duplicate conflict checks remain.
+
+No fields are excluded or normalized away for comparison. The current evaluators
+are deterministic: assessment time is explicit snapshot.as_of; event timestamps
+come from the recorded change; identities, ordering and content derive from the
+recorded inputs. No legitimate nondeterministic field was found. Future introduced
+nondeterminism requires individual review rather than weakening this comparison.
+
+This extra evaluation is limited to the **synthetic reference repository**. It
+reuses the existing calculators and adds no feasibility/impact rules, authenticity
+token, producer semantics or shared infrastructure. Service/evaluator, impact
+engine, P5/P3 implementation, app wiring and migrations are unchanged.
+
+### Regression evidence
+
+From `backend/`:
+
+- Red: `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_history.py -q -p no:cacheprovider`
+  — **13 failed, 15 passed** before implementation. Every new tampering rejection
+  failed because insertion did not raise, with genuine identity/digest retained.
+- Green focused: `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_history.py app/feasibility/tests/test_impact.py -q -p no:cacheprovider`
+  — **52 passed, 0 failed, 0 skipped**.
+- Complete applicable backend: `python -B -m pytest -o 'addopts=' app/feasibility/tests tests -q -p no:cacheprovider`
+  — **307 passed, 0 failed, 0 skipped** (228 P2 + 79 P5), one existing
+  Starlette/httpx TestClient deprecation warning.
+
+From `frontend/`:
+
+- `cmd /c npm test` — **108 passed, 0 failed, 5 skipped** (live API suite gated).
+- `cmd /c npm run typecheck` — exit 0, no errors.
+- `cmd /c npm run build` — exit 0, 94 modules transformed.
+
+Tests start from empty repositories and modify status, constraints, solver status,
+evidence, assumptions and nested material/capacity evidence while retaining the
+input identity. Impact cases modify classification, top-level intents, per-row
+intents, event payload, evidence and discovery status while retaining the input
+digest. Each rejection leaves history empty, then the genuine result inserts and
+replays idempotently. Supported hypothetical assessments and genuine material-only,
+stale-inventory, stale-production and missing-Core UNKNOWN results are preserved.
+
+No dependencies changed. Existing Python 3.14.3 / pytest 9.1.1 host version mismatch
+with declared pytest <9 remains. No live DB/authenticated API/UI E2E, destructive
+seed/reset, production persistence or source authenticity is claimed.
+
+### Production trust boundary / remaining owner dependency
+
+The P2-owned AssessmentWriter contract now explicitly requires the **exact
+P2-produced result through a trusted server-side execution boundary**. P5 must
+bind the authenticated requester and server-resolved SERVICE identity, recheck
+commitment/resource/snapshot versions inside the approved transaction, and atomically
+persist result/history/Core/audit/outbox. Arbitrary caller-supplied assessment
+objects and matching input hashes must not authorize persistence. The production
+writer must not independently recalculate, replace or change the trusted result;
+changed versions reject and return control to the P2 evaluation flow for a new
+calculation. Synthetic deterministic comparison is not proof of production source
+authenticity. This P5 adapter remains unimplemented/unconfigured and is not changed
+in this follow-up.
+
+Changed files: `history.py`, `ports.py`, `tests/test_history.py`,
+`PHASE7A_HANDOFF.md`, `P2_PROGRESS.md`, `P2_REQUIREMENT_TRACE.md`,
+`P2_PHASE_REPORTS.md`, and P2-only `docs/TEAM_LOG.md` entry. Final commit/remote SHA
+is reported after pushing only `origin/feat/p2-phase7-integration`. No PR or Main
+integration; stop for review.

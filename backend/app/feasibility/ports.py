@@ -49,6 +49,14 @@ class AssessmentWriter(Protocol):
     the commitment and snapshot versions inside the write transaction, appends
     immutable history, and commits audit/outbox records atomically before
     returning.
+
+    Accept results only from the trusted server-side P2 evaluation execution
+    boundary, never arbitrary caller-supplied assessment objects or input hashes.
+    Input hashes bind inputs; they do not prove result integrity or source trust.
+    The production writer must not independently recalculate or change the trusted
+    P2 result. Reject changed input versions transactionally and return control to
+    the P2 flow for any required new evaluation. Deterministic result verification
+    in SyntheticHistoryRepository is a reference/test safeguard only.
     """
 
     def assess(

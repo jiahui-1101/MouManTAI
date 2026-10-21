@@ -1,5 +1,21 @@
 # P2 Feasibility & Impact Progress
 
+## Current post-review follow-up — first-insert result integrity
+
+Approved Phase 7A baseline `0f82ced0cdbac248d49efaaa10b0b223f27152af`.
+SyntheticHistoryRepository now verifies complete results against the existing
+`evaluate` / `recalculate_supplier_delay` flows before first insertion. Input hashes
+are not authenticity proof. Tampered result/classification/intents reject; genuine
+UNKNOWN, supported proposals and identical replay remain accepted. Producer math
+and P5/P3 code unchanged. Exact production trusted-writer boundary documented in
+`ports.py` and PHASE7A_HANDOFF; it remains a P5 integration dependency.
+
+Focused history/impact **52 passed**; full backend **307 passed** (228 P2 + 79 P5),
+one existing warning; frontend **108 passed / 5 skipped**, typecheck/build passed.
+See latest P2_PHASE_REPORTS entry for commands and red/green evidence. Stop for
+review after feature-only push; no Phase 7B or production authenticity claim.
+
+
 ## Current checkpoint — Phase 7A (2026-10-21)
 
 **Independent implementation ready for review; production integration PARTIAL/BLOCKED.**

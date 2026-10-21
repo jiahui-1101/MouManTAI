@@ -1,5 +1,18 @@
 # P2 Requirement Trace — Feasibility & Impact Intelligence
 
+## Post-review integrity acceptance — 2026-10-21
+
+Supersedes any implication that input binding/identity or a digest alone validates
+result contents. Historical rows below remain as their original checkpoints.
+
+| ID | Requirement / correction | Code | Evidence | Status / boundary |
+|---|---|---|---|---|
+| PH7A-INT-01 | Empty repository rejects modified assessment status, constraints, solver, evidence and other result fields with genuine input ID | `history.py` SyntheticHistoryRepository.append_assessment | `test_history.py::test_first_assessment_insert_rejects_tampering_with_unchanged_input_identity` (7 cases) | IMPLEMENTED AND TESTED; compares full result from existing evaluate, no field exclusions |
+| PH7A-INT-02 | Empty repository rejects modified impact classifications/intents/payload/evidence/discovery with genuine input digest | `history.py` SyntheticHistoryRepository.append_impact | `test_history.py::test_first_impact_insert_rejects_tampering_with_unchanged_input_digest` (6 cases) | IMPLEMENTED AND TESTED; full existing supplier flow result compared before state/intent acceptance |
+| PH7A-INT-03 | Genuine UNKNOWN, supported proposals, exact inputs and identical replay remain valid | `history.py`, unchanged evaluator/impact engine | `test_history.py` UNKNOWN (3 cases), hypothetical, missing-Core and replay tests; 52 history/impact tests pass | IMPLEMENTED AND TESTED; synthetic reference only |
+| PH7A-INT-04 | Production accepts exact P2 output only through trusted execution, with transactional version checks; no writer recalculation or hash-as-authenticity | `ports.py` AssessmentWriter; PHASE7A_HANDOFF | Contract/documentation review; production adapter remains unavailable | BLOCKED — P5 SHARED DEPENDENCY; synthetic comparison does not verify source authenticity |
+
+
 ## Phase 7A current requirement-level gap audit — 2026-10-21
 
 This section supersedes historical statuses below; historical reports are retained.

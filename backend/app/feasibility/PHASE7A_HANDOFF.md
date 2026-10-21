@@ -108,3 +108,23 @@ covers missing-Core UNKNOWN results too; existing impact/event IDs are unchanged
 Legacy results without this digest require reviewed historical migration/replay,
 not silent acceptance into this reference repository. Digests are content binding,
 not proof of authenticity. See final Phase 7A report and 131-row current audit.
+
+
+### Post-review correction: first-insert integrity and production writer trust
+
+The reference repository now rejects first-insert result tampering by recomputing
+through the existing `evaluate` or `recalculate_supplier_delay` and comparing the
+complete expected result, including nested calculations, classifications, evidence
+and all event intents/payloads. No fields are ignored; current timestamps and IDs
+are deterministic from recorded inputs. Input IDs/digests alone never establish
+result authenticity. This is synthetic reference/test verification only, not
+production source authenticity or a production writer design.
+
+P5's authoritative writer must receive the exact P2-produced result through a
+trusted server-side execution boundary, retain requester and internal SERVICE
+identity, transactionally recheck authoritative input versions and commit
+history/Core/audit/outbox atomically. Do not accept arbitrary caller-authored
+assessment objects or matching hashes as evidence of a genuine result. Do not
+independently recalculate/change the result in the writer. If versions changed,
+reject and ask the P2 execution flow to evaluate new trusted inputs. That adapter
+remains a P5 dependency; no P5/P3 implementation was edited in this correction.

@@ -14,8 +14,8 @@ from app.core.schemas import Commitment, FeasibilityAssessment
 from .impact import ImpactAssessment, ImpactEventIntent, impact_input_digest
 from .models import FrozenModel
 from .production import EvaluationSnapshot, ProposedChanges
-from .service import EvaluationResult, evaluation_identity
-from .supplier_pipeline import SupplierDelayInputs
+from .service import EvaluationResult, evaluate, evaluation_identity
+from .supplier_pipeline import SupplierDelayInputs, recalculate_supplier_delay
 
 
 def to_core_assessment(result: EvaluationResult, *, impact: ImpactAssessment | None = None) -> FeasibilityAssessment:
@@ -81,6 +81,12 @@ class SyntheticHistoryRepository:
     Store serialized copies: frozen outer models alone do not freeze shared Core
     constraint/Commitment objects nested inside them. Reads return fresh objects.
     RLock only serializes this instance, not multiple processes or a database.
+
+    Verify the complete deterministic result using the existing P2 flow before
+    accepting even a first insert. Input identities alone do not authenticate
+    result contents. This synthetic verification proves consistency with recorded
+    inputs, not source authenticity; production writers must receive the exact
+    P2 result through a trusted server-side boundary without recalculating it.
     """
 
     def __init__(self):
@@ -91,6 +97,9 @@ class SyntheticHistoryRepository:
 
     def append_assessment(self, record: AssessmentRecord) -> bool:
         record = AssessmentRecord.model_validate(record.model_dump(exclude_computed_fields=True))
+        expected = evaluate(record.snapshot, record.proposed_changes, record.commitment)
+        if record.result != expected:
+            raise ValueError('assessment result verification conflict')
         payload = record.model_dump_json(exclude_computed_fields=True)
         key = (record.result.tenant_id, record.result.assessment_id)
         with self._lock:
@@ -130,6 +139,9 @@ class SyntheticHistoryRepository:
                     if commitment is None:
                         raise ValueError('impact calculation Core binding mismatch')
                     AssessmentRecord(snapshot=snapshot, commitment=commitment, result=assessment)
+        expected = recalculate_supplier_delay(inputs, tenant_id=change.tenant_id)
+        if result != expected:
+            raise ValueError('impact result verification conflict')
         input_payload = inputs.model_dump_json(exclude_computed_fields=True)
         payload = result.model_dump_json(exclude_computed_fields=True)
         cause, key = (result.tenant_id, result.event_id), (result.tenant_id, result.impact_id)
