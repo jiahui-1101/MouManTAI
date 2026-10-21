@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 from .dependencies import RequestContext, get_db, get_request_context
 from .errors import DomainError
 from .integration import CoreIntegrationFacade
+from .reservations import get_resource_snapshot, reserve_resource
 from .schemas import (
     AuditEvent,
     BusinessContext,
@@ -23,6 +25,9 @@ from .schemas import (
     RecordFulfilmentRequest,
     RecoveryExecuteRequest,
     RecoveryStartRequest,
+    ResourceReservationRequest,
+    ResourceReservationResponse,
+    ResourceStockResponse,
     TimelineEntry,
 )
 from .service import CommitmentService
@@ -99,17 +104,6 @@ def record_fulfilment(
     return service.record_fulfilment(db, context, commitment_id, request)
 
 
-@router.post(
-    "/commitments/{commitment_id}/assess",
-    response_model=Commitment,
-)
-def assess_commitment_endpoint(
-    commitment_id: str,
-    assessment: FeasibilityAssessment,
-    db: Db,
-    context: Context,
-) -> Commitment:
-    return service.assess(db, context, commitment_id, assessment)
 
 
 @router.post(
@@ -184,3 +178,64 @@ def get_audit(
 @router.get("/events/{event_id}", response_model=DomainEvent)
 def get_event(event_id: str, db: Db, context: Context) -> DomainEvent:
     return service.event(db, context, event_id)
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+@router.get("/resources/snapshot", response_model=list[ResourceStockResponse])
+def get_resource_snapshot_endpoint(
+    db: Db,
+    context: Context,
+    resource_id: str | None = Query(default=None),
+) -> list[ResourceStockResponse]:
+    snapshots = get_resource_snapshot(db, context.tenant_id, [resource_id] if resource_id else None)
+    return [
+        ResourceStockResponse(
+            tenant_id=context.tenant_id,
+            resource_id=s.resource_id,
+            total_quantity=s.total_quantity,
+            reserved_quantity=s.reserved_quantity,
+            available_quantity=s.available_quantity,
+            unit=s.unit,
+            snapshot_version=s.snapshot_version,
+            updated_at=_aware(s.updated_at),
+        )
+        for s in snapshots
+    ]
+
+
+@router.post(
+    "/resources/reserve",
+    response_model=ResourceReservationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def reserve_resource_endpoint(
+    request: ResourceReservationRequest,
+    db: Db,
+    context: Context,
+) -> ResourceReservationResponse:
+    reservation = reserve_resource(
+        db,
+        tenant_id=context.tenant_id,
+        commitment_id=request.commitment_id,
+        plan_id=request.plan_id,
+        action_id=request.action_id,
+        idempotency_key=request.idempotency_key,
+        resource_id=request.resource_id,
+        quantity=request.quantity,
+        actor_id=context.actor_id,
+    )
+    return ResourceReservationResponse(
+        reservation_id=reservation.reservation_id,
+        tenant_id=reservation.tenant_id,
+        commitment_id=reservation.commitment_id,
+        plan_id=reservation.plan_id,
+        action_id=reservation.action_id,
+        idempotency_key=reservation.idempotency_key,
+        resource_id=reservation.resource_id,
+        quantity=reservation.quantity,
+        status=reservation.status,
+        created_at=_aware(reservation.created_at),
+    )

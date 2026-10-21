@@ -1,10 +1,8 @@
 """P3-owned, fail-closed mapping from recovery plans to P2 proposals.
 
-The actual P2 model is resolved lazily because P2 is merged to ``main`` but is
-not yet part of this P3 feature branch. No P2 fields or feasibility rules are
-reimplemented here; callers may inject the actual model class during app
-composition, and the default resolver imports P2's canonical class when it is
-available.
+The actual P2 model is resolved lazily from P2's canonical module. This keeps
+isolated P3 tests injectable while normal merged development uses the real
+P2 schema. No P2 fields or feasibility rules are reimplemented here.
 """
 
 from __future__ import annotations
@@ -58,7 +56,7 @@ def _load_p2_proposed_changes() -> P2ModelFactory:
     except (ImportError, AttributeError) as exc:
         raise DomainError(
             "P2_PROPOSAL_SCHEMA_UNAVAILABLE",
-            "P2 ProposedChanges is not present on this branch; integrate the P2 mainline before runtime wiring",
+            "P2 ProposedChanges is unavailable in this Python environment; verify the P2 module installation and branch sync",
             status_code=503,
         ) from exc
     if not callable(model):
