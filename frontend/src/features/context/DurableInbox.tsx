@@ -5,6 +5,7 @@ import { operationalApi } from './operationalApi';
 import type { OperationalApi } from './operationalApi';
 import { SyntheticComposer } from './SyntheticComposer';
 import { OrderContextDetail } from './OrderContextDetail';
+import { ReviewDrawer } from './ReviewDrawer';
 import { AttachmentViewer } from './AttachmentViewer';
 import type {
   AttachmentRecord,
@@ -110,8 +111,8 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
       <label className="p1-search"><span>Search messages</span><input type="search" maxLength={200} value={search} placeholder="Search original text, sender or provider ID" onChange={event => { setSearch(event.target.value); setOffset(0); }} /></label>
       <label><span>Channel</span><select value={channel} onChange={event => { setChannel(event.target.value); setOffset(0); }}><option value="ALL">All channels</option>{['WHATSAPP', 'EMAIL', 'TELEGRAM', 'UNKNOWN'].map(value => <option key={value}>{value}</option>)}</select></label>
       <label><span>Processing</span><select value={processing} onChange={event => { setProcessing(event.target.value); setOffset(0); }}><option value="ALL">All processing states</option>{['RECEIVED', 'PROCESSING', 'PROCESSED', 'PROCESSING_FAILED'].map(value => <option key={value}>{value}</option>)}</select></label>
-      <button type="button" className="p1-secondary" onClick={() => { setSearch(''); setChannel('ALL'); setProcessing('ALL'); setOffset(0); }}>× Clear</button>
-      <button type="button" className="p1-secondary" onClick={() => setAttempt(n => n + 1)}>↻ Refresh</button>
+      <button type="button" className="p1-secondary" onClick={() => { setSearch(''); setChannel('ALL'); setProcessing('ALL'); setOffset(0); }}>Clear</button>
+      <button type="button" className="p1-secondary" onClick={() => setAttempt(n => n + 1)}>Refresh</button>
     </div><div className="p1-filter-caption"><span>{resource.state === 'ready' ? `${resource.page.total} persisted messages` : 'PostgreSQL Inbox'}</span><span>Display timezone · Asia/Kuala_Lumpur</span></div></section>
     {resource.state === 'loading' && <p role="status" className="p1-state">Loading persisted messages…</p>}
     {resource.state === 'error' && <div role="alert" className="p1-state"><h2>{resource.error instanceof PreviewError && [401, 403].includes(resource.error.status) ? 'Access denied' : 'Inbox unavailable'}</h2><p>{resource.error.message}</p><button type="button" className="p1-secondary" onClick={() => setAttempt(n => n + 1)}>Retry Inbox</button></div>}
@@ -137,6 +138,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
   const [assocError, setAssocError] = useState<string | null>(null);
   const [activeContext, setActiveContext] = useState<OrderContextRecord | null>(null);
   const [showContextModal, setShowContextModal] = useState(false);
+  const [showReviewDrawer, setShowReviewDrawer] = useState(false);
   const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -149,7 +151,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
   useEffect(() => {
     let active = true;
     setData(null); setExtraction(null); setAttempts([]); setAssociation(null); setError(null); setAssocError(null);
-    setActiveContext(null); setShowContextModal(false); setContextLoading(false); setContextError(null);
+    setActiveContext(null); setShowContextModal(false); setShowReviewDrawer(false); setContextLoading(false); setContextError(null);
     setSelectedEvidenceRef(null); setUploadedAttachments([]);
     api.detail(id).then(message => {
       if (active) {
@@ -171,6 +173,20 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
       setShowContextModal(true);
     } catch (err) {
       setContextError(err instanceof Error ? err.message : 'Failed to generate/view order context');
+    } finally {
+      setContextLoading(false);
+    }
+  }
+
+  async function handleDirectReview() {
+    setContextLoading(true);
+    setContextError(null);
+    try {
+      const ctx = await api.createContextFromMessage(id);
+      setActiveContext(ctx);
+      setShowReviewDrawer(true);
+    } catch (err) {
+      setContextError(err instanceof Error ? err.message : 'Failed to generate/view order context for review');
     } finally {
       setContextLoading(false);
     }
@@ -227,16 +243,24 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
         )}
         {data.processing_status === 'PROCESSED' && (
           <>
-            <button type="button" className="p1-secondary" disabled={processing} onClick={() => handleProcess(true)}>
-              {processing ? 'Reprocessing…' : '↻ Reprocess extraction'}
-            </button>
             <button
               type="button"
               className="p1-primary"
               disabled={contextLoading}
+              onClick={handleDirectReview}
+            >
+              {contextLoading ? 'Opening Review…' : 'Review & Amend'}
+            </button>
+            <button
+              type="button"
+              className="p1-secondary"
+              disabled={contextLoading}
               onClick={handleOpenOrderContext}
             >
-              {contextLoading ? 'Opening Context…' : '📋 Generate / View Order Context'}
+              {contextLoading ? 'Opening Context…' : 'View Order Context'}
+            </button>
+            <button type="button" className="p1-secondary" disabled={processing} onClick={() => handleProcess(true)}>
+              {processing ? 'Reprocessing…' : 'Reprocess extraction'}
             </button>
           </>
         )}
@@ -280,12 +304,12 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                   </p>
                   {isFallback && (
                     <p className="p1-muted" style={{ color: '#b45309', fontSize: '11px', marginTop: '-4px', marginBottom: '8px' }}>
-                      ⚠️ AI model inference unavailable; fell back safely to deterministic rules.
+                      Notice: AI model inference unavailable; fell back safely to deterministic rules.
                     </p>
                   )}
                   {hasModel && (
                     <p className="p1-muted" style={{ color: '#2563eb', fontSize: '11px', marginTop: '-4px', marginBottom: '8px' }}>
-                      ℹ️ Candidate terms generated by AI model proposal service. Manual review required.
+                      Notice: Candidate terms generated by AI model proposal service. Manual review required.
                     </p>
                   )}
                 </>
@@ -409,7 +433,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                           disabled={deciding}
                           onClick={() => handleDecide('CONFIRMED', cand.customer_id, cand.order_id ?? undefined)}
                         >
-                          ✓ Confirm link
+                          Confirm link
                         </button>
                       </div>
                     </li>
@@ -425,7 +449,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                 disabled={deciding || association.status === 'UNVERIFIED'}
                 onClick={() => handleDecide('REJECTED')}
               >
-                ✗ Reject / Unlink
+                Reject / Unlink
               </button>
             </div>
 
@@ -447,7 +471,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3>Attachments & Document Evidence</h3>
           <label className="p1-action-btn" style={{ cursor: 'pointer', fontSize: '11px', padding: '4px 8px' }}>
-            {uploadingAttachment ? '⏳ Uploading...' : '➕ Upload Attachment'}
+            {uploadingAttachment ? 'Uploading...' : 'Upload Attachment'}
             <input
               type="file"
               data-testid="attachment-upload-input"
@@ -489,7 +513,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                   data-testid={`attachment-row-${att.evidence_ref}`}
                 >
                   <div>
-                    <strong>{att.media_type.startsWith('image/') ? '🖼️' : '📄'} {att.filename}</strong>
+                    <strong>{att.filename}</strong>
                     <div className="p1-muted" style={{ fontSize: '11px', marginTop: '2px' }}>
                       {att.media_type} · {(att.size_bytes / 1024).toFixed(1)} KB · Ref: <code>{att.evidence_ref}</code>
                     </div>
@@ -501,7 +525,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                       onClick={() => setSelectedEvidenceRef(att.evidence_ref)}
                       data-testid={`inspect-att-${att.evidence_ref}`}
                     >
-                      🔍 Inspect / OCR
+                      Inspect / OCR
                     </button>
                     <a
                       href={`/v1/attachments/${encodeURIComponent(att.evidence_ref)}/content`}
@@ -510,7 +534,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                       className="p1-secondary"
                       style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
                     >
-                      ⬇️
+                      Download
                     </a>
                   </div>
                 </li>
@@ -536,6 +560,18 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
             />
           </div>
         </div>
+      )}
+      {showReviewDrawer && activeContext && (
+        <ReviewDrawer
+          context={activeContext}
+          isOpen={showReviewDrawer}
+          onClose={() => setShowReviewDrawer(false)}
+          onUpdated={(updated) => {
+            setActiveContext(updated);
+            setShowReviewDrawer(false);
+            onUpdated?.();
+          }}
+        />
       )}
     </>}
   </section>;

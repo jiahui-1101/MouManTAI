@@ -278,7 +278,7 @@ describe('durable synthetic Inbox', () => {
     const providerId = (screen.getByLabelText('Provider message ID') as HTMLInputElement).value;
     fireEvent.click(screen.getByRole('button', { name: 'Save synthetic message' }));
     await screen.findByRole('button', { name: 'Retry same submission' });
-    fireEvent.click(screen.getByRole('button', { name: '↻ Refresh' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
     expect(screen.getByLabelText('Provider message ID')).toHaveValue(providerId);
     fireEvent.click(screen.getByRole('button', { name: 'Retry same submission' }));
@@ -365,7 +365,7 @@ describe('durable synthetic Inbox', () => {
     expect(within(detail).getByText('Burger King (cust_bk)')).toBeInTheDocument();
 
     // Confirm link
-    fireEvent.click(within(detail).getByRole('button', { name: '✓ Confirm link' }));
+    fireEvent.click(within(detail).getByRole('button', { name: 'Confirm link' }));
     await waitFor(() => {
       expect(api.decideAssociation).toHaveBeenCalledWith(
         'stored_message_1',

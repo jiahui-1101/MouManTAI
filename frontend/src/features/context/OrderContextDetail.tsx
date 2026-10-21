@@ -103,18 +103,21 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
             className="p1-btn p1-btn-primary"
             onClick={() => setIsReviewOpen(true)}
           >
-            ✏ Review & Amend
+            Review & Amend
           </button>
           <button
             type="button"
             className="p1-btn p1-btn-outline"
             onClick={() => setShowHistory(!showHistory)}
           >
-            {showHistory ? 'Hide History' : '📜 Version History'}
+            {showHistory ? 'Hide History' : 'Version History'}
           </button>
           {onClose && (
             <button type="button" className="p1-btn-subtle" onClick={onClose} aria-label="Close">
-              ✕
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
             </button>
           )}
         </div>
@@ -123,7 +126,7 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
       {/* Critical Conflicts Banner */}
       {(context.conflicts?.length ?? 0) > 0 && (
         <div className="p1-conflict-box" role="alert">
-          <h4>⚠ Security / Term Conflicts Detected</h4>
+          <h4>Security / Term Conflicts Detected</h4>
           <ul>
             {(context.conflicts ?? []).map((conf, idx) => (
               <li key={idx}>{conf}</li>
@@ -220,7 +223,11 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
         <div className="p1-message-tags">
           {(context.source_message_ids ?? []).map((mid, idx) => (
             <span key={idx} className="p1-message-badge">
-              ✉ {mid}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginRight: '5px', verticalAlign: '-1px' }}>
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                <polyline points="22,6 12,13 2,6"></polyline>
+              </svg>
+              {mid}
             </span>
           ))}
         </div>

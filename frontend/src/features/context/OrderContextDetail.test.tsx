@@ -115,8 +115,8 @@ describe('OrderContextDetail component', () => {
     expect(screen.getByText(/Pack separately in boxes/)).toBeInTheDocument();
 
     // Check source messages
-    expect(screen.getByText('✉ msg_001')).toBeInTheDocument();
-    expect(screen.getByText('✉ msg_002')).toBeInTheDocument();
+    expect(screen.getByText('msg_001')).toBeInTheDocument();
+    expect(screen.getByText('msg_002')).toBeInTheDocument();
   });
 
   it('displays conflicts banner when conflicts exist', async () => {

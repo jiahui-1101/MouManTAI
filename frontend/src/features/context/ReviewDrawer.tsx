@@ -80,7 +80,10 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
             <span className={`p1-badge p1-badge-${context.status.toLowerCase()}`}>{context.status}</span>
           </div>
           <button type="button" className="p1-btn-subtle" onClick={onClose} aria-label="Close drawer">
-            ✕
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
           </button>
         </div>
 
@@ -198,7 +201,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
             disabled={submitting}
             onClick={() => handleSubmit('EDIT_FIELD')}
           >
-            ✏ Apply Field Edits
+            Apply Field Edits
           </button>
           <button
             type="button"
@@ -206,7 +209,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
             disabled={submitting}
             onClick={() => handleSubmit('ACCEPT_EXTRACTION')}
           >
-            ✓ Accept Extraction
+            Accept Extraction
           </button>
           <button
             type="button"
@@ -214,7 +217,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
             disabled={submitting}
             onClick={() => handleSubmit('REQUEST_MORE_INFO')}
           >
-            ❓ Request More Info
+            Request More Info
           </button>
           <button
             type="button"
@@ -222,7 +225,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
             disabled={submitting}
             onClick={() => handleSubmit('MARK_UNRESOLVED')}
           >
-            ⚠ Mark Unresolved
+            Mark Unresolved
           </button>
         </div>
       </div>

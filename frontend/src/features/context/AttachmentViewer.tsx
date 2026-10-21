@@ -79,7 +79,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
       <div className="attachment-viewer-card">
         <header className="attachment-viewer-header">
           <div>
-            <h3>📄 {record?.filename ?? 'Attachment Inspection'}</h3>
+            <h3>{record?.filename ?? 'Attachment Inspection'}</h3>
             <span className="attachment-evidence-ref">Ref: {evidenceRef}</span>
           </div>
           <div className="attachment-header-actions">
@@ -90,10 +90,14 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
               className="attachment-download-link"
               download={record?.filename}
             >
-              ⬇️ Download Original
+              Download Original
             </a>
             <button className="button button-secondary" onClick={onClose} aria-label="Close attachment viewer">
-              ✕ Close
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginRight: '6px' }}>
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              Close
             </button>
           </div>
         </header>
@@ -136,14 +140,20 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
                 disabled={extracting}
                 data-testid="extract-btn"
               >
-                {extracting ? '⏳ Extracting...' : '🔍 Run Extraction / OCR'}
+                {extracting ? 'Extracting...' : 'Run Extraction / OCR'}
               </button>
             </div>
 
             {/* UNVERIFIED PAYMENT EVIDENCE ALERT */}
             {extraction?.is_payment_notice && (
               <div className="unverified-payment-banner" data-testid="unverified-payment-alert">
-                <div className="alert-icon">⚠️</div>
+                <div className="alert-icon">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                  </svg>
+                </div>
                 <div className="alert-body">
                   <strong>UNVERIFIED EVIDENCE: Payment Screenshot / Bank Slip</strong>
                   <p>
@@ -197,7 +207,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
                                 </blockquote>
                               )}
                               {field.disclaimer && (
-                                <div className="field-disclaimer">⚠️ {field.disclaimer}</div>
+                                <div className="field-disclaimer">{field.disclaimer}</div>
                               )}
                             </li>
                           );
