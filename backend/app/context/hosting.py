@@ -11,7 +11,13 @@ from fastapi.responses import JSONResponse
 
 from .dependencies import development_context, local_repository
 from .ingestion import TenantMismatch, UnsupportedSyntheticChannel
-from .repository import DuplicateConflict, PersistenceUnavailable
+from .repository import (
+    DuplicateConflict,
+    ExtractionNotFound,
+    MessageNotFound,
+    PersistenceUnavailable,
+    ProcessingConflict,
+)
 from .router import router
 
 
@@ -21,10 +27,14 @@ def register_p1_errors(app: FastAPI) -> None:
         DuplicateConflict: (409, "Provider message ID already has different original content; the original was preserved"),
         TenantMismatch: (403, "Envelope tenant does not match the server development tenant"),
         UnsupportedSyntheticChannel: (422, "Only the synthetic WhatsApp-shaped adapter is implemented"),
+        MessageNotFound: (404, "Message not found"),
+        ExtractionNotFound: (404, "Extraction attempt not found"),
+        ProcessingConflict: (409, "Message processing conflict"),
     }
     for exception_type, (status, detail) in errors.items():
-        def handler(request: Request, exc: Exception, *, status=status, detail=detail):
-            return JSONResponse(status_code=status, content={"detail": detail})
+        def handler(request: Request, exc: Exception, *, status=status, detail=detail, etype=exception_type):
+            msg = detail if etype is PersistenceUnavailable else (str(exc) if str(exc) else detail)
+            return JSONResponse(status_code=status, content={"detail": msg})
         app.add_exception_handler(exception_type, handler)
 
 

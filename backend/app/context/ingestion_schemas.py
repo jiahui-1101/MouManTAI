@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from .schemas import Identifier, P1Model, ProcessingStatus, RawMessageEnvelope, Timestamp
+from .schemas import ExtractedField, Identifier, P1Model, ProcessingStatus, RawMessageEnvelope, Timestamp
 
 
 class StoredMessage(P1Model):
@@ -27,6 +27,29 @@ class MessagePage(P1Model):
     total: int = Field(ge=0)
     limit: int = Field(ge=1, le=100)
     offset: int = Field(ge=0, le=10_000)
+
+
+class ExtractionAttemptRecord(P1Model):
+    attempt_id: Identifier
+    tenant_id: Identifier
+    message_id: Identifier
+    extractor_version: Identifier
+    input_content_sha256: str
+    status: Literal["PROCESSING", "PROCESSED", "PROCESSING_FAILED"]
+    fields: list[ExtractedField] = Field(default_factory=list)
+    diagnostic: str | None = None
+    started_at: Timestamp
+    completed_at: Timestamp | None = None
+
+
+class ProcessResponse(P1Model):
+    message: StoredMessage
+    attempt: ExtractionAttemptRecord
+    reprocessed: bool
+
+
+class ExtractionHistoryResponse(P1Model):
+    items: list[ExtractionAttemptRecord]
 
 
 class DevelopmentContext(P1Model):

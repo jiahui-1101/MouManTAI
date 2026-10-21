@@ -6,7 +6,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from .dependencies import development_context, local_repository
 from .ingestion import IngestionService
-from .ingestion_schemas import ApiError, DevelopmentContext, IngestResponse, MessagePage, StoredMessage
+from .ingestion_schemas import (
+    ApiError,
+    DevelopmentContext,
+    ExtractionAttemptRecord,
+    ExtractionHistoryResponse,
+    IngestResponse,
+    MessagePage,
+    ProcessResponse,
+    StoredMessage,
+)
 from .repository import MessageRepository
 from .schemas import Channel, ProcessingStatus, RawMessageEnvelope
 
@@ -46,3 +55,26 @@ def get_message(message_id: str, tenant: Tenant, repository: Repository) -> Stor
     if message is None:
         raise HTTPException(status_code=404, detail="Message not found")
     return message
+
+
+@router.post("/v1/messages/{message_id}/process", response_model=ProcessResponse,
+             responses={**errors, 404: {"model": ApiError}, 409: {"model": ApiError}})
+def process_message(message_id: str, tenant: Tenant, repository: Repository,
+                    reprocess: Annotated[bool, Query()] = False) -> ProcessResponse:
+    return repository.process(tenant.tenant_id, message_id, reprocess=reprocess)
+
+
+@router.get("/v1/messages/{message_id}/extraction", response_model=ExtractionAttemptRecord,
+            responses={**errors, 404: {"model": ApiError}})
+def get_message_extraction(message_id: str, tenant: Tenant, repository: Repository) -> ExtractionAttemptRecord:
+    result = repository.get_latest_extraction(tenant.tenant_id, message_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Extraction attempt not found")
+    return result
+
+
+@router.get("/v1/messages/{message_id}/attempts", response_model=ExtractionHistoryResponse,
+            responses={**errors, 404: {"model": ApiError}})
+def list_message_attempts(message_id: str, tenant: Tenant, repository: Repository) -> ExtractionHistoryResponse:
+    items = repository.list_extraction_attempts(tenant.tenant_id, message_id)
+    return ExtractionHistoryResponse(items=items)
