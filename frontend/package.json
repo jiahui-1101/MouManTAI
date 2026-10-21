@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "generate:types": "openapi-typescript src/features/context/generated/openapi.json -o src/features/context/generated/api.d.ts",
     "dev": "vite --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -20,6 +21,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
     "jsdom": "^27.0.0",
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.10",
     "vitest": "^5.0.5"

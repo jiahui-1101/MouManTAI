@@ -1,0 +1,689 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PromiseFlow P1 development only",
+    "version": "0.0.1"
+  },
+  "paths": {
+    "/dev/p1/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_dev_p1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Dev P1 Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dev/p1/inbox": {
+      "get": {
+        "tags": [
+          "synthetic development only"
+        ],
+        "summary": "Fixture Inbox",
+        "description": "Read-only demo dataset. This endpoint is not a tenant authorization boundary.",
+        "operationId": "fixture_inbox_dev_p1_inbox_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxPreview"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Attachment": {
+        "properties": {
+          "attachment_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Attachment Id"
+          },
+          "filename": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Filename"
+          },
+          "media_type": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Media Type"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size Bytes"
+          },
+          "evidence_ref": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Evidence Ref"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "attachment_id",
+          "filename",
+          "media_type",
+          "size_bytes",
+          "evidence_ref"
+        ],
+        "title": "Attachment"
+      },
+      "BusinessContext": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Tenant Id"
+          },
+          "context_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Context Id"
+          },
+          "source_message_ids": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Source Message Ids"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "customer_identity_status": {
+            "type": "string",
+            "enum": [
+              "LINK_VERIFIED",
+              "UNVERIFIED",
+              "AMBIGUOUS"
+            ],
+            "title": "Customer Identity Status"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "requested_items": {
+            "items": {
+              "$ref": "#/components/schemas/RequestedItem"
+            },
+            "type": "array",
+            "title": "Requested Items"
+          },
+          "requested_delivery_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Delivery At"
+          },
+          "field_evidence": {
+            "additionalProperties": {
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Field Evidence"
+          },
+          "conflicts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Conflicts"
+          },
+          "missing_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Fields"
+          },
+          "context_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Context Version"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "READY",
+              "PARTIAL",
+              "CONFLICT",
+              "UNRESOLVED"
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "context_id",
+          "source_message_ids",
+          "customer_identity_status",
+          "context_version",
+          "status"
+        ],
+        "title": "BusinessContext"
+      },
+      "ContextReview": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Tenant Id"
+          },
+          "context_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Context Id"
+          },
+          "review_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Review Id"
+          },
+          "expected_context_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Context Version"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "NOT_REQUIRED",
+              "PENDING",
+              "ACCEPTED",
+              "CORRECTED",
+              "UNRESOLVED"
+            ],
+            "title": "Status"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "context_id",
+          "review_id",
+          "expected_context_version",
+          "status"
+        ],
+        "title": "ContextReview"
+      },
+      "ExtractedField": {
+        "properties": {
+          "field_name": {
+            "type": "string",
+            "enum": [
+              "customer_id",
+              "sku",
+              "quantity",
+              "unit",
+              "requested_delivery_at",
+              "special_instructions",
+              "order_id"
+            ],
+            "title": "Field Name"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "validation_status": {
+            "type": "string",
+            "enum": [
+              "VALID",
+              "MISSING",
+              "INVALID",
+              "UNRESOLVED",
+              "CONFLICT"
+            ],
+            "title": "Validation Status"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/FieldEvidence"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "corrected_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrected By"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "field_name",
+          "value",
+          "validation_status"
+        ],
+        "title": "ExtractedField"
+      },
+      "FieldEvidence": {
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Evidence Id"
+          },
+          "message_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Message Id"
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Quote"
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "End"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "FIXTURE",
+              "RULE",
+              "MODEL",
+              "HUMAN"
+            ],
+            "title": "Method"
+          },
+          "method_version": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Method Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "evidence_id",
+          "message_id",
+          "quote",
+          "start",
+          "end",
+          "method",
+          "method_version"
+        ],
+        "title": "FieldEvidence"
+      },
+      "InboxPreview": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "SYNTHETIC_FIXTURES",
+            "title": "Mode"
+          },
+          "business_timezone": {
+            "type": "string",
+            "const": "Asia/Kuala_Lumpur",
+            "title": "Business Timezone"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/InboxRecord"
+            },
+            "type": "array",
+            "title": "Records"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "business_timezone",
+          "records"
+        ],
+        "title": "InboxPreview"
+      },
+      "InboxRecord": {
+        "properties": {
+          "scenario_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Scenario Id"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Title"
+          },
+          "message": {
+            "$ref": "#/components/schemas/NormalizedMessage"
+          },
+          "context": {
+            "$ref": "#/components/schemas/BusinessContext"
+          },
+          "review": {
+            "$ref": "#/components/schemas/ContextReview"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scenario_id",
+          "title",
+          "message",
+          "context",
+          "review"
+        ],
+        "title": "InboxRecord"
+      },
+      "NormalizedMessage": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Message Id"
+          },
+          "raw": {
+            "$ref": "#/components/schemas/RawMessageEnvelope"
+          },
+          "content_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Content Sha256"
+          },
+          "processing_status": {
+            "type": "string",
+            "enum": [
+              "RECEIVED",
+              "PROCESSING",
+              "PROCESSED",
+              "PROCESSING_FAILED"
+            ],
+            "title": "Processing Status"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractedField"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "diagnostic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message_id",
+          "raw",
+          "content_sha256",
+          "processing_status"
+        ],
+        "title": "NormalizedMessage"
+      },
+      "RawMessageEnvelope": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Tenant Id"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "WHATSAPP",
+              "EMAIL",
+              "TELEGRAM",
+              "UNKNOWN"
+            ],
+            "title": "Channel"
+          },
+          "provider_message_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Provider Message Id"
+          },
+          "sender_identity_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Sender Identity Id"
+          },
+          "sender_alias": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Sender Alias"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Received At"
+          },
+          "business_timezone": {
+            "type": "string",
+            "title": "Business Timezone",
+            "default": "Asia/Kuala_Lumpur"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Text"
+          },
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/Attachment"
+            },
+            "type": "array",
+            "title": "Attachments"
+          },
+          "thread_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Ref"
+          },
+          "reply_to_provider_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply To Provider Message Id"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "adapter_mode": {
+            "type": "string",
+            "const": "SYNTHETIC",
+            "title": "Adapter Mode",
+            "default": "SYNTHETIC"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "channel",
+          "provider_message_id",
+          "sender_identity_id",
+          "sender_alias",
+          "received_at",
+          "text"
+        ],
+        "title": "RawMessageEnvelope"
+      },
+      "RequestedItem": {
+        "properties": {
+          "sku": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Sku"
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "title": "Quantity"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "pcs",
+              "kg",
+              "box"
+            ],
+            "title": "Unit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sku",
+          "quantity",
+          "unit"
+        ],
+        "title": "RequestedItem"
+      }
+    }
+  }
+}
