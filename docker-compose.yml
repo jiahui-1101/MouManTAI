@@ -1,12 +1,13 @@
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-moumantai}
       POSTGRES_USER: ${POSTGRES_USER:-moumantai}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-moumantai}
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - moumantai-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -14,29 +15,41 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 5s
 
   api:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-moumantai}:${POSTGRES_PASSWORD:-moumantai}@db:5432/${POSTGRES_DB:-moumantai}
-      CORS_ORIGINS: http://localhost:5173
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
     ports:
-      - "8000:8000"
+      - "${PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    command: >
+      sh -c "alembic -c alembic.ini upgrade head &&
+             python scripts/seed_demo.py &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
   worker:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-moumantai}:${POSTGRES_PASSWORD:-moumantai}@db:5432/${POSTGRES_DB:-moumantai}
     depends_on:
-      db:
+      api:
         condition: service_healthy
     command: ["python", "-m", "app.worker"]
 

@@ -229,7 +229,7 @@ class FeasibilityAssessment(ContractModel):
     constraints: list[ConstraintReason] = Field(default_factory=list)
     affected_commitment_ids: list[str] = Field(
         default_factory=list,
-        description="List of commitment IDs demonstrably impacted by operational changes. Empty list if none or unconfirmed.",
+        description="Downstream commitments impacted by this evaluation (the impact set only, not the evaluated commitment itself). Empty list [] represents an isolated evaluation or no downstream disruption.",
     )
     evidence_refs: list[str] = Field(default_factory=list)
     solver_status: SolverStatus
