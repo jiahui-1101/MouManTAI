@@ -405,3 +405,27 @@ export interface RecoveryExecuteRequest {
   causation_id?: string | null;
 }
 
+export interface ResourceStock {
+  tenant_id: string;
+  resource_id: string;
+  total_quantity: DecimalString;
+  reserved_quantity: DecimalString;
+  available_quantity: DecimalString;
+  unit: string;
+  snapshot_version: number;
+  updated_at: ISO8601;
+}
+
+export interface ResourceReservation {
+  reservation_id: string;
+  tenant_id: string;
+  commitment_id: string;
+  plan_id: string;
+  action_id: string;
+  idempotency_key: string;
+  resource_id: string;
+  quantity: DecimalString;
+  status: "ACTIVE" | "RELEASED" | "CONSUMED";
+  created_at: ISO8601;
+}
+
