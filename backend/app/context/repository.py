@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
+from .association_schemas import AssociationDecisionRequest, MessageAssociationRecord
 from .ingestion_schemas import ExtractionAttemptRecord, IngestResponse, MessagePage, ProcessResponse, StoredMessage
 from .schemas import Channel, ProcessingStatus, RawMessageEnvelope
 
@@ -29,6 +30,10 @@ class ExtractionNotFound(Exception):
     """No extraction attempt exists for the requested message."""
 
 
+class AssociationNotFound(Exception):
+    """No association record exists for the requested message."""
+
+
 class MessageRepository(Protocol):
     def ingest(self, envelope: RawMessageEnvelope, now: datetime) -> IngestResponse: ...
     def get(self, tenant_id: str, message_id: str) -> StoredMessage | None: ...
@@ -38,3 +43,7 @@ class MessageRepository(Protocol):
     def process(self, tenant_id: str, message_id: str, *, reprocess: bool = False, now: datetime | None = None) -> ProcessResponse: ...
     def get_latest_extraction(self, tenant_id: str, message_id: str) -> ExtractionAttemptRecord | None: ...
     def list_extraction_attempts(self, tenant_id: str, message_id: str) -> list[ExtractionAttemptRecord]: ...
+    def get_association(self, tenant_id: str, message_id: str) -> MessageAssociationRecord | None: ...
+    def save_association(self, record: MessageAssociationRecord) -> MessageAssociationRecord: ...
+    def decide_association(self, tenant_id: str, message_id: str, request: AssociationDecisionRequest, actor_id: str, actor_role: str) -> MessageAssociationRecord: ...
+

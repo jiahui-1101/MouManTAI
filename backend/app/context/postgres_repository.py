@@ -13,9 +13,19 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
+from .association_schemas import (
+    AssociationCandidate,
+    AssociationDecision,
+    AssociationDecisionRequest,
+    CustomerAccount,
+    IdentityLinkStatus,
+    MessageAssociationRecord,
+    OrderReference,
+)
 from .deterministic_extraction import PROVISIONAL_PRODUCTS, VERSION, extract_explicit_fields
 from .ingestion_schemas import ExtractionAttemptRecord, IngestResponse, MessagePage, ProcessResponse, StoredMessage
 from .repository import (
+    AssociationNotFound,
     DuplicateConflict,
     ExtractionNotFound,
     MessageNotFound,
@@ -73,6 +83,28 @@ class InboundMessage(P1Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class MessageAssociation(P1Base):
+    __tablename__ = "message_associations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "message_id", name="uq_p1_message_association"),
+        Index("ix_p1_assoc_message", "tenant_id", "message_id"),
+        {"schema": "p1_dev"},
+    )
+
+    association_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    message_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    verified_customer: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    verified_order: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    candidates: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=list)
+    conflicts: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    last_decision: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    version: Mapped[int] = mapped_column(nullable=False, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+
 def fingerprint(envelope: RawMessageEnvelope) -> str:
     # received_at is delivery observation time; an identical retry may arrive later.
     content = envelope.model_dump(mode="json", exclude={"received_at"})
@@ -99,6 +131,26 @@ def attempt_record(row: ExtractionAttempt) -> ExtractionAttemptRecord:
         diagnostic=row.diagnostic,
         started_at=row.started_at,
         completed_at=row.completed_at,
+    )
+
+
+def association_record(row: MessageAssociation) -> MessageAssociationRecord:
+    verified_cust = CustomerAccount.model_validate(row.verified_customer) if row.verified_customer else None
+    verified_ord = OrderReference.model_validate(row.verified_order) if row.verified_order else None
+    candidates = [AssociationCandidate.model_validate(c) for c in (row.candidates or [])]
+    last_decision = AssociationDecision.model_validate(row.last_decision) if row.last_decision else None
+    return MessageAssociationRecord(
+        association_id=row.association_id,
+        tenant_id=row.tenant_id,
+        message_id=row.message_id,
+        status=IdentityLinkStatus(row.status),
+        verified_customer=verified_cust,
+        verified_order=verified_ord,
+        candidates=candidates,
+        conflicts=list(row.conflicts or []),
+        last_decision=last_decision,
+        version=row.version,
+        updated_at=row.updated_at,
     )
 
 
@@ -305,3 +357,116 @@ class PostgresMessageRepository:
             raise
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def get_association(self, tenant_id: str, message_id: str) -> MessageAssociationRecord | None:
+        try:
+            with Session(self.engine) as session:
+                row = session.scalar(
+                    select(MessageAssociation).where(
+                        MessageAssociation.tenant_id == tenant_id,
+                        MessageAssociation.message_id == message_id,
+                    )
+                )
+                if row is None:
+                    msg = session.scalar(
+                        select(InboundMessage).where(
+                            InboundMessage.tenant_id == tenant_id,
+                            InboundMessage.message_id == message_id,
+                        )
+                    )
+                    if msg is None:
+                        raise MessageNotFound(f"Message {message_id} not found")
+                    return None
+                return association_record(row)
+        except MessageNotFound:
+            raise
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def save_association(self, record: MessageAssociationRecord) -> MessageAssociationRecord:
+        try:
+            with Session(self.engine) as session, session.begin():
+                stmt = insert(MessageAssociation).values(
+                    association_id=record.association_id,
+                    tenant_id=record.tenant_id,
+                    message_id=record.message_id,
+                    status=record.status.value,
+                    verified_customer=record.verified_customer.model_dump(mode="json") if record.verified_customer else None,
+                    verified_order=record.verified_order.model_dump(mode="json") if record.verified_order else None,
+                    candidates=[c.model_dump(mode="json") for c in record.candidates],
+                    conflicts=record.conflicts,
+                    last_decision=record.last_decision.model_dump(mode="json") if record.last_decision else None,
+                    version=record.version,
+                    updated_at=record.updated_at,
+                ).on_conflict_do_update(
+                    constraint="uq_p1_message_association",
+                    set_={
+                        "status": record.status.value,
+                        "verified_customer": record.verified_customer.model_dump(mode="json") if record.verified_customer else None,
+                        "verified_order": record.verified_order.model_dump(mode="json") if record.verified_order else None,
+                        "candidates": [c.model_dump(mode="json") for c in record.candidates],
+                        "conflicts": record.conflicts,
+                        "last_decision": record.last_decision.model_dump(mode="json") if record.last_decision else None,
+                        "version": record.version,
+                        "updated_at": record.updated_at,
+                    },
+                )
+                session.execute(stmt)
+                row = session.scalar(
+                    select(MessageAssociation).where(
+                        MessageAssociation.tenant_id == record.tenant_id,
+                        MessageAssociation.message_id == record.message_id,
+                    )
+                )
+                if row is None:
+                    raise PersistenceUnavailable("Message storage temporarily unavailable")
+                return association_record(row)
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def decide_association(
+        self,
+        tenant_id: str,
+        message_id: str,
+        request: AssociationDecisionRequest,
+        actor_id: str,
+        actor_role: str,
+    ) -> MessageAssociationRecord:
+        from .association_service import AssociationService, StaleAssociationVersion
+
+        try:
+            with Session(self.engine) as session, session.begin():
+                row = session.scalar(
+                    select(MessageAssociation).where(
+                        MessageAssociation.tenant_id == tenant_id,
+                        MessageAssociation.message_id == message_id,
+                    ).with_for_update()
+                )
+                if row is None:
+                    msg = session.scalar(
+                        select(InboundMessage).where(
+                            InboundMessage.tenant_id == tenant_id,
+                            InboundMessage.message_id == message_id,
+                        )
+                    )
+                    if msg is None:
+                        raise MessageNotFound(f"Message {message_id} not found")
+                    raise AssociationNotFound(f"Association for message {message_id} not found")
+
+                current_record = association_record(row)
+                svc = AssociationService()
+                updated_record = svc.apply_decision(current_record, request, actor_id=actor_id, actor_role=actor_role)
+
+                row.status = updated_record.status.value
+                row.verified_customer = updated_record.verified_customer.model_dump(mode="json") if updated_record.verified_customer else None
+                row.verified_order = updated_record.verified_order.model_dump(mode="json") if updated_record.verified_order else None
+                row.last_decision = updated_record.last_decision.model_dump(mode="json") if updated_record.last_decision else None
+                row.version = updated_record.version
+                row.updated_at = updated_record.updated_at
+                session.flush()
+                return association_record(row)
+        except (MessageNotFound, AssociationNotFound, StaleAssociationVersion):
+            raise
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
