@@ -14,6 +14,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.errors import DomainError
 from app.core.router import router as core_router
+from app.core.outbox import default_dispatcher
+from app.context.router import router as context_router
+from app.context.p2_consumer import register_p2_subscribers
 
 
 class HealthResponse(BaseModel):
@@ -37,6 +40,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(core_router)
+app.include_router(context_router)
+register_p2_subscribers(default_dispatcher)
 
 
 @app.exception_handler(DomainError)
