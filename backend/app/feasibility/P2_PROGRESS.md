@@ -1,5 +1,29 @@
 # P2 Feasibility & Impact Progress
 
+## Current checkpoint — Phase 7B-1 integration readiness (2026-10-21)
+
+**P2-local readiness validated; production integration PARTIAL/BLOCKED.** The new
+`feat/p2-phase7b-integration` branch starts from approved Main
+`03d5928e060271585a617afb3733b83732e6d4cd` (PR #5). Existing feasibility and
+impact engines were not rewritten.
+
+P2 now has an injected public GET adapter that maps Core commitment and P2
+assessment/impact responses without inventing current snapshot authority, source
+change values, or Core risk transitions. The internal pure evaluator rejects
+non-SERVICE/SYSTEM contexts before authority resolution; production authorization
+is still unconfigured and fails closed. Exact interface matrix, P5/P3 dependencies,
+and E2E sequence are in `PHASE7B1_INTEGRATION_READINESS.md`.
+
+Validation: **229 P2 backend tests**, **79 P5/shared backend tests**, **118 frontend
+tests passed / 5 skipped**, frontend typecheck/build passed, and the synthetic P2
+demo exits successfully. Combined backend rerun: **308 passed**. See the Phase
+7B-1 report for commands and warnings.
+No authenticated API, live DB, migrations, mounted P2 pages, durable writer,
+or joint P2/P5/P3 E2E was run. Validated implementation checkpoint
+`1507b5918b8ea9200aba4edca9b618929386e1fd` was pushed only to
+`origin/feat/p2-phase7b-integration` and its remote ref matched. Stop for
+independent review before 7B-2 or production wiring.
+
 ## Current post-review follow-up — first-insert result integrity
 
 Approved Phase 7A baseline `0f82ced0cdbac248d49efaaa10b0b223f27152af`.

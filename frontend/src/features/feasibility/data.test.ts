@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { assessmentCaution, validateFeasibility, validateImpact, validateRecalculation } from "./data";
+import { assessmentCaution, requireSource, validateFeasibility, validateImpact, validateRecalculation } from "./data";
 import { previewFeasibility, previewImpact } from "./preview";
 beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-22T12:30:00+08:00")));
 afterEach(() => vi.restoreAllMocks());
 
 describe("feature adapter boundary", () => {
+  it("fails closed when a production P2 data source is not mounted", () => {
+    expect(() => requireSource(undefined)).toThrow(/No synthetic data was substituted/);
+  });
+  it("distinguishes unavailable current-version authority from a stale assessment", () => {
+    const view = structuredClone(previewFeasibility);
+    view.current_snapshot_version = null;
+    expect(assessmentCaution(view)).toMatch(/current snapshot version is unavailable/i);
+  });
   it("does not trust a CURRENT label beyond source validity", () => {
     const view = structuredClone(previewFeasibility);
     view.details!.sources[0].valid_through = "2026-10-20T00:00:00Z";

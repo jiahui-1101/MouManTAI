@@ -118,6 +118,13 @@ def evaluate_feasibility(
             "P2_INTERNAL_AUTH_NOT_CONFIGURED",
             "P5 has not configured the internal feasibility authorization boundary",
         )
+    if context.actor_role not in {"SERVICE", "SYSTEM"}:
+        raise DomainError(
+            "P2_INTERNAL_CALLER_NOT_AUTHORIZED",
+            "Internal feasibility evaluation requires a trusted SERVICE or SYSTEM context",
+            status_code=403,
+            correlation_id=context.correlation_id,
+        )
     tenant_ids = [request.snapshot.operational.tenant_id, request.commitment.tenant_id]
     if request.proposed_changes is not None:
         tenant_ids.append(request.proposed_changes.tenant_id)
