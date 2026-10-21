@@ -1386,16 +1386,13 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
         ).scalar()
         assert count_trigs == 1
 
-        # Verify ON DELETE CASCADE
-        session.execute(
-            text("DELETE FROM recovery_cases WHERE tenant_id = :tenant_id AND case_id = :case_id"),
-            {"tenant_id": context.tenant_id, "case_id": case_id},
-        )
-        session.commit()
+        # Verify ON DELETE RESTRICT (Migration 0007 invariant: append-only trigger history)
+        from sqlalchemy.exc import IntegrityError
 
-        count_trigs_after = session.execute(
-            text("SELECT COUNT(*) FROM recovery_case_triggers WHERE tenant_id = :tenant_id AND case_id = :case_id"),
-            {"tenant_id": context.tenant_id, "case_id": case_id},
-        ).scalar()
-        assert count_trigs_after == 0
+        with pytest.raises(IntegrityError):
+            session.execute(
+                text("DELETE FROM recovery_cases WHERE tenant_id = :tenant_id AND case_id = :case_id"),
+                {"tenant_id": context.tenant_id, "case_id": case_id},
+            )
+        session.rollback()
 
