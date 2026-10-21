@@ -238,6 +238,151 @@ def test_cross_tenant_assessment_is_rejected(session):
     assert exc.value.code == "RECOVERY_ASSESSMENT_SCOPE_CONFLICT"
 
 
+@pytest.mark.parametrize("field,value", [
+    ("commitment_id", "com_other"),
+    ("assessment_id", "fa_other"),
+    ("assessment_id", "aud_substituted_for_missing_assessment"),
+])
+def test_lookup_identity_mismatch_cannot_persist_trigger(session, field, value):
+    commitment, assessment = _setup(session)
+    wrong = assessment.model_copy(update={field: value})
+    adapter, _ = _adapter(wrong)
+    with pytest.raises(DomainError) as exc:
+        adapter.persist(session, _event(commitment, assessment))
+    assert exc.value.code == "RECOVERY_ASSESSMENT_SCOPE_CONFLICT"
+    assert _count(session, RecoveryCaseRecord) == 0
+    assert _count(session, RecoveryCaseTriggerRecord) == 0
+    assert _count(session, ProcessedEventRecord) == 0
+
+
+def test_missing_original_assessment_id_is_malformed_without_writes(session):
+    commitment, assessment = _setup(session)
+    event = _event(commitment, assessment)
+    event.payload.pop("assessment_id")
+    adapter, lookup = _adapter(assessment)
+    with pytest.raises(DomainError) as exc:
+        adapter.persist(session, event)
+    assert exc.value.code == "RECOVERY_TRIGGER_MALFORMED"
+    assert lookup.calls == 0
+    assert _count(session, RecoveryCaseRecord) == 0
+    assert _count(session, RecoveryCaseTriggerRecord) == 0
+    assert _count(session, ProcessedEventRecord) == 0
+
+
+def test_missing_snapshot_version_is_malformed_without_lookup_or_writes(session):
+    commitment, assessment = _setup(session)
+    event = _event(commitment, assessment)
+    event.payload.pop("snapshot_version")
+    adapter, lookup = _adapter(assessment)
+    with pytest.raises(DomainError) as exc:
+        adapter.persist(session, event)
+    assert exc.value.code == "RECOVERY_TRIGGER_MALFORMED"
+    assert lookup.calls == 0
+    assert _count(session, RecoveryCaseRecord) == 0
+    assert _count(session, RecoveryCaseTriggerRecord) == 0
+    assert _count(session, ProcessedEventRecord) == 0
+
+
+def test_snapshot_identity_conflict_cannot_persist(session):
+    commitment, assessment = _setup(session)
+    adapter, _ = _adapter(assessment, snapshot_id="snap_wrong")
+    with pytest.raises(DomainError) as exc:
+        adapter.persist(session, _event(commitment, assessment))
+    assert exc.value.code == "RECOVERY_ASSESSMENT_VERSION_CONFLICT"
+    assert _count(session, RecoveryCaseRecord) == 0
+    assert _count(session, RecoveryCaseTriggerRecord) == 0
+    assert _count(session, ProcessedEventRecord) == 0
+
+
+def test_forged_event_evidence_cannot_replace_assessment_evidence(session):
+    commitment, assessment = _setup(session)
+    event = _event(commitment, assessment)
+    event.payload["evidence_refs"] = ["ev_forged"]
+    adapter, _ = _adapter(assessment)
+    with pytest.raises(DomainError) as exc:
+        adapter.persist(session, event)
+    assert exc.value.code == "RECOVERY_ASSESSMENT_CONTENT_CONFLICT"
+    assert _count(session, RecoveryCaseRecord) == 0
+    assert _count(session, RecoveryCaseTriggerRecord) == 0
+    assert _count(session, ProcessedEventRecord) == 0
+
+
+@pytest.mark.parametrize("status", [
+    FeasibilityState.FEASIBLE,
+    FeasibilityState.CONDITIONAL,
+    FeasibilityState.UNKNOWN,
+])
+def test_non_infeasible_lookup_result_cannot_persist(session, status):
+    commitment, assessment = _setup(session)
+    adapter, _ = _adapter(assessment.model_copy(update={"status": status}))
+    with pytest.raises(DomainError) as exc:
+        adapter.persist(session, _event(commitment, assessment))
+    assert exc.value.code == "RECOVERY_ASSESSMENT_STATUS_CONFLICT"
+    assert _count(session, RecoveryCaseRecord) == 0
+    assert _count(session, RecoveryCaseTriggerRecord) == 0
+    assert _count(session, ProcessedEventRecord) == 0
+
+
+def test_temporary_lookup_failure_propagates_without_ack_or_case_write(session):
+    commitment, assessment = _setup(session)
+
+    class UnavailableLookup:
+        def lookup(self, session, tenant_id, commitment_id, assessment_id, event_id):
+            raise RuntimeError("assessment source temporarily unavailable")
+
+    adapter = SessionScopedRecoveryTriggerAdapter(
+        synthetic_assessment_lookup=UnavailableLookup(), allow_synthetic_for_tests=True
+    )
+    with (
+        patch.object(session, "commit") as commit,
+        patch.object(session, "rollback") as rollback,
+        pytest.raises(RuntimeError, match="temporarily unavailable"),
+    ):
+        adapter.persist(session, _event(commitment, assessment))
+    commit.assert_not_called()
+    rollback.assert_not_called()
+    assert _count(session, RecoveryCaseRecord) == 0
+    assert _count(session, RecoveryCaseTriggerRecord) == 0
+    assert _count(session, ProcessedEventRecord) == 0
+
+
+def test_rejected_new_assessment_preserves_existing_active_case(session):
+    commitment, assessment = _setup(session)
+    first_adapter, _ = _adapter(assessment)
+    first, _, _ = first_adapter.persist(session, _event(commitment, assessment))
+    original = first.model_dump(mode="json")
+    different = assessment.model_copy(update={"assessment_id": "fa_new_risk_assessment"})
+    bad_proof = different.model_copy(update={"assessment_id": "fa_unrelated"})
+    bad_adapter, _ = _adapter(bad_proof, event_id="evt_new_assessment")
+    with pytest.raises(DomainError) as exc:
+        bad_adapter.persist(session, _event(commitment, different, event_id="evt_new_assessment"))
+    assert exc.value.code == "RECOVERY_ASSESSMENT_SCOPE_CONFLICT"
+    assert bad_adapter.repository.get_case_by_id(
+        session, commitment.tenant_id, first.case_id
+    ).model_dump(mode="json") == original
+    assert _count(session, RecoveryCaseRecord) == 1
+    assert _count(session, RecoveryCaseTriggerRecord) == 1
+    assert _count(session, ProcessedEventRecord) == 0
+
+
+def test_distinct_assessment_same_unresolved_episode_reuses_case(session):
+    commitment, assessment = _setup(session)
+    first_adapter, _ = _adapter(assessment)
+    first, _, _ = first_adapter.persist(session, _event(commitment, assessment))
+    different = assessment.model_copy(update={"assessment_id": "fa_new_risk_assessment"})
+    second_adapter, _ = _adapter(different, event_id="evt_new_assessment")
+    second, created, duplicate = second_adapter.persist(
+        session, _event(commitment, different, event_id="evt_new_assessment")
+    )
+    assert second.case_id == first.case_id and not created and not duplicate
+    assert {item.assessment_id for item in second.trigger_events} == {
+        assessment.assessment_id, different.assessment_id,
+    }
+    assert _count(session, RecoveryCaseRecord) == 1
+    assert _count(session, RecoveryCaseTriggerRecord) == 2
+    assert _count(session, ProcessedEventRecord) == 0
+
+
 def test_assessment_version_and_snapshot_mismatches_are_rejected(session):
     commitment, assessment = _setup(session)
     wrong = assessment.model_copy(update={"snapshot_version": assessment.snapshot_version + 1})
