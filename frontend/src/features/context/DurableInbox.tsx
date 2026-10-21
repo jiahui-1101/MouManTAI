@@ -107,7 +107,15 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
     <header className="p1-page-heading"><div><h1>Message Inbox</h1><p>Receive synthetic messages and inspect their original content.</p></div><button type="button" className="p1-primary" disabled={resource.state !== 'ready' || composing} onClick={() => { setSaved(null); setComposing(true); }}>+ New synthetic message</button></header>
     <div className="p1-tabs"><span className="p1-active-label">Persisted messages</span><a href="/inbox/fixtures">Fixture preview ↗</a><span className="p1-demo-label">Local PostgreSQL · synthetic channel only</span></div>
     {saved && <p role="status" className="p1-success">{saved.duplicate ? 'Duplicate delivery — original message retrieved.' : 'Message saved.'} ID: {saved.message.message_id}. Awaiting processing; extraction has not run.</p>}
-    {composing && tenantId && <SyntheticComposer tenantId={tenantId} ingest={payload => api.ingest(payload)} onSuccess={submitted} onCancel={() => setComposing(false)} />}
+    {composing && tenantId && (
+      <SyntheticComposer
+        tenantId={tenantId}
+        ingest={payload => api.ingest(payload)}
+        uploadAttachment={file => api.uploadAttachment(file)}
+        onSuccess={submitted}
+        onCancel={() => setComposing(false)}
+      />
+    )}
     <section className="p1-filter-card" aria-label="Inbox filters"><div className="p1-filter-fields p1-durable-filters">
       <label className="p1-search"><span>Search messages</span><input type="search" maxLength={200} value={search} placeholder="Search original text, sender or provider ID" onChange={event => { setSearch(event.target.value); setOffset(0); }} /></label>
       <label><span>Channel</span><select value={channel} onChange={event => { setChannel(event.target.value); setOffset(0); }}><option value="ALL">All channels</option>{['WHATSAPP', 'EMAIL', 'TELEGRAM', 'UNKNOWN'].map(value => <option key={value}>{value}</option>)}</select></label>
