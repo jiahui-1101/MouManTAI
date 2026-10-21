@@ -9,6 +9,7 @@ import type {
   ExtractedField,
   ExtractionAttemptRecord,
   IngestResponse,
+  MessageAssociationRecord,
   MessagePage,
   StoredMessage,
 } from './types';
@@ -125,21 +126,24 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
   const [data, setData] = useState<StoredMessage | null>(null);
   const [extraction, setExtraction] = useState<ExtractionAttemptRecord | null>(null);
   const [attempts, setAttempts] = useState<ExtractionAttemptRecord[]>([]);
+  const [association, setAssociation] = useState<MessageAssociationRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [deciding, setDeciding] = useState(false);
+  const [assocError, setAssocError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const panel = useRef<HTMLElement>(null);
   useEffect(() => { panel.current?.focus(); }, []);
 
   useEffect(() => {
     let active = true;
-    setData(null); setExtraction(null); setAttempts([]); setError(null);
+    setData(null); setExtraction(null); setAttempts([]); setAssociation(null); setError(null); setAssocError(null);
     api.detail(id).then(message => {
       if (active) {
         setData(message);
-        // Attempt to fetch extraction and attempt history
         api.getExtraction(id).then(ext => { if (active) setExtraction(ext); }).catch(() => { /* Not yet extracted */ });
         api.listAttempts(id).then(hist => { if (active) setAttempts(hist.items); }).catch(() => { /* Not yet extracted */ });
+        api.getAssociation(id).then(assoc => { if (active) setAssociation(assoc); }).catch(() => { /* Not yet evaluated */ });
       }
     }).catch(failure => { if (active) setError(failure instanceof Error ? failure.message : 'Message unavailable'); });
     return () => { active = false; };
@@ -153,11 +157,34 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
       setExtraction(res.attempt);
       const hist = await api.listAttempts(id).catch(() => ({ items: [res.attempt] }));
       setAttempts(hist.items);
+      api.getAssociation(id).then(setAssociation).catch(() => {});
       onUpdated?.();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Processing failed');
     } finally {
       setProcessing(false);
+    }
+  }
+
+  async function handleDecide(decision: 'CONFIRMED' | 'REJECTED', target_customer_id?: string, target_order_id?: string) {
+    if (!association) return;
+    setDeciding(true);
+    setAssocError(null);
+    try {
+      const updated = await api.decideAssociation(id, {
+        decision,
+        target_customer_id,
+        target_order_id,
+        reason: decision === 'CONFIRMED' ? 'Manual staff confirmation' : 'Manual staff rejection',
+        expected_version: association.version,
+      });
+      setAssociation(updated);
+      onUpdated?.();
+    } catch (err) {
+      setAssocError(err instanceof Error ? err.message : 'Decision failed');
+      api.getAssociation(id).then(setAssociation).catch(() => {});
+    } finally {
+      setDeciding(false);
     }
   }
 
@@ -185,8 +212,8 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
       <dl className="p1-dimensions">
         <div><dt>Processing</dt><dd>{data.processing_status}</dd></div>
         <div><dt>Information</dt><dd>{extraction ? `Extracted (${(extraction.fields ?? []).length} fields)` : 'Not extracted'}</dd></div>
-        <div><dt>Identity</dt><dd>Not associated</dd></div>
-        <div><dt>Review</dt><dd>Not started</dd></div>
+        <div><dt>Identity</dt><dd>{association ? association.status : 'Not associated'}</dd></div>
+        <div><dt>Review</dt><dd>{association?.last_decision ? association.last_decision.decision : 'Not started'}</dd></div>
       </dl>
       <blockquote className="p1-original">
         {extraction?.fields?.length ? renderHighlightedText(data.raw.text, extraction.fields) : data.raw.text}
@@ -240,6 +267,105 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
           <p className="p1-notice" role="alert">Extraction failed: {data.raw ? 'Processing failed' : ''}. Check diagnostic logs.</p>
         ) : (
           <p className="p1-notice">Awaiting processing. Extraction is not implemented yet; no extracted fields or evidence are available.</p>
+        )}
+      </section>
+
+      <section className="p1-evidence" aria-label="Identity and order association">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3>Identity & Order Association</h3>
+          {association && (
+            <span className={`p1-badge ${association.status === 'LINK_VERIFIED' ? 'p1-ready' : association.status === 'CONFLICT' ? 'p1-critical' : 'p1-attention'}`}>
+              {association.status} (v{association.version})
+            </span>
+          )}
+        </div>
+
+        {assocError && <div className="p1-conflict-box" role="alert">{assocError}</div>}
+
+        {association && (
+          <>
+            <div style={{ marginTop: '8px', fontSize: '11px' }}>
+              <p>
+                <strong>Verified Customer:</strong>{' '}
+                {association.verified_customer ? (
+                  <span className="p1-badge p1-ready">{association.verified_customer.display_name} ({association.verified_customer.customer_id})</span>
+                ) : (
+                  <span className="p1-muted">Unverified sender ({data.raw.sender_identity_id})</span>
+                )}
+              </p>
+              <p style={{ marginTop: '4px' }}>
+                <strong>Verified Order:</strong>{' '}
+                {association.verified_order ? (
+                  <span className="p1-badge p1-blue">{association.verified_order.order_id} ({association.verified_order.description || association.verified_order.status})</span>
+                ) : (
+                  <span className="p1-muted">None</span>
+                )}
+              </p>
+            </div>
+
+            {(association.conflicts?.length ?? 0) > 0 && (
+              <div className="p1-conflict-box" role="alert">
+                <strong>Conflicts Detected:</strong>
+                <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                  {(association.conflicts ?? []).map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {(association.candidates?.length ?? 0) > 0 && (
+              <div style={{ marginTop: '10px' }}>
+                <h4 style={{ fontSize: '11px', marginBottom: '6px' }}>Suggested Association Candidates</h4>
+                <ul className="p1-candidate-list" aria-label="Candidate orders">
+                  {(association.candidates ?? []).map((cand, idx) => (
+                    <li key={`${cand.customer_id}-${cand.order_id ?? idx}`} className="p1-candidate-card">
+                      <div className="p1-candidate-header">
+                        <strong>{cand.customer_name} ({cand.customer_id})</strong>
+                        <span className="p1-badge p1-blue">{cand.match_type} ({(cand.confidence * 100).toFixed(0)}%)</span>
+                      </div>
+                      {cand.order_id && <p>Order Target: <code>{cand.order_id}</code></p>}
+                      <p className="p1-muted" style={{ fontSize: '10px', marginTop: '2px' }}>
+                        {cand.reasons.join(' · ')}
+                      </p>
+                      <div className="p1-assoc-controls">
+                        <button
+                          type="button"
+                          className="p1-action-btn"
+                          disabled={deciding}
+                          onClick={() => handleDecide('CONFIRMED', cand.customer_id, cand.order_id ?? undefined)}
+                        >
+                          ✓ Confirm link
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="p1-assoc-controls" style={{ marginTop: '8px' }}>
+              <button
+                type="button"
+                className="p1-secondary"
+                disabled={deciding || association.status === 'UNVERIFIED'}
+                onClick={() => handleDecide('REJECTED')}
+              >
+                ✗ Reject / Unlink
+              </button>
+            </div>
+
+            {association.last_decision && (
+              <div className="p1-decision-box" aria-label="Audit decision history">
+                <strong>Last Decision:</strong>{' '}
+                <span className={`p1-badge ${association.last_decision.decision === 'CONFIRMED' ? 'p1-ready' : 'p1-critical'}`}>
+                  {association.last_decision.decision}
+                </span>{' '}
+                by <code>{association.last_decision.actor_id}</code> ({association.last_decision.actor_role}) at {formatTime(association.last_decision.decided_at)}
+                <p style={{ marginTop: '4px', color: '#55657d' }}>Reason: {association.last_decision.reason}</p>
+              </div>
+            )}
+          </>
         )}
       </section>
 

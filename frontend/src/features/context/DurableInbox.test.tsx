@@ -51,6 +51,52 @@ function fakeApi(): OperationalApi {
     }),
     getExtraction: vi.fn().mockRejectedValue(new Error('No extraction')),
     listAttempts: vi.fn().mockResolvedValue({ items: [] }),
+    getAssociation: vi.fn().mockResolvedValue({
+      association_id: 'assoc_1',
+      tenant_id: 'server_tenant',
+      message_id: 'stored_message_1',
+      status: 'LINK_CANDIDATE',
+      verified_customer: null,
+      verified_order: null,
+      candidates: [
+        {
+          customer_id: 'cust_bk',
+          customer_name: 'Burger King',
+          order_id: 'ORD-1001',
+          match_type: 'EXTRACTED_ORDER_REF',
+          reasons: ['Explicit reference found'],
+          evidence: ['Ref ORD-1001'],
+          confidence: 0.8,
+        },
+      ],
+      conflicts: [],
+      last_decision: null,
+      version: 1,
+      updated_at: timestamp,
+    }),
+    decideAssociation: vi.fn().mockImplementation((_id, req) =>
+      Promise.resolve({
+        association_id: 'assoc_1',
+        tenant_id: 'server_tenant',
+        message_id: 'stored_message_1',
+        status: req.decision === 'CONFIRMED' ? 'LINK_VERIFIED' : 'UNVERIFIED',
+        verified_customer: req.decision === 'CONFIRMED' ? { customer_id: req.target_customer_id, display_name: 'Burger King' } : null,
+        verified_order: req.decision === 'CONFIRMED' ? { order_id: req.target_order_id, status: 'ACTIVE' } : null,
+        candidates: [],
+        conflicts: [],
+        last_decision: {
+          decision: req.decision,
+          target_customer_id: req.target_customer_id,
+          target_order_id: req.target_order_id,
+          actor_id: 'staff_01',
+          actor_role: 'STAFF',
+          reason: req.reason,
+          decided_at: timestamp,
+        },
+        version: req.expected_version + 1,
+        updated_at: timestamp,
+      })
+    ),
   };
 }
 
@@ -191,6 +237,36 @@ describe('durable synthetic Inbox', () => {
     expect(await within(detail).findByText(/RULE \(p1-deterministic-v3\)/)).toBeInTheDocument();
     expect(within(detail).getByText('BURGER')).toBeInTheDocument();
     expect(within(detail).getAllByText('100').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('renders association candidates and allows manual confirmation', async () => {
+    const api = fakeApi();
+    api.list = vi.fn().mockResolvedValue(page([message]));
+    render(<DurableInbox api={api} />);
+    expect(await screen.findByText('1 persisted messages')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Synthetic buyer' }));
+    const detail = screen.getByRole('region', { name: 'Persisted message details' });
+
+    expect(await within(detail).findByText('Identity & Order Association')).toBeInTheDocument();
+    expect(within(detail).getByText('LINK_CANDIDATE (v1)')).toBeInTheDocument();
+    expect(within(detail).getByText('Suggested Association Candidates')).toBeInTheDocument();
+    expect(within(detail).getByText('Burger King (cust_bk)')).toBeInTheDocument();
+
+    // Confirm link
+    fireEvent.click(within(detail).getByRole('button', { name: '✓ Confirm link' }));
+    await waitFor(() => {
+      expect(api.decideAssociation).toHaveBeenCalledWith(
+        'stored_message_1',
+        expect.objectContaining({
+          decision: 'CONFIRMED',
+          target_customer_id: 'cust_bk',
+          target_order_id: 'ORD-1001',
+          expected_version: 1,
+        }),
+      );
+    });
+    expect(await within(detail).findByText('LINK_VERIFIED (v2)')).toBeInTheDocument();
   });
 });
 
