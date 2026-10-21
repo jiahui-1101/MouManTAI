@@ -47,11 +47,15 @@ class EndpointAdapter:
         self.config = config
         self.transport = transport
         self.busy = False
+        self.last_output = None
+        self.last_provider_metrics = {}
 
     async def infer(self, request: InferenceInput) -> InferenceOutput:
         if self.busy:
             raise InferenceFailure("busy")
         self.busy = True
+        self.last_output = None
+        self.last_provider_metrics = {}
         try:
             import httpx
 
@@ -72,10 +76,15 @@ class EndpointAdapter:
                                 raise InferenceFailure("response_budget_exceeded")
             body = json.loads(chunks)
             if self.config.mode == "runpod":
+                if isinstance(body, dict):
+                    # Provider-observed execution/delay metrics are NOT a bill.
+                    self.last_provider_metrics = {k: body[k] for k in ("id", "executionTime", "delayTime")
+                                                  if k in body and isinstance(body[k], (str, int, float))}
                 if not isinstance(body, dict) or body.get("status") != "COMPLETED":
                     raise InferenceFailure("endpoint_job_not_completed")
                 body = body.get("output")
-            return validate_evidence(InferenceOutput.model_validate(body), request)
+            self.last_output = InferenceOutput.model_validate(body)
+            return validate_evidence(self.last_output, request)
         except InferenceFailure:
             raise
         except TimeoutError:

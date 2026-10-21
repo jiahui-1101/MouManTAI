@@ -84,13 +84,20 @@ def deterministic(case):
         message = StoredMessage(message_id=source["id"], raw=raw, content_sha256=hashlib.sha256(source["text"].encode()).hexdigest(),
             processing_status="RECEIVED", synthetic_provider="SYNTHETIC_WHATSAPP", ingested_at=raw.received_at, updated_at=raw.received_at)
         result = extract_explicit_fields(message, catalog=catalog)
+        # Credit the baseline's actual single-item association capability;
+        # do not manufacture a zero association baseline for model comparison.
+        valid_skus = [f for f in result.fields if f.field_name == "sku" and f.validation_status == "VALID"]
+        valid_counts = [f for f in result.fields if f.field_name == "quantity" and f.validation_status == "VALID"]
+        group = source["id"] + ":rule_item" if len(valid_skus) == len(valid_counts) == 1 else None
         all_rules.extend(result.fields)
         statuses.extend(f.validation_status for f in result.fields if f.field_name == "requested_delivery_at" and f.validation_status != "MISSING")
         for field in result.fields:
             if field.field_name not in names:
                 continue
             fields.extend({"field": names[field.field_name], "message_id": source["id"], "quote": e.quote,
-                           "start": e.start, "end": e.end, "group_id": None} for e in field.evidence)
+                           "start": e.start, "end": e.end,
+                           "group_id": group if field.field_name in {"sku", "quantity", "unit"} and field.validation_status == "VALID" else None}
+                          for e in field.evidence)
     status = "MISSING" if not statuses else statuses[0] if len(statuses) == 1 else "UNRESOLVED"
     selective = len(case["messages"]) > 1 or any(f.validation_status in {"UNRESOLVED", "CONFLICT"}
                                                and f.field_name != "order_id" for f in all_rules)
