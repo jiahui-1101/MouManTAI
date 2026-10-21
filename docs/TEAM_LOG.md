@@ -450,5 +450,47 @@ Metric protocol: always disclose dataset size, date, ground truth creation metho
   - Backend tests: 46 passed (`pytest -v backend/tests`), including 18 new integration tests in `test_feature_handshakes.py`.
   - Frontend checks: `tsc --noEmit` passed; Vitest 12 passed; production build passed (`npm run build`).
 
+### 2026-10-21 — Task T3.4: Frontend Live-API Smoke & Role-Guard Verification (UI-01, UI-02, UI-03, UI-06, FE-01a, FE-01d)
+- **Scope**: UI-01, UI-02, UI-03, UI-06, FE-01a, FE-01d. Strictly within P5 paths (`frontend/src/app/__tests__/RoleGuardAndNavigation.test.tsx`, `frontend/src/app/__tests__/LiveApiSmoke.test.ts`, `frontend/src/shared/ApprovalActionControl.tsx`, `frontend/src/shared/auth.tsx`, `frontend/src/layout/AppShell.tsx`, `frontend/src/styles.css`, `frontend/src/features/overview/__tests__/OverviewPage.test.tsx`, `frontend/src/features/activity/__tests__/ActivityPage.test.tsx`, `backend/app/db/session.py`, `backend/app/core/dependencies.py`, `scripts/reset_and_seed_test_db.py`, `docs/TEAM_LOG.md`). Zero edits to P1–P4 feature directories (`frontend/src/features/{context,feasibility,recovery,communication}/`).
+- **No Route Drift**: Checked frontend codebase (`frontend/src/`); confirmed zero references or calls to `POST /v1/commitments/{id}/assess`.
+- **AppShell Role Simulator (UI-03)**:
+  - Topbar header updated with global demo role selector `<select aria-label="Demo role selector" data-testid="shell-role-selector">`.
+  - Switching between `Owner` (`user_owner_01` / `owner_01`), `Manager` (`user_manager_01` / `manager_01`), and `Staff` (`user_staff_01` / `staff_01`) dynamically updates the `X-Actor-ID` request headers and app shell tenant badge.
+- **Shared Approval Control & Role Guard Enforcement (UI-03, FE-01d)**:
+  - Created `frontend/src/shared/ApprovalActionControl.tsx`: enforces server-side role check; high-privilege proposal approval controls are disabled/restricted for Staff (`data-testid="permission-restricted-notice"`, `data-testid="approval-action-btn-disabled"`).
+  - Forced attempts catch backend `403 Forbidden` (`code="APPROVAL_REQUIRED"`) and surface clean alert banners (`role="alert"`, `data-testid="permission-error-banner"`).
+  - Invariant strictly maintained: Never shows fake optimistic success.
+  - Strict semantic badge colors verified: `PENDING_APPROVAL`, `AWAITING_CONFIRMATION`, `OFFERED`, `UNKNOWN` render warning, purple, or neutral badges; never `badge-success` or green.
+- **Overview Refresh After Lifecycle Mutations (UI-01)**:
+  - Unit tests in `OverviewPage.test.tsx` verify initial counts from `GET /v1/overview`, dynamic bucket updates when commitments transition `CONFIRMED` -> `AT_RISK` -> `FULFILLED`, attention queue alerts, and manual refresh via `refetch()`.
+- **Activity Linked Events & Unbroken Causal Chain (UI-02)**:
+  - Unit tests in `ActivityPage.test.tsx` verify chronological progression (`F1 -> F2 -> F3 -> F4 -> Core`), monotonic versions (1 -> 2 -> ... -> 9), correlation/causation tracking (`correlation_id`, `causation_id`), and role-redacted notes for Staff.
+- **Deep-Link Navigation Integrity (FE-01a)**:
+  - Tested navigation across all 10 frontend routes (`/overview`, `/activity`, `/inbox`, `/orders/:id`, `/commitments/:id`, `/impact/:id`, `/recovery/:id`, `/communications`, `/confirmations/:id`, `*`). All routes render valid landmark headings without unhandled exceptions or crash.
+- **Database Reset & Seed Script (UI-06)**:
+  - Created single documented command `python scripts/reset_and_seed_test_db.py`: drops and recreates tables, seeds stock levels (BUN, PATTY, BURGER), seeds `com_001` with complete 9-version Hero Journey history, and seeds 6 additional commitments covering all 7 state dimensions. 100% idempotent with zero side effects.
+- **Live-API Smoke Suite (LIVE_API=1, UI-06)**:
+  - Created `frontend/src/app/__tests__/LiveApiSmoke.test.ts`: gated by `LIVE_API=1`.
+  - When `LIVE_API=1` is set, executes live HTTP network calls against FastAPI service on port 8000, asserting health, live DB-derived overview counts, Staff role headers, com_001 timeline causal chains, and Staff 403 Forbidden rejection.
+- **Route Status Ledger (T4.2-B format)**:
+  | Route | Owner | UI Component | Status | Integration Source |
+  |---|---|---|---|---|
+  | `/overview` | P5 | `OverviewPage` | Real API | `GET /v1/overview` |
+  | `/activity` | P5 | `ActivityPage` | Real API | `GET /v1/commitments/{id}/timeline`, `GET /v1/audit` |
+  | `/inbox` | P1 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `/orders/:id` | P1 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `/commitments/:id` | P2 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `/impact/:id` | P2 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `/recovery/:id` | P3 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `/communications` | P4 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `/confirmations/:id` | P4 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `*` | P5 | `FeaturePlaceholder` | Shared Shell | 404 fallback |
+- **Validation Results**:
+  - `cmd /c npm run typecheck`: Passed (0 errors)
+  - `cmd /c npm test`: Passed (28 passed, 5 skipped)
+  - `cmd /c "set LIVE_API=1&& npm test"`: Passed (33 passed, 0 skipped)
+  - `cmd /c npm run build`: Passed (`dist/` generated in 854ms)
+  - `python -m pytest backend/tests`: Passed (63 passed in 1.42s)
+
 
 
