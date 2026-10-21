@@ -127,14 +127,14 @@ def test_scenario_1_new_request_through_p1_to_core_and_p2(pg_engine):
         causation_id=ctx_id,
     )
 
-    # Publish to Core
+    # Publish to Core (REQUESTED)
     with Session(pg_engine) as session:
         commitment = publisher.publish_to_core(session, req_context, saved)
         assert commitment.commitment_id.startswith("com_")
         assert commitment.agreement_state == AgreementState.REQUESTED
         assert commitment.feasibility_state == FeasibilityState.NOT_ASSESSED
 
-    # Dispatch outbox event to P2 consumer
+    # Dispatch outbox event to P2 consumer: unconfirmed request fails closed (advisory, NOT assessed in Core)
     dispatcher = OutboxDispatcher()
     register_p2_subscribers(dispatcher)
 
@@ -142,17 +142,43 @@ def test_scenario_1_new_request_through_p1_to_core_and_p2(pg_engine):
         batch_result = dispatcher.process_outbox_batch(session, batch_size=200)
         assert batch_result.processed_count >= 1
 
-    # Verify P2 feasibility assessment was written back to Core commitment
+    # Invariant (P2 Review §1 / AGENTS.md): Unconfirmed request must NOT have authoritative feasibility assessed in Core
     with Session(pg_engine) as session:
         record = session.get(CommitmentRecord, (tenant_id, commitment.commitment_id))
         assert record is not None
-        assert record.feasibility_state in (
-            FeasibilityState.FEASIBLE.value,
-            FeasibilityState.CONDITIONAL.value,
-            FeasibilityState.INFEASIBLE.value,
-            FeasibilityState.UNKNOWN.value,
+        assert record.feasibility_state == FeasibilityState.NOT_ASSESSED.value
+
+    # Confirm commitment: once genuinely CONFIRMED, authoritative operational evaluation is authorized
+    with Session(pg_engine) as session:
+        row = session.get(CommitmentRecord, (tenant_id, commitment.commitment_id))
+        assert row is not None
+        row.agreement_state = AgreementState.CONFIRMED.value
+        session.commit()
+
+        # Dispatch evaluation event for confirmed commitment
+        ev = DomainEvent(
+            event_id=f"evt_conf_eval_{uuid4().hex[:8]}",
+            schema_version=1,
+            event_type=CoreEventType.COMMITMENT_CONTEXT_READY.value,
+            tenant_id=tenant_id,
+            commitment_id=commitment.commitment_id,
+            commitment_version=row.commitment_version,
+            correlation_id="corr_01",
+            causation_id="cause_conf",
+            occurred_at=datetime.now(timezone.utc),
+            payload={"commitment_id": commitment.commitment_id},
         )
-        assert record.feasibility_state != FeasibilityState.NOT_ASSESSED.value
+        consumer = P2FeasibilityConsumer()
+        res = consumer.handle_context_ready(session, ev)
+        assert res is not None
+        assert res.status == FeasibilityState.FEASIBLE
+        session.commit()
+
+    # Verify P2 operational assessment was written back to Core commitment as strictly FEASIBLE
+    with Session(pg_engine) as session:
+        record = session.get(CommitmentRecord, (tenant_id, commitment.commitment_id))
+        assert record is not None
+        assert record.feasibility_state == FeasibilityState.FEASIBLE.value
 
         # Verify timeline audit event exists
         audits = session.scalars(
@@ -189,6 +215,11 @@ def test_scenario_2_reviewed_correction_and_updated_context(pg_engine):
     with Session(pg_engine) as session:
         com_1 = publisher.publish_to_core(session, req_context, saved)
         assert com_1.terms.quantity == Decimal("100")
+        # Advance to CONFIRMED so operational evaluator assesses updated terms (Invariant 1)
+        row = session.get(CommitmentRecord, (tenant_id, com_1.commitment_id))
+        assert row is not None
+        row.agreement_state = AgreementState.CONFIRMED.value
+        session.commit()
 
     # Operator performs human review edit: quantity corrected to 120
     review_req = ContextReviewRequest(
