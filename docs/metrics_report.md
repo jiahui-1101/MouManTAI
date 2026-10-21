@@ -1,7 +1,7 @@
 # MouManTAI — Feature Freeze Regression & Quantitative Metrics Report
 
-> **Generated At**: `2026-10-21 16:36:41 UTC`  
-> **Git Reference**: `commit d078f21`  
+> **Generated At**: `2026-10-21 16:43:12 UTC`  
+> **Git Reference**: `commit 62044c9`  
 > **Environment**: `Windows 11 (AMD64)` | `Python 3.14.7`  
 > **Specification**: `REQUIREMENTS_SYSTEM.md §7` ("Quantitative Metrics") & `PERSON_5 §8`  
 > **Integrity Guardrail**: Measured numbers only from reproducible synthetic benchmark harness. No fabricated production metrics.
@@ -17,7 +17,7 @@
 | **Unauthorized & Stale Action Block Rate** | `100.0%` | **100.0% (7/7 blocked)** | **PASSED** |
 | **Unauthorized State Mutations Permitted** | `0` | **0** | **PASSED** |
 | **False Fulfilment / False Confirmation Rate** | `0.0%` | **0.0% (0/4)** | **PASSED** |
-| **Median Core Command Processing Latency** | `< 25.0 ms` | **5.35 ms (ingest) / 6.09 ms (confirm)** | **PASSED** |
+| **Median Core Command Processing Latency** | `< 25.0 ms` | **5.97 ms (ingest) / 6.88 ms (confirm)** | **PASSED** |
 
 ---
 
@@ -25,18 +25,18 @@
 
 | ID | Scenario Description | Invariant & Authority Ground Truth | Duration (ms) | Result |
 |---|---|---|---|---|
-| `E2E-01` | Customer requests 100 units; verified constraints allow | Request context populated -> Feasibility check -> Proposal offered -> Signed confirmation | `44.6` | **PASSED** |
-| `E2E-02` | Supplier ETA delay recomputes affected commitments | Supplier delivery delayed -> P2 recalculates -> flags com_001 INFEASIBLE/AT_RISK while com_002 stays NORMAL | `44.6` | **PASSED** |
-| `E2E-03` | Recovery comparison & manager approval required | Two recovery plans compared from same snapshot; Staff rejected (403); Manager approves plan_a | `44.6` | **PASSED** |
-| `E2E-04` | Stale approval / stock changed (Snapshot Drift) | Manager approves snapshot 142; stock changes to 143; execution blocked (409 Conflict); no unauthorized mutation | `24.32` | **PASSED** |
-| `E2E-05` | Ambiguous customer 'OK' reply requires clarification | Customer replies with vague 'OK'; flagged CLARIFICATION_REQUIRED, never auto-confirmed | `12.94` | **PASSED** |
-| `E2E-06` | Stale proposal version confirmation rejected | Confirmation arrives for proposal v1 after v2 exists; blocked (409 Conflict); preserves v2 | `42.44` | **PASSED** |
-| `E2E-07` | Message sent without reply (Delivery Tracking Only) | Message status updates to SENT/DELIVERED; confirmation remains AWAITING_RESPONSE; fulfilment stays NOT_STARTED | `5.05` | **PASSED** |
-| `E2E-08` | Duplicate webhook / action retry idempotency | Webhook retried with identical event_id; exactly 1 state transition, 1 reservation, and 1 audit record created | `6.72` | **PASSED** |
-| `E2E-09` | Unverified receipt screenshot uploaded | Customer uploads bank receipt screenshot; evidence recorded, agreement stays REQUESTED, flagged for manual review | `3.97` | **PASSED** |
-| `E2E-10` | Worker crash recovery without duplicate execution | Worker crashes after external API call succeeds; consumer reconciles idempotency key without duplicate action | `6.18` | **PASSED** |
-| `E2E-11` | Cross-tenant isolation enforcement | Tenant B attempts to access, assess, confirm, or view audit of Tenant A's commitment; strictly denied (404/403) | `44.07` | **PASSED** |
-| `E2E-12` | Operational fulfilment verified (Signed POD Proof) | Operational courier delivery confirmed with signed POD; transitions to FULFILLED and RESOLVED; premature receipt rejected (422) | `44.6` | **PASSED** |
+| `E2E-01` | Customer requests 100 units; verified constraints allow | Request context populated -> Feasibility check -> Proposal offered -> Signed confirmation | `53.12` | **PASSED** |
+| `E2E-02` | Supplier ETA delay recomputes affected commitments | Supplier delivery delayed -> P2 recalculates -> flags com_001 INFEASIBLE/AT_RISK while com_002 stays NORMAL | `53.12` | **PASSED** |
+| `E2E-03` | Recovery comparison & manager approval required | Two recovery plans compared from same snapshot; Staff rejected (403); Manager approves plan_a | `53.12` | **PASSED** |
+| `E2E-04` | Stale approval / stock changed (Snapshot Drift) | Manager approves snapshot 142; stock changes to 143; execution blocked (409 Conflict); no unauthorized mutation | `27.29` | **PASSED** |
+| `E2E-05` | Ambiguous customer 'OK' reply requires clarification | Customer replies with vague 'OK'; flagged CLARIFICATION_REQUIRED, never auto-confirmed | `12.95` | **PASSED** |
+| `E2E-06` | Stale proposal version confirmation rejected | Confirmation arrives for proposal v1 after v2 exists; blocked (409 Conflict); preserves v2 | `41.08` | **PASSED** |
+| `E2E-07` | Message sent without reply (Delivery Tracking Only) | Message status updates to SENT/DELIVERED; confirmation remains AWAITING_RESPONSE; fulfilment stays NOT_STARTED | `4.72` | **PASSED** |
+| `E2E-08` | Duplicate webhook / action retry idempotency | Webhook retried with identical event_id; exactly 1 state transition, 1 reservation, and 1 audit record created | `6.2` | **PASSED** |
+| `E2E-09` | Unverified receipt screenshot uploaded | Customer uploads bank receipt screenshot; evidence recorded, agreement stays REQUESTED, flagged for manual review | `3.73` | **PASSED** |
+| `E2E-10` | Worker crash recovery without duplicate execution | Worker crashes after external API call succeeds; consumer reconciles idempotency key without duplicate action | `5.49` | **PASSED** |
+| `E2E-11` | Cross-tenant isolation enforcement | Tenant B attempts to access, assess, confirm, or view audit of Tenant A's commitment; strictly denied (404/403) | `42.78` | **PASSED** |
+| `E2E-12` | Operational fulfilment verified (Signed POD Proof) | Operational courier delivery confirmed with signed POD; transitions to FULFILLED and RESOLVED; premature receipt rejected (422) | `53.12` | **PASSED** |
 
 ---
 
@@ -71,15 +71,15 @@
 
 | Lifecycle Command | Endpoint / Operation | p50 (Median) | p95 | Min | Max | Mean |
 |---|---|---|---|---|---|---|
-| **Context Ingest** | `POST /v1/integration/context-updated` | `5.35 ms` | `15.32 ms` | `4.92 ms` | `15.32 ms` | `6.2 ms` |
-| **Feasibility Assess** | `CommitmentService.assess` | `1.15 ms` | `1.72 ms` | `1.06 ms` | `1.72 ms` | `1.18 ms` |
-| **Proposal Offer** | `POST /v1/commitments/{id}/proposals` | `6.02 ms` | `8.04 ms` | `5.8 ms` | `8.04 ms` | `6.21 ms` |
-| **Proposal Confirm** | `POST /v1/commitments/{id}/confirm-proposal` | `6.09 ms` | `16.44 ms` | `5.63 ms` | `16.44 ms` | `7.58 ms` |
-| **Recovery Start** | `POST /v1/commitments/{id}/recovery/start` | `5.71 ms` | `6.53 ms` | `5.35 ms` | `6.53 ms` | `5.8 ms` |
-| **Recovery Execute** | `POST /v1/commitments/{id}/recovery/execute` | `6.62 ms` | `7.59 ms` | `6.41 ms` | `7.59 ms` | `6.75 ms` |
-| **Fulfilment Record** | `POST /v1/commitments/{id}/record-fulfilment` | `5.61 ms` | `6.45 ms` | `5.43 ms` | `6.45 ms` | `5.72 ms` |
-| **Overview Query** | `GET /v1/overview` | `5.7 ms` | `7.77 ms` | `5.34 ms` | `7.77 ms` | `5.86 ms` |
-| **Timeline Query** | `GET /v1/commitments/{id}/timeline` | `5.09 ms` | `7.53 ms` | `4.96 ms` | `7.53 ms` | `5.3 ms` |
+| **Context Ingest** | `POST /v1/integration/context-updated` | `5.97 ms` | `10.13 ms` | `5.02 ms` | `10.13 ms` | `6.28 ms` |
+| **Feasibility Assess** | `CommitmentService.assess` | `1.19 ms` | `2.15 ms` | `1.0 ms` | `2.15 ms` | `1.25 ms` |
+| **Proposal Offer** | `POST /v1/commitments/{id}/proposals` | `6.91 ms` | `9.92 ms` | `5.58 ms` | `9.92 ms` | `6.98 ms` |
+| **Proposal Confirm** | `POST /v1/commitments/{id}/confirm-proposal` | `6.88 ms` | `8.94 ms` | `5.75 ms` | `8.94 ms` | `6.84 ms` |
+| **Recovery Start** | `POST /v1/commitments/{id}/recovery/start` | `6.64 ms` | `7.74 ms` | `5.27 ms` | `7.74 ms` | `6.44 ms` |
+| **Recovery Execute** | `POST /v1/commitments/{id}/recovery/execute` | `7.72 ms` | `9.04 ms` | `6.23 ms` | `9.04 ms` | `7.45 ms` |
+| **Fulfilment Record** | `POST /v1/commitments/{id}/record-fulfilment` | `6.65 ms` | `7.5 ms` | `5.27 ms` | `7.5 ms` | `6.47 ms` |
+| **Overview Query** | `GET /v1/overview` | `6.44 ms` | `8.98 ms` | `5.36 ms` | `8.98 ms` | `6.59 ms` |
+| **Timeline Query** | `GET /v1/commitments/{id}/timeline` | `5.69 ms` | `8.22 ms` | `4.88 ms` | `8.22 ms` | `5.89 ms` |
 
 ---
 

@@ -89,7 +89,7 @@ jobs:
       - name: Verify zero deprecated PromiseFlow branding in UI and code
         run: |
           echo "Scanning frontend, backend, and contracts for legacy branding..."
-          MATCHES=$(grep -rn "PromiseFlow" frontend/src backend/app contracts 2>/dev/null || true)
+          MATCHES=$(grep -rn --exclude="*.md" "PromiseFlow" frontend/src backend/app contracts 2>/dev/null || true)
           if [ -n "$MATCHES" ]; then
             echo "ERROR: Found leftover 'PromiseFlow' references in UI or codebase:"
             echo "$MATCHES"

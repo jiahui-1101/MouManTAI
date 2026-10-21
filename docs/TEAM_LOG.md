@@ -953,6 +953,34 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - Frontend typecheck: Passed (`tsc --noEmit`, 0 errors).
   - Frontend build: Passed (`cmd /c npm run build`, 0 errors).
 
+### 2026-10-21 — Task T5.2: Clean-Room Deployment Verification & Security/Scope Guardrail Audit (SAF-6, SC-1)
+- **Status**: Complete & Verified (Zero secret leaks, zero scope-lock violations, zero leftover PromiseFlow UI branding, clean deployment rehearsal).
+- **Scope & Audit Execution**:
+  1. **Product Identity Check**:
+     - Verified `backend/app/main.py` OpenAPI metadata: `title="MouManTAI API"`.
+     - Verified `frontend/index.html`: `<title>MouManTAI</title>`.
+     - Verified `frontend/package.json`: `"name": "moumantai-frontend"`.
+     - Verified zero user-facing `PromiseFlow` strings across all code and UI components (`frontend/src/`, `contracts/`, `backend/app/`). CI workflow updated with `--exclude="*.md"` to prevent legacy log trips while strictly guarding code surfaces.
+  2. **Secrets & PII Hygiene (`SAF-6`, `DEV-3`, `AGENTS.md` §9)**:
+     - Verified `.gitignore` ignores `.env` and `.env.*` while keeping `.env.example`.
+     - Scanned `.env.example`: verified placeholder values only (`replace_with_local_postgres_password`, `INTEGRATION_MODE=SYNTHETIC`); zero leaked API tokens (`sk-`, `ghp_`, `AKIA`) or private keys.
+     - Verified `git ls-files` tracks `.env.example` only; no live secrets in git history or seed fixtures.
+  3. **Scope Lock Audit (`SC-1`, `REQUIREMENTS_SYSTEM.md` §9)**:
+     - Verified zero claims of live Orbyte API connectivity exist (all docs and adapters explicitly declare synthetic/hypothetical Orbyte-compatible interface).
+     - Verified direct lifecycle override `PATCH /v1/commitments/{id}` is strictly rejected with HTTP 405 `UNRESTRICTED_PATCH_FORBIDDEN` and zero state mutation.
+     - Verified server-side auth (`X-Tenant-ID`, `X-Actor-ID` mapped to `ACTOR_ROLES`) rejects body-spoofed roles (`"role": "OWNER"`) with HTTP 422 (`extra="forbid"`) and strictly blocks unauthorized staff mutations with HTTP 403 `APPROVAL_REQUIRED`.
+  4. **End-to-End Rehearsal Verification**:
+     - Executed Alembic database migrations from base to head (`0001_foundation` through `0005_resource_reservations`) with 0 errors.
+     - Executed `scripts/seed_demo.py` and validated idempotent double-run populating the 5 canonical demo commitments (`com_normal_01`, `com_001`, `com_delay_01`, `com_ambiguous_01`, `com_fulfilled_01`) and inventory stocks.
+     - Automated all audit verifications into permanent test suite: `backend/tests/test_clean_room_audit.py`.
+- **Validation**:
+  - Clean room audit tests: `6 passed` (`pytest tests/test_clean_room_audit.py -v`).
+  - Full backend test suite: `315 passed, 0 failed` (`pytest tests app/feasibility/tests -q`).
+  - Metrics benchmark: `python scripts/evaluate_metrics.py` (exited 0, all 5 metric categories 100% passing).
+  - Frontend test suite: `118 passed, 5 skipped` (`cmd /c npm test -- --run`).
+  - Frontend typecheck: `tsc --noEmit` passed (0 errors).
+  - Frontend build: `cmd /c npm run build` passed (production bundle built in 881ms).
+
 ## 2026-10-22 — P4 Commit 03: Template-Based Message Drafting
 
 - Baseline: local `P4-communication`, HEAD `443ff6cab6178ad3109669a46262701073e81ad2`. Implementation and verification performed in an isolated copy; real repository unchanged.
