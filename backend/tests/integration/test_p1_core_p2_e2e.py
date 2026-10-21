@@ -16,9 +16,17 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
+import os
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+if not os.environ.get("P1_DATABASE_URL"):
+    pytest.skip(
+        "P1_DATABASE_URL is not configured; PostgreSQL required for real integration tests",
+        allow_module_level=True,
+    )
+
 
 from app.core.dependencies import RequestContext
 from app.core.events import CoreEventType, OutboxStatus

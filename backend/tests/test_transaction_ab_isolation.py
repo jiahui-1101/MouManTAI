@@ -86,10 +86,16 @@ def _ensure_recovery_tables_exist(session: Session) -> None:
                     assessment_id VARCHAR(128) NOT NULL,
                     assessment_commitment_version INTEGER,
                     assessment_provenance_status VARCHAR(64) NOT NULL,
-                    trigger_type VARCHAR(64) NOT NULL,
-                    severity VARCHAR(32) NOT NULL,
-                    detected_at TIMESTAMP NOT NULL,
-                    payload TEXT NOT NULL,
+                    snapshot_id VARCHAR(128),
+                    snapshot_version INTEGER NOT NULL DEFAULT 1,
+                    constraints TEXT NOT NULL DEFAULT '[]',
+                    affected_commitment_ids TEXT NOT NULL DEFAULT '[]',
+                    evidence_refs TEXT NOT NULL DEFAULT '[]',
+                    correlation_id VARCHAR(128) NOT NULL,
+                    causation_id VARCHAR(128),
+                    occurred_at TIMESTAMP NOT NULL,
+                    event_digest VARCHAR(64) NOT NULL,
+                    source_event_digest VARCHAR(64),
                     PRIMARY KEY (tenant_id, event_id)
                 )
                 """
@@ -236,11 +242,13 @@ def test_transaction_ab_isolation_and_rollback_boundary(session: Session) -> Non
                 INSERT INTO recovery_case_triggers (
                     tenant_id, event_id, case_id, commitment_id, commitment_version,
                     assessment_id, assessment_commitment_version, assessment_provenance_status,
-                    trigger_type, severity, detected_at, payload
+                    snapshot_id, snapshot_version, constraints, affected_commitment_ids,
+                    evidence_refs, correlation_id, occurred_at, event_digest
                 ) VALUES (
                     :tenant_id, :event_id, :case_id, :commitment_id, 2,
                     'asm_ab_infeasible_01', 1, 'VERIFIED_AUTHORITATIVE',
-                    'AT_RISK_ASSESSMENT', 'HIGH', :now, '{}'
+                    'snap_01', 101, '[]', '[]',
+                    '[]', 'corr_01', :now, 'digest_01'
                 )
                 """
             ),
@@ -351,11 +359,13 @@ def test_transaction_ab_isolation_and_rollback_boundary(session: Session) -> Non
                     INSERT INTO recovery_case_triggers (
                         tenant_id, event_id, case_id, commitment_id, commitment_version,
                         assessment_id, assessment_commitment_version, assessment_provenance_status,
-                        trigger_type, severity, detected_at, payload
+                        snapshot_id, snapshot_version, constraints, affected_commitment_ids,
+                        evidence_refs, correlation_id, occurred_at, event_digest
                     ) VALUES (
                         :tenant_id, :event_id, :case_id, :commitment_id, 2,
                         'asm_ab_infeasible_01', 1, 'VERIFIED_AUTHORITATIVE',
-                        'AT_RISK_ASSESSMENT', 'HIGH', :now, '{}'
+                        'snap_01', 101, '[]', '[]',
+                        '[]', 'corr_01', :now, 'digest_01'
                     )
                     """
                 ),

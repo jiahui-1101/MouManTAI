@@ -30,6 +30,9 @@ def upgrade() -> None:
     dialect = bind.dialect.name
 
     if dialect == "postgresql":
+        # Ensure alembic_version can store revisions > 32 characters
+        op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)")
+
         # 1. Drop trigger-to-case FK from recovery_case_triggers
         op.drop_constraint(
             "fk_recovery_case_triggers_case_tenant_commitment",

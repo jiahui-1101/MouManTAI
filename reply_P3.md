@@ -1,59 +1,59 @@
 Hi P3!
 
-# Reply to P3 (Handoff #P3-1 — Additive Migration 0007 Alignment, Schema Invariant Delivery & Integration Plan)
+# Reply to P3 (Handoff #P3-1 & #P3-2 — Migration 0007 Acceptance, APPROVE_PLAN Policy & Test Reconciliation)
 
 **To**: Person 3 (F3 Recovery Full-Stack)  
 **From**: Person 5 (Shared Core, Contracts, Integration Coordinator)  
 **Date**: 2026-10-22  
-**Subject**: Confirmation of Migration 0007 Scope, RESTRICT Invariant, Fail-Closed Provenance Reader, and Verification Sequencing
+**Subject**: Confirmation of Migration 0007, APPROVE_PLAN Consequential Policy, Test Fixture Alignment, and Staged Merge Unblock
 
 ---
 
-### 1. Migration 0007 Target Schema Alignment [HP3-1-INFO1, HP3-1-MIG1]
-- **Target Schema Approved**: P5 approves the additive Migration `0007_recovery_case_constraints_alignment.py` approach. You will **not** need to alter your P3 ORM or rename constraints to singular.
-- **Exact Schema Specifications**:
-  1. **Recovery Case PK**: Remains composite `(tenant_id, case_id)`.
-  2. **Trigger-to-Case FK Deletion Policy**: `ON DELETE RESTRICT` on `fk_recovery_case_triggers_case_tenant_commitment` referencing `recovery_cases (tenant_id, case_id, commitment_id)`. This enforces append-only Trigger history and prevents silent cascading deletion of audit evidence.
-  3. **Case Identity Unique Constraint**: Replaces the constraint name with the plural form `uq_recovery_cases_tenant_case_commitment` on `(tenant_id, case_id, commitment_id)`.
-  4. **Active Case Partial Unique Index**: Retained as `uq_recovery_cases_one_active_per_commitment` covering the 5 active statuses (`OPEN`, `AWAITING_EVALUATION_INPUTS`, `OPTIONS_READY`, `NO_SAFE_PLAN`, `NEEDS_REPLAN`).
-  5. **Direct Trigger-to-Commitment FK**: Retained with `ON DELETE RESTRICT` on `(tenant_id, commitment_id)` referencing `commitments (tenant_id, commitment_id)`.
+### 1. Delivery & Commit SHA Notification [HP3-1-INFO1, HP3-1-SHA1]
+- **Target Schema Merged**: Migration `0007_recovery_case_constraints_alignment.py` is committed and merged to `main`:
+  - **Feature Branch Commit SHA**: `7175066` on `feat/p5-core-integration`.
+  - **Main Merge HEAD SHA**: `74470cf` on `main`.
+  - **Alembic Single Head**: `0007_recovery_case_constraints_alignment`.
+- **Target Schema Invariants Enforced**:
+  1. `recovery_cases` PK remains composite `(tenant_id, case_id)`.
+  2. `fk_recovery_case_triggers_case_tenant_commitment` enforces `ON DELETE RESTRICT` (append-only trigger history; no silent cascade of audit evidence).
+  3. Unique constraint uses plural form `uq_recovery_cases_tenant_case_commitment` on `(tenant_id, case_id, commitment_id)`.
+  4. Partial unique index `uq_recovery_cases_one_active_per_commitment` covers the 5 active statuses (`OPEN`, `AWAITING_EVALUATION_INPUTS`, `OPTIONS_READY`, `NO_SAFE_PLAN`, `NEEDS_REPLAN`).
+  5. Direct Trigger-to-Commitment FK retained with `ON DELETE RESTRICT`.
 
 ---
 
-### 2. Migration 0007 Delivery & Verification Checklist [HP3-1-Q1, HP3-1-MERGE1]
-- **Alembic Lineage**: `0007_recovery_case_constraints_alignment` will branch cleanly from `0006_recovery_cases` as the new single head on `main`.
-- **P5 Verification Deliverables**:
-  - Full PostgreSQL upgrade (`0006 -> 0007`) and downgrade (`0007 -> 0006`) tests.
-  - Zero-data-loss validation: schema alters preserve existing Case and Trigger rows.
-  - Negative RESTRICT test: executing `DELETE FROM recovery_cases` with dependent triggers raises `sqlalchemy.exc.IntegrityError` (violates foreign key constraint).
-  - Introspection evidence confirming exact constraint names via PostgreSQL `information_schema.table_constraints`.
-- **Merge Sequencing**: P5 will implement and merge Migration 0007 into `main` first. Once merged, P5 will notify you with the commit SHA and Alembic revision so you can sync PR #10 cleanly.
+### 2. Resolution of P0 Security Blocker: `APPROVE_PLAN` [HP3-2-AUTH1]
+- **Decision: ACCEPTED & DELIVERED**:
+  - Reason: Plan approval is an irreversible, consequential recovery transition committing SME resources.
+  - Added `"APPROVE_PLAN"` to `CONSEQUENTIAL_ACTIONS` in `backend/app/core/policy.py`.
+  - Server-side role check strictly enforces: `actor_role` must be `"OWNER"` or `"MANAGER"`. Callers with `"STAFF"` are rejected with HTTP 403 `APPROVAL_REQUIRED`.
+  - Server-resolved identity (D-005) is mandatory; request-body role claims or client headers are never trusted as production authentication.
 
 ---
 
-### 3. Resolution of Separate Integration Blockers [HP3-1-BLOCK1, HP3-1-Q2]
-- **Authoritative Assessment Lookup (Fail-Closed)**:
-  - P5 is delivering the updated `AuthoritativeAssessmentHistoryReader` in Core (`backend/app/core/feasibility_adapters.py`).
-  - The reader strictly fails closed: missing `assessment_id`, missing evaluated `commitment_version`, missing snapshot metadata, or advisory flags (`advisory=True`) will raise a typed `DomainError("ASSESSMENT_PROVENANCE_MISSING", ...)` rather than defaulting to audit IDs or version 1.
-- **Dispatcher Concurrency & Transaction A/B**:
-  - Core outbox worker guarantees Transaction A (Core `assess()` + risk transition + audit + outbox PENDING) is committed independently.
-  - Transaction B (Outbox dispatcher + P3 Case/Trigger + ProcessedEventRecord) executes in its own session. If consumer processing fails, Transaction B rolls back, increments outbox attempts, and schedules exponential retry—**never rolling back Transaction A**.
-  - P5 will include a joint PostgreSQL transaction test covering Transaction B failure isolation alongside Migration 0007.
+### 3. Reconciliation of Backend Test Failures [HP3-2-TEST1, HP3-2-TEST2]
+1. **Trigger Table Shape Alignment**:
+   - P5 has updated all Core test fixtures ([`test_transaction_ab_isolation.py`](file:///c:/Users/ganru/Documents/MouManTAI/backend/tests/test_transaction_ab_isolation.py), [`test_feature_handshakes.py`](file:///c:/Users/ganru/Documents/MouManTAI/backend/tests/integration/test_feature_handshakes.py)) to match the current approved P3 ORM columns (`snapshot_id`, `snapshot_version`, `constraints`, `affected_commitment_ids`, `evidence_refs`, `correlation_id`, `occurred_at`, `event_digest`).
+   - Line 1390 of [`test_feature_handshakes.py`](file:///c:/Users/ganru/Documents/MouManTAI/backend/tests/integration/test_feature_handshakes.py) now asserts `ON DELETE RESTRICT` via `pytest.raises(IntegrityError)` when deleting a case with triggers, matching Migration 0007.
+2. **Stale Event Guard Preservation**:
+   - The stale-event guard (`event.commitment_version < current_version`) is preserved as a non-negotiable invariant. Tests generating at-risk events must align the event's version with the current commitment version.
 
 ---
 
-### 4. Summary of Boundaries & Next Actions
-- **P5 Next Deliverables**:
-  1. Commit and merge Migration `0007_recovery_case_constraints_alignment.py` and its PostgreSQL regression tests to `main`.
-  2. Formalize fail-closed `AuthoritativeAssessmentHistoryReader` in Core.
-  3. Share the commit SHA and Alembic head update.
-- **P3 Next Actions**:
-  1. Hold synchronization until Migration 0007 merges to `main`.
-  2. Once 0007 is merged, pull/rebase `origin/main` into `feat/p3-recovery` while preserving your 13 commits.
-  3. Run your 90+ recovery and trigger persistence tests against the new head.
-- **What P3 Must NOT Do**:
-  - Do NOT modify your ORM constraint names or change `ON DELETE RESTRICT` back to CASCADE.
-  - Do NOT mutate the authoritative `Commitment` aggregate directly from recovery endpoints.
-  - Do NOT enable live subscriber registration or consequential execution until joint PostgreSQL tests are signed off.
+### 4. Shared-File Conflict Approvals [HP3-2-MERGE1]
+- **`frontend/src/App.tsx`**: Approved. Preserves P2 `/commitments/:id`, `/impact/:id`, P3 `/recovery/:id`, P4 `/communications`, and P5 shell.
+- **`docs/TEAM_LOG.md`**: Approved. Both branches' entries are preserved without overwriting historical records.
+- **`backend/app/main.py`**: P3 recovery router inclusion is approved; live subscriber registration and consequential execution remain guarded.
+
+---
+
+### 5. Next Actions for P3
+1. **Pull Latest Main**: Sync your branch against `origin/main` (including the `APPROVE_PLAN` policy update and trigger shape alignment).
+2. **Finalize Merge Commit**: Complete your staged history-preserving merge of PR #10.
+3. **What P3 Must NOT Do**:
+   - Do NOT weaken the stale-event guard.
+   - Do NOT change `ON DELETE RESTRICT` back to CASCADE.
+   - Do NOT enable live subscriber `p3.recovery_trigger.v1` or unverified execution until joint E2E confirmation passes.
 
 Thank you!

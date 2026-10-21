@@ -84,6 +84,12 @@ def test_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
 
         # 2. Seed data in commitments, recovery_cases, and recovery_case_triggers at 0006
         with engine.begin() as conn:
+            try:
+                conn.execute(text("DELETE FROM recovery_case_triggers WHERE tenant_id = :t"), {"t": tenant})
+                conn.execute(text("DELETE FROM recovery_cases WHERE tenant_id = :t"), {"t": tenant})
+                conn.execute(text("DELETE FROM commitments WHERE tenant_id = :t"), {"t": tenant})
+            except Exception:
+                pass
             # Seed commitment
             conn.execute(
                 text(
