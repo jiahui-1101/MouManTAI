@@ -24,13 +24,23 @@ from .association_schemas import (
 )
 from .deterministic_extraction import PROVISIONAL_PRODUCTS, VERSION, extract_explicit_fields
 from .ingestion_schemas import ExtractionAttemptRecord, IngestResponse, MessagePage, ProcessResponse, StoredMessage
+from .order_context_schemas import (
+    ContextReadinessStatus,
+    ContextReviewRecord,
+    ContextReviewRequest,
+    OrderContextRecord,
+    OrderContextVersionRecord,
+    RequestedItem,
+)
 from .repository import (
     AssociationNotFound,
+    ContextNotFound,
     DuplicateConflict,
     ExtractionNotFound,
     MessageNotFound,
     PersistenceUnavailable,
     ProcessingConflict,
+    StaleContextVersion,
 )
 from .schemas import Channel, ExtractedField, ProcessingStatus, RawMessageEnvelope
 
@@ -104,6 +114,75 @@ class MessageAssociation(P1Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class OrderContext(P1Base):
+    __tablename__ = "order_contexts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "context_id", name="uq_p1_order_context"),
+        Index("ix_p1_ctx_order", "tenant_id", "order_id"),
+        {"schema": "p1_dev"},
+    )
+
+    context_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    order_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    customer_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    customer_identity_status: Mapped[str] = mapped_column(String(30), nullable=False, default="UNVERIFIED")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="UNRESOLVED")
+    context_version: Mapped[int] = mapped_column(nullable=False, default=1)
+    requested_items: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=list)
+    requested_delivery_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_qualifier: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    special_instructions: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    source_message_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    field_evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    missing_fields: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    conflicts: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    last_reviewed_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    last_reviewed_role: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class OrderContextVersion(P1Base):
+    __tablename__ = "order_context_versions"
+    __table_args__ = (
+        Index("ix_p1_ctx_version", "tenant_id", "context_id", "context_version"),
+        {"schema": "p1_dev"},
+    )
+
+    version_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    context_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    tenant_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    context_version: Mapped[int] = mapped_column(nullable=False)
+    snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    change_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    actor_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    actor_role: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ContextReview(P1Base):
+    __tablename__ = "context_reviews"
+    __table_args__ = (
+        Index("ix_p1_review_context", "tenant_id", "context_id"),
+        {"schema": "p1_dev"},
+    )
+
+    review_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    context_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    context_version_before: Mapped[int] = mapped_column(nullable=False)
+    context_version_after: Mapped[int] = mapped_column(nullable=False)
+    action: Mapped[str] = mapped_column(String(50), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(50), nullable=False)
+    field_changes: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 
 def fingerprint(envelope: RawMessageEnvelope) -> str:
     # received_at is delivery observation time; an identical retry may arrive later.
@@ -151,6 +230,63 @@ def association_record(row: MessageAssociation) -> MessageAssociationRecord:
         last_decision=last_decision,
         version=row.version,
         updated_at=row.updated_at,
+    )
+
+
+def order_context_record(row: OrderContext) -> OrderContextRecord:
+    items = [RequestedItem.model_validate(it) for it in (row.requested_items or [])]
+    return OrderContextRecord(
+        context_id=row.context_id,
+        tenant_id=row.tenant_id,
+        order_id=row.order_id,
+        customer_id=row.customer_id,
+        customer_identity_status=row.customer_identity_status,  # type: ignore
+        status=row.status,  # type: ignore
+        context_version=row.context_version,
+        requested_items=items,
+        requested_delivery_at=row.requested_delivery_at,
+        delivery_qualifier=row.delivery_qualifier,
+        special_instructions=row.special_instructions,
+        source_message_ids=list(row.source_message_ids or []),
+        field_evidence=dict(row.field_evidence or {}),
+        missing_fields=list(row.missing_fields or []),
+        conflicts=list(row.conflicts or []),
+        last_reviewed_by=row.last_reviewed_by,
+        last_reviewed_role=row.last_reviewed_role,
+        last_reviewed_at=row.last_reviewed_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def order_context_version_record(row: OrderContextVersion) -> OrderContextVersionRecord:
+    return OrderContextVersionRecord(
+        version_id=row.version_id,
+        context_id=row.context_id,
+        tenant_id=row.tenant_id,
+        context_version=row.context_version,
+        snapshot=dict(row.snapshot or {}),
+        change_type=row.change_type,  # type: ignore
+        actor_id=row.actor_id,
+        actor_role=row.actor_role,
+        reason=row.reason,
+        created_at=row.created_at,
+    )
+
+
+def context_review_record(row: ContextReview) -> ContextReviewRecord:
+    return ContextReviewRecord(
+        review_id=row.review_id,
+        tenant_id=row.tenant_id,
+        context_id=row.context_id,
+        context_version_before=row.context_version_before,
+        context_version_after=row.context_version_after,
+        action=row.action,  # type: ignore
+        actor_id=row.actor_id,
+        actor_role=row.actor_role,
+        field_changes=dict(row.field_changes or {}),
+        note=row.note,
+        created_at=row.created_at,
     )
 
 
@@ -467,6 +603,310 @@ class PostgresMessageRepository:
                 return association_record(row)
         except (MessageNotFound, AssociationNotFound, StaleAssociationVersion):
             raise
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def get_order_context(self, tenant_id: str, context_id: str) -> OrderContextRecord | None:
+        try:
+            with Session(self.engine) as session:
+                row = session.scalar(
+                    select(OrderContext).where(
+                        OrderContext.tenant_id == tenant_id,
+                        OrderContext.context_id == context_id,
+                    )
+                )
+                if row is None:
+                    return None
+                return order_context_record(row)
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def get_order_context_by_order(self, tenant_id: str, order_id: str) -> OrderContextRecord | None:
+        try:
+            with Session(self.engine) as session:
+                row = session.scalar(
+                    select(OrderContext).where(
+                        OrderContext.tenant_id == tenant_id,
+                        OrderContext.order_id == order_id,
+                    )
+                )
+                if row is None:
+                    return None
+                return order_context_record(row)
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def save_order_context(
+        self,
+        record: OrderContextRecord,
+        change_type: str = "INITIAL_CREATION",
+        actor_id: str | None = None,
+        actor_role: str | None = None,
+        reason: str | None = None,
+    ) -> OrderContextRecord:
+        try:
+            with Session(self.engine) as session, session.begin():
+                existing = session.scalar(
+                    select(OrderContext).where(
+                        OrderContext.tenant_id == record.tenant_id,
+                        OrderContext.context_id == record.context_id,
+                    ).with_for_update()
+                )
+                now = datetime.now(timezone.utc)
+                if existing is None:
+                    row = OrderContext(
+                        context_id=record.context_id,
+                        tenant_id=record.tenant_id,
+                        order_id=record.order_id,
+                        customer_id=record.customer_id,
+                        customer_identity_status=record.customer_identity_status,
+                        status=record.status,
+                        context_version=record.context_version,
+                        requested_items=[it.model_dump(mode="json") for it in record.requested_items],
+                        requested_delivery_at=record.requested_delivery_at,
+                        delivery_qualifier=record.delivery_qualifier,
+                        special_instructions=record.special_instructions,
+                        source_message_ids=record.source_message_ids,
+                        field_evidence=record.field_evidence,
+                        missing_fields=record.missing_fields,
+                        conflicts=record.conflicts,
+                        last_reviewed_by=record.last_reviewed_by,
+                        last_reviewed_role=record.last_reviewed_role,
+                        last_reviewed_at=record.last_reviewed_at,
+                        created_at=record.created_at or now,
+                        updated_at=record.updated_at or now,
+                    )
+                    session.add(row)
+                    session.flush()
+
+                    version_row = OrderContextVersion(
+                        version_id=str(uuid4()),
+                        context_id=row.context_id,
+                        tenant_id=row.tenant_id,
+                        context_version=row.context_version,
+                        snapshot=order_context_record(row).model_dump(mode="json"),
+                        change_type=change_type,
+                        actor_id=actor_id,
+                        actor_role=actor_role,
+                        reason=reason,
+                        created_at=now,
+                    )
+                    session.add(version_row)
+                    return order_context_record(row)
+                else:
+                    if existing.context_version != record.context_version:
+                        raise StaleContextVersion(
+                            f"Context version mismatch: expected {record.context_version}, got {existing.context_version}"
+                        )
+                    existing.order_id = record.order_id
+                    existing.customer_id = record.customer_id
+                    existing.customer_identity_status = record.customer_identity_status
+                    existing.status = record.status
+                    existing.context_version += 1
+                    existing.requested_items = [it.model_dump(mode="json") for it in record.requested_items]
+                    existing.requested_delivery_at = record.requested_delivery_at
+                    existing.delivery_qualifier = record.delivery_qualifier
+                    existing.special_instructions = record.special_instructions
+                    existing.source_message_ids = record.source_message_ids
+                    existing.field_evidence = record.field_evidence
+                    existing.missing_fields = record.missing_fields
+                    existing.conflicts = record.conflicts
+                    existing.updated_at = now
+                    session.flush()
+
+                    version_row = OrderContextVersion(
+                        version_id=str(uuid4()),
+                        context_id=existing.context_id,
+                        tenant_id=existing.tenant_id,
+                        context_version=existing.context_version,
+                        snapshot=order_context_record(existing).model_dump(mode="json"),
+                        change_type=change_type,
+                        actor_id=actor_id,
+                        actor_role=actor_role,
+                        reason=reason,
+                        created_at=now,
+                    )
+                    session.add(version_row)
+                    return order_context_record(existing)
+        except StaleContextVersion:
+            raise
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def update_order_context(
+        self,
+        tenant_id: str,
+        context_id: str,
+        expected_version: int,
+        updates: dict,
+        actor_id: str | None = None,
+        actor_role: str | None = None,
+        reason: str | None = None,
+    ) -> OrderContextRecord:
+        try:
+            with Session(self.engine) as session, session.begin():
+                row = session.scalar(
+                    select(OrderContext).where(
+                        OrderContext.tenant_id == tenant_id,
+                        OrderContext.context_id == context_id,
+                    ).with_for_update()
+                )
+                if row is None:
+                    raise ContextNotFound(f"OrderContext {context_id} not found")
+                if row.context_version != expected_version:
+                    raise StaleContextVersion(
+                        f"Context version mismatch: expected {expected_version}, got {row.context_version}"
+                    )
+
+                now = datetime.now(timezone.utc)
+                for key, val in updates.items():
+                    if hasattr(row, key):
+                        if key == "requested_items" and isinstance(val, list):
+                            setattr(row, key, [it if isinstance(it, dict) else it.model_dump(mode="json") for it in val])
+                        else:
+                            setattr(row, key, val)
+
+                row.context_version += 1
+                row.updated_at = now
+                session.flush()
+
+                version_row = OrderContextVersion(
+                    version_id=str(uuid4()),
+                    context_id=row.context_id,
+                    tenant_id=row.tenant_id,
+                    context_version=row.context_version,
+                    snapshot=order_context_record(row).model_dump(mode="json"),
+                    change_type="HUMAN_EDIT",
+                    actor_id=actor_id,
+                    actor_role=actor_role,
+                    reason=reason,
+                    created_at=now,
+                )
+                session.add(version_row)
+                return order_context_record(row)
+        except (ContextNotFound, StaleContextVersion):
+            raise
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def apply_context_review(
+        self,
+        tenant_id: str,
+        context_id: str,
+        request: ContextReviewRequest,
+        actor_id: str,
+        actor_role: str,
+    ) -> OrderContextRecord:
+        try:
+            with Session(self.engine) as session, session.begin():
+                row = session.scalar(
+                    select(OrderContext).where(
+                        OrderContext.tenant_id == tenant_id,
+                        OrderContext.context_id == context_id,
+                    ).with_for_update()
+                )
+                if row is None:
+                    raise ContextNotFound(f"OrderContext {context_id} not found")
+                if row.context_version != request.expected_context_version:
+                    raise StaleContextVersion(
+                        f"Context version mismatch: expected {request.expected_context_version}, got {row.context_version}"
+                    )
+
+                now = datetime.now(timezone.utc)
+                before_ver = row.context_version
+                after_ver = before_ver + 1
+                field_changes: dict = {}
+
+                if request.field_edits:
+                    for field_name, new_val in request.field_edits.items():
+                        if hasattr(row, field_name):
+                            old_val = getattr(row, field_name)
+                            if field_name == "requested_items" and isinstance(new_val, list):
+                                norm_new = [it if isinstance(it, dict) else it.model_dump(mode="json") for it in new_val]
+                                field_changes[field_name] = {"old": old_val, "new": norm_new}
+                                setattr(row, field_name, norm_new)
+                            else:
+                                field_changes[field_name] = {"old": old_val, "new": new_val}
+                                setattr(row, field_name, new_val)
+
+                if request.action == "ACCEPT_EXTRACTION":
+                    # Mark READY if no conflicts, no missing fields, and requested_items present
+                    if not row.conflicts and not row.missing_fields and row.requested_items:
+                        row.status = "INFORMATION_READY"
+                    else:
+                        row.status = "INFORMATION_PARTIAL"
+                elif request.action == "EDIT_FIELD":
+                    if not row.conflicts and not row.missing_fields and row.requested_items:
+                        row.status = "INFORMATION_READY"
+                elif request.action == "MARK_UNRESOLVED":
+                    row.status = "UNRESOLVED"
+                elif request.action == "REQUEST_MORE_INFO":
+                    row.status = "INFORMATION_PARTIAL"
+
+                row.context_version = after_ver
+                row.last_reviewed_by = actor_id
+                row.last_reviewed_role = actor_role
+                row.last_reviewed_at = now
+                row.updated_at = now
+                session.flush()
+
+                review_entry = ContextReview(
+                    review_id=str(uuid4()),
+                    tenant_id=tenant_id,
+                    context_id=context_id,
+                    context_version_before=before_ver,
+                    context_version_after=after_ver,
+                    action=request.action,
+                    actor_id=actor_id,
+                    actor_role=actor_role,
+                    field_changes=field_changes,
+                    note=request.note,
+                    created_at=now,
+                )
+                session.add(review_entry)
+
+                version_entry = OrderContextVersion(
+                    version_id=str(uuid4()),
+                    context_id=context_id,
+                    tenant_id=tenant_id,
+                    context_version=after_ver,
+                    snapshot=order_context_record(row).model_dump(mode="json"),
+                    change_type=request.action,
+                    actor_id=actor_id,
+                    actor_role=actor_role,
+                    reason=request.note,
+                    created_at=now,
+                )
+                session.add(version_entry)
+                return order_context_record(row)
+        except (ContextNotFound, StaleContextVersion):
+            raise
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def list_context_versions(self, tenant_id: str, context_id: str) -> list[OrderContextVersionRecord]:
+        try:
+            with Session(self.engine) as session:
+                rows = session.scalars(
+                    select(OrderContextVersion).where(
+                        OrderContextVersion.tenant_id == tenant_id,
+                        OrderContextVersion.context_id == context_id,
+                    ).order_by(OrderContextVersion.context_version.desc())
+                ).all()
+                return [order_context_version_record(r) for r in rows]
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def list_context_reviews(self, tenant_id: str, context_id: str) -> list[ContextReviewRecord]:
+        try:
+            with Session(self.engine) as session:
+                rows = session.scalars(
+                    select(ContextReview).where(
+                        ContextReview.tenant_id == tenant_id,
+                        ContextReview.context_id == context_id,
+                    ).order_by(ContextReview.created_at.desc())
+                ).all()
+                return [context_review_record(r) for r in rows]
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
 

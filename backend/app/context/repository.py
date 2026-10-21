@@ -7,6 +7,12 @@ from typing import Protocol
 
 from .association_schemas import AssociationDecisionRequest, MessageAssociationRecord
 from .ingestion_schemas import ExtractionAttemptRecord, IngestResponse, MessagePage, ProcessResponse, StoredMessage
+from .order_context_schemas import (
+    ContextReviewRecord,
+    ContextReviewRequest,
+    OrderContextRecord,
+    OrderContextVersionRecord,
+)
 from .schemas import Channel, ProcessingStatus, RawMessageEnvelope
 
 
@@ -34,6 +40,14 @@ class AssociationNotFound(Exception):
     """No association record exists for the requested message."""
 
 
+class ContextNotFound(Exception):
+    """The requested order context does not exist in the tenant scope."""
+
+
+class StaleContextVersion(Exception):
+    """The requested expected_context_version does not match the current version."""
+
+
 class MessageRepository(Protocol):
     def ingest(self, envelope: RawMessageEnvelope, now: datetime) -> IngestResponse: ...
     def get(self, tenant_id: str, message_id: str) -> StoredMessage | None: ...
@@ -46,4 +60,11 @@ class MessageRepository(Protocol):
     def get_association(self, tenant_id: str, message_id: str) -> MessageAssociationRecord | None: ...
     def save_association(self, record: MessageAssociationRecord) -> MessageAssociationRecord: ...
     def decide_association(self, tenant_id: str, message_id: str, request: AssociationDecisionRequest, actor_id: str, actor_role: str) -> MessageAssociationRecord: ...
+    def get_order_context(self, tenant_id: str, context_id: str) -> OrderContextRecord | None: ...
+    def get_order_context_by_order(self, tenant_id: str, order_id: str) -> OrderContextRecord | None: ...
+    def save_order_context(self, record: OrderContextRecord, change_type: str = "INITIAL_CREATION", actor_id: str | None = None, actor_role: str | None = None, reason: str | None = None) -> OrderContextRecord: ...
+    def update_order_context(self, tenant_id: str, context_id: str, expected_version: int, updates: dict, actor_id: str | None = None, actor_role: str | None = None, reason: str | None = None) -> OrderContextRecord: ...
+    def apply_context_review(self, tenant_id: str, context_id: str, request: ContextReviewRequest, actor_id: str, actor_role: str) -> OrderContextRecord: ...
+    def list_context_versions(self, tenant_id: str, context_id: str) -> list[OrderContextVersionRecord]: ...
+    def list_context_reviews(self, tenant_id: str, context_id: str) -> list[ContextReviewRecord]: ...
 
