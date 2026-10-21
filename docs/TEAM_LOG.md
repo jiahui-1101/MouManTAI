@@ -1,5 +1,23 @@
 # MouManTAI — Team Execution Log & Decision Register
 
+### 2026-10-22 — P1 BATCH 7: integrate validated AI pipeline (deterministic rules + selective Qwen + human review)
+
+- Branch: `feat/p1-ai-pipeline`; commits: proposal service `31b1d05`, postgres repo pipeline `d113732`, frontend provenance badges `c7467b7`, integration suite & serialization `49f586d`, OCR guard `ce47ad4`, P2 invariant alignment `6716f09`.
+- Architecture & Pipeline Implementation:
+  - Integrated validated multi-tier pipeline: L0 deterministic rules -> L1 specialized extraction (GLiNER: experimental/opt-in only per measured Batch 6 limitations) -> selective Qwen interpretation -> evidence code-point gate -> human review.
+  - Configured lazy environment resolution via `EndpointConfig.from_env_or_none()`, eliminating boot-time crashes when endpoint is unconfigured.
+  - Implemented selective invocation: Qwen is triggered only for missing critical fields (`sku`, `quantity`), invalid syntax, or multi-item ambiguities. Clear rule extractions skip remote inference entirely.
+  - Implemented strict evidence gate: model quotes must match message code-point slices verbatim; hallucinated quotes fail fast and are discarded.
+  - Invariant preservation: AI proposals are saved strictly as provisional candidates (`method="MODEL"`, `validation_status="UNRESOLVED"`). Rule fields and human edits are immutable. Contexts with AI candidates remain `INFORMATION_PARTIAL` or `UNRESOLVED`; AI never auto-marks context `INFORMATION_READY` or publishes to Core without human review.
+  - Handled resilient fallback: endpoint timeouts, HTTP errors, or payload rejection gracefully record diagnostic fallback and preserve deterministic rule fields.
+- Frontend:
+  - Updated `DurableInbox.tsx` with dynamic provenance badges (`AI-ASSISTED`, `RULE (FALLBACK)`, `RULE (p1-deterministic-v3)`), `MODEL` / `RULE` method badges, and candidate confidence/rationale tooltips.
+- Validation:
+  - Full backend context test suite: 306 passed, 3 skipped, 0 failed.
+  - E2E AI pipeline integration suite: 7 passed, 0 failed.
+  - Real PostgreSQL E2E suite: 7 passed, 1 skipped, 0 failed.
+  - Frontend test suite: 151 passed, 5 skipped, 0 failed; production build clean (0 errors).
+
 ### 2026-10-22 — P1 BATCH 6: real GPU model deployment and evaluation (RunPod serverless architecture)
 
 - Branch: `feat/p1-ai-pipeline`; commits: proposal `7080159`, candidate guard `3ddd5a0`, handoff `1d1ff20`.

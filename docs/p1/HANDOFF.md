@@ -1,3 +1,55 @@
+# P1 BATCH 7 Handoff — 2026-10-22 (Integrate the Validated AI Pipeline)
+
+Active branch: `feat/p1-ai-pipeline`; commits for this batch:
+- Proposal Service & Triggers: `31b1d05` (`feat(p1): enhance proposal service with selective triggers and lazy env resolution`)
+- Repository AI Extraction Integration: `d113732` (`feat(p1): wire AI proposal service into PostgresMessageRepository extraction processing`)
+- Frontend Badges & Provenance: `c7467b7` (`feat(p1): display AI-ASSISTED and FALLBACK provenance badges in DurableInbox UI`)
+- AI Integration Tests & Field Normalization: `49f586d` (`test(p1): add end-to-end AI pipeline integration tests and normalize review field edits`)
+- OCR Extractor Exception Guard: `ce47ad4` (`fix(p1): import numpy and add exception guard in document OCR extractor`)
+- P2 Consumer Alignment: `6716f09` (`test(p1): align test_p2_consumer with Invariant 1 confirmed requirement`)
+- Documentation: `docs(p1): document Batch 7 AI pipeline integration and verification results`
+
+### 1. Core Architecture and Pipeline Flow
+- **Tiered Multi-Stage Architecture**:
+  `L0 deterministic rules` -> `L1 specialized extraction (GLiNER: experimental/opt-in only)` -> `selective Qwen interpretation` -> `schema/domain/evidence gates` -> `human review / unresolved candidates`.
+- **GLiNER Measured Limitation & Placement**:
+  - In Batch 6 GPU evaluation, GLiNER multi-v2.1 achieved high accuracy on customer and order IDs but exhibited very low recall (0-36%) on units and quantities and zero support for multi-item associations.
+  - Per common execution rules, GLiNER is NOT forced into the default path. It is maintained as an experimental/opt-in stage (`stages=("qwen",)` by default) until a specialized joint entity-relation model is validated.
+- **Selective Qwen Interpretation Triggers**:
+  - AI interpretation is never invoked unconditionally on clear messages. It triggers selectively only when L0 deterministic rules yield missing required terms (`sku`, `quantity`), `INVALID` status, or multiple unstructured items requiring semantic reasoning.
+- **Strict Evidence and Grounding Gates**:
+  - Every proposed candidate's evidence quote and code-point `[start, end)` span is verified against the raw message text.
+  - Fabricated or non-verbatim quotes fail fast and are discarded, preventing model hallucinations from entering candidate storage.
+- **Immutable Provenance and Non-Destructive Storage**:
+  - AI proposals are marked strictly as provisional candidates with `method="MODEL"` and `validation_status="UNRESOLVED"`.
+  - Authoritative rule-extracted fields (`method="RULE"`) and human edits (`method="HUMAN"`) are immutable and protected against model overwrite.
+  - When AI proposals are merged, extractor version is recorded as `p1-ai-pipeline-v1` (or `p1-deterministic-v3` for rules-only).
+- **Zero-Guessing Fallback and Fault-Tolerance**:
+  - If the AI endpoint is unconfigured, unreachable, times out, or fails during inference, the pipeline logs a diagnostic, reports `fallback`, and smoothly falls back to deterministic rule results without crashing or losing data.
+- **Core & Feasibility Safety Invariant**:
+  - AI candidates NEVER mark an OrderContext as `INFORMATION_READY`. Context remains `INFORMATION_PARTIAL` or `UNRESOLVED` until a human operator reviews, edits, and explicitly accepts the extraction.
+  - Only human-reviewed and verified contexts can be published to Core, and only confirmed commitments are evaluated for operational feasibility by P2 (Invariant 1).
+- **Frontend Provenance & Review Transparency**:
+  - DurableInbox clearly distinguishes extraction provenance with colored badges:
+    - `AI-ASSISTED` (indigo) when model proposals contributed candidates.
+    - `RULE (FALLBACK)` (amber) when remote inference failed or was unavailable.
+    - `RULE (p1-deterministic-v3)` (green) when deterministic rules resolved the message.
+  - Individual field candidates display `MODEL` badge, span character offsets, verbatim quotes, and confidence/rationale notes.
+
+### 2. Verification and Test Results
+- **Backend Context Suite**: 306 passed, 3 skipped (remote live tests requiring payment), 0 failed (`backend/app/context/tests/`).
+- **End-to-End AI Integration Suite**: 7 passed, 0 failed (`test_ai_pipeline_integration.py`).
+  - Selective triggering on missing terms.
+  - Clean fallback to rules on endpoint failure.
+  - Hallucinated quotes rejection by evidence gate.
+  - Strict tenant isolation (raw text only, no tenant ID or credentials sent).
+  - Full lifecycle: Message Ingestion -> AI Candidate Generation -> Partial Context -> Human Review (`EDIT_FIELD`) -> Core Publication -> P2 Operational Feasibility.
+- **End-to-End P1 -> Core -> P2 PostgreSQL Suite**: 7 passed, 1 skipped (Alembic coordination item H1.1-Q2 approved by P5), 0 failed (`test_p1_core_p2_e2e.py`).
+- **Frontend Suite**: 151 passed, 5 skipped, 0 failed.
+- **Frontend Production Build**: `npm run build` completed cleanly (0 TypeScript/Vite errors).
+
+---
+
 # P1 BATCH 6 Handoff — 2026-10-22 (Real GPU Model Deployment and Evaluation)
 
 Active branch: `feat/p1-ai-pipeline`; commits for this batch:
