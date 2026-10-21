@@ -331,8 +331,16 @@ def context_review_record(row: ContextReview) -> ContextReviewRecord:
 
 
 class PostgresMessageRepository:
-    def __init__(self, engine: Engine):
+    def __init__(self, engine: Engine, *, proposal_service=None):
         self.engine = engine
+        self._proposal_service = proposal_service
+
+    @property
+    def proposal_service(self):
+        if self._proposal_service is None:
+            from .extraction import prepare_model_proposal_service
+            self._proposal_service = prepare_model_proposal_service()
+        return self._proposal_service
 
     def ingest(self, envelope: RawMessageEnvelope, now: datetime) -> IngestResponse:
         digest = fingerprint(envelope)
@@ -416,7 +424,6 @@ class PostgresMessageRepository:
                         select(ExtractionAttempt).where(
                             ExtractionAttempt.tenant_id == tenant_id,
                             ExtractionAttempt.message_id == message_id,
-                            ExtractionAttempt.extractor_version == extractor_version,
                             ExtractionAttempt.input_content_sha256 == row.content_sha256,
                             ExtractionAttempt.status == "PROCESSED",
                         ).order_by(desc(ExtractionAttempt.started_at)).limit(1)
@@ -462,8 +469,52 @@ class PostgresMessageRepository:
                                 raise ValueError(
                                     f"Evidence quote mismatch: expected {ev.quote!r}, got {actual_quote!r}"
                                 )
+                    active_fields = list(result.fields)
+                    actual_extractor_version = extractor_version
+                    diagnostics_dict = {}
+
+                    svc = self.proposal_service
+                    if svc and getattr(svc, "enabled", False):
+                        try:
+                            import asyncio
+                            import concurrent.futures
+
+                            def _run_async(coro):
+                                try:
+                                    asyncio.get_running_loop()
+                                except RuntimeError:
+                                    return asyncio.run(coro)
+                                else:
+                                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                                        return pool.submit(asyncio.run, coro).result()
+
+                            proposal_res = _run_async(
+                                svc.extract_stored(stored_msg, catalog=PROVISIONAL_PRODUCTS)
+                            )
+                            if getattr(proposal_res, "outcomes", None):
+                                diagnostics_dict["model_outcomes"] = proposal_res.outcomes
+
+                            candidates = getattr(proposal_res, "candidates", [])
+                            if candidates:
+                                actual_extractor_version = "p1-ai-pipeline-v1"
+                                for c in candidates:
+                                    for ev in c.evidence:
+                                        if ev.start < 0 or ev.end > len(raw_text) or ev.start >= ev.end or raw_text[ev.start:ev.end] != ev.quote:
+                                            raise ValueError(f"Model evidence span [{ev.start}:{ev.end}] invalid")
+                                active_fields.extend(candidates)
+                            elif getattr(proposal_res, "outcomes", None) and any(
+                                v in ("unavailable", "timeout", "busy", "endpoint_http_error", "transport_or_schema_error")
+                                for v in proposal_res.outcomes.values()
+                            ):
+                                diagnostics_dict["fallback"] = "rules_only"
+                        except Exception as model_exc:
+                            diagnostics_dict["model_error"] = str(model_exc)[:200]
+                            diagnostics_dict["fallback"] = "rules_only"
+
                     attempt.status = "PROCESSED"
-                    attempt.fields = [f.model_dump(mode="json") for f in result.fields]
+                    attempt.extractor_version = actual_extractor_version
+                    attempt.fields = [f.model_dump(mode="json") for f in active_fields]
+                    attempt.diagnostic = json.dumps(diagnostics_dict)[:1000] if diagnostics_dict else None
                     attempt.completed_at = completed_time
                     row.processing_status = "PROCESSED"
                     row.updated_at = completed_time
