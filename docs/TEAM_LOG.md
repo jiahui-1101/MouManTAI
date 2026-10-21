@@ -761,7 +761,7 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Next milestone: **Commit 03 — Template-Based Message Drafting**, not started. Complete required source/approval/persistence integration before claiming the connected request flow works.
 
 ### 2026-10-21 — Task T4.1: GitHub Actions CI Workflow, Docker Compose Seed & Windows DevEx Documentation (DEV-1 to DEV-5, UI-06, BE-03f)
-- **Status**: Complete & Verified.
+- **Status**: Complete & Verified (Commit `1497f1e`).
 - **Scope & Changes**:
   1. **GitHub Actions CI (`.github/workflows/ci.yml`, `DEV-5`)**:
      - Job 1 (`backend-tests`): Python 3.12, installs backend in editable mode (`pip install -e "./backend[dev]"`), executes `compileall` syntax validation across `backend/app`, and runs full `pytest -v backend/tests` (80 tests: unit, concurrency, outbox, E2E journey, and identity guards).
