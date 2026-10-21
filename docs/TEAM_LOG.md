@@ -821,6 +821,21 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - **Checkpoint:** validated implementation commit `1507b5918b8ea9200aba4edca9b618929386e1fd` was pushed only to `origin/feat/p2-phase7b-integration`; remote ref matched at push time. Follow-up documentation records the checkpoint; final branch head is in the task result.
 - **Gate:** P2-local readiness is validated for independent review. Do not begin 7B-2 or joint production wiring before separate approval. No PR or Main merge was created.
 
+### 2026-10-21 — Task T5.1: P2 Phase 7B Integration Merge & Combined Baseline Validation (P2/P5)
+- **Status**: Complete & Verified (Merge commit `71ee80f` + validation).
+- **Scope & Changes**:
+  1. **Branch Integration**: Merged `origin/feat/p2-phase7b-integration` into `feat/p5-core-integration`. Resolved single conflict in `docs/TEAM_LOG.md` cleanly, preserving both P5 Task T4.1 and all P2 Phase 7A/7B logs.
+  2. **Environment & Dependency Compatibility**: Added `tzdata>=2024.1` to `backend/pyproject.toml` dependencies ensuring robust cross-platform validation for IANA timezone keys (including `Asia/Kuala_Lumpur`) on Windows hosts lacking system tzdata.
+  3. **Combined Baseline Verification**:
+     - Backend tests: `309 passed, 0 failed` across `backend/tests` (80 tests) and `backend/app/feasibility/tests` (229 tests).
+     - Frontend tests: `118 passed, 5 skipped` (gated live API) in Vitest across all Core and Feasibility test files.
+     - Frontend typecheck: Passed (`tsc --noEmit`, 0 errors).
+     - Frontend production build: Passed (`vite build`, generated in 895ms).
+- **Next Steps for Phase 7B-2**:
+  - Implement P5 integration adapters in `backend/app/feasibility/api_dependencies.py` connecting P2 ports to `CommitmentService.assess()` and `reservations.get_resource_snapshot()`.
+  - Mount `feasibility_router` in `backend/app/main.py` and feature pages in `frontend/src/App.tsx`.
+  - Execute joint E2E supplier delay -> P2 recalculation -> Core risk transition -> dashboard flow.
+
 ## 2026-10-22 — P4 Commit 03: Template-Based Message Drafting
 
 - Baseline: local `P4-communication`, HEAD `443ff6cab6178ad3109669a46262701073e81ad2`. Implementation and verification performed in an isolated copy; real repository unchanged.
@@ -836,6 +851,7 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Limitations: only built-in delivery_change template v1; required SKU/quantity/unit/deadline follow current CommitmentTerms contract. No human edits, approval workflow, delivery tracking, acceptance, fulfilment, sending, AI or frontend UI. A saved draft never grants permission to send.
 - Next milestone: Commit 04 — Communication Center UI (not started).
 - Git status: not committed; no add/commit/push/merge/rebase or branch switch performed. Suggested future commit: `feat(p4): implement version-safe message drafting`.
+
 ## 2026-10-22 — Person 4 / Commit 04: Communication Center Frontend UI
 
 - Baseline: real local P4-communication branch was clean and already contained Commit 01-03 (including drafting.py/templates.py and draft APIs). Implementation performed only in an isolated copy. No branch switch, git add/commit/push/merge/rebase/reset or changes to the real repository.
