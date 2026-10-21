@@ -247,6 +247,16 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
   - P5 (Gan): Align ContextStatus enum naming (P1 using ContextStatus.INFORMATION_READY) and coordinate Alembic migration 0006 for order_contexts table.
   - P2 (Mei Shuet): Confirmed SKU 'BURGER' with unit 'pcs' aligns directly with P2 Feasibility Engine fixtures.
 
+### 2026-10-21 — P1 Batch 5 (Actual P1 → Core → P2 Integration Verified)
+- P1: Completed: Batch 5 (Actual P1 → Core → P2 Integration without bypassing boundaries, commits `a5cb3ac`, `f3c3b7c`, `52f90dd`, `d5af49c`, `c626326`).
+  - Implemented `CoreContextPublisher` (`backend/app/context/core_publisher.py`): zero-guessing eligibility guard strictly blocks unready/conflict/ambiguous contexts from Core; publishes eligible contexts idempotently with bidirectional pointers.
+  - Implemented confirmed-term protection in `CoreIntegrationFacade.handle_context_updated` (`backend/app/core/integration.py`): updates with differing terms to `CONFIRMED` commitments automatically create an active proposal in `OFFERED` status, emitting `COMMITMENT_PROPOSAL_OFFERED` instead of overwriting confirmed terms.
+  - Implemented `P2FeasibilityConsumer` (`backend/app/context/p2_consumer.py`): subscribes to `commitment.context_ready` and `commitment.proposal_offered`, resolves typed `EvaluationSnapshot` + `ProposedChanges`, invokes pure P2 `evaluate()`, and persists `FeasibilityAssessmentRecord` with idempotency via `ProcessedEventRecord`.
+  - Mounted P1 `context_router` in `backend/app/main.py` and registered P2 subscribers on `default_dispatcher`. Mounted `<DurableInbox />` (/inbox) and `<OrderContextDetail />` (/orders/:id) in `frontend/src/App.tsx`.
+  - Verified real PostgreSQL E2E suite `backend/tests/integration/test_p1_core_p2_e2e.py` covering all 8 required scenarios: new request to Core/P2, reviewed correction re-evaluation, ambiguous identity publication block, confirmed term proposal creation, duplicate event idempotency, old version rejection, failure/retry consistency, and cross-tenant isolation (all 8 passed).
+- P1 Next: P1 capabilities fully delivered; ready for team demo, PR review, and final handoff.
+- Integration status: Full P1 → Core → P2 flow verified on real PostgreSQL without mocking or manual conversions. All 149 frontend tests pass; build passes.
+
 
 ## 6. Blocker / Dependency Ledger
 

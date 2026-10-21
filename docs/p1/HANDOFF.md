@@ -1,3 +1,51 @@
+# P1 BATCH 5 handoff — 2026-10-21 (Actual P1 → Core → P2 Integration)
+
+当前分支 `feat/p1-context-intelligence`；本次实现提交：
+- 适配器与发布守卫：`a5cb3ac` (`feat(p1): implement CoreIntegrationFacade adapter and context publication eligibility`)
+- P5 核心已确认条款保护：`f3c3b7c` (`feat(p5): preserve confirmed commitment terms through proposed amendments`)
+- P2 评估器与 Outbox 消费者：`52f90dd` (`feat(p1): connect outbox event dispatching and P2 feasibility evaluator`)
+- 宿主应用挂载与前端集成：`d5af49c` (`feat(p1): mount P1 routes in app shell and frontend navigation`)
+- 端到端真实数据库集成测试集：`c626326` (`test(p1): add end-to-end P1 Core P2 integration test suite`)
+
+### 1. 核心交付与业务边界规则落实
+- **零猜测原则驱动的 CoreContextPublisher (`backend/app/context/core_publisher.py`)**：
+  - 发布资格守卫 (`check_eligibility`)：只有当上下文达到 `INFORMATION_READY`、客户身份已建立且非未核实（`LINK_VERIFIED` 或 `SUGGESTED`）、包含有效条目清单 (`requested_items`) 且交期/限定词完整有效时，才允许向 Core 提报。
+  - 严格阻断未就绪/冲突数据：凡处于 `INFORMATION_PARTIAL`、`CONFLICT`、`UNRESOLVED`、身份未核实 (`UNVERIFIED`/`AMBIGUOUS`) 或无客户绑定的上下文，直接拦截抛出 `IneligibleContextError`，**绝不静默向 Core 投递未完备或歧义上下文**。
+  - 幂等提报与双向指针：成功提报后在 P1 `OrderContextRecord` 记录 `core_commitment_id` 与 `published_to_core_at`，支持依据 `context_id` 进行幂等防重。
+- **已确认条款绝不静默覆写 (Preserve Confirmed Terms through Proposed Amendments, Invariant 1 & 6)**：
+  - 更新 `CoreIntegrationFacade.handle_context_updated` (`backend/app/core/integration.py`)：当 P1 针对已处于 `CONFIRMED` 协议状态的承诺提交上下文变更且提取条款存在实质差异时，**绝不在原地覆写已确认的承诺条款**。
+  - 自动转入提议流程：系统通过 `CommitmentProposalRecord` 创建激活态提议（`AgreementState.OFFERED`），记录完整 `ProposedChanges`，并对外派发 `commitment.proposal_offered` 事件，维持基准履约协议权威性。
+- **真实 P2 可行性评估集成与纯函数调用 (`backend/app/context/p2_consumer.py`)**：
+  - 严谨订阅 Core 事件：订阅 `commitment.context_ready` 与 `commitment.proposal_offered`。
+  - 标准快照解析 (`resolve_snapshot_for_commitment`)：不凭空捏造库存，利用 P2 标准生产样例或只读快照构建 `EvaluationSnapshot`，并将请求/提议变动精准映射为 `ProposedChanges`（数量、交期限定、开始工时）。
+  - 调用 P2 官方纯函数：`evaluate(snapshot, proposed_changes, commitment)`，将计算得出的可行性状态 (`FEASIBLE` / `INFEASIBLE` / `CONDITIONAL`)、工作负载工时、瓶颈约束、前提假设与证据溯源写入 `FeasibilityAssessmentRecord`。
+  - 幂等消费防线：通过 `ProcessedEventRecord` 登记 `(tenant_id, event_id, consumer_name)`，针对同一事件的重复调度自动跳过无操作，绝不重复触发状态流转。
+  - 事务与回滚安全：若评估或下游写入失败，事务安全回退，Outbox 事件状态转入 `FAILED` 并保留 `last_error` 供补偿重试。
+  - 陈旧版本防线：利用 `is_stale_event` 与版本单调递增约束，陈旧版本事件（版本号低于当前承诺版本）拒绝覆盖新状态。
+- **应用壳层挂载与全局路由集成**：
+  - 后端：在 `backend/app/main.py` 挂载 `context_router` 并向全局 `default_dispatcher` 注册 P2 订阅者。
+  - 前端：在 `frontend/src/App.tsx` 挂载持久化收件箱 `<DurableInbox />`（路径 `/inbox`）与上下文详情 `<OrderContextDetail />`（路径 `/orders/:id`）。
+- **真实 PostgreSQL 端到端 8 场景集成测试矩阵 (`backend/tests/integration/test_p1_core_p2_e2e.py`)**：
+  1. `test_scenario_1_new_request_through_p1_to_core_and_p2`：新消息提取成 ready 上下文，提报 Core 创建承诺，派发事件触发 P2 评估并持久化可行性评定。
+  2. `test_scenario_2_reviewed_correction_updates_context_and_re_evaluates`：人工修正数量并提报，Core 更新条款并触发 P2 重新计算可行性（120 数量导致产能瓶颈）。
+  3. `test_scenario_3_ambiguous_identity_blocks_unsafe_publication`：歧义客户身份被资格守卫严格拦截，阻止产生未受权承诺。
+  4. `test_scenario_4_confirmed_term_change_becomes_proposal`：针对已确认的承诺提出数量变更，原承诺条款保持不变，自动生成激活提议并派发提议评估事件。
+  5. `test_scenario_5_duplicate_event_causes_no_duplicate_transition`：同一 Outbox 事件被调度两次，幂等消费表拦截重复流转。
+  6. `test_scenario_6_old_version_cannot_replace_newer_state`：P1 乐观锁拒绝陈旧版本修正，Outbox 派发器拒绝陈旧版本覆盖。
+  7. `test_scenario_7_failure_retry_preserves_consistency`：消费者抛出异常后数据库安全回滚，Outbox 标记为 `FAILED` 可重试。
+  8. `test_scenario_8_wrong_tenant_cannot_access_messages_contexts_or_evidence`：跨租户请求完全无法读取异租户消息、上下文或订单。
+
+### 2. 验证结果
+- **真实 PostgreSQL E2E 集成测试**：
+  - `backend/tests/integration/test_p1_core_p2_e2e.py`：**8 passed in 1.45s**（100% 覆盖 8 大跨域协同场景）。
+- **后端全量回归**：
+  - P1 领域测试 + Core 跨域集成测试：全量通过。
+- **前端全量回归与生产打包**：
+  - 前端测试：**149 passed, 5 skipped (LiveApiSmoke), 0 failed**。
+  - 前端构建：`npm run build` 成功通过（0 错误）。
+
+---
+
 # P1 BATCH 4 handoff — 2026-10-21 (Attachment Evidence, PDF Text and Image OCR)
 
 当前分支 `feat/p1-context-intelligence`；本次实现提交：
