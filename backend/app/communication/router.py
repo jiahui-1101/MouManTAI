@@ -7,7 +7,11 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext, get_db, get_request_context
 
-from .schemas import CommunicationRequestView, CreateCommunicationRequest, RequestStatus
+from .schemas import (
+    CommunicationRequestView, CreateCommunicationRequest, MessageDraftView,
+    PrepareDraftRequest, RequestStatus,
+)
+from .drafting import DraftAuthority, MessageDraftService
 from .service import CommunicationRequestService, RequestAuthority
 
 
@@ -19,6 +23,18 @@ def get_request_authority() -> RequestAuthority | None:
     return None
 
 
+def get_draft_authority() -> DraftAuthority | None:
+    # Separate action-specific revalidation; do not reuse client claims or old snapshots.
+    return None
+
+
+def get_draft_service(
+    db: Annotated[Session, Depends(get_db)],
+    authority: Annotated[DraftAuthority | None, Depends(get_draft_authority)],
+) -> MessageDraftService:
+    return MessageDraftService(db, authority)
+
+
 def get_service(
     db: Annotated[Session, Depends(get_db)],
     authority: Annotated[RequestAuthority | None, Depends(get_request_authority)],
@@ -28,6 +44,19 @@ def get_service(
 
 Service = Annotated[CommunicationRequestService, Depends(get_service)]
 Context = Annotated[RequestContext, Depends(get_request_context)]
+DraftService = Annotated[MessageDraftService, Depends(get_draft_service)]
+
+
+@router.post("/{communication_id}/prepare", response_model=MessageDraftView)
+def prepare_draft(
+    communication_id: str, command: PrepareDraftRequest, service: DraftService, context: Context,
+):
+    return service.prepare(context, communication_id, command)
+
+
+@router.get("/{communication_id}/drafts/{draft_id}", response_model=MessageDraftView)
+def retrieve_draft(communication_id: str, draft_id: str, service: DraftService, context: Context):
+    return service.get(context, communication_id, draft_id)
 
 
 @router.post("/requests", response_model=CommunicationRequestView)
