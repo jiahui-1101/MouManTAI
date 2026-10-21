@@ -18,6 +18,10 @@ ACTOR_ROLES = {
     "owner_01": "OWNER",
     "manager_01": "MANAGER",
     "staff_01": "STAFF",
+    # Trusted internal service principals (D-013, synthetic mode only)
+    "service_p2_feasibility": "SERVICE",
+    "service_core": "SERVICE",
+    "system": "SYSTEM",
 }
 
 

@@ -492,5 +492,39 @@ Metric protocol: always disclose dataset size, date, ground truth creation metho
   - `cmd /c npm run build`: Passed (`dist/` generated in 854ms)
   - `python -m pytest backend/tests`: Passed (63 passed in 1.42s)
 
+### 2026-10-21 — Task T3.1-C-FIX: Remove Duplicate Core /assess Route, Add Tenant/Commitment Identity Guards, Update Affected P5 Tests (Decision D-013)
+- **Status**: Complete & Verified (Decision D-013 implemented).
+- **Context & Ownership**:
+  - Decision D-013 established that P2 exclusively owns the public trigger endpoint `POST /v1/commitments/{id}/assess`.
+  - P5 Core must not expose the duplicate route to prevent route collision/capture of P2 requests.
+  - Core retains strictly an internal writer (`CommitmentService.assess`) callable by trusted service principals (`service_p2_feasibility`, `SERVICE` / `SYSTEM`).
+- **Changes Implemented**:
+  1. Removed public route `@router.post("/commitments/{commitment_id}/assess")` and `assess_commitment_endpoint` from `backend/app/core/router.py`. Public calls to this path from Core now return 404 Not Found.
+  2. Registered trusted internal service principals in `backend/app/core/dependencies.py` (`service_p2_feasibility`: `SERVICE`, `service_core`: `SERVICE`, `system`: `SYSTEM`).
+  3. Added strict identity & security guards in `CommitmentService.assess`:
+     - **Caller Authorization**: Enforces `context.actor_role in {"SERVICE", "SYSTEM"}`. Normal user actors (`STAFF`, `MANAGER`, `OWNER`) are denied with HTTP 403 `CALLER_NOT_AUTHORIZED`.
+     - **Tenant Identity Guard**: Verifies `assessment.tenant_id == context.tenant_id`. Mismatches rejected with HTTP 400 `TENANT_MISMATCH` without mutating commitment state.
+     - **Commitment Identity Guard**: Verifies `assessment.commitment_id == commitment_id`. Mismatches rejected with HTTP 400 `COMMITMENT_ID_MISMATCH` without mutating commitment state.
+     - **Cross-Tenant Isolation**: Loads commitment strictly by `(context.tenant_id, commitment_id)`. Commitments of other tenants return HTTP 404 `COMMITMENT_NOT_FOUND`.
+     - **Concurrency Guard**: Verifies `assessment.commitment_version == record.commitment_version`. Stale versions return HTTP 409 `COMMITMENT_VERSION_CONFLICT`.
+     - **Idempotency Guard**: If `assessment.assessment_id in record.evidence_refs`, returns current commitment without bumping version or persisting duplicate audit/outbox events.
+     - **Risk Invariants**: `INFEASIBLE` triggers `AT_RISK` and `RECOVERY_REQUIRED` ONLY on `CONFIRMED` commitments; unconfirmed commitments (`REQUESTED`) record `INFEASIBLE` without `AT_RISK`; `UNKNOWN` and `CONDITIONAL` do not trigger `AT_RISK`.
+     - **Mutation Scope**: Mutates strictly the target commitment; `affected_commitment_ids` never triggers side-effect mutations on other commitments.
+     - **Atomic Persistence**: Outbox event and audit record write is atomic; any commit failure rolls back state completely.
+  4. Updated P5 Handshake & E2E Tests:
+     - `backend/tests/integration/test_feature_handshakes.py`: P2 assessment steps updated to invoke `service.assess` with `service_p2_feasibility` trusted context, labelled `[SIMULATED P2 HANDSHAKE]`.
+     - `backend/tests/integration/test_e2e_hero_journey.py`: assessment calls updated to invoke `service.assess` with `service_p2_feasibility`, labelled `[SIMULATED P2 HANDSHAKE]`.
+  5. Added Route Uniqueness & Identity Guards Test Suite:
+     - Created `backend/tests/test_assess_identity_guards.py` (16 tests) asserting: public route 404 absence, route collision prevention across `app.routes`, tenant mismatch 400, commitment mismatch 400, cross-tenant 404, caller 403 vs 200, stale version 409, risk invariants, single-target mutation scope, duplicate assessment idempotency, and atomic commit rollback.
+- **What P2 Can Now Rely On**:
+  - Zero route collision on `POST /v1/commitments/{id}/assess` from Core router; P2's public router mounts and handles this endpoint directly without Core interference.
+  - Core `CommitmentService.assess` provides a robust, idempotent internal writer for P2's background workers or service facade with verified concurrency and identity isolation.
+- **Validation Results**:
+  - `python -m pytest backend/tests`: 79 passed, 0 failed.
+  - `cmd /c npm run typecheck`: Passed (0 errors).
+  - `cmd /c npm test`: Passed (28 passed, 5 skipped).
+  - `cmd /c npm run build`: Passed (`dist/` built cleanly).
+
+
 
 

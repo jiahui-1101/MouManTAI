@@ -23,8 +23,17 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import RequestContext
 from app.core.reservations import seed_resource_stock
-from app.core.schemas import AttentionCategory
+from app.core.schemas import (
+    AgreementState,
+    AttentionCategory,
+    FeasibilityAssessment,
+    FeasibilityState,
+    RecoveryState,
+    RiskState,
+)
+from app.core.service import CommitmentService
 
 
 def _now() -> datetime:
@@ -89,7 +98,15 @@ def test_e2e_hero_journey_full_single_commitment_lifecycle(
     assert c1["recovery_state"] == "NONE"
     assert c1["fulfilment_state"] == "NOT_STARTED"
 
-    # P2 assesses FEASIBLE -> increments to version 2
+    # [SIMULATED P2 HANDSHAKE] P2 assesses FEASIBLE -> increments to version 2 via internal writer (D-013)
+    service = CommitmentService()
+    service_context = RequestContext(
+        tenant_id=tenant,
+        actor_id="service_p2_feasibility",
+        actor_role="SERVICE",
+        correlation_id=f"corr_hero_{_now().timestamp()}",
+        causation_id="evt_hero_p2",
+    )
     p2_assessment = {
         "assessment_id": "fa_hero_001",
         "tenant_id": tenant,
@@ -104,11 +121,9 @@ def test_e2e_hero_journey_full_single_commitment_lifecycle(
         "assumptions": ["Sufficient patty and packaging inventory available"],
         "assessed_at": now.isoformat(),
     }
-    res = client.post("/v1/commitments/com_001/assess", json=p2_assessment, headers=staff_headers)
-    assert res.status_code == 200, res.text
-    c1 = res.json()
-    assert c1["feasibility_state"] == "FEASIBLE"
-    assert c1["commitment_version"] == 2
+    c1_obj = service.assess(session, service_context, "com_001", FeasibilityAssessment.model_validate(p2_assessment))
+    assert c1_obj.feasibility_state == FeasibilityState.FEASIBLE
+    assert c1_obj.commitment_version == 2
 
     # Offer Proposal v1 on commitment v2 -> increments version to 3, agreement_state=OFFERED
     prop_v1 = {
@@ -169,20 +184,26 @@ def test_e2e_hero_journey_full_single_commitment_lifecycle(
         "context_version": 1,
     }
     client.post("/v1/integration/context-updated", json=p1_com2, headers=staff_headers)
-    client.post("/v1/commitments/com_002/assess", json={
-        "assessment_id": "fa_com2_001",
-        "tenant_id": tenant,
-        "commitment_id": "com_002",
-        "commitment_version": 1,
-        "snapshot_version": 100,
-        "status": "FEASIBLE",
-        "constraints": [],
-        "affected_commitment_ids": [],
-        "evidence_refs": ["ev_com2_check"],
-        "solver_status": "COMPLETED",
-        "assumptions": ["Greens available"],
-        "assessed_at": now.isoformat(),
-    }, headers=staff_headers)
+    # [SIMULATED P2 HANDSHAKE]
+    service.assess(
+        session,
+        service_context,
+        "com_002",
+        FeasibilityAssessment.model_validate({
+            "assessment_id": "fa_com2_001",
+            "tenant_id": tenant,
+            "commitment_id": "com_002",
+            "commitment_version": 1,
+            "snapshot_version": 100,
+            "status": "FEASIBLE",
+            "constraints": [],
+            "affected_commitment_ids": [],
+            "evidence_refs": ["ev_com2_check"],
+            "solver_status": "COMPLETED",
+            "assumptions": ["Greens available"],
+            "assessed_at": now.isoformat(),
+        }),
+    )
     client.post("/v1/commitments/com_002/proposals", json={
         "proposal_id": "prop_com2_v1",
         "proposal_version": 1,
@@ -226,14 +247,18 @@ def test_e2e_hero_journey_full_single_commitment_lifecycle(
         "assumptions": ["Supplier delivery slip pushed ETA back 4 days"],
         "assessed_at": now.isoformat(),
     }
-    res = client.post("/v1/commitments/com_001/assess", json=reassess_payload, headers=staff_headers)
-    assert res.status_code == 200, res.text
-    c1 = res.json()
-    assert c1["risk_state"] == "AT_RISK"
-    assert c1["recovery_state"] == "RECOVERY_REQUIRED"
-    assert c1["agreement_state"] == "CONFIRMED"  # Invariant: CONFIRMED + AT_RISK coexist!
-    assert c1["feasibility_state"] == "INFEASIBLE"
-    assert c1["commitment_version"] == 5
+    # [SIMULATED P2 HANDSHAKE] Trusted P2 service principal applies INFEASIBLE assessment via internal writer (D-013)
+    c1_obj = service.assess(
+        session,
+        service_context,
+        "com_001",
+        FeasibilityAssessment.model_validate(reassess_payload),
+    )
+    assert c1_obj.risk_state == RiskState.AT_RISK
+    assert c1_obj.recovery_state == RecoveryState.RECOVERY_REQUIRED
+    assert c1_obj.agreement_state == AgreementState.CONFIRMED  # Invariant: CONFIRMED + AT_RISK coexist!
+    assert c1_obj.feasibility_state == FeasibilityState.INFEASIBLE
+    assert c1_obj.commitment_version == 5
 
     # Verify non-impacted com_002 stays NORMAL
     res = client.get("/v1/commitments/com_002", headers=staff_headers)

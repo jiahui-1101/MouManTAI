@@ -104,17 +104,6 @@ def record_fulfilment(
     return service.record_fulfilment(db, context, commitment_id, request)
 
 
-@router.post(
-    "/commitments/{commitment_id}/assess",
-    response_model=Commitment,
-)
-def assess_commitment_endpoint(
-    commitment_id: str,
-    assessment: FeasibilityAssessment,
-    db: Db,
-    context: Context,
-) -> Commitment:
-    return service.assess(db, context, commitment_id, assessment)
 
 
 @router.post(
