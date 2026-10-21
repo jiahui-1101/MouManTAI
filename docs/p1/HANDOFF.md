@@ -1,6 +1,41 @@
-# P1 TASK 2B-FIX handoff — 2026-10-21
+# P1 TASK 2C handoff — 2026-10-21
 
-当前分支 `feat/p1-context-intelligence`；本次起点 `772bb1e`，最新实现提交 `601c04f`。**本任务没有 push、merge、TASK 2C 或模型集成。**
+当前分支 `feat/p1-context-intelligence`；本次实现提交：
+- 后端：`2dcab66` (`feat(p1): persist deterministic extraction and implement processing API`)
+- 前端：`1527f8e` (`feat(p1): integrate extraction processing and evidence highlights in DurableInbox`)
+
+### 1. 核心交付与实现内容
+- **持久化抽取存储 (`p1_dev.extraction_attempts`)**：
+  - 新增字段：`attempt_id`, `tenant_id`, `message_id`, `extractor_version`, `input_content_sha256`, `status`, `fields` (JSONB), `diagnostic`, `started_at`, `completed_at`。
+  - 行级锁与并发保护：`process(tenant_id, message_id, reprocess=False)` 使用 `with_for_update()` 避免同一消息被并发重复处理（并发返回 409 `ProcessingConflict`）。
+  - 幂等性保证：同一输入与相同抽取版本默认复用已有 Attempt，不重复计算；显式 `reprocess=True` 时创建新 Attempt 并完整保留历史版本审计追踪。
+- **处理与检索 API**：
+  - `POST /v1/messages/{message_id}/process?reprocess={true|false}`：触发抽取并持久化结果与状态。
+  - `GET /v1/messages/{message_id}/extraction`：获取最新一次抽取结果及字段（404 若未处理或消息不存在）。
+  - `GET /v1/messages/{message_id}/attempts`：获取消息的所有历史抽取记录（按 `started_at DESC` 排序）。
+  - 错误与脱敏：严格保留 503 `PersistenceUnavailable` 数据库连接串脱敏逻辑；提供明确的 404 及 409 ApiError 规范。
+- **操作型前端界面 (`DurableInbox`)**：
+  - 接入真实后端 API (`process`, `getExtraction`, `listAttempts`)。
+  - 消息列表支持直接触发 Process，消息详情支持触发 Process / Reprocess。
+  - 证据精准高亮：基于 `Array.from(text)` Unicode 代码点切片，通过 `<mark className="p1-span-highlight">` 渲染精确源文本证据高亮。
+  - 明确标注来源与版本：显示 `RULE (p1-deterministic-v3)`，清晰展示提取字段表格（字段、值、状态、限定词、原文片段引用）。
+  - 审计历史：详情面板展示完整的历史抽取尝试时间与状态列表。
+- **契约安全边界 (Contract Safety)**：
+  - 候选抽取（Candidate Extraction）只保存在 P1 的暂存表与消息记录中，**绝不自动提权至共享 Core `BusinessContext`**，亦不将状态置为 `CONFIRMED` 或假定 `READY`。
+
+### 2. 验证结果
+- **后端测试**：
+  - 新增 `backend/app/context/tests/test_persisted_extraction.py`（7 个端到端持久化与并发测试全部通过）。
+  - 包含 engine 重启后持久化完备性、幂等性、reprocess 历史保留、多线程并发锁保护、跨租户隔离、API 404/409 边界测试。
+  - P1 测试集全绿（295 passed / 0 failed, 1 Starlette warning）。
+- **前端测试与构建**：
+  - `DurableInbox.test.tsx` 扩充 9 个端到端用例，覆盖处理、重新处理、代码点高亮与历史列表呈现。
+  - 前端全量测试：128 passed, 5 skipped (LiveApiSmoke), 0 failed。
+  - 前端类型与打包：`tsc -b && vite build` 成功（0 错误，耗时 1.05s）。
+
+---
+
+# P1 TASK 2B-FIX handoff — 2026-10-21
 
 - 修复：lower bounds/近似/区间/试探不变 EXACT；独立多表达式和跨句 date/time 不取第一项或拼接；缺失时区不补默认；yearless 日期不补年份；DST gap/fold 不自动定 offset；相对日期按 message_at（否则 received_at）而非处理时钟；延迟接收、过去日期保持复核；非法 time token 不截断或回退 DATE_ONLY；SKU/unit 别名歧义不标 VALID。
 - 原文、hash 和 message metadata 不变；source spans 为 Unicode code points。DATE_ONLY 仍为日期字符串，没有午夜；DATE_ONLY 的原 EXACT/DEADLINE relation 保留在 metadata。
