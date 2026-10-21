@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from threading import RLock
 from typing import Any
+from uuid import uuid4
 
 from app.core.errors import DomainError
+from app.core.integration import CoreIntegrationFacade
 from app.core.schemas import ApprovalState, Commitment, ExecutionState, FeasibilityState
 
 from .feasibility import FeasibilityEvaluator, SyntheticP2Evaluator
 from .fixtures import DemoRecoveryInputs, load_demo_recovery_inputs
+from .integrations import ActorContext, require_verified_actor
 from .models import (
+    ApprovalDecision,
+    ApprovalDecisionInput,
+    ApprovalDecisionState,
+    ApprovalRequestInput,
     BusinessPreferences,
     PlanEvaluation,
     RecoveryCase,
@@ -22,50 +29,17 @@ from .models import (
     RecoveryStrategy,
     RiskLevel,
     SolverReadiness,
+    ValidationSource,
 )
+from .ranking import RankingCandidate, rank_candidates
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _unique(values: list[str]) -> list[str]:
     return list(dict.fromkeys(value for value in values if value))
-
-
-def _risk_score(level: RiskLevel) -> Decimal:
-    return {
-        RiskLevel.LOW: Decimal("0"),
-        RiskLevel.MEDIUM: Decimal("1"),
-        RiskLevel.HIGH: Decimal("2"),
-        RiskLevel.UNKNOWN: Decimal("3"),
-    }[level]
-
-
-def _impact_score(value: str) -> Decimal:
-    return {
-        "LOW": Decimal("0"),
-        "MEDIUM": Decimal("1"),
-        "HIGH": Decimal("2"),
-        "UNKNOWN": Decimal("3"),
-    }.get(value.upper(), Decimal("3"))
-
-
-def _ranking_score(
-    *,
-    cost: Decimal,
-    delay_minutes: int,
-    risk: RiskLevel,
-    customer_impact: str,
-    preferences: BusinessPreferences,
-) -> Decimal:
-    # The score is a transparent weighted comparison, not a universal BEST rule.
-    return (
-        preferences.cost_weight * (cost / Decimal("100"))
-        + preferences.delay_weight * (Decimal(delay_minutes) / Decimal("1440"))
-        + preferences.risk_weight * _risk_score(risk)
-        + preferences.customer_impact_weight * _impact_score(customer_impact)
-    ).quantize(Decimal("0.01"))
 
 
 def _readiness(status: FeasibilityState) -> SolverReadiness:
@@ -88,6 +62,9 @@ class _Candidate:
     estimated_delay_minutes: int
     risk_level: RiskLevel
     customer_impact: str
+    operational_disruption_level: Decimal
+    supplier_uncertainty_level: Decimal
+    customer_confirmation_required: bool
     risks: list[str]
     constraints: list[str]
     evidence_refs: list[str]
@@ -203,13 +180,19 @@ class RecoveryPlanner:
                 estimated_delay_minutes=0,
                 risk_level=RiskLevel.HIGH,
                 customer_impact="LOW",
+                operational_disruption_level=Decimal(3),
+                supplier_uncertainty_level=Decimal(5),
+                customer_confirmation_required=False,
                 risks=["ALTERNATIVE_SUPPLY_PENDING"],
                 constraints=[
                     "Supplier availability is not confirmed",
                     "Manager approval is required before any purchase request",
                 ],
                 evidence_refs=evidence_refs + ["ev_alt_supply_request_001"],
-                assumptions=["An alternative supplier can offer 20 PACKAGING units before cutoff."],
+                assumptions=[
+                    "An alternative supplier can offer 20 PACKAGING units before cutoff.",
+                    "Disruption and uncertainty levels use the synthetic 0–5 policy rubric, not measured probabilities.",
+                ],
                 proposed_changes={
                     "strategy": RecoveryStrategy.ALTERNATIVE_SUPPLY.value,
                     "resource_id": "PACKAGING",
@@ -237,13 +220,19 @@ class RecoveryPlanner:
                 estimated_delay_minutes=1440,
                 risk_level=RiskLevel.MEDIUM,
                 customer_impact="MEDIUM",
+                operational_disruption_level=Decimal(4),
+                supplier_uncertainty_level=Decimal(0),
+                customer_confirmation_required=True,
                 risks=["CUSTOMER_ACCEPTANCE_REQUIRED"],
                 constraints=[
                     "Customer acceptance is required for the revised deadline",
                     "No fulfilment execution evidence exists yet",
                 ],
                 evidence_refs=evidence_refs + ["ev_customer_accept_001", "fev_001"],
-                assumptions=["The customer accepts a 24-hour delivery-window change."],
+                assumptions=[
+                    "The customer accepts a 24-hour delivery-window change.",
+                    "Disruption and uncertainty levels use the synthetic 0–5 policy rubric, not measured probabilities.",
+                ],
                 proposed_changes={
                     "strategy": RecoveryStrategy.RESCHEDULE_PARTIAL_FULFILMENT.value,
                     "quantity": "80",
@@ -306,18 +295,36 @@ class RecoveryPlanner:
             return existing
 
         case = existing or self._skeleton(tenant_id, commitment_id)
+        case.trigger_assessment = assessment
         case.preferences = preferences or case.preferences
         generated_at = _now()
         plans: list[RecoveryPlanVersion] = []
+        evaluated_candidates = []
         for candidate in self._candidates(case):
             result = self.evaluator.evaluate(case.operational_snapshot, candidate.proposed_changes, commitment)
-            score = _ranking_score(
-                cost=candidate.estimated_extra_cost,
-                delay_minutes=candidate.estimated_delay_minutes,
-                risk=candidate.risk_level,
-                customer_impact=candidate.customer_impact,
-                preferences=case.preferences,
+            affected_commitment_ids = result.affected_commitment_ids or assessment.affected_commitment_ids
+            if not result.affected_commitment_ids and affected_commitment_ids:
+                result.assumptions.append(
+                    "Affected commitment count falls back to the triggering assessment until P2 returns candidate-specific impact."
+                )
+            ranking_candidate = RankingCandidate(
+                plan_id=candidate.plan_id,
+                feasibility_status=result.status,
+                validation_source=result.validation_source,
+                additional_cost_myr=candidate.estimated_extra_cost,
+                delivery_delay_minutes=candidate.estimated_delay_minutes,
+                affected_commitment_ids=tuple(affected_commitment_ids),
+                operational_disruption_level=candidate.operational_disruption_level,
+                supplier_uncertainty_level=candidate.supplier_uncertainty_level,
+                customer_confirmation_required=candidate.customer_confirmation_required,
+                hard_constraint_reasons=tuple(result.hard_constraint_reasons),
             )
+            evaluated_candidates.append((candidate, result, affected_commitment_ids, ranking_candidate))
+
+        ranking_decisions = rank_candidates([item[3] for item in evaluated_candidates], case.preferences)
+
+        for candidate, result, affected_commitment_ids, _ in evaluated_candidates:
+            decision = ranking_decisions[candidate.plan_id]
             evaluation = PlanEvaluation(
                 evaluation_id=f"eval_{candidate.plan_id}_v1",
                 tenant_id=tenant_id,
@@ -331,6 +338,8 @@ class RecoveryPlanner:
                 readiness=_readiness(result.status),
                 solver_status=result.solver_status,
                 constraints=_unique(candidate.constraints + result.constraints),
+                hard_constraint_reasons=list(result.hard_constraint_reasons),
+                affected_commitment_ids=list(affected_commitment_ids),
                 evidence_refs=_unique(candidate.evidence_refs + result.evidence_refs),
                 assumptions=_unique(candidate.assumptions + result.assumptions),
                 evaluated_at=generated_at,
@@ -365,32 +374,63 @@ class RecoveryPlanner:
                     strategy=candidate.strategy,
                     risk_level=candidate.risk_level,
                     customer_impact=candidate.customer_impact,
+                    affected_commitment_count=len(set(affected_commitment_ids)),
+                    operational_disruption_level=candidate.operational_disruption_level,
+                    supplier_uncertainty_level=candidate.supplier_uncertainty_level,
+                    customer_confirmation_required=candidate.customer_confirmation_required,
                     constraints=evaluation.constraints,
                     evidence_refs=evaluation.evidence_refs,
                     assumptions=evaluation.assumptions,
-                    ranking_score=score,
+                    ranking_score=decision.score_breakdown.total_score if decision.score_breakdown else None,
+                    score_breakdown=decision.score_breakdown,
+                    rank=decision.rank,
+                    ranking_exclusion_reasons=list(decision.exclusion_reasons),
+                    recommended=decision.recommended,
+                    recommendation_label=decision.recommendation_label,
+                    recommendation_qualification=decision.recommendation_qualification,
+                    recommendation_reason=decision.recommendation_reason,
                     evaluation=evaluation,
                 )
             )
 
-        eligible = [
-            plan
-            for plan in plans
-            if plan.feasibility_status not in {FeasibilityState.INFEASIBLE, FeasibilityState.UNKNOWN}
-            and (
-                case.preferences.max_extra_cost is None
-                or plan.estimated_extra_cost <= case.preferences.max_extra_cost
+        previous_plans = {plan.plan_id: plan for plan in case.plans}
+        for plan in plans:
+            previous = previous_plans.get(plan.plan_id)
+            if previous is None:
+                continue
+            before = (
+                previous.based_on_assessment_id, previous.evaluation.commitment_version,
+                previous.snapshot_version, previous.feasibility_status, previous.estimated_extra_cost,
+                [action.model_dump(mode="json") for action in previous.actions], previous.evidence_refs,
+                previous.assumptions, previous.constraints,
             )
-        ]
-        if eligible:
-            recommended = min(eligible, key=lambda plan: plan.ranking_score)
-            recommendation_reason = (
-                "Lowest weighted score under the supplied cost, delay, risk, and customer-impact preferences; "
-                "conditional options remain review-only until their constraints are cleared."
+            after = (
+                plan.based_on_assessment_id, plan.evaluation.commitment_version, plan.snapshot_version,
+                plan.feasibility_status, plan.estimated_extra_cost,
+                [action.model_dump(mode="json") for action in plan.actions], plan.evidence_refs,
+                plan.assumptions, plan.constraints,
             )
-            for plan in plans:
-                plan.recommended = plan.plan_id == recommended.plan_id
-                plan.recommendation_reason = recommendation_reason if plan.recommended else None
+            if before == after:
+                continue
+            plan.plan_version = previous.plan_version + 1
+            plan.evaluation.plan_version = plan.plan_version
+            plan.evaluation.evaluation_id = f"eval_{plan.plan_id}_v{plan.plan_version}"
+            active = [item for item in case.approval_decisions
+                      if item.plan_id == previous.plan_id and item.plan_version == previous.plan_version
+                      and item.decision in {ApprovalDecisionState.REQUESTED, ApprovalDecisionState.APPROVED}]
+            system_actor = ActorContext(case.tenant_id, "system:p3", "SYSTEM", f"corr_{case.case_id}", None, True)
+            for prior in active:
+                invalidation = self._new_approval_record(
+                    actor=system_actor, case=case, plan=previous,
+                    decision=ApprovalDecisionState.INVALIDATED,
+                    reason=f"Plan materially changed; approval for version {previous.plan_version} is no longer applicable",
+                    evidence_refs=prior.evidence_refs,
+                    approved_cost_limit=prior.approved_cost_limit,
+                    expires_at=prior.expires_at,
+                    action_scope=prior.action_scope,
+                    idempotency_key=prior.idempotency_key,
+                )
+                case.approval_decisions.append(invalidation)
 
         case.plans = plans
         case.options = [
@@ -409,14 +449,27 @@ class RecoveryPlanner:
                 constraints=plan.constraints,
                 evidence_refs=plan.evidence_refs,
                 assumptions=plan.assumptions,
+                affected_commitment_count=plan.affected_commitment_count,
+                operational_disruption_level=plan.operational_disruption_level,
+                supplier_uncertainty_level=plan.supplier_uncertainty_level,
+                customer_confirmation_required=plan.customer_confirmation_required,
                 ranking_score=plan.ranking_score,
+                score_breakdown=plan.score_breakdown,
+                rank=plan.rank,
+                ranking_exclusion_reasons=plan.ranking_exclusion_reasons,
                 recommended=plan.recommended,
+                recommendation_label=plan.recommendation_label,
+                recommendation_qualification=plan.recommendation_qualification,
                 recommendation_reason=plan.recommendation_reason,
             )
             for plan in plans
         ]
         case.case_version += 1
-        case.status = RecoveryCaseStatus.OPTIONS_READY if eligible else RecoveryCaseStatus.NO_SAFE_PLAN
+        case.status = (
+            RecoveryCaseStatus.OPTIONS_READY
+            if any(plan.rank is not None for plan in plans)
+            else RecoveryCaseStatus.NO_SAFE_PLAN
+        )
         case.commitment_version = commitment.commitment_version
         case.updated_at = generated_at
         return self.repository.save_case(case)
@@ -440,6 +493,282 @@ class RecoveryPlanner:
                 details={"plan_id": plan_id},
             )
         return plan
+
+    @staticmethod
+    def _require_approval_actor(actor: ActorContext) -> None:
+        require_verified_actor(actor)
+        if not actor.tenant_id or not actor.actor_id:
+            raise DomainError("AUTH_CONTEXT_REQUIRED", "Tenant and actor are required", status_code=401)
+
+    def _approval_target(self, actor: ActorContext, plan_id: str) -> tuple[RecoveryCase, RecoveryPlanVersion]:
+        indexed_plan = self.get_plan(actor.tenant_id, plan_id)
+        case = self.get_case(actor.tenant_id, indexed_plan.commitment_id)
+        plan = next((item for item in case.plans if item.plan_id == plan_id), None)
+        if plan is None:
+            raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Recovery plan was not found", status_code=404,
+                              details={"plan_id": plan_id})
+        if plan.tenant_id != actor.tenant_id or case.case_id != plan.recovery_case_id:
+            raise DomainError("TENANT_SCOPE_VIOLATION", "Recovery plan is outside the actor tenant", status_code=404)
+        return case, plan
+
+    @staticmethod
+    def _assert_approval_versions(
+        case: RecoveryCase,
+        plan: RecoveryPlanVersion,
+        *,
+        expected_commitment_version: int,
+        expected_plan_version: int,
+        expected_snapshot_version: int,
+        current_commitment_version: int,
+    ) -> None:
+        if expected_commitment_version != current_commitment_version:
+            raise DomainError("COMMITMENT_VERSION_CONFLICT", "Commitment version is stale", status_code=409,
+                              details={"current_commitment_version": current_commitment_version})
+        if expected_commitment_version != case.commitment_version or expected_commitment_version != plan.evaluation.commitment_version:
+            raise DomainError("COMMITMENT_VERSION_CONFLICT", "Recovery plan was evaluated against a different commitment version",
+                              status_code=409, details={"case_commitment_version": case.commitment_version,
+                                                       "plan_commitment_version": plan.evaluation.commitment_version})
+        if expected_plan_version != plan.plan_version:
+            raise DomainError("RECOVERY_PLAN_VERSION_CONFLICT", "Recovery plan version is stale", status_code=409,
+                              details={"current_plan_version": plan.plan_version})
+        if expected_snapshot_version != plan.snapshot_version or expected_snapshot_version != case.operational_snapshot.snapshot_version:
+            raise DomainError("SNAPSHOT_VERSION_CONFLICT", "Operational snapshot version is stale", status_code=409,
+                              details={"current_snapshot_version": case.operational_snapshot.snapshot_version})
+
+    @staticmethod
+    def _action_scope(plan: RecoveryPlanVersion) -> list[str]:
+        return sorted({action.type for action in plan.actions})
+
+    @staticmethod
+    def _new_approval_record(
+        *, actor: ActorContext, case: RecoveryCase, plan: RecoveryPlanVersion,
+        decision: ApprovalDecisionState, reason: str, evidence_refs: list[str],
+        approved_cost_limit: Decimal | None = None, expires_at: datetime | None = None,
+        action_scope: list[str] | None = None, idempotency_key: str | None = None,
+    ) -> ApprovalDecision:
+        now = _now()
+        approval_id = f"appr_{uuid4().hex[:16]}"
+        return ApprovalDecision(
+            approval_id=approval_id,
+            tenant_id=actor.tenant_id,
+            recovery_case_id=case.case_id,
+            commitment_id=plan.commitment_id,
+            commitment_version=plan.evaluation.commitment_version,
+            plan_id=plan.plan_id,
+            plan_version=plan.plan_version,
+            snapshot_version=plan.snapshot_version,
+            action_scope=action_scope or RecoveryPlanner._action_scope(plan),
+            actor_id=actor.actor_id,
+            actor_role=actor.actor_role,
+            decision=decision,
+            approved_cost_limit=approved_cost_limit,
+            reason=reason,
+            decided_at=now,
+            approved_at=now if decision == ApprovalDecisionState.APPROVED else None,
+            expires_at=expires_at,
+            evidence_refs=list(dict.fromkeys(evidence_refs)),
+            audit_refs=[f"p3_approval_audit:{approval_id}"],
+            idempotency_key=idempotency_key,
+            correlation_id=actor.correlation_id,
+            causation_id=actor.causation_id,
+        )
+
+    def request_approval(
+        self, actor: ActorContext, plan_id: str, request: ApprovalRequestInput,
+        *, current_commitment_version: int | None = None,
+    ) -> ApprovalDecision:
+        self._require_approval_actor(actor)
+        with self.repository._lock:
+            case, plan = self._approval_target(actor, plan_id)
+            for existing in case.approval_decisions:
+                if existing.tenant_id == actor.tenant_id and existing.idempotency_key == request.idempotency_key:
+                    same_request = (
+                        existing.actor_id == actor.actor_id
+                        and existing.commitment_id == plan.commitment_id
+                        and existing.commitment_version == request.expected_commitment_version
+                        and existing.plan_id == plan.plan_id
+                        and existing.plan_version == request.expected_plan_version
+                        and existing.snapshot_version == request.expected_snapshot_version
+                        and existing.action_scope == sorted(set(request.action_scope))
+                        and existing.approved_cost_limit == request.maximum_approved_amount
+                        and existing.expires_at == request.expires_at
+                        and existing.reason == request.reason
+                        and existing.evidence_refs == request.evidence_refs
+                    )
+                    if same_request:
+                        return existing
+                    raise DomainError("IDEMPOTENCY_KEY_REUSED", "Idempotency key was used for a different approval request",
+                                      status_code=409)
+            current_version = current_commitment_version if current_commitment_version is not None else case.commitment_version
+            self._assert_approval_versions(
+                case, plan, expected_commitment_version=request.expected_commitment_version,
+                expected_plan_version=request.expected_plan_version,
+                expected_snapshot_version=request.expected_snapshot_version,
+                current_commitment_version=current_version,
+            )
+            now = _now()
+            if request.expires_at <= now:
+                raise DomainError("APPROVAL_EXPIRY_INVALID", "Approval expiry must be in the future", status_code=422)
+            if plan.execution_state != "NOT_STARTED" or plan.approval_state != ApprovalState.PENDING:
+                raise DomainError("APPROVAL_STATE_CONFLICT", "Plan is not awaiting approval", status_code=409)
+            expected_scope = self._action_scope(plan)
+            if plan.currency != "MYR":
+                raise DomainError("APPROVAL_CURRENCY_UNSUPPORTED", "P3 approval limits are denominated in MYR",
+                                  status_code=422)
+            if sorted(set(request.action_scope)) != expected_scope:
+                raise DomainError("APPROVAL_SCOPE_MISMATCH", "Approval scope must exactly cover this plan's action types",
+                                  status_code=422, details={"required_action_scope": expected_scope})
+            if request.maximum_approved_amount < plan.estimated_extra_cost:
+                raise DomainError("APPROVAL_COST_LIMIT_TOO_LOW", "Requested approval limit is below plan cost",
+                                  status_code=422, details={"estimated_extra_cost": str(plan.estimated_extra_cost)})
+            record = self._new_approval_record(
+                actor=actor, case=case, plan=plan, decision=ApprovalDecisionState.REQUESTED,
+                reason=request.reason, evidence_refs=request.evidence_refs,
+                approved_cost_limit=request.maximum_approved_amount, expires_at=request.expires_at,
+                action_scope=expected_scope, idempotency_key=request.idempotency_key,
+            )
+            case.approval_decisions.append(record)
+            case.updated_at = now
+            self.repository.save_case(case)
+            return record
+
+    def _decide_approval(
+        self, actor: ActorContext, plan_id: str, request: ApprovalDecisionInput,
+        decision: ApprovalDecisionState, *, current_commitment_version: int | None = None,
+    ) -> ApprovalDecision:
+        self._require_approval_actor(actor)
+        CoreIntegrationFacade().authorize(
+            actor.actor_id, actor.actor_role, "APPROVE_PLAN", request.expected_plan_version
+        )
+        with self.repository._lock:
+            case, plan = self._approval_target(actor, plan_id)
+            current_version = current_commitment_version if current_commitment_version is not None else case.commitment_version
+            self._assert_approval_versions(
+                case, plan, expected_commitment_version=request.expected_commitment_version,
+                expected_plan_version=request.expected_plan_version,
+                expected_snapshot_version=request.expected_snapshot_version,
+                current_commitment_version=current_version,
+            )
+            if plan.approval_state != ApprovalState.PENDING:
+                raise DomainError("APPROVAL_STATE_CONFLICT", "Plan already has a terminal approval decision",
+                                  status_code=409)
+            requests = [d for d in case.approval_decisions if d.plan_id == plan_id
+                        and d.plan_version == plan.plan_version and d.decision == ApprovalDecisionState.REQUESTED]
+            if not requests:
+                raise DomainError("APPROVAL_REQUEST_NOT_FOUND", "No active approval request exists for this plan version",
+                                  status_code=409)
+            approval_request = requests[-1]
+            now = _now()
+            if approval_request.expires_at is None or approval_request.expires_at <= now:
+                if not any(d.decision == ApprovalDecisionState.EXPIRED
+                           and d.idempotency_key == approval_request.idempotency_key
+                           for d in case.approval_decisions):
+                    expiry_record = self._new_approval_record(
+                        actor=ActorContext(actor.tenant_id, "system:p3", "SYSTEM", actor.correlation_id,
+                                           actor.causation_id, True),
+                        case=case, plan=plan, decision=ApprovalDecisionState.EXPIRED,
+                        reason="Approval request expired before a decision was recorded",
+                        evidence_refs=approval_request.evidence_refs,
+                        approved_cost_limit=approval_request.approved_cost_limit,
+                        expires_at=approval_request.expires_at,
+                        action_scope=approval_request.action_scope,
+                        idempotency_key=approval_request.idempotency_key,
+                    )
+                    case.approval_decisions.append(expiry_record)
+                    case.updated_at = now
+                    self.repository.save_case(case)
+                raise DomainError("APPROVAL_EXPIRED", "Approval request has expired", status_code=409)
+            if decision == ApprovalDecisionState.APPROVED:
+                if plan.evaluation.validation_source != ValidationSource.REAL_P2_VALIDATED:
+                    raise DomainError("AUTHORITATIVE_VALIDATION_REQUIRED",
+                                      "Synthetic feasibility results cannot authorize a consequential plan", status_code=409)
+                if approval_request.approved_cost_limit is None or approval_request.approved_cost_limit < plan.estimated_extra_cost:
+                    raise DomainError("APPROVAL_COST_LIMIT_EXCEEDED", "Plan cost exceeds the requested approval limit",
+                                      status_code=409)
+                if approval_request.action_scope != self._action_scope(plan):
+                    raise DomainError("APPROVAL_SCOPE_MISMATCH", "Approval request no longer covers the current action scope",
+                                      status_code=409)
+            record = self._new_approval_record(
+                actor=actor, case=case, plan=plan, decision=decision,
+                reason=request.reason, evidence_refs=request.evidence_refs,
+                approved_cost_limit=approval_request.approved_cost_limit,
+                expires_at=approval_request.expires_at,
+                action_scope=approval_request.action_scope,
+                idempotency_key=approval_request.idempotency_key,
+            )
+            case.approval_decisions.append(record)
+            if decision == ApprovalDecisionState.APPROVED:
+                plan.approval_state = ApprovalState.APPROVED
+                # Approval is not execution; preserve NOT_STARTED.
+            elif decision == ApprovalDecisionState.REJECTED:
+                plan.approval_state = ApprovalState.REJECTED
+            else:
+                plan.approval_state = ApprovalState.INVALIDATED
+                case.status = RecoveryCaseStatus.NEEDS_REPLAN
+            case.updated_at = now
+            self.repository.save_case(case)
+            return record
+
+    def approve_plan(self, actor: ActorContext, plan_id: str, request: ApprovalDecisionInput,
+                     *, current_commitment_version: int | None = None) -> ApprovalDecision:
+        return self._decide_approval(actor, plan_id, request, ApprovalDecisionState.APPROVED,
+                                     current_commitment_version=current_commitment_version)
+
+    def reject_plan(self, actor: ActorContext, plan_id: str, request: ApprovalDecisionInput,
+                    *, current_commitment_version: int | None = None) -> ApprovalDecision:
+        return self._decide_approval(actor, plan_id, request, ApprovalDecisionState.REJECTED,
+                                     current_commitment_version=current_commitment_version)
+
+    def request_plan_revision(self, actor: ActorContext, plan_id: str, request: ApprovalDecisionInput,
+                              *, current_commitment_version: int | None = None) -> ApprovalDecision:
+        return self._decide_approval(actor, plan_id, request, ApprovalDecisionState.REVISION_REQUESTED,
+                                     current_commitment_version=current_commitment_version)
+
+    def get_active_approval(
+        self, actor: ActorContext, plan_id: str, request: ApprovalDecisionInput,
+        *, current_commitment_version: int | None = None,
+    ) -> ApprovalDecision:
+        """Validate approval freshness/scope for a future executor; performs no action."""
+        self._require_approval_actor(actor)
+        with self.repository._lock:
+            case, plan = self._approval_target(actor, plan_id)
+            current_version = current_commitment_version if current_commitment_version is not None else case.commitment_version
+            self._assert_approval_versions(
+                case, plan, expected_commitment_version=request.expected_commitment_version,
+                expected_plan_version=request.expected_plan_version,
+                expected_snapshot_version=request.expected_snapshot_version,
+                current_commitment_version=current_version,
+            )
+            decisions = [d for d in case.approval_decisions if d.plan_id == plan_id
+                         and d.plan_version == plan.plan_version]
+            approval = next((d for d in reversed(decisions) if d.decision == ApprovalDecisionState.APPROVED), None)
+            if approval is None or plan.approval_state != ApprovalState.APPROVED:
+                raise DomainError("APPROVAL_NOT_ACTIVE", "No active approval exists for this plan version", status_code=409)
+            now = _now()
+            if approval.expires_at is None or approval.expires_at <= now:
+                expired = self._new_approval_record(
+                    actor=ActorContext(actor.tenant_id, "system:p3", "SYSTEM", actor.correlation_id,
+                                       actor.causation_id, True),
+                    case=case, plan=plan, decision=ApprovalDecisionState.EXPIRED,
+                    reason="Approval expired before use", evidence_refs=approval.evidence_refs,
+                    approved_cost_limit=approval.approved_cost_limit, expires_at=approval.expires_at,
+                    action_scope=approval.action_scope, idempotency_key=approval.idempotency_key,
+                )
+                case.approval_decisions.append(expired)
+                plan.approval_state = ApprovalState.EXPIRED
+                case.updated_at = now
+                self.repository.save_case(case)
+                raise DomainError("APPROVAL_EXPIRED", "Approval has expired", status_code=409)
+            if plan.evaluation.validation_source != ValidationSource.REAL_P2_VALIDATED:
+                raise DomainError("AUTHORITATIVE_VALIDATION_REQUIRED",
+                                  "Synthetic feasibility results cannot authorize a consequential plan", status_code=409)
+            if approval.action_scope != self._action_scope(plan):
+                raise DomainError("APPROVAL_SCOPE_MISMATCH", "Approved action scope does not match the current plan",
+                                  status_code=409)
+            if approval.approved_cost_limit is None or approval.approved_cost_limit < plan.estimated_extra_cost:
+                raise DomainError("APPROVAL_COST_LIMIT_EXCEEDED", "Current plan cost exceeds the approved amount",
+                                  status_code=409)
+            return approval
 
 
 default_recovery_planner = RecoveryPlanner()

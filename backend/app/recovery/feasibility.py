@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.core.schemas import Commitment, FeasibilityAssessment, FeasibilityState
@@ -16,6 +16,8 @@ class FeasibilityResult:
     evidence_refs: list[str]
     assumptions: list[str]
     validation_source: ValidationSource
+    affected_commitment_ids: list[str] = field(default_factory=list)
+    hard_constraint_reasons: list[str] = field(default_factory=list)
 
 
 class FeasibilityEvaluator(Protocol):
@@ -43,6 +45,8 @@ def _normalise_result(result: Any, source: ValidationSource) -> FeasibilityResul
             evidence_refs=list(result.evidence_refs),
             assumptions=list(result.assumptions),
             validation_source=source,
+            affected_commitment_ids=list(result.affected_commitment_ids),
+            hard_constraint_reasons=list(result.hard_constraint_reasons),
         )
 
     if isinstance(result, FeasibilityAssessment):
@@ -53,15 +57,43 @@ def _normalise_result(result: Any, source: ValidationSource) -> FeasibilityResul
             evidence_refs=list(result.evidence_refs),
             assumptions=list(result.assumptions),
             validation_source=source,
+            affected_commitment_ids=list(result.affected_commitment_ids),
+            hard_constraint_reasons=[
+                f"{constraint.code}:{constraint.resource_id}"
+                for constraint in result.constraints
+                if constraint.severity == "HARD"
+            ],
         )
+
+    raw_constraints = list(getattr(result, "constraints", []))
+    summaries: list[str] = []
+    hard_reasons = list(getattr(result, "hard_constraint_reasons", []))
+    for constraint in raw_constraints:
+        if isinstance(constraint, str):
+            summaries.append(constraint)
+            continue
+        if isinstance(constraint, dict):
+            code = constraint.get("code") or constraint.get("reason") or "CONSTRAINT"
+            resource = constraint.get("resource_id")
+            severity = constraint.get("severity")
+        else:
+            code = getattr(constraint, "code", None) or getattr(constraint, "reason", None) or str(constraint)
+            resource = getattr(constraint, "resource_id", None)
+            severity = getattr(constraint, "severity", None)
+        summary = f"{code}:{resource}" if resource else str(code)
+        summaries.append(summary)
+        if str(severity).upper() == "HARD":
+            hard_reasons.append(summary)
 
     return FeasibilityResult(
         status=FeasibilityState(str(getattr(result, "status", FeasibilityState.UNKNOWN))),
         solver_status=str(getattr(result, "solver_status", "UNKNOWN")),
-        constraints=list(getattr(result, "constraints", [])),
+        constraints=summaries,
         evidence_refs=list(getattr(result, "evidence_refs", [])),
         assumptions=list(getattr(result, "assumptions", [])),
         validation_source=source,
+        affected_commitment_ids=list(getattr(result, "affected_commitment_ids", [])),
+        hard_constraint_reasons=list(dict.fromkeys(hard_reasons)),
     )
 
 

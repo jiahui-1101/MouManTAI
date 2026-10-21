@@ -3,10 +3,22 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
-from app.core.dependencies import RequestContext, get_request_context
+from app.core.dependencies import RequestContext, get_db, get_request_context
+from app.core.dependencies import RequestContext as CoreRequestContext
 
+from .integrations import (
+    ActorContext,
+    P5CommitmentReader,
+    UnverifiedP5ContextAdapter,
+    VerifiedActorContextProvider,
+    require_verified_actor,
+)
 from .models import (
+    ApprovalDecision,
+    ApprovalDecisionInput,
+    ApprovalRequestInput,
     GenerateRecoveryRequest,
     PlanEvaluation,
     RecoveryCase,
@@ -15,9 +27,33 @@ from .models import (
 )
 from .service import default_recovery_planner
 
-
 router = APIRouter(prefix="/v1/recovery", tags=["recovery"])
 Context = Annotated[RequestContext, Depends(get_request_context)]
+Db = Annotated[Session, Depends(get_db)]
+
+# Fail closed until P5 supplies a server-authenticated actor-context provider.
+approval_actor_provider: VerifiedActorContextProvider = UnverifiedP5ContextAdapter()
+
+
+def get_approval_actor(context: Context) -> ActorContext:
+    actor = approval_actor_provider.get_verified_context(context)
+    require_verified_actor(actor)
+    return actor
+
+
+ApprovalActor = Annotated[ActorContext, Depends(get_approval_actor)]
+
+
+def _current_commitment_version(db: Session, actor: ActorContext, commitment_id: str) -> int:
+    context = CoreRequestContext(
+        tenant_id=actor.tenant_id,
+        actor_id=actor.actor_id,
+        actor_role=actor.actor_role,
+        correlation_id=actor.correlation_id,
+        causation_id=actor.causation_id,
+    )
+    commitment = P5CommitmentReader().get_commitment(db, context, commitment_id)
+    return commitment.commitment_version
 
 
 def _canonical_commitment_id(commitment_id: str) -> str:
@@ -57,3 +93,43 @@ def get_plan_evaluation(plan_id: str, context: Context) -> PlanEvaluation:
 @router.get("/plans/{plan_id}", response_model=RecoveryPlanVersion)
 def get_recovery_plan(plan_id: str, context: Context) -> RecoveryPlanVersion:
     return default_recovery_planner.get_plan(context.tenant_id, plan_id)
+
+
+@router.post("/plans/{plan_id}/approval-requests", response_model=ApprovalDecision)
+def request_plan_approval(plan_id: str, request: ApprovalRequestInput, actor: ApprovalActor,
+                          db: Db) -> ApprovalDecision:
+    plan = default_recovery_planner.get_plan(actor.tenant_id, plan_id)
+    current_version = _current_commitment_version(db, actor, plan.commitment_id)
+    return default_recovery_planner.request_approval(
+        actor, plan_id, request, current_commitment_version=current_version
+    )
+
+
+@router.post("/plans/{plan_id}/approve", response_model=ApprovalDecision)
+def approve_recovery_plan(plan_id: str, request: ApprovalDecisionInput, actor: ApprovalActor,
+                          db: Db) -> ApprovalDecision:
+    plan = default_recovery_planner.get_plan(actor.tenant_id, plan_id)
+    current_version = _current_commitment_version(db, actor, plan.commitment_id)
+    return default_recovery_planner.approve_plan(
+        actor, plan_id, request, current_commitment_version=current_version
+    )
+
+
+@router.post("/plans/{plan_id}/reject", response_model=ApprovalDecision)
+def reject_recovery_plan(plan_id: str, request: ApprovalDecisionInput, actor: ApprovalActor,
+                         db: Db) -> ApprovalDecision:
+    plan = default_recovery_planner.get_plan(actor.tenant_id, plan_id)
+    current_version = _current_commitment_version(db, actor, plan.commitment_id)
+    return default_recovery_planner.reject_plan(
+        actor, plan_id, request, current_commitment_version=current_version
+    )
+
+
+@router.post("/plans/{plan_id}/request-revision", response_model=ApprovalDecision)
+def request_recovery_plan_revision(plan_id: str, request: ApprovalDecisionInput, actor: ApprovalActor,
+                                   db: Db) -> ApprovalDecision:
+    plan = default_recovery_planner.get_plan(actor.tenant_id, plan_id)
+    current_version = _current_commitment_version(db, actor, plan.commitment_id)
+    return default_recovery_planner.request_plan_revision(
+        actor, plan_id, request, current_commitment_version=current_version
+    )

@@ -6,7 +6,12 @@ from fastapi.testclient import TestClient
 
 from app.core.schemas import FeasibilityState
 from app.recovery.feasibility import FeasibilityResult, P2FeasibilityAdapter, SyntheticP2Evaluator
-from app.recovery.models import BusinessPreferences, RecoveryCaseStatus, RecoveryStrategy, ValidationSource
+from app.recovery.models import (
+    BusinessPreferences,
+    RecoveryCaseStatus,
+    RecoveryStrategy,
+    ValidationSource,
+)
 from app.recovery.service import RecoveryPlanner, RecoveryRepository
 
 
