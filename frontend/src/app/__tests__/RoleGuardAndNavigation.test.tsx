@@ -7,6 +7,7 @@ import { AppShell } from "../../layout/AppShell";
 import { FeaturePlaceholder } from "../../pages/FeaturePlaceholder";
 import { OverviewPage } from "../../features/overview/OverviewPage";
 import { ActivityPage } from "../../features/activity/ActivityPage";
+import { CommitmentFeasibilityRoute, ImpactDetailRoute } from "../../App";
 import { AuthProvider } from "../../shared/auth";
 import { ApprovalActionControl } from "../../shared/ApprovalActionControl";
 import { StatusBadge } from "../../shared/StatusBadge";
@@ -82,14 +83,8 @@ function renderAppWithRoute(initialRoute: string, initialActorId: string = "user
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/inbox" element={<FeaturePlaceholder owner="P1 · Context" title="Smart inbox" />} />
               <Route path="/orders/:id" element={<FeaturePlaceholder owner="P1 · Context" title="Order context" />} />
-              <Route
-                path="/commitments/:id"
-                element={<FeaturePlaceholder owner="P2 · Feasibility" title="Commitment feasibility" />}
-              />
-              <Route
-                path="/impact/:id"
-                element={<FeaturePlaceholder owner="P2 · Feasibility" title="Operational impact" />}
-              />
+              <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
+              <Route path="/impact/:id" element={<ImpactDetailRoute />} />
               <Route path="/recovery/:id" element={<FeaturePlaceholder owner="P3 · Recovery" title="Recovery case" />} />
               <Route
                 path="/communications"
@@ -126,6 +121,75 @@ describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a
               status: 200,
               headers: { "Content-Type": "application/json" },
             }),
+          );
+        }
+
+        if (url.includes("/assessments")) {
+          return Promise.resolve(
+            new Response(JSON.stringify([]), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+
+        if (url.includes("/v1/impacts/")) {
+          const impactId = url.split("/").pop() || "fa_001";
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                impact_id: impactId,
+                tenant_id: "tenant_demo_01",
+                event_id: "evt_01",
+                event_type: "supplier.delivery_changed",
+                before_snapshot_id: "snap_01",
+                before_snapshot_version: 1,
+                after_snapshot_id: "snap_02",
+                after_snapshot_version: 2,
+                discovery_complete: true,
+                candidate_commitment_ids: ["com_001"],
+                impacts: [
+                  {
+                    tenant_id: "tenant_demo_01",
+                    commitment_id: "com_001",
+                    before_commitment_version: 1,
+                    after_commitment_version: 1,
+                    before_snapshot_id: "snap_01",
+                    before_snapshot_version: 1,
+                    after_snapshot_id: "snap_02",
+                    after_snapshot_version: 2,
+                    classification: "CONFIRMED_IMPACT",
+                    reasons: ["Shortage detected."],
+                    material_deltas: [],
+                    hard_constraint_deltas: [],
+                    buffers: [],
+                    dependency_paths: [],
+                    evidence_refs: [],
+                  },
+                ],
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+
+        if (url.match(/\/v1\/commitments\/[^/]+$/)) {
+          const comId = url.split("/").pop() || "com_001";
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ...mockOverview.commitments[0],
+                commitment_id: comId,
+                tenant_id: "tenant_demo_01",
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
           );
         }
 
@@ -374,4 +438,12 @@ describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a
       expect(screen.getByRole("heading", { name: "MouManTAI" })).toBeInTheDocument();
     });
   }
+
+  it("P2 routes (/commitments/:id and /impact/:id) use shared auth headers and typed API client", async () => {
+    renderAppWithRoute("/commitments/com_001", "user_manager_01");
+    expect(await screen.findByRole("heading", { name: /commitment feasibility/i })).toBeInTheDocument();
+    const p2Header = capturedHeaders.find((h) => h["X-Tenant-ID"] === "tenant_demo_01");
+    expect(p2Header).toBeDefined();
+    expect(p2Header?.["X-Actor-ID"]).toBe("user_manager_01");
+  });
 });

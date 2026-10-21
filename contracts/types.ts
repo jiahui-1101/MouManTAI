@@ -149,7 +149,7 @@ export interface FeasibilityAssessment {
   snapshot_version: number;
   status: FeasibilityState;
   constraints: ConstraintReason[];
-  /** List of commitment IDs demonstrably impacted by operational changes. Empty list if none or unconfirmed. */
+  /** Downstream commitments impacted by this evaluation (the impact set only, not the evaluated commitment itself). Empty list [] represents an isolated evaluation or no downstream disruption. */
   affected_commitment_ids: string[];
   evidence_refs: string[];
   solver_status: SolverStatus;

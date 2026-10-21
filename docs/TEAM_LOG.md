@@ -80,6 +80,10 @@
 | ADR-008 | No continuous LLM self-learning before 25 Oct | Reduce risk and preserve core demo | Proposed baseline | 2026-10-20 |
 | ADR-009 | 24 Oct feature freeze; 25 Oct submission only | Deadline protection | Proposed baseline | 2026-10-20 |
 | ADR-010 | Product name finalized as **MouManTAI** | Align repository and implementation naming | Accepted by current task request | 2026-10-21 |
+| ADR-011 | Denormalized Schema Accepted for SME footprint (AGENTS §5/§13) | Zero generic ERP bloat; no separate relational tables for tenants, users, orders, or customers. Aggregate columns (`tenant_id`, `order_id`, `customer_id`) and in-memory `ACTOR_ROLES` mapping provide strict isolation and security. | Accepted | 2026-10-22 |
+| ADR-012 | Server-Side Actor Role Resolution & Policy Enforcement (D-005) | Client-provided role headers or payloads cannot authorize consequential actions; server resolves actor_role via `backend/app/core/policy.py`. Consequential transitions reject unprivileged actors with HTTP 403 `APPROVAL_REQUIRED`. | Accepted | 2026-10-22 |
+| ADR-013 | Caller-Owned Unit-of-Work (D-032), D-017 Named Subscriber Policy, and Advisory Isolation (D-033) | `CommitmentService.assess()` supports `commit=False`/`flush()`; OutboxDispatcher verifies required subscriber `p2_confirmed_evaluator` on `commitment.confirmed` and `p3.recovery_trigger.v1` on `commitment.at_risk`; advisory feasibility is stored append-only in audit without mutating aggregate or terms. | Accepted | 2026-10-22 |
+| ADR-014 | Contract Relaxation: `FeasibilityAssessment.affected_commitment_ids` | `affected_commitment_ids` defaults to empty list `[]` (downstream impact set only). FEASIBLE and UNKNOWN pass cleanly with `[]`; INFEASIBLE with `[]` signals local constraint breach without downstream cascade. | Accepted | 2026-10-22 |
 
 Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/files, agreed-by, time; never silently reverse a lock.
 
@@ -1051,3 +1055,41 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Known limitations: no draft-list/latest endpoint exists. Only IDs opened/prepared in the current mounted session are remembered; a known ID can be loaded via the existing retrieval API, but history cannot be discovered after reload/navigation. Backend list is a plain array without pagination; filtering covers the returned loaded set. Request readiness/terms/evidence are creation-time snapshots. This is a frontend implementation with API wiring, not full integrated deployment. Responsive CSS follows existing design; real-browser visual/narrow-screen and full App route E2E verification pending P5 mount.
 - Next milestone: Commit 05 — Message Preview & Approval Workflow (not started). No fake approve/send button, confirmation workspace, delivery tracking or fulfilment UI included.
 - Git status: not committed by this task. Suggested commit: feat(p4): build communication center frontend.
+
+### 2026-10-22 — Task T5.4: P2/P3 Handoff Integration, Caller-Owned Transactions, Shell Hardening & Core Architecture Delivery (P5)
+- **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Outbox/Audit, Shell & Contracts).
+- **Scope & Objectives**:
+  - Implement agreed decisions D-002, D-005, D-017, D-030, D-032, D-033, and CONTRACT-20261021-005 from P2/P3 handoffs (`reply_P2.md`, `reply_P3.md`).
+  - Strict preservation of lightweight SME footprint under AGENTS §5 & §13 (no generic ERP tables; Gap 1 closed as designed).
+- **Key Changes Implemented**:
+  1. **Caller-Owned Transactions (D-032, R26/R36/R55)**:
+     - `CommitmentService.assess()` and `create_request()` support `commit: bool = True` with `db.flush()` semantics.
+     - Outbox consumer dispatcher and `AuthoritativeAssessmentWriter` own transaction commits and rollbacks atomically with `ProcessedEventRecord`.
+     - Verified: downstream consumer failure rolls back aggregate, outbox, audit, and processed events atomically (`backend/tests/test_outbox_events.py`).
+  2. **D-017 Named Subscriber Policy Extended**:
+     - `OutboxDispatcher` enforces named subscribers without wildcards: `p2_confirmed_evaluator` on `commitment.confirmed` and `p3.recovery_trigger.v1` on `commitment.at_risk`.
+     - Unregistered or failing subscribers keep events in `PENDING`/`FAILED`; never prematurely published. Stale events reconciled via audit.
+  3. **Advisory Feasibility Isolation (D-033)**:
+     - Advisory feasibility assessments write exclusively to `AuditEventRecord` (`advisory=True`, `event_type="commitment.advisory_feasibility_assessed"`).
+     - Advisory assessments never mutate aggregate state, never touch `revised_terms`, and never satisfy authoritative idempotency checks.
+  4. **Contract Relaxation for `FeasibilityAssessment.affected_commitment_ids`**:
+     - Field defaults to empty list `[]` representing downstream impact set. `contracts/types.ts` and JSON fixtures updated.
+  5. **Snapshot Drift Detection & Intent Suppression**:
+     - `AuthoritativeAssessmentWriter` detects resource/supplier snapshot drift against active reservations and returns HTTP 409 `SNAPSHOT_DRIFT_CONFLICT`.
+     - Suppresses local P2 `commitment.at_risk` events; exactly one authoritative outbox event is emitted on verified aggregate transition.
+  6. **Migration `0006_recovery_cases` (Task T5.3)**:
+     - Added tables `recovery_cases` and `recovery_case_triggers` for P3 ORM persistence.
+     - Enforces `tenant_id` on every table, composite unique constraints, partial index `uq_recovery_cases_one_active_per_commitment`, and `ON DELETE RESTRICT`. Tested upgrade and downgrade cleanly on Docker PostgreSQL.
+  7. **Frontend Shell Building Blocks & Live P2 Route Mounting (FE-01a, FE-01b, FE-01c)**:
+     - Mounted live `CommitmentFeasibilityPage` (`/commitments/:id`) and `ImpactDetailPage` (`/impact/:id`) in `App.tsx` with authenticated transport.
+     - Added `Breadcrumbs` (`Overview > Commitments > com_001`) in `AppShell.tsx`.
+     - Added `ErrorBoundary` with sanitized errors and retry affordance in `frontend/src/shared/ErrorBoundary.tsx`.
+     - Added `ToastProvider` and `useToast()` in `frontend/src/shared/Toast.tsx` with invariant prohibiting success toasts on pending/awaiting states. Wired to proposal confirmation.
+  8. **Section 4 Alias Methods & Policy Extraction (R43, R55)**:
+     - Extracted server-side `authorize()` into `backend/app/core/policy.py`.
+     - Added Section 4 facade aliases on `CommitmentService` (`request`, `offer`, `confirm`, `verify_fulfilment`, `mark_risk`, `start_recovery`, `record_action_outcome`).
+- **Validation Test Evidence**:
+  - Backend pytest: `322 passed, 0 failed, 1 warning` (`pytest tests app/feasibility/tests`).
+  - Frontend Vitest: `126 passed, 5 skipped (live smoke), 0 failed` (`npm test -- --run`).
+  - Frontend typecheck: `tsc --noEmit` passed with 0 errors.
+  - Alembic migrations: `0001_foundation` through `0006_recovery_cases` upgrade & downgrade verified on PostgreSQL.

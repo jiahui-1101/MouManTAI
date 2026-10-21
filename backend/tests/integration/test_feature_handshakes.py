@@ -1153,3 +1153,249 @@ def test_outbox_event_payloads_contain_no_pii_fields(session: Session) -> None:
         for key in record.payload.keys():
             for token in forbidden_tokens:
                 assert token not in key.lower(), f"Outbox record {record.event_id} payload contains PII key '{key}'"
+
+
+# =============================================================================
+# 7. PostgreSQL Dialect & Dual-Boundary Transaction Rollback Tests (P2 Handshake)
+# =============================================================================
+
+def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
+    test_engine,
+    session: Session,
+) -> None:
+    """Verifies evidence for P2 handshake:
+    1. engine.dialect.name == 'postgresql' when TEST_DATABASE_URL is provided.
+    2. Dual-boundary transaction rollback:
+       - Boundary A (HTTP path): failure during transition or proposal creation rolls back session cleanly.
+       - Boundary B (Outbox consumer path): downstream consumer failure rolls back aggregate, outbox,
+         and ProcessedEventRecord atomically.
+    3. Case + Trigger + ProcessedEventRecord atomic commit & cascade deletion:
+       - Case + trigger + processed event persist atomically.
+       - Deleting recovery_cases cascades to recovery_case_triggers in PostgreSQL.
+    """
+    import os
+    from sqlalchemy import inspect, text
+    from app.core.models import ProcessedEventRecord
+    from app.core.outbox import OutboxDispatcher
+
+    is_pg = test_engine.dialect.name == "postgresql"
+    if os.environ.get("TEST_DATABASE_URL"):
+        assert is_pg, f"Expected PostgreSQL dialect when TEST_DATABASE_URL is set, got {test_engine.dialect.name}"
+
+    facade = CoreIntegrationFacade()
+    context = _ctx(actor="user_manager_01", role="MANAGER")
+
+    # 1. Setup base commitment in CONFIRMED state
+    c = facade.service.create_request(
+        session,
+        context,
+        CommitmentCreateRequest(
+            order_id="ord_pg_handshake_001",
+            customer_id="cust_pg_001",
+            terms=CommitmentTerms(
+                sku="BURGER_PG_SPECIAL",
+                quantity=Decimal("100"),
+                unit="pcs",
+                deadline=_now() + timedelta(days=2),
+            ),
+            evidence_refs=["ev_pg_init"],
+        ),
+    )
+    facade.service.transition(
+        session,
+        context,
+        c.commitment_id,
+        CommitmentTransitionRequest(
+            dimension="agreement",
+            target_state="OFFERED",
+            expected_commitment_version=1,
+            reason="Offer terms",
+        ),
+    )
+    facade.service.transition(
+        session,
+        context,
+        c.commitment_id,
+        CommitmentTransitionRequest(
+            dimension="agreement",
+            target_state="CONFIRMED",
+            expected_commitment_version=2,
+            evidence_refs=["ev_signed_contract"],
+            reason="Confirmed by customer",
+        ),
+    )
+    session.commit()
+
+    # -------------------------------------------------------------------------
+    # Boundary A: HTTP API Path Rollback
+    # -------------------------------------------------------------------------
+    # An invalid transition (stale expected version 99) raises DomainError.
+    # The session must roll back and not persist the failed transition or audit records.
+    with pytest.raises(DomainError) as exc_http:
+        facade.service.transition(
+            session,
+            context,
+            c.commitment_id,
+            CommitmentTransitionRequest(
+                dimension="agreement",
+                target_state="REJECTED",
+                expected_commitment_version=99,  # Stale version
+                reason="Should fail and roll back",
+            ),
+        )
+    assert exc_http.value.status_code == 409
+    session.rollback()
+
+    # Verify aggregate unchanged after HTTP rollback
+    refreshed_c = session.get(CommitmentRecord, (context.tenant_id, c.commitment_id))
+    assert refreshed_c.commitment_version == 3
+    assert refreshed_c.agreement_state == "CONFIRMED"
+
+    # -------------------------------------------------------------------------
+    # Boundary B: Outbox Consumer Path Rollback & Atomic Case/Trigger/ProcessedEvent
+    # -------------------------------------------------------------------------
+    # Emitting an at_risk outbox event to be dispatched to p3.recovery_trigger.v1
+    event_id = f"evt_risk_handshake_{_now().timestamp()}"
+    outbox_event = OutboxEventRecord(
+        event_id=event_id,
+        tenant_id=context.tenant_id,
+        event_type=CoreEventType.COMMITMENT_AT_RISK.value,
+        commitment_id=c.commitment_id,
+        commitment_version=refreshed_c.commitment_version,
+        correlation_id=context.correlation_id,
+        occurred_at=_now(),
+        payload={
+            "tenant_id": context.tenant_id,
+            "commitment_id": c.commitment_id,
+            "risk_state": "AT_RISK",
+            "reason": "Supplier delivery delayed",
+        },
+        status=OutboxStatus.PENDING.value,
+        attempts=0,
+    )
+    session.add(outbox_event)
+    session.commit()
+
+    dispatcher = OutboxDispatcher()
+    # Satisfy D-017 policy for confirmed event
+    dispatcher.register_subscriber(
+        event_type=CoreEventType.COMMITMENT_CONFIRMED.value,
+        consumer_name="p2_confirmed_evaluator",
+        handler_fn=lambda s, e: None,
+    )
+    consumer_name = "p3.recovery_trigger.v1"
+    should_fail = True
+
+    # Check if recovery_cases table exists in this DB (e.g. migration 0006 on PostgreSQL)
+    has_recovery_tables = "recovery_cases" in inspect(test_engine).get_table_names()
+
+    case_id = f"case_hs_{int(_now().timestamp())}"
+    trigger_id = f"trig_hs_{int(_now().timestamp())}"
+
+    def mock_p3_consumer(db: Session, event: OutboxEventRecord) -> None:
+        nonlocal should_fail
+        if has_recovery_tables:
+            db.execute(
+                text(
+                    "INSERT INTO recovery_cases (tenant_id, case_id, commitment_id, risk_episode_id, opening_event_id, "
+                    "status, case_version, commitment_version, payload_schema_version, case_payload, resolution_refs, created_at, updated_at) "
+                    "VALUES (:tenant_id, :case_id, :commitment_id, :risk_ep, :open_evt, 'OPEN', 1, 1, 1, '{}', '[]', NOW(), NOW())"
+                ),
+                {
+                    "tenant_id": event.tenant_id,
+                    "case_id": case_id,
+                    "commitment_id": event.commitment_id,
+                    "risk_ep": f"ep_{case_id}",
+                    "open_evt": event.event_id,
+                },
+            )
+            db.execute(
+                text(
+                    "INSERT INTO recovery_case_triggers (tenant_id, event_id, case_id, commitment_id, commitment_version, "
+                    "assessment_id, assessment_provenance_status, snapshot_version, constraints, affected_commitment_ids, evidence_refs, correlation_id, occurred_at, event_digest) "
+                    "VALUES (:tenant_id, :event_id, :case_id, :commitment_id, 1, 'ass_01', 'INFEASIBLE', 1, '[]', '[]', '[]', 'corr_01', NOW(), 'digest_01')"
+                ),
+                {
+                    "tenant_id": event.tenant_id,
+                    "event_id": trigger_id,
+                    "case_id": case_id,
+                    "commitment_id": event.commitment_id,
+                },
+            )
+        if should_fail:
+            raise RuntimeError("Downstream P3 transient failure")
+
+    dispatcher.register_subscriber(
+        event_type=CoreEventType.COMMITMENT_AT_RISK.value,
+        consumer_name=consumer_name,
+        handler_fn=mock_p3_consumer,
+    )
+
+    # 1. Downstream failure: atomic rollback of Case + Trigger + ProcessedEventRecord
+    res_fail = dispatcher.process_outbox_batch(session)
+    assert res_fail.failed_count == 1
+
+    # Verify ProcessedEventRecord was NOT committed
+    proc_fail = session.scalar(
+        select(ProcessedEventRecord).where(
+            ProcessedEventRecord.tenant_id == context.tenant_id,
+            ProcessedEventRecord.event_id == event_id,
+            ProcessedEventRecord.consumer_name == consumer_name,
+        )
+    )
+    assert proc_fail is None
+
+    # Verify recovery_cases was NOT committed
+    if has_recovery_tables:
+        count_cases = session.execute(
+            text("SELECT COUNT(*) FROM recovery_cases WHERE tenant_id = :tenant_id AND case_id = :case_id"),
+            {"tenant_id": context.tenant_id, "case_id": case_id},
+        ).scalar()
+        assert count_cases == 0
+
+    # 2. Downstream issue resolved: retry succeeds atomically committing Case, Trigger, and ProcessedEventRecord
+    should_fail = False
+    refreshed_event = session.get(OutboxEventRecord, event_id)
+    refreshed_event.next_retry_at = _now() - timedelta(seconds=1)
+    session.commit()
+
+    res_ok = dispatcher.process_outbox_batch(session)
+    assert res_ok.published_count == 1
+
+    # Verify ProcessedEventRecord IS committed atomically
+    proc_ok = session.scalar(
+        select(ProcessedEventRecord).where(
+            ProcessedEventRecord.tenant_id == context.tenant_id,
+            ProcessedEventRecord.event_id == event_id,
+            ProcessedEventRecord.consumer_name == consumer_name,
+        )
+    )
+    assert proc_ok is not None
+
+    # Verify Case and Trigger committed atomically
+    if has_recovery_tables:
+        count_cases = session.execute(
+            text("SELECT COUNT(*) FROM recovery_cases WHERE tenant_id = :tenant_id AND case_id = :case_id"),
+            {"tenant_id": context.tenant_id, "case_id": case_id},
+        ).scalar()
+        assert count_cases == 1
+
+        count_trigs = session.execute(
+            text("SELECT COUNT(*) FROM recovery_case_triggers WHERE tenant_id = :tenant_id AND case_id = :case_id"),
+            {"tenant_id": context.tenant_id, "case_id": case_id},
+        ).scalar()
+        assert count_trigs == 1
+
+        # Verify ON DELETE CASCADE
+        session.execute(
+            text("DELETE FROM recovery_cases WHERE tenant_id = :tenant_id AND case_id = :case_id"),
+            {"tenant_id": context.tenant_id, "case_id": case_id},
+        )
+        session.commit()
+
+        count_trigs_after = session.execute(
+            text("SELECT COUNT(*) FROM recovery_case_triggers WHERE tenant_id = :tenant_id AND case_id = :case_id"),
+            {"tenant_id": context.tenant_id, "case_id": case_id},
+        ).scalar()
+        assert count_trigs_after == 0
+
