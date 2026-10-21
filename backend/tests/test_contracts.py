@@ -138,3 +138,7 @@ def test_feasible_assessment_example_fixture_validates() -> None:
     unknown = FeasibilityAssessment.model_validate(data["unknown_example"])
     assert unknown.status.value == "UNKNOWN"
     assert unknown.affected_commitment_ids == []
+
+    infeasible = FeasibilityAssessment.model_validate(data["infeasible_isolated_example"])
+    assert infeasible.status.value == "INFEASIBLE"
+    assert infeasible.affected_commitment_ids == []

@@ -94,3 +94,34 @@ class CommunicationRequestView(ContractModel):
     expires_at: OffsetAwareDatetime | None
     created_by: ReferenceId
     created_at: OffsetAwareDatetime
+
+
+class PrepareDraftRequest(ContractModel):
+    language: Literal["en", "ms", "zh"] = "en"
+    template_key: str = Field(default="delivery_change", strict=True, min_length=1, max_length=64)
+
+
+class MessageDraftView(ContractModel):
+    draft_id: ReferenceId
+    tenant_id: ReferenceId
+    communication_id: ReferenceId
+    reference: RecoveryCommunicationReference
+    order_id: ReferenceId
+    template_key: str
+    template_version: int = Field(ge=1)
+    language: Literal["en", "ms", "zh"]
+    channel: CommunicationChannel
+    subject: str | None
+    body: str
+    approved_terms: CommitmentTerms
+    approval_evidence_refs: list[ReferenceId] = Field(min_length=1)
+    proposal_evidence_refs: list[str]
+    recipient_identity_id: ReferenceId
+    recipient_evidence_refs: list[ReferenceId] = Field(min_length=1)
+    channel_evidence_refs: list[ReferenceId] = Field(min_length=1)
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    validation_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    status: Literal[MessageStatus.DRAFT] = MessageStatus.DRAFT
+    send_authorized: Literal[False] = False
+    expires_at: OffsetAwareDatetime
+    created_at: OffsetAwareDatetime

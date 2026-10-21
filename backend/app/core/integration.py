@@ -95,6 +95,7 @@ class CoreIntegrationFacade:
         db: Session,
         context: RequestContext,
         business_context: BusinessContext,
+        commit: bool = True,
     ) -> Commitment:
         """Process updated BusinessContext from P1.
 
@@ -241,8 +242,11 @@ class CoreIntegrationFacade:
             )
             db.add_all([audit, event])
 
-        db.commit()
-        db.refresh(record)
+        if commit:
+            db.commit()
+            db.refresh(record)
+        else:
+            db.flush()
         return self.service.get(db, context, record.commitment_id)
 
     # -------------------------------------------------------------------------
@@ -254,6 +258,7 @@ class CoreIntegrationFacade:
         context: RequestContext,
         commitment_id: str,
         assessment: FeasibilityAssessment,
+        commit: bool = True,
     ) -> Commitment:
         """Process FeasibilityAssessment from P2.
 
@@ -262,7 +267,7 @@ class CoreIntegrationFacade:
           and emits commitment.at_risk for P3.
         - If UNKNOWN: keeps UNKNOWN without falsely marking INFEASIBLE (UNKNOWN != INFEASIBLE).
         """
-        return self.service.assess(db, context, commitment_id, assessment)
+        return self.service.assess(db, context, commitment_id, assessment, commit=commit)
 
     # -------------------------------------------------------------------------
     # 3. P3 → P5 / P4 Handshake (BE-06c)
@@ -273,15 +278,12 @@ class CoreIntegrationFacade:
         actor_role: str,
         action_type: str,
         plan_version: int | None = None,
+        business_context: Any | None = None,
     ) -> None:
-        """Enforce role-based authorization for recovery actions (BE-05c)."""
-        if action_type in CONSEQUENTIAL_ACTIONS:
-            if actor_role not in {"OWNER", "MANAGER"}:
-                raise DomainError(
-                    "APPROVAL_REQUIRED",
-                    f"Role '{actor_role}' is not authorized to execute consequential action '{action_type}'; manager or owner authorization required",
-                    status_code=403,
-                )
+        """Enforce role-based authorization for recovery actions (BE-05c, D-005, R43)."""
+        from .policy import authorize as policy_authorize
+
+        policy_authorize(actor, actor_role, action_type, plan_version=plan_version, business_context=business_context)
 
     def start_recovery(
         self,
@@ -289,6 +291,7 @@ class CoreIntegrationFacade:
         context: RequestContext,
         commitment_id: str,
         request: RecoveryStartRequest,
+        commit: bool = True,
     ) -> CommitmentTransitionResponse:
         """Initiate recovery planning on an at-risk commitment."""
         return self.service.transition(
@@ -302,6 +305,7 @@ class CoreIntegrationFacade:
                 reason=request.reason,
                 causation_id=request.causation_id,
             ),
+            commit=commit,
         )
 
     def execute_recovery_plan(

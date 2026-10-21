@@ -23,6 +23,7 @@ class FeasibilityEvaluateRequest(ContractModel):
 
 class AssessCommitmentRequest(ContractModel):
     expected_commitment_version: int = Field(ge=1)
+    expected_snapshot_version: int | None = Field(default=None, ge=1)
 
 
 class SupplierDelayRequest(ContractModel):

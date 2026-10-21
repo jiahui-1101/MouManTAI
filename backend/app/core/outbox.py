@@ -8,13 +8,14 @@ import logging
 import threading
 import time
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .errors import DomainError
 from .events import OutboxStatus
-from .models import CommitmentRecord, OutboxEventRecord, ProcessedEventRecord
+from .models import AuditEventRecord, CommitmentRecord, OutboxEventRecord, ProcessedEventRecord
 from .schemas import DomainEvent
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,10 @@ def _now() -> datetime:
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _id(prefix: str) -> str:
+    return f"{prefix}_{uuid4().hex[:16]}"
 
 
 def to_domain_event(record: OutboxEventRecord) -> DomainEvent:
@@ -55,8 +60,15 @@ class OutboxBatchResult:
 
 SubscriberHandler = Callable[[Session, DomainEvent], Any]
 
+MANDATORY_SUBSCRIBERS: dict[str, str] = {
+    "commitment.confirmed": "p2_confirmed_evaluator",
+    "commitment.at_risk": "p3.recovery_trigger.v1",
+}
+
 
 class OutboxDispatcher:
+    MANDATORY_SUBSCRIBERS = MANDATORY_SUBSCRIBERS
+
     def __init__(self) -> None:
         # event_type -> {consumer_name: handler_fn}
         self._subscribers: dict[str, dict[str, SubscriberHandler]] = defaultdict(dict)
@@ -167,10 +179,58 @@ class OutboxDispatcher:
 
         for record in records:
             event = to_domain_event(record)
+
+            # Reconcile stale or superseded events through an explicit audit record (D-017 / H2-1-ITEM2)
+            if self.is_stale_event(session, event):
+                commitment = (
+                    session.get(CommitmentRecord, (event.tenant_id, event.commitment_id))
+                    if event.commitment_id
+                    else None
+                )
+                curr_ver = commitment.commitment_version if commitment else None
+                audit = AuditEventRecord(
+                    audit_id=_id("aud"),
+                    tenant_id=event.tenant_id,
+                    commitment_id=event.commitment_id or "com_none",
+                    event_type="commitment.event_superseded",
+                    actor_id="system_reconciliation",
+                    actor_role="SYSTEM",
+                    dimension="agreement" if "confirmed" in event.event_type else "lifecycle",
+                    previous_state={"commitment_version": event.commitment_version},
+                    new_state={"superseded": True, "stale_event_id": event.event_id, "current_commitment_version": curr_ver},
+                    evidence_refs=[],
+                    reason=f"Event {event.event_id} at version {event.commitment_version} superseded before evaluation",
+                    correlation_id=event.correlation_id,
+                    causation_id=event.event_id,
+                    occurred_at=_now(),
+                )
+                session.add(audit)
+                record.status = OutboxStatus.PUBLISHED.value
+                record.published_at = _now()
+                session.commit()
+                result.published_count += 1
+                continue
+
+            # Mandatory subscriber policy (D-017): specifically named subscriber must be registered (no wildcards)
+            required_consumer = self.MANDATORY_SUBSCRIBERS.get(event.event_type)
+            if required_consumer is not None:
+                with self._lock:
+                    is_registered = required_consumer in self._subscribers.get(event.event_type, {})
+                if not is_registered:
+                    logger.warning(
+                        "Mandatory subscriber '%s' for event '%s' (event_id=%s) is not registered; leaving %s",
+                        required_consumer,
+                        event.event_type,
+                        record.event_id,
+                        record.status,
+                    )
+                    # Never mark PUBLISHED prematurely!
+                    continue
+
             subscribers = self.get_subscribers(event.event_type)
 
             if not subscribers:
-                # No subscribers registered for this event; publish cleanly
+                # No subscribers registered for this non-mandatory event; publish cleanly
                 record.status = OutboxStatus.PUBLISHED.value
                 record.published_at = _now()
                 session.commit()
@@ -221,7 +281,7 @@ class OutboxDispatcher:
 
             if not event_failed:
                 rec = session.get(OutboxEventRecord, record.event_id)
-                if rec and rec.status not in (OutboxStatus.DEAD_LETTER.value, OutboxStatus.FAILED.value):
+                if rec:
                     rec.status = OutboxStatus.PUBLISHED.value
                     rec.published_at = _now()
                     session.commit()
