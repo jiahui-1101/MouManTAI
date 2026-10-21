@@ -92,6 +92,7 @@ export interface RequestedItem {
 export interface BusinessContext {
   tenant_id: string;
   context_id: string;
+  commitment_id?: string | null;
   source_message_ids: string[];
   customer_id?: string | null;
   customer_identity_status: CustomerIdentityStatus;
@@ -230,6 +231,7 @@ export interface DomainEvent {
 export type OutboxStatus = "PENDING" | "PUBLISHED" | "FAILED" | "DEAD_LETTER";
 
 export interface CommitmentCreateRequest {
+  commitment_id?: string | null;
   order_id: string;
   customer_id: string;
   terms: CommitmentTerms;
@@ -403,5 +405,29 @@ export interface RecoveryExecuteRequest {
   revised_terms?: CommitmentTerms | null;
   reason: string;
   causation_id?: string | null;
+}
+
+export interface ResourceStock {
+  tenant_id: string;
+  resource_id: string;
+  total_quantity: DecimalString;
+  reserved_quantity: DecimalString;
+  available_quantity: DecimalString;
+  unit: string;
+  snapshot_version: number;
+  updated_at: ISO8601;
+}
+
+export interface ResourceReservation {
+  reservation_id: string;
+  tenant_id: string;
+  commitment_id: string;
+  plan_id: string;
+  action_id: string;
+  idempotency_key: string;
+  resource_id: string;
+  quantity: DecimalString;
+  status: "ACTIVE" | "RELEASED" | "CONSUMED";
+  created_at: ISO8601;
 }
 

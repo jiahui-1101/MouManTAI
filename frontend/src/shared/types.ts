@@ -38,6 +38,8 @@ export type {
   RecoveryPlan,
   RecoveryStartRequest,
   RecoveryState,
+  ResourceReservation,
+  ResourceStock,
   RiskState,
   SolverStatus,
   SourceFeature,

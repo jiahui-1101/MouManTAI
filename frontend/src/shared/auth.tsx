@@ -29,6 +29,24 @@ export const KNOWN_ACTORS: ActorProfile[] = [
     label: "Staff",
     description: "Operational staff with redacted financial views",
   },
+  {
+    actorId: "owner_01",
+    role: "OWNER",
+    label: "Owner (owner_01)",
+    description: "Full SME business owner authority",
+  },
+  {
+    actorId: "manager_01",
+    role: "MANAGER",
+    label: "Manager (manager_01)",
+    description: "Operational management and proposal approval authority",
+  },
+  {
+    actorId: "staff_01",
+    role: "STAFF",
+    label: "Staff (staff_01)",
+    description: "Operational staff with redacted financial views",
+  },
 ];
 
 export interface AuthContextValue {
@@ -58,7 +76,11 @@ export function AuthProvider({
 
   const actorRole = useMemo<ActorRole>(() => {
     const found = KNOWN_ACTORS.find((a) => a.actorId === actorId);
-    return found ? found.role : "STAFF";
+    if (found) return found.role;
+    const lower = actorId.toLowerCase();
+    if (lower.includes("owner")) return "OWNER";
+    if (lower.includes("manager")) return "MANAGER";
+    return "STAFF";
   }, [actorId]);
 
   const authHeaders = useMemo<RequestAuthHeaders>(() => {
