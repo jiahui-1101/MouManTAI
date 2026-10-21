@@ -19,6 +19,27 @@ MessageStatus,
 RecoveryPlan,
 } from "../../shared/types";
 
+// P4 intake response differs from Core's later sending/confirmation contract.
+// These two request-status literals mirror app.communication.schemas.RequestStatus.
+export interface CommunicationRequestView {
+  communication_id: CoreCommunicationRequest["communication_id"];
+  reference: DraftReference;
+  request_status: "BLOCKED" | "READY_FOR_DRAFTING";
+  blocking_reasons: string[];
+  proposed_terms: CommitmentTerms;
+  message_status: Extract<MessageStatus, "DRAFT">;
+  approval_evidence_refs: string[];
+  approval_expires_at: ISO8601;
+  proposal_evidence_refs: string[];
+  recipient_identity_id: string | null;
+  recipient_evidence_refs: string[];
+  channel: CommunicationChannel | null;
+  channel_evidence_refs: string[];
+  expires_at: ISO8601 | null;
+  created_by: string;
+  created_at: ISO8601;
+}
+
 export type DraftLanguage = "en" | "ms" | "zh";
 
 export interface PrepareDraftRequest {
