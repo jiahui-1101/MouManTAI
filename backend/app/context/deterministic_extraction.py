@@ -607,7 +607,14 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
                 if not any(key == entry[0] for entry in mentions):
                     mentions.append((key, product, match))
     mentions.sort(key=lambda entry: entry[0])
-    fields.extend(field("sku", p.sku, "VALID", [m.span()]) for _, p, m in mentions)
+    for _, product, mention in mentions:
+        ambiguous = any(
+            other.start() < mention.end() and mention.start() < other.end()
+            and (candidate.sku, candidate.unit) != (product.sku, product.unit)
+            for _, candidate, other in mentions
+        )
+        fields.append(field("sku", product.sku, "UNRESOLVED" if ambiguous else "VALID", [mention.span()],
+                            metadata={"reason": "Catalog alias maps to multiple SKU/unit meanings"} if ambiguous else {}))
 
     # -----------------------------------------------------------------------
     # 4. Quantity and Unit Association
