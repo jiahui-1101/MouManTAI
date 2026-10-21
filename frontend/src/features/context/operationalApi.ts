@@ -47,6 +47,7 @@ export interface OperationalApi {
   extractAttachment(evidenceRef: string): Promise<DocumentExtractionResult>;
   getAttachmentExtraction(evidenceRef: string): Promise<DocumentExtractionResult>;
   getAttachmentMetadata(evidenceRef: string): Promise<AttachmentRecord>;
+  getAttachmentPageCount(evidenceRef: string): Promise<{ total_pages: number; media_type: string }>;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -117,5 +118,7 @@ export const operationalApi: OperationalApi = {
     request(`/v1/attachments/${encodeURIComponent(evidenceRef)}/extraction`),
   getAttachmentMetadata: evidenceRef =>
     request(`/v1/attachments/${encodeURIComponent(evidenceRef)}/metadata`),
+  getAttachmentPageCount: evidenceRef =>
+    request(`/v1/attachments/${encodeURIComponent(evidenceRef)}/page-count`),
 };
 
