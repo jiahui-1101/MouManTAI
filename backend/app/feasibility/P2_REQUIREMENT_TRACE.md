@@ -4,6 +4,17 @@
 
 Current evidence supersedes historical missing-UI notes below. Overall integration remains PARTIAL.
 
+External review #1 correction of `a377b8bf18f0b38ba619c684d976c5663aeddacd`:
+
+| ID | Criterion | Owner / class | Code | Evidence | State | Result |
+|---|---|---|---|---|---|---|
+| PH6-R1-01 | Runtime impact classification must be supported; reject malformed JSON without silent omission or input mutation | P2 / mandatory correction | frontend feature models.ts, data.ts | impact-safety.test.tsx | PASS | Explicit 502 FeatureDataError INVALID_IMPACT_CLASSIFICATION rejects the entire response; visible error/retry and no fallback. All original five classifications preserved. |
+| PH6-R1-02 | Buffer verification label requires supporting refs; missing essential proof downgrades unaffected status, independent sufficient proof preserved | P2 / mandatory correction | frontend feature data.ts, models.ts, ImpactDetailPage.tsx | impact-safety.test.tsx | PASS | Missing/empty/blank buffer refs show Reported buffer — evidence unavailable. Unrelated row refs cannot preserve VERIFIED_UNAFFECTED; scoped complete FEASIBLE/COMPLETED before/after independent proof can. Invalid/incomplete/mismatched proof stays UNKNOWN. Original inputs unchanged; P5 owns authenticity validation. |
+
+Correction validation: 24 focused new regressions; total 67 Phase 6 tests, npm
+typecheck, explicit application tsc and production build pass. Independent external
+correction review and P5/P3 production integration remain pending; no Phase 7 work.
+
 | ID | Criterion | Owner / class | Code | Evidence | State | Result |
 |---|---|---|---|---|---|---|
 | PH6-01 | Establish actual field availability and branch distinction before implementation | P2 / mandatory | PHASE6_PLAN.md, models.ts | Git fetch/show, source inspection | PASS | Mapping distinguishes Core/shared assessment/local evaluation/local impact/future public enrichment/explicit fixture. P5 fix verified on unmerged branch, no copied infrastructure. |

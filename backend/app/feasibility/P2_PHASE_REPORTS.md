@@ -697,3 +697,82 @@ status, so an approved P5 error adapter is required for a live source.
 
 **STOP after Phase 6 commit/feature-only ref verification for independent external
 review. No Phase 7 or Main merge.**
+
+## Phase 6 external review #1 corrections — PH6-R1-01 / PH6-R1-02
+
+- **Reviewed baseline:** `a377b8bf18f0b38ba619c684d976c5663aeddacd`; clean
+  `feat/p2-feasibility-engine` verified before edits. User accepted the frontend
+  structure in principle and requested only these presentation-safety corrections.
+- **State:** targeted P2-local corrections implemented/tested; independent correction
+  review pending. Overall shared integration remains PARTIAL. Phase 7 NOT_STARTED.
+  Correction commit and pushed feature ref SHA: see task response after commit.
+
+### PH6-R1-01 — unsupported classification
+
+The existing five P2 classification literals are now a runtime constant with the
+TypeScript union derived from it. No backend enum or shared contract changed.
+`validateImpact()` rejects the entire malformed impact response with explicit
+502 `FeatureDataError`, code `INVALID_IMPACT_CLASSIFICATION`. Existing page loading
+logic shows a visible error/retry state. No candidate is silently omitted,
+converted into unaffected, dropped or replaced by fixture data. Tests construct
+an intentionally malformed JSON.parse payload containing an unsupported runtime
+classification, check the explicit error, UI retry/no fallback and non-mutation,
+and exercise all five supported classification values.
+
+### PH6-R1-02 — buffer evidence and proof dependencies
+
+Only a nonempty buffer evidence array containing nonblank strings permits the
+existing `Verified buffer` label. Empty/blank/missing references receive
+`Reported buffer — evidence unavailable`; absent runtime fields do not crash
+the evidence component. Input buffers and original classifications are unchanged.
+
+For VERIFIED_UNAFFECTED, missing required buffer evidence (or missing buffers)
+defaults to UNKNOWN with `UNAFFECTED_BUFFER_EVIDENCE_INSUFFICIENT`. Unrelated
+row-level evidence_refs cannot retain a verified conclusion. An optional P2-local
+presentation projection `unaffected_proof` can retain it only when independent,
+complete before/after recalculation proof remains: explicit independent basis,
+matching tenant/commitment/respective snapshot versions, both FEASIBLE with
+COMPLETED solver/evidence_complete=true and nonblank supporting refs. The future
+P5 adapter must establish independence, not merely supply arbitrary row refs.
+Missing/incomplete/unresolved/mismatched proof cannot override the downgrade.
+Other impact classifications are unaffected by unrelated buffer evidence gaps.
+P5 still owns authoritative source validation; structural reference presence is
+not proof of authenticity. PHASE6_HANDOFF.md documents this additive presentation
+mapping; no public API, persistence or shared schema was implemented or changed.
+
+### Validation (from frontend/)
+
+| Command | Observed result |
+|---|---|
+| `npm test -- src/features/feasibility/impact-safety.test.tsx` (initial red) | 11 failed / 6 passed before fixes, reproducing silent unsupported classification, verified buffer labeling and unsupported unaffected conclusions. Corrected array parameterization in two test setups before green run. |
+| same focused command (initial green) | 17 passed. |
+| `npm test -- src/features/feasibility/impact-safety.test.tsx -t 'missing buffer evidence_refs'` | Failed before missing-field render guard (TypeError in Evidence); passed after correction, 1 passed / 23 skipped. |
+| `npm test -- src/features/feasibility/impact-safety.test.tsx` (final focused) | **24 passed**, exit0, no warnings. |
+| `npm test -- src/features/feasibility` | **67 passed, 3 files**, exit0, no warnings; all original 43 tests retained unchanged. |
+| `npm run typecheck` | **PASS**, exit0. |
+| `npx tsc --noEmit -p tsconfig.app.json` | **PASS**, exit0; checks actual application project. |
+| `npm run build` | **PASS**, exit0; `tsc -b && vite build`, 45 shell modules. P2 pages remain unmounted as previously documented. |
+
+Backend tests, live HTTP/auth/database/P3/P5/outbox integration, E2E, browser QA
+and metrics NOT RUN: no backend behavior or shared implementation changed.
+Injected JSON/adapter/component tests are not production API validation.
+
+### Exact changed files
+
+- `frontend/src/features/feasibility/data.ts` — runtime rejection and proof-aware conservative mapping.
+- `frontend/src/features/feasibility/models.ts` — same five runtime literals and narrow optional independent-proof projection.
+- `frontend/src/features/feasibility/ImpactDetailPage.tsx` — evidence-aware buffer label/render guard.
+- `frontend/src/features/feasibility/impact-safety.test.tsx` — 24 new regression/compatibility tests, including non-mutation.
+- `backend/app/feasibility/P2_PROGRESS.md` — correction checkpoint.
+- `backend/app/feasibility/P2_REQUIREMENT_TRACE.md` — correction acceptance evidence.
+- `backend/app/feasibility/P2_PHASE_REPORTS.md` — this appended correction report; earlier reports preserved.
+- `backend/app/feasibility/PHASE6_HANDOFF.md` — classification/error/proof/evidence mapping rules.
+- `docs/TEAM_LOG.md` — P2-only appended correction record.
+
+Existing FE-01/FE-02 page structures, states, tenant/identity/version checks,
+prior-assessment retention and no-fixture-fallback remain covered by the preserved
+suite. No P3/P5-owned implementation, shared client/auth/routing/dependency,
+backend enum/calculation, persistence or Phase 7 work.
+
+**STOP after feature-only commit/push verification for independent Phase 6
+correction review. P5/P3 integration blockers remain as documented previously.**

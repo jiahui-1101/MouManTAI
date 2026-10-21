@@ -1,4 +1,5 @@
-import type { Commitment, FeasibilityView, ImpactView, P2DataSource } from "./models";
+import { IMPACT_CLASSIFICATIONS } from "./models";
+import type { Commitment, CommitmentImpactView, FeasibilityView, ImpactView, P2DataSource } from "./models";
 
 export class FeatureDataError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) { super(message); }
@@ -62,11 +63,36 @@ export function validateImpact(view: ImpactView | null, id: string, tenant: stri
   if (view.impact_id !== id || view.after_snapshot_version <= view.before_snapshot_version) throw new FeatureDataError(409, "IMPACT_BINDING_MISMATCH", "Impact identity or snapshot versions conflict.");
   const ids = view.impacts.map((r) => r.commitment_id);
   if (new Set(ids).size !== ids.length || ids.some((key) => !view.candidate_commitment_ids.includes(key))) throw new FeatureDataError(409, "IMPACT_BINDING_MISMATCH", "Impact candidate/result binding conflicts.");
-  return { ...view, impacts: view.impacts.map((row) =>
-    (row.classification === "VERIFIED_UNAFFECTED" || row.classification === "CONFIRMED_IMPACT") && !row.evidence_refs.some((ref) => ref.trim())
-      ? { ...row, classification: "UNKNOWN", reasons: [...row.reasons, "Classification evidence unavailable"] }
-      : row),
+  if (view.impacts.some((row) => !IMPACT_CLASSIFICATIONS.includes(row.classification))) {
+    throw new FeatureDataError(502, "INVALID_IMPACT_CLASSIFICATION", "Impact response contains an unsupported classification. No impact results can be displayed until the data contract is corrected.");
+  }
+  return { ...view, impacts: view.impacts.map((row) => {
+    const independent = hasIndependentUnaffectedProof(row, view);
+    if (row.classification === "VERIFIED_UNAFFECTED" &&
+        (!row.buffers.length || row.buffers.some((buffer) => !hasEvidenceReferences(buffer.evidence_refs))) && !independent) {
+      return { ...row, classification: "UNKNOWN", reasons: [...row.reasons, "UNAFFECTED_BUFFER_EVIDENCE_INSUFFICIENT"] };
+    }
+    if ((row.classification === "CONFIRMED_IMPACT" || row.classification === "VERIFIED_UNAFFECTED") &&
+        !hasEvidenceReferences(row.evidence_refs) && !independent) {
+      return { ...row, classification: "UNKNOWN", reasons: [...row.reasons, "Classification evidence unavailable"] };
+    }
+    return row;
+  }),
   };
+}
+export function hasEvidenceReferences(refs: unknown): refs is string[] {
+  return Array.isArray(refs) && refs.length > 0 && refs.every((ref) => typeof ref === "string" && ref.trim().length > 0);
+}
+function hasIndependentUnaffectedProof(row: CommitmentImpactView, view: ImpactView): boolean {
+  const proof = row.unaffected_proof;
+  if (row.classification !== "VERIFIED_UNAFFECTED" || proof?.basis !== "INDEPENDENT_RECALCULATION") return false;
+  return (["before", "after"] as const).every((side) => {
+    const assessment = proof[side];
+    return assessment?.tenant_id === view.tenant_id && assessment.commitment_id === row.commitment_id &&
+      assessment.snapshot_version === (side === "before" ? view.before_snapshot_version : view.after_snapshot_version) &&
+      assessment.status === "FEASIBLE" && assessment.solver_status === "COMPLETED" &&
+      assessment.evidence_complete === true && hasEvidenceReferences(assessment.evidence_refs);
+  });
 }
 // Reuses P5's injected Core reader, not a second HTTP/auth implementation.
 // P5 can wire this to its existing apiRequest<Commitment> once session context is approved.

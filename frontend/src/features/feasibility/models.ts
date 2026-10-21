@@ -25,8 +25,13 @@ export interface FeasibilityView {
   current_snapshot_version: number | null;
   details: EvaluationDetail | null;
 }
-export type ImpactClassification = "CONFIRMED_IMPACT" | "VERIFIED_UNAFFECTED" | "UNKNOWN"
-  | "PRE_EXISTING_UNCHANGED" | "NO_NEW_ADVERSE_DELTA";
+export const IMPACT_CLASSIFICATIONS = ["CONFIRMED_IMPACT", "VERIFIED_UNAFFECTED", "UNKNOWN",
+  "PRE_EXISTING_UNCHANGED", "NO_NEW_ADVERSE_DELTA"] as const;
+export type ImpactClassification = typeof IMPACT_CLASSIFICATIONS[number];
+// Projection of the existing evaluator metadata, not a new backend/shared contract.
+type UnaffectedAssessmentProof = Pick<FeasibilityAssessment,
+  "tenant_id" | "commitment_id" | "snapshot_version" | "status" | "solver_status" | "evidence_refs">
+  & { evidence_complete: boolean };
 export interface ImpactDelta {
   resource_id: string; code?: string | null; before_shortage: DecimalString | null;
   after_shortage: DecimalString | null; unit: string | null; deadline: ISO8601 | null;
@@ -40,6 +45,9 @@ export interface CommitmentImpactView {
   material_deltas: ImpactDelta[]; hard_constraint_deltas: ImpactDelta[];
   buffers: { resource_id: string; value: DecimalString; unit: string; evidence_refs: string[] }[];
   dependency_paths: DependencyPath[]; evidence_refs: string[];
+  // Populate only when complete before/after recalculation independently proves
+  // unaffected status without relying on any displayed buffer's missing evidence.
+  unaffected_proof?: { basis: "INDEPENDENT_RECALCULATION"; before: UnaffectedAssessmentProof; after: UnaffectedAssessmentProof };
   // Only an approved Core audit/transition adapter may populate this optional presentation field.
   risk_change?: { before: Commitment["risk_state"]; after: Commitment["risk_state"]; evidence_refs: string[] };
 }

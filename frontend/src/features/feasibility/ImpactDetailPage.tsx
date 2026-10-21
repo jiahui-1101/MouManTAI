@@ -1,6 +1,6 @@
 import { useParams } from "react-router-dom";
 import type { CommitmentImpactView, ImpactClassification, ImpactView, P2DataSource } from "./models";
-import { validateImpact } from "./data";
+import { hasEvidenceReferences, validateImpact } from "./data";
 import { Evidence, LoadFailure, SourceNotice, useFeatureLoad } from "./presentation";
 import "./feasibility.css";
 
@@ -61,7 +61,10 @@ function ImpactCard({ row }: { row: CommitmentImpactView }) {
       <p>{delta.code ?? "MATERIAL_SHORTAGE"} · {delta.resource_id}: {delta.before_shortage ?? "UNKNOWN"} → {delta.after_shortage ?? "UNKNOWN"} {delta.unit ?? ""} · {delta.severity_change ?? "Severity unavailable"}</p>
       <p>Constraint deadline: {delta.deadline ?? "unavailable"}</p><Evidence refs={delta.evidence_refs} />
     </div>)}
-    {row.buffers.map((b) => <div key={`${b.resource_id}:${b.unit}`}><p>Verified buffer: {b.resource_id} · {b.value} {b.unit}</p><Evidence refs={b.evidence_refs} /></div>)}
+    {row.buffers.map((b) => {
+      const supported = hasEvidenceReferences(b.evidence_refs);
+      return <div key={`${b.resource_id}:${b.unit}`}><p>{supported ? "Verified buffer" : "Reported buffer — evidence unavailable"}: {b.resource_id} · {b.value} {b.unit}</p><Evidence refs={supported ? b.evidence_refs : []} /></div>;
+    })}
     {row.risk_change?.evidence_refs.length ? <div><p>Core risk: {row.risk_change.before} → {row.risk_change.after}</p><Evidence refs={row.risk_change.evidence_refs} /></div> : null}
     <Evidence refs={row.evidence_refs} />
   </article>;
