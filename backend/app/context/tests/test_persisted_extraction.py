@@ -206,3 +206,48 @@ def test_api_process_and_retrieval(api):
     # History now has 2 attempts
     hist_res2 = client.get(f"/v1/messages/{message_id}/attempts")
     assert len(hist_res2.json()["items"]) == 2
+
+
+def test_failed_attempt_and_safe_retry(pg_engine, monkeypatch):
+    import app.context.postgres_repository as pr
+
+    repo = PostgresMessageRepository(pg_engine)
+    ingested = repo.ingest(envelope(text="100 burgers please"), NOW).message
+
+    # Simulate an unexpected failure in extraction
+    def failing_extract(*args, **kwargs):
+        raise RuntimeError("Simulated extractor crash")
+
+    monkeypatch.setattr(pr, "extract_explicit_fields", failing_extract)
+
+    # First attempt fails
+    failed_res = repo.process("tenant_a", ingested.message_id)
+    assert failed_res.message.processing_status == "PROCESSING_FAILED"
+    assert failed_res.attempt.status == "PROCESSING_FAILED"
+    assert "Simulated extractor crash" in (failed_res.attempt.diagnostic or "")
+    assert failed_res.attempt.completed_at is not None
+
+    # Failed attempt is persisted in history
+    history = repo.list_extraction_attempts("tenant_a", ingested.message_id)
+    assert len(history) == 1
+    assert history[0].status == "PROCESSING_FAILED"
+
+    # Restore normal extractor and safely reprocess/retry
+    monkeypatch.undo()
+
+    retry_res = repo.process("tenant_a", ingested.message_id, reprocess=True)
+    assert retry_res.message.processing_status == "PROCESSED"
+    assert retry_res.attempt.status == "PROCESSED"
+    assert retry_res.reprocessed is True
+    assert len(retry_res.attempt.fields) > 0
+
+    # Both the failed attempt and the successful retry are preserved in history
+    attempts = repo.list_extraction_attempts("tenant_a", ingested.message_id)
+    assert len(attempts) == 2
+    assert attempts[0].status == "PROCESSED"
+    assert attempts[1].status == "PROCESSING_FAILED"
+
+    # Latest extraction is the successful one
+    latest = repo.get_latest_extraction("tenant_a", ingested.message_id)
+    assert latest.status == "PROCESSED"
+

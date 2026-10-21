@@ -222,6 +222,18 @@ class PostgresMessageRepository:
                 completed_time = datetime.now(timezone.utc)
                 try:
                     result = extract_explicit_fields(stored_msg, catalog=PROVISIONAL_PRODUCTS)
+                    raw_text = stored_msg.raw.text
+                    for f in result.fields:
+                        for ev in f.evidence:
+                            if ev.start < 0 or ev.end > len(raw_text) or ev.start >= ev.end:
+                                raise ValueError(
+                                    f"Evidence span [{ev.start}:{ev.end}] out of bounds for text length {len(raw_text)}"
+                                )
+                            actual_quote = raw_text[ev.start : ev.end]
+                            if actual_quote != ev.quote:
+                                raise ValueError(
+                                    f"Evidence quote mismatch: expected {ev.quote!r}, got {actual_quote!r}"
+                                )
                     attempt.status = "PROCESSED"
                     attempt.fields = [f.model_dump(mode="json") for f in result.fields]
                     attempt.completed_at = completed_time
