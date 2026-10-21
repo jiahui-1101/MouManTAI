@@ -493,7 +493,7 @@ Metric protocol: always disclose dataset size, date, ground truth creation metho
   - `python -m pytest backend/tests`: Passed (63 passed in 1.42s)
 
 ### 2026-10-21 — Task T3.1-C-FIX: Remove Duplicate Core /assess Route, Add Tenant/Commitment Identity Guards, Update Affected P5 Tests (Decision D-013)
-- **Status**: Complete & Verified (Decision D-013 implemented).
+- **Status**: Complete & Verified (Commit `2f06a6a`, Decision D-013 implemented).
 - **Context & Ownership**:
   - Decision D-013 established that P2 exclusively owns the public trigger endpoint `POST /v1/commitments/{id}/assess`.
   - P5 Core must not expose the duplicate route to prevent route collision/capture of P2 requests.
