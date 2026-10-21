@@ -194,6 +194,12 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 - PR / commit: local branch `phase0-core-integration`
 
 ### CONTRACT-20261021-005 — Relaxation of FeasibilityAssessment.affected_commitment_ids constraint
+
+### 2026-10-21 — P5 Contract Decision: affected_commitment_ids Semantics
+- **Context**: P2 raised ambiguity regarding `min_length=1` on `FeasibilityAssessment.affected_commitment_ids` for `FEASIBLE`/`UNKNOWN`.
+- **Decision**: Approved relaxation to allow empty list (`min_length=0`, default `[]`). The field strictly denotes downstream impacted commitments, not the assessment scope.
+- **Impact**: Unblocks P2 Phase 3 calculation and prevents P3 from generating false recovery plans.
+- **Owner**: P5 (Updated schema in contracts/ and app.core.schemas).
 - Proposed by / reviewed by: P2 (Feasibility owner) / P5 (Core owner)
 - Old vs new field/event/API:
   - `FeasibilityAssessment.affected_commitment_ids` relaxed from `min_length=1` to allow empty lists `[]` (defaults to empty list via `default_factory=list`).
