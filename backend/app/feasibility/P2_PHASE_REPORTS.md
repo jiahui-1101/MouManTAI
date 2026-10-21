@@ -565,3 +565,135 @@ From `backend/`:
 - **Files changed for this correction:** P2-owned `router.py`, `tests/test_router.py`, P2 progress/requirement/report/handoff docs, and P2-only `docs/TEAM_LOG.md` entries. No P5 Core/app/schema/auth/DB/migration, persistence, or P3 files changed.
 - **Remaining blockers and gate:** production router mounting/authenticated RequestContext/internal authorization, authoritative snapshot/current-version provider and transaction recheck, empty actual Impact Set schema support, durable assessment/history and impact persistence, transactional supplier event/outbox, and P3 HTTP-shape confirmation remain unimplemented/unverified. No main-app integration, frontend, live PostgreSQL, or E2E was run. Phase 5 remains PARTIAL pending independent external review; stop here and do not begin Phase 6.
 - **Correction commit/push:** recorded in the final task response after feature-branch verification.
+
+## Phase 6 — P2-owned frontend checkpoint — 2026-10-21
+
+**PARTIAL.** P2-local views and focused injected-adapter tests pass. Shared production
+integration remains blocked. Independent external Phase 6 review is required;
+Phase 7 has not started. Commit SHA and final local/remote ref state: see phase response.
+
+### Approved baseline and inspection
+
+- User explicitly approved Phase 5 P2-local correction `85d46b2f48bea9a2e149f6dd70badc7311334061`.
+  Initial P2 branch/HEAD and remote feature ref matched; worktree was clean.
+- Read actual `D:/dunno/0.SDC/P2_CODEX_MASTER.txt`, actual external P2 requirements,
+  canonical system/root AGENTS/TEAM_LOG, progress/trace/reports/Phase 5 handoff,
+  shared/frontend/backend contracts, relevant implementation/tests and actual dependency setup.
+  `docs/AGENTS.md` is absent; root AGENTS is canonical per TEAM_LOG and current user
+  preparation instructions. No missing content guessed; root now names MouManTAI.
+- Read-only fetch verified Main `4ec2ba1ef7ede4a67352631178a73a6882bcd774` and P5
+  `origin/feat/p5-core-integration` at `a5f99151f2bc88f1c4d2cd530b0243a869a45d9c`.
+  Empty Impact Set fix is IMPLEMENTED ON P5 BRANCH, PENDING INTEGRATION. P2's old
+  frontend helper, no shared/auth.tsx and no TanStack Query remain factual local
+  constraints. No branch synchronization, P5 code copying or shared edits performed.
+
+### Scope, changes and actual observable behavior
+
+- `CommitmentFeasibilityPage` reads existing Router `:id`, accepts a P2 feature source,
+  reuses shared Core/assessment types, and shows identity/terms/agreement/risk without
+  inventing Core state. Summary, time, versions/solver, material allocation quantities
+  and units/need-time, fixed booking times/available minutes, constraints, source
+  freshness, evidence and assumptions are readable with explicit unavailable fields.
+- Cautious status for stale commitment/snapshot, expired/missing source bounds,
+  incomplete evidence or unresolved solver. No green safe styling. Live freshness
+  checks display time and refreshes each minute; labeled preview uses historical basis.
+- Recalculation exists only through an injected approved public adapter. Default and
+  synthetic preview cannot perform it. Injected tests observe expected commitment/
+  snapshot versions, pending/disabled submit, previous assessment retained, structured
+  403/409/503 errors and retry, invalid replacement rejection and no fixture fallback.
+  Correctly bound deterministic repeat is accepted; response receipt refreshes display
+  time. Receipt does not claim risk transition, fulfilled commitment or guaranteed delivery.
+- `ImpactDetailPage` shows trigger/resources/ETAs/evidence, before/after versions,
+  candidates, confirmed impacted, verified unaffected, UNKNOWN causal attribution,
+  pre-existing unchanged constraints and NO_NEW_ADVERSE_DELTA separately. Shows
+  material/HARD deadline-severity deltas, buffers and dependency table. Missing
+  candidate results and evidence-free verified classifications remain UNKNOWN.
+  Core risk change requires separate evidenced Core mapping; local intents are not proof.
+- No concrete live P2 source is wired. `createCoreOnlySource` accepts P5's reader;
+  its tests inject a reader and do not exercise live HTTP. Preview source is explicitly
+  opt-in and not imported by production pages. Authored synthetic projections are
+  illustrative UI data based on prior P2 examples, not persisted results or metrics.
+  Example rendered fixture: PATTY required100 / allocated usable60 / reserved0 /
+  eligible incoming0 / shortage40 pcs, snapshot2; com-001 confirmed impact versus
+  buffered com-002, plus deliberately missing com-missing UNKNOWN. No engine run
+  is claimed for the authored frontend fixture.
+- Feature-scoped CSS follows shared dark cards; semantic headings/captions/headers,
+  buttons/alerts/status, visible keyboard focus, scrollable tables with keyboard focus,
+  wrapping and narrow-screen layout. No new package, auth/client/router/shell or graph stack.
+
+### Validation commands and observed results
+
+From `D:/dunno/0.SDC/MouManTAI/frontend`:
+
+| Command | Observed result |
+|---|---|
+| `npm ci --no-audit --no-fund` | 148 locked packages installed; no manifest/lockfile change. Existing whatwg-encoding deprecation warning. |
+| `npm test -- src/features/feasibility/pages.test.tsx` (initial) | Expected red: missing page module, no tests collected. |
+| same command after initial implementation | 26 passed / 4 failed: case-sensitive evidence assertion and three async retry assertions; corrected test assertions/timing, not acceptance criteria. |
+| `npm test -- src/features/feasibility/data.test.ts` (hardening red) | 3 failed / 3 passed: expired source, evidence-free unaffected, duplicate impact rows. Focused rerun after fixes: 6 passed. |
+| `npm test -- src/features/feasibility/pages.test.tsx -t 'shows time\|shows impact HTTP'` | 4 passed / 26 skipped after test corrections. |
+| `npm test -- src/features/feasibility/pages.test.tsx -t 'switching tenant\|keyboard-accessible\|causal deltas'` | 3 passed / 30 skipped. |
+| `npm test -- src/features/feasibility/data.test.ts -t 'deterministic repeat\|display time'` | 2 failed before review fixes, then 2 passed / 6 skipped. |
+| `npm test -- src/features/feasibility/pages.test.tsx -t 'response receipt time'` | 1 failed before time-refresh fix, then 1 passed / 34 skipped. |
+| `npm test -- src/features/feasibility` (final) | **43 passed, 2 files, exit0**, no warnings. |
+| `npm run typecheck` (final) | **PASS, exit0**. Root tsconfig has project references only. |
+| `npx tsc --noEmit -p tsconfig.app.json` | **PASS, exit0** before final localized fixes; final build below rechecks application types after them. |
+| `npm run build` (final) | **PASS, exit0**: `tsc -b && vite build`, 45 modules. Current shell bundle still has P5 placeholders; new unmounted pages are typechecked and Vitest-transformed, not production-mounted. |
+
+Read-only code reviewer independently ran then-current 39 and 42 tests successfully.
+It identified historical-only freshness and deterministic-ID incompatibility;
+both verified against source and corrected with failing-then-passing regressions.
+Follow-up minor receipt-time issue also reproduced red then corrected. This internal
+review is not the user-required independent external approval.
+
+NOT RUN: backend regression (no backend behavior changed), actual HTTP/page API
+integration, PostgreSQL, supplier-delay/outbox, P3 call, full cross-feature E2E,
+browser viewport/screenshot QA or production metrics. Responsive layout is CSS/DOM
+coverage only. No broad repeated backend suite or Phase 7 work.
+
+### Exact authored paths
+
+New under `frontend/src/features/feasibility/`:
+
+- `CommitmentFeasibilityPage.tsx` — FE-01.
+- `ImpactDetailPage.tsx` — FE-02.
+- `presentation.tsx` — lifecycle/loading/evidence/preview presentation.
+- `models.ts` — P2 presentation projections/ports using shared Core types.
+- `data.ts` — binding/freshness/recalculation/error adapters and Core-only reader seam.
+- `preview.ts` — explicitly authored synthetic presentation fixtures/source.
+- `feasibility.css` — scoped responsive/accessibility styling.
+- `pages.test.tsx`, `data.test.ts` — 43 focused cases.
+
+P2 documentation:
+
+- `backend/app/feasibility/PHASE6_PLAN.md` — pre-implementation field map and scope.
+- `backend/app/feasibility/PHASE6_HANDOFF.md` — exact P5 route imports/mounts,
+  required public enrichment, field mappings and version/error/source responsibilities.
+- `backend/app/feasibility/P2_PROGRESS.md`, `P2_REQUIREMENT_TRACE.md`,
+  `P2_PHASE_REPORTS.md` — checkpoint, FE/PH6 evidence and preserved historical reports.
+- `docs/TEAM_LOG.md` — P2 status/checkpoint and P2 blocker correction only.
+
+### Handoff, safety and highest-risk open assumptions
+
+P5 must mount pages/routes and supply approved authenticated public adapters,
+authoritative operational input/current-version resolution, transactional version
+checks, final shared assessment mapping, durable assessment/history/impact storage,
+supplier-delay/outbox integration and evidenced Core risk transitions. Exact missing
+detail fields and serialization responsibilities are in PHASE6_HANDOFF.md. Existing
+caller-header scaffolding is not production authentication. Historical
+EvaluationResult.shared_output_blocker is not used to determine current readiness.
+Generic P5 outbox does not establish P2 supplier processor integration.
+
+P3 must still confirm pure evaluator reuse/ProposedChanges and the serialized
+hypothetical HTTP contract. No backend work reopened. Nonblocking SKU/unit binding
+test additions recorded for a later backend checkpoint. Future approved branch sync
+must preserve both owners' TEAM_LOG histories.
+
+Highest risks: public detail response remains unapproved; feature ports are typed
+seams, not wire validators or authorization; P5 must validate/decode wire responses
+and provide complete trustworthy ledgers/currentness. Fixture examples do not prove
+end-to-end assessment persistence. Current shared apiRequest loses structured HTTP
+status, so an approved P5 error adapter is required for a live source.
+
+**STOP after Phase 6 commit/feature-only ref verification for independent external
+review. No Phase 7 or Main merge.**

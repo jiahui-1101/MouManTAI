@@ -2,6 +2,21 @@
 
 ## Current checkpoint
 
+- **Phase:** 6 only — P2-owned feasibility and impact frontend views.
+- **State:** PARTIAL. Exportable pages, feature projections/adapters, explicit synthetic preview and focused component tests are implemented. Production public-detail contracts, authenticated session context, mounted P2 routes and persistence/recalculation remain blocked on P5. Phase 7 is NOT_STARTED.
+- **Approval:** user reported independent approval of Phase 5 local correction `85d46b2f48bea9a2e149f6dd70badc7311334061` and authorized Phase 6 only. Clean matching P2 HEAD/remote was verified before edits.
+- **Scope:** `frontend/src/features/feasibility/**`, P2 planning/handoff/progress/trace/report and P2-only TEAM_LOG entries. No shared code, dependency manifests, router, auth, Core or backend behavior changes.
+- **Validation:** final Phase 6 commands/results are appended in P2_PHASE_REPORTS.md. Component tests use injected adapters, not live HTTP or production authentication. Build does not mount the P2 pages.
+- **Behavior:** current/historical status, versions/time, allocations/units/need time, fixed bookings/constraints, evidence/freshness, cautious UNKNOWN, error/retry and preserved prior assessment. Impact candidates/classifications/deltas/buffers/dependencies and uncertain causality remain distinct. Valid deterministic repeated assessments are accepted.
+- **Source readiness:** empty Impact Set support is IMPLEMENTED ON P5 BRANCH, PENDING INTEGRATION at verified `a5f99151f2bc88f1c4d2cd530b0243a869a45d9c`. Main remains `4ec2ba1`. Shared auth/query/helpers and generic outbox are unmerged; no integration or supplier-event processing is inferred from them. Historical backend `shared_output_blocker` is not rendered.
+- **Handoff:** PHASE6_HANDOFF.md contains exact route mounting, data projections/public response extensions and adapter/error/version responsibilities. Core-only read seam is injected; no concrete live P2 source is configured. Preview data are authored synthetic illustrations, never persisted or fallback.
+- **Instruction path:** `docs/AGENTS.md` remains absent; canonical root `AGENTS.md` was read and currently identifies MouManTAI. Existing historical notes about its prior branding are preserved below.
+- **Review:** internal read-only code review found historical-only freshness and deterministic-ID incompatibility; test-first corrections are included, plus receipt-time refresh. Independent external Phase 6 review is still required.
+- **Later backend checkpoint:** nonblocking explicit SKU/unit binding test improvements remain recorded, not implemented here. P3 evaluator/ProposedChanges and HTTP-shape owner confirmation remain pending.
+- **Git/gate:** commit SHA/ref verification in phase response. Stop after this checkpoint; do not begin Phase 7.
+
+## Approved Phase 5 checkpoint (historical)
+
 - **Phase:** 5 only — P2 API router and controlled P3/P5 handoff.
 - **State:** PARTIAL. P2-owned typed routes and local API boundary tests are implemented. The internal pure evaluator route delegates to the existing `evaluate()` and fails closed unless P5 supplies internal authorization and authoritative input resolution. Assessment persistence/history, supplier-event/outbox processing, impact persistence, and production router registration remain BLOCKED on P5 interfaces. No Phase 6 work has started.
 - **Branch:** feat/p2-feasibility-engine.
@@ -38,8 +53,8 @@ Local backup ref `backup/p2-before-main-sync-d28b63a` preserves approved P2 HEAD
 | 2 | Decimal ATP, time-phased supply, recursive BOM and unit conversion | PASS — externally approved | Approved `d28b63ab5fa82c66633ad18211b9c4fa83ffbbe4`; 66 regressions pass after Main sync |
 | 3 | Capacity/deadline checks and pure evaluator | PARTIAL — P2-local Phase 3 correction approved; shared output BLOCKED | User approved local correction at `650b702fbbdef3f2f0160db0bf3dc12cad3d2b2c`; empty Impact Set schema and P3/P5 adapters remain pending |
 | 4 | Dependency graph and incremental impact recalculation | PASS — P2-local correction approved; shared integration remains blocked | User approved exact baseline `f6ac87233534f0dc6deef3b5e464e0bd7fd1fd0e`; empty Impact Set and P5 adapters remain open |
-| 5 | Five P2 routes and P3/P5 contract handoff | PARTIAL — P2-local routes and focused tests pass | P5 auth, snapshot authority, router registration, empty Impact Set, assessment history, impact persistence, and transactional event/outbox remain blocked |
-| 6 | Feasibility and impact frontend views | NOT_STARTED | Requires explicit approval after Phase 5 review and shared frontend skeleton |
+| 5 | Five P2 routes and P3/P5 contract handoff | P2-local externally APPROVED at `85d46b2`; shared integration PARTIAL | P5 auth/snapshot/mount/storage/event adapters pending; empty Impact Set implemented on P5 branch, pending integration |
+| 6 | Feasibility and impact frontend views | PARTIAL — P2-local views/tests implemented, external review pending | PHASE6_HANDOFF.md; authenticated public detail/recalculation adapters and P5 route mounting remain blocked |
 | 7 | Mandatory gap closure, integration, metrics, and handoff | NOT_STARTED | Requires explicit approval after Phase 6 review and available P5/P3 integration |
 
 ## Historical Phase 0 interface proposal (superseded locally by PHASE3_HANDOFF.md)
@@ -139,4 +154,7 @@ Phase 2 batch ATP reproduces the material shortage labels in both snapshots. The
 
 ## Next action
 
-Review the Phase 5 report and `PHASE5_HANDOFF.md` independently. P5 must implement and verify the requested shared adapters before any blocked route is described as integrated. P3 must confirm the proposed HTTP request/response shape. Stop here; do not begin Phase 6 until independent Phase 5 review returns `APPROVED — CONTINUE P2`.
+Independently review the Phase 6 report and PHASE6_HANDOFF.md. P5 must approve and
+supply authenticated public detail/recalculation adapters and mount the pages before
+integrated behavior can be claimed. Stop after the Phase 6 checkpoint. Do not begin
+Phase 7 without explicit approval following external review.
