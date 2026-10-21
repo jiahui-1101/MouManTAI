@@ -21,6 +21,8 @@ result = assess_impact(
 
 `assess_impact()` validates immutable copies, builds before/after resource indexes, and re-evaluates each discovered same-tenant candidate with the same P2 `service.evaluate()` used in Phase 3. It does not duplicate ATP/BOM/capacity logic. Incomplete dependency evidence expands discovery only within the tenant and classifies the results UNKNOWN. Resource keys can identify SKU, lot, supplier delivery, production job/resource, order, or commitment paths; only path candidates are evaluated when required graph evidence is complete.
 
+Graph parent-child relationships are candidate-discovery paths, not event-causality proof. Event scope uses exact atomic `ResourceKey` membership: a declared production resource does not also declare its job or plan, a SKU does not also declare a lot or delivery, and an order does not also declare its commitment. A multi-resource event can declare every changed atomic resource with linked evidence. Supplying a child evidence ref alongside only its parent key does not expand scope. If an undeclared changed child could explain an adverse result, the measured before/after delta remains visible but classification is UNKNOWN and no `commitment.at_risk` intent is produced.
+
 ## Results and conservative semantics
 
 `ImpactAssessment` includes the triggering event/correlation IDs, both snapshot IDs/versions, deterministic candidate IDs, discovery completeness, each commitment's before/after versioned evaluator result, actual material shortage and HARD-constraint deltas, positive buffers, evidence refs, dependency paths, reasons, and local event intents. The convenience ID lists mean:
@@ -43,6 +45,8 @@ Deadline HARD severity uses the existing evaluator's calculated production finis
 | Two-affected supplier fixture, material-only | `com-001`: `0→70` (`+70` pcs); `com-002`: `0→40` (`+40` pcs) | Both UNKNOWN; actual Impact Set empty |
 | Same buffered supplier case with complete synthetic production evidence | `com-001` fixed booking becomes INFEASIBLE; `com-002` retains positive buffer | `com-001` CONFIRMED_IMPACT; `com-002` VERIFIED_UNAFFECTED; only `com-001` gets an at-risk intent |
 | Capacity job/resource change with overlap | `JOB_CONFLICT` after only for `com-001` | `com-001` confirmed; buffered `com-002` verified unaffected |
+| Resource rate change plus separately evidenced overlapping job; event declares only resource | `JOB_CONFLICT` is visible; job evidence ref alone does not declare the job | `com-001` UNKNOWN; no at-risk intent. Explicitly declaring resource and job with both refs confirms `com-001` |
+| SKU catalog update plus independently changed same-SKU inventory lot | PATTY shortage is measured `0→60` pcs | SKU-only event UNKNOWN with no at-risk intent; explicitly declaring SKU and lot with linked evidence confirms `com-001` |
 | Capacity calendar window reduction | New `CAPACITY_WINDOW_VIOLATION` on `com-001` booking; later `com-002` booking remains feasible | `com-001` confirmed; `com-002` verified unaffected |
 | Confounded capacity event plus supplier delay | Non-overlapping declared job; unreported receipt delay causes `com-001` PATTY shortage `0→40` | `com-001` UNKNOWN with measured material deterioration and no at-risk intent; `com-002` verified unaffected |
 | Multi-resource capacity event with both jobs declared | Overlapping and non-overlapping jobs each have distinct event evidence | `com-001` confirmed from the overlap; `com-002` verified unaffected |
@@ -75,10 +79,10 @@ From `backend/`:
 
 ```text
 python -B -m pytest -o 'addopts=' app/feasibility/tests/test_impact.py -q -p no:cacheprovider
-22 passed in 0.75s
+24 passed
 
-python -B -m pytest -o 'addopts=' app/feasibility/tests tests -q -p no:cacheprovider
-162 passed, 1 existing Starlette/httpx deprecation warning in 2.46s
+python -m pytest tests app/feasibility/tests -q
+164 passed, 1 existing Starlette/httpx deprecation warning
 ```
 
-The regression tests were first run against the reviewed baseline and reproduced the confounded causal confirmation, valid multi-lot evidence rejection, false new deadline violation on extension, and missed worsening-lateness delta.
+Both final causal-provenance regressions failed against reviewed commit `f5d069e9dad2cd7eb33ce3f3e9c094db0c1706af` by incorrectly returning CONFIRMED_IMPACT, then passed after exact atomic event-scope validation. Earlier correction regressions reproduced the confounded causal confirmation, multi-lot evidence rejection, false deadline impact on extension, and missed worsening-lateness delta. The complete regression command explicitly includes both configured backend `tests/` and P2 `app/feasibility/tests/` roots.

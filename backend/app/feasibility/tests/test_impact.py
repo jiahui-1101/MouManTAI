@@ -98,6 +98,76 @@ def production_for(snapshot):
     })
 
 
+def capacity_rate_and_job_change(before):
+    captured = before.operational.captured_at + timedelta(minutes=30)
+    operational_data = before.operational.model_dump(exclude_computed_fields=True)
+    operational_data.update(snapshot_id="snapshot-rate-and-job-v2", snapshot_version=2,
+                            captured_at=captured)
+    operational_data["sources"] = tuple({**source, "observed_at": captured}
+                                        for source in operational_data["sources"])
+    after_operational = type(before.operational).model_validate(operational_data)
+
+    rate_ref = "p4-rate-change-v2"
+    job_ref = "p4-overlap-job-v2"
+    production_data = before.production.model_dump(exclude_computed_fields=True)
+    production_data["sources"] = tuple(
+        {**source, "observed_at": captured,
+         "evidence_refs": (*source["evidence_refs"], rate_ref)
+         if source["source_id"] == "p4-processes" else source["evidence_refs"]}
+        for source in production_data["sources"]
+    ) + (ProductionSource(
+        source_id="p4-overlap-job-source", tenant_id=after_operational.tenant_id, kind="jobs",
+        source_ref="synthetic://p2/phase4/jobs/overlap", observed_at=captured,
+        valid_through=datetime.fromisoformat("2026-10-26T00:00:00+08:00"), evidence_refs=(job_ref,),
+    ),)
+    production_data["processes"] = tuple(
+        {**process, "minutes_per_unit": "1.01"} if process["process_id"] == "p4-burger" else process
+        for process in production_data["processes"]
+    )
+    production_data["jobs"] = (ProductionJob(
+        job_id="p4-overlap-job", tenant_id=after_operational.tenant_id,
+        resource_ids=("p4-line-1",), start_at=datetime.fromisoformat("2026-10-23T09:00:00+08:00"),
+        end_at=datetime.fromisoformat("2026-10-23T10:00:00+08:00"),
+        source_refs=("p4-overlap-job-source",),
+    ),)
+    after_production = ProductionData.model_validate(production_data)
+    after = EvaluationSnapshot.model_validate({"operational": after_operational,
+        "production": after_production, "as_of": captured, "current_snapshot_version": 2})
+    return before, after, rate_ref, job_ref
+
+
+def sku_and_independent_lot_change(before_snapshot):
+    captured = before_snapshot.captured_at + timedelta(minutes=30)
+    data = before_snapshot.model_dump(exclude_computed_fields=True)
+    data.update(snapshot_id="snapshot-sku-and-lot-v2", snapshot_version=2, captured_at=captured)
+    catalog_ref = "p4-sku-catalog-change-v2"
+    lot_ref = "p4-independent-lot-change-v2"
+    catalog_source = SourceEvidence(
+        source_id="p4-sku-catalog-source", tenant_id=before_snapshot.tenant_id,
+        kind=SourceKind.SKU_CATALOG, source_ref="synthetic://p2/phase4/sku-catalog-change",
+        observed_at=captured, valid_through=datetime.fromisoformat("2026-10-26T00:00:00+08:00"),
+        evidence_refs=(catalog_ref,),
+    )
+    lot_source = SourceEvidence(
+        source_id="p4-independent-lot-source", tenant_id=before_snapshot.tenant_id,
+        kind=SourceKind.INVENTORY, source_ref="synthetic://p2/phase4/inventory/lot-change",
+        observed_at=captured, valid_through=datetime.fromisoformat("2026-10-26T00:00:00+08:00"),
+        evidence_refs=(lot_ref,),
+    )
+    data["sources"] = tuple({**source.model_dump(), "observed_at": captured}
+                            for source in before_snapshot.sources) + (catalog_source, lot_source)
+    data["sku_catalog"] = tuple({**sku.model_dump(), "source_refs": ("p4-sku-catalog-source",)}
+                                if sku.sku_id == "PATTY" else sku.model_dump()
+                                for sku in before_snapshot.sku_catalog)
+    data["inventory_lots"] = tuple(
+        {**lot.model_dump(), "quantity": Decimal("20"), "source_refs": ("p4-independent-lot-source",)}
+        if lot.lot_id == "lot-patty-001" else lot.model_dump()
+        for lot in before_snapshot.inventory_lots
+    )
+    after_operational = type(before_snapshot).model_validate(data)
+    return after_operational, catalog_ref, lot_ref
+
+
 def wrapped(snapshot, production=None):
     return EvaluationSnapshot.model_validate({
         "operational": snapshot, "production": production, "as_of": snapshot.captured_at,
@@ -397,7 +467,7 @@ def test_unchanged_preexisting_shortage_is_not_reported_as_new_impact_or_risk():
     change = OperationalChange(event_id="evt-late-job", tenant_id=after.operational.tenant_id,
         correlation_id="corr-late-job", event_type=OperationalChangeType.CAPACITY_CHANGED,
         occurred_at=captured, before_snapshot_version=1, after_snapshot_version=2,
-        resource_keys=(ResourceKey(kind=ResourceKind.PRODUCTION_RESOURCE, resource_id="p4-line-1"),),
+        resource_keys=(ResourceKey(kind=ResourceKind.PRODUCTION_JOB, resource_id="late-job"),),
         evidence_refs=("synthetic-p4-capacity-change-v2",))
 
     result = assess_impact(before, after, change, before_commitments=core_commitments(before.operational),
@@ -543,7 +613,11 @@ def test_allocation_policy_uncertainty_does_not_become_a_confirmed_impact():
     after_with_conflict = EvaluationSnapshot.model_validate({"operational": after.operational,
         "production": ProductionData.model_validate(conflict_data), "as_of": after.as_of,
         "current_snapshot_version": after.current_snapshot_version})
-    conflict_change = change.model_copy(update={"event_id": "evt-allocation-independent-hard"})
+    conflict_change = change.model_copy(update={
+        "event_id": "evt-allocation-independent-hard",
+        "resource_keys": (ResourceKey(kind=ResourceKind.PRODUCTION_JOB,
+                                       resource_id="independent-hard-conflict"),),
+    })
     conflict_result = assess_impact(before, after_with_conflict, conflict_change,
         before_commitments=core_commitments(before.operational),
         after_commitments=core_commitments(after.operational))
@@ -622,6 +696,83 @@ def test_capacity_event_does_not_claim_concurrent_supplier_shortage_as_its_causa
     assert com1.commitment_id not in result.confirmed_impacted_commitment_ids
     assert not any(intent.event.event_type == "commitment.at_risk" for intent in com1.event_intents)
     assert result.verified_unaffected_commitment_ids == ("com-002",)
+
+
+def test_resource_capacity_event_requires_atomic_job_provenance_for_job_conflict():
+    scenario = build_supplier_delay_scenario()
+    before = production_for(scenario.before)
+    _, after, rate_ref, job_ref = capacity_rate_and_job_change(before)
+    before_core = core_commitments(scenario.before)
+    after_core = core_commitments(scenario.before)
+
+    def assess(resource_keys, evidence_refs):
+        change = OperationalChange(
+            event_id="evt-rate-and-overlap-job", tenant_id=after.operational.tenant_id,
+            correlation_id="corr-rate-and-overlap-job", event_type=OperationalChangeType.CAPACITY_CHANGED,
+            occurred_at=after.operational.captured_at,
+            before_snapshot_version=before.operational.snapshot_version,
+            after_snapshot_version=after.operational.snapshot_version,
+            resource_keys=resource_keys, evidence_refs=evidence_refs,
+        )
+        return assess_impact(before, after, change,
+            before_commitments=before_core, after_commitments=after_core)
+
+    resource_key = ResourceKey(kind=ResourceKind.PRODUCTION_RESOURCE, resource_id="p4-line-1")
+    job_key = ResourceKey(kind=ResourceKind.PRODUCTION_JOB, resource_id="p4-overlap-job")
+    for refs in ((rate_ref,), (rate_ref, job_ref)):
+        result = assess((resource_key,), refs)
+        com1 = next(row for row in result.impacts if row.commitment_id == "com-001")
+        assert com1.before_assessment.status is FeasibilityState.FEASIBLE
+        assert any(row.code == "JOB_CONFLICT" for row in com1.after_assessment.constraints)
+        assert com1.classification is ImpactClassification.UNKNOWN
+        assert "UNATTRIBUTED_CONCURRENT_DEPENDENCY_CHANGE" in com1.reasons
+        assert "com-001" not in result.confirmed_impacted_commitment_ids
+        assert not any(intent.event.event_type == "commitment.at_risk" for intent in com1.event_intents)
+
+    declared_child = assess((resource_key, job_key), (rate_ref, job_ref))
+    com1 = next(row for row in declared_child.impacts if row.commitment_id == "com-001")
+    assert com1.classification is ImpactClassification.CONFIRMED_IMPACT
+    assert declared_child.confirmed_impacted_commitment_ids == ("com-001",)
+    assert declared_child.verified_unaffected_commitment_ids == ("com-002",)
+
+
+def test_sku_event_does_not_claim_independent_same_sku_inventory_deterioration():
+    scenario = build_supplier_delay_scenario()
+    before = production_for(scenario.before)
+    after_operational, catalog_ref, lot_ref = sku_and_independent_lot_change(scenario.before)
+    after = production_for(after_operational)
+    before_core = core_commitments(scenario.before)
+    after_core = core_commitments(after_operational)
+    sku_key = ResourceKey(kind=ResourceKind.SKU, resource_id="PATTY")
+    lot_key = ResourceKey(kind=ResourceKind.INVENTORY_LOT, resource_id="lot-patty-001")
+
+    def assess(resource_keys, evidence_refs, event_suffix):
+        change = OperationalChange(
+            event_id=f"evt-sku-and-lot-{event_suffix}", tenant_id=after_operational.tenant_id,
+            correlation_id=f"corr-sku-and-lot-{event_suffix}",
+            event_type=OperationalChangeType.INVENTORY_CHANGED,
+            occurred_at=after_operational.captured_at,
+            before_snapshot_version=scenario.before.snapshot_version,
+            after_snapshot_version=after_operational.snapshot_version,
+            resource_keys=resource_keys, evidence_refs=evidence_refs,
+        )
+        return assess_impact(before, after, change,
+            before_commitments=before_core, after_commitments=after_core)
+
+    sku_only = assess((sku_key,), (catalog_ref,), "catalog-only")
+    com1 = next(row for row in sku_only.impacts if row.commitment_id == "com-001")
+    patty_delta = next(row for row in com1.material_deltas if row.resource_id == "PATTY")
+    assert patty_delta.delta is not None and patty_delta.delta > 0
+    assert com1.verified_material_deterioration
+    assert com1.classification is ImpactClassification.UNKNOWN
+    assert "UNATTRIBUTED_CONCURRENT_DEPENDENCY_CHANGE" in com1.reasons
+    assert "com-001" not in sku_only.confirmed_impacted_commitment_ids
+    assert not any(intent.event.event_type == "commitment.at_risk" for intent in com1.event_intents)
+
+    accepted_batch = assess((sku_key, lot_key), (catalog_ref, lot_ref), "catalog-and-lot")
+    accepted_com1 = next(row for row in accepted_batch.impacts if row.commitment_id == "com-001")
+    assert accepted_com1.classification is ImpactClassification.CONFIRMED_IMPACT
+    assert accepted_batch.confirmed_impacted_commitment_ids == ("com-001",)
 
 
 def test_multi_resource_capacity_event_confirms_when_all_changed_jobs_are_declared():

@@ -628,54 +628,15 @@ def _changed_resource_keys(before: EvaluationSnapshot, after: EvaluationSnapshot
     return tuple(sorted(changed, key=_resource_sort_key))
 
 
-def _change_covers_resource(key: ResourceKey, change: OperationalChange,
-                            before: EvaluationSnapshot, after: EvaluationSnapshot,
-                            before_commitments: tuple[Commitment, ...],
-                            after_commitments: tuple[Commitment, ...]) -> bool:
-    if key in change.resource_keys:
-        return True
-    if key.kind is ResourceKind.PRODUCTION_JOB:
-        jobs = [row for snapshot in (before, after) if snapshot.production
-                for row in (snapshot.production.jobs or ()) if row.job_id == key.resource_id]
-        return any(declared.kind is ResourceKind.PRODUCTION_RESOURCE
-                   and declared.resource_id in job.resource_ids
-                   for declared in change.resource_keys for job in jobs)
-    if key.kind is ResourceKind.PRODUCTION_PLAN:
-        commitment_id, _, line_id = key.resource_id.partition("/")
-        plan_resources = set()
-        for snapshot in (before, after):
-            if snapshot.production is None:
-                continue
-            plan = next((row for row in snapshot.production.plans
-                         if row.commitment_id == commitment_id and row.line_id == line_id), None)
-            committed = next((row for row in snapshot.operational.confirmed_commitments
-                              if row.commitment_id == commitment_id), None)
-            if plan is None or committed is None:
-                continue
-            line = next((row for row in committed.lines if row.line_id == line_id), None)
-            process = next((row for row in snapshot.production.processes
-                            if line is not None and row.sku_id == line.sku_id), None)
-            if process is not None:
-                plan_resources.update(process.resource_ids)
-        return any(declared.kind is ResourceKind.PRODUCTION_RESOURCE
-                   and declared.resource_id in plan_resources for declared in change.resource_keys)
-    if key.kind is ResourceKind.COMMITMENT:
-        core = [row for row in (*before_commitments, *after_commitments)
-                if row.commitment_id == key.resource_id]
-        return any(declared.kind is ResourceKind.ORDER
-                   and any(row.order_id == declared.resource_id for row in core)
-                   for declared in change.resource_keys)
-    if key.kind in (ResourceKind.INVENTORY_LOT, ResourceKind.SUPPLIER_DELIVERY):
-        sku_ids = set()
-        for snapshot in (before, after):
-            rows = (snapshot.operational.inventory_lots if key.kind is ResourceKind.INVENTORY_LOT
-                    else snapshot.operational.incoming_deliveries)
-            sku_ids.update(row.sku_id for row in rows
-                           if (row.lot_id if key.kind is ResourceKind.INVENTORY_LOT else row.delivery_id)
-                           == key.resource_id)
-        return any(declared.kind is ResourceKind.SKU and declared.resource_id in sku_ids
-                   for declared in change.resource_keys)
-    return False
+def _change_covers_resource(key: ResourceKey, change: OperationalChange) -> bool:
+    """Only an explicitly declared atomic resource is in the event's causal scope.
+
+    Graph relationships find candidates; they do not establish that a parent
+    event also changed every related job, plan, commitment, lot, or delivery.
+    Multi-resource batches remain supported by declaring each changed resource
+    key and providing linked evidence for each one.
+    """
+    return key in change.resource_keys
 
 
 def _after_key_evidence(snapshot: EvaluationSnapshot, commitments: tuple[Commitment, ...],
@@ -1105,7 +1066,7 @@ def assess_impact(before: EvaluationSnapshot, after: EvaluationSnapshot,
     candidate_ids = tuple(sorted(candidates))
     changed_keys = _changed_resource_keys(before, after, before_core, after_core)
     unreported_keys = tuple(key for key in changed_keys
-        if not _change_covers_resource(key, change, before, after, before_core, after_core))
+        if not _change_covers_resource(key, change))
     unreported_candidate_ids: set[str] = set()
     for graph in (before_graph, after_graph):
         for path in graph.paths_from(unreported_keys):
