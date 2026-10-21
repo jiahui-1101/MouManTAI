@@ -10,10 +10,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .association_service import StaleAssociationVersion
+from .attachment_validator import AttachmentLimitExceeded, InvalidAttachmentPayload, UnsupportedAttachmentType
 from .dependencies import development_context, local_repository
 from .ingestion import TenantMismatch, UnsupportedSyntheticChannel
 from .repository import (
     AssociationNotFound,
+    AttachmentNotFound,
     ContextNotFound,
     DuplicateConflict,
     ExtractionNotFound,
@@ -38,6 +40,10 @@ def register_p1_errors(app: FastAPI) -> None:
         StaleAssociationVersion: (409, "Stale association version; refresh before updating"),
         ContextNotFound: (404, "Order context not found"),
         StaleContextVersion: (409, "Stale context version; refresh before updating"),
+        AttachmentNotFound: (404, "Attachment not found"),
+        InvalidAttachmentPayload: (400, "Invalid attachment payload"),
+        AttachmentLimitExceeded: (413, "Attachment file size exceeds maximum allowed limit"),
+        UnsupportedAttachmentType: (415, "Unsupported attachment format"),
     }
     for exception_type, (status, detail) in errors.items():
         def handler(request: Request, exc: Exception, *, status=status, detail=detail, etype=exception_type):

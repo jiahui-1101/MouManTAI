@@ -1,12 +1,14 @@
-"""Provisional P1 routes. All calls use the server-side development tenant."""
-
+import hashlib
 from typing import Annotated
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Response, UploadFile
 
 from .association_schemas import AssociationDecisionRequest, MessageAssociationRecord
 from .association_service import AssociationService
+from .attachment_validator import validate_attachment
 from .context_service import ContextService
+from .document_schemas import AttachmentRecord, DocumentExtractionResult
 from .dependencies import development_context, local_repository
 from .ingestion import IngestionService
 from .ingestion_schemas import (
@@ -206,4 +208,61 @@ def list_context_reviews(context_id: str, tenant: Tenant, repository: Repository
     if ctx is None:
         raise HTTPException(status_code=404, detail="Order context not found")
     return repository.list_context_reviews(tenant.tenant_id, context_id)
+
+
+@router.post("/v1/attachments/upload", response_model=AttachmentRecord, status_code=201,
+             responses={**errors, 400: {"model": ApiError}, 413: {"model": ApiError}, 415: {"model": ApiError}})
+async def upload_attachment(
+    tenant: Tenant,
+    repository: Repository,
+    file: UploadFile = File(...),
+) -> AttachmentRecord:
+    content = await file.read()
+    media_type, filename = validate_attachment(file.filename or "attachment.bin", content, file.content_type)
+    content_sha256 = hashlib.sha256(content).hexdigest()
+    attachment_id = f"att_{uuid4().hex[:12]}"
+    evidence_ref = f"ev_att_{uuid4().hex[:12]}"
+
+    record = AttachmentRecord(
+        attachment_id=attachment_id,
+        tenant_id=tenant.tenant_id,
+        evidence_ref=evidence_ref,
+        filename=filename,
+        media_type=media_type,
+        size_bytes=len(content),
+        content_sha256=content_sha256,
+    )
+    return repository.save_attachment(tenant.tenant_id, record, content)
+
+
+@router.get("/v1/attachments/{evidence_ref}/content",
+            responses={**errors, 404: {"model": ApiError}})
+def get_attachment_content(
+    evidence_ref: str,
+    tenant: Tenant,
+    repository: Repository,
+) -> Response:
+    res = repository.get_attachment(tenant.tenant_id, evidence_ref)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    rec, content = res
+    return Response(
+        content=content,
+        media_type=rec.media_type,
+        headers={"Content-Disposition": f'inline; filename="{rec.filename}"'},
+    )
+
+
+@router.get("/v1/attachments/{evidence_ref}/metadata", response_model=AttachmentRecord,
+            responses={**errors, 404: {"model": ApiError}})
+def get_attachment_metadata(
+    evidence_ref: str,
+    tenant: Tenant,
+    repository: Repository,
+) -> AttachmentRecord:
+    res = repository.get_attachment(tenant.tenant_id, evidence_ref)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    rec, _ = res
+    return rec
 

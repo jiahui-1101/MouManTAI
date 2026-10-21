@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from .association_schemas import AssociationDecisionRequest, MessageAssociationRecord
+from .attachment_validator import AttachmentLimitExceeded, InvalidAttachmentPayload, UnsupportedAttachmentType
+from .document_schemas import AttachmentRecord, DocumentExtractionResult
 from .ingestion_schemas import ExtractionAttemptRecord, IngestResponse, MessagePage, ProcessResponse, StoredMessage
 from .order_context_schemas import (
     ContextReviewRecord,
@@ -48,6 +49,10 @@ class StaleContextVersion(Exception):
     """The requested expected_context_version does not match the current version."""
 
 
+class AttachmentNotFound(Exception):
+    """The requested attachment does not exist in the tenant scope."""
+
+
 class MessageRepository(Protocol):
     def ingest(self, envelope: RawMessageEnvelope, now: datetime) -> IngestResponse: ...
     def get(self, tenant_id: str, message_id: str) -> StoredMessage | None: ...
@@ -67,4 +72,8 @@ class MessageRepository(Protocol):
     def apply_context_review(self, tenant_id: str, context_id: str, request: ContextReviewRequest, actor_id: str, actor_role: str) -> OrderContextRecord: ...
     def list_context_versions(self, tenant_id: str, context_id: str) -> list[OrderContextVersionRecord]: ...
     def list_context_reviews(self, tenant_id: str, context_id: str) -> list[ContextReviewRecord]: ...
+    def save_attachment(self, tenant_id: str, attachment: AttachmentRecord, content: bytes) -> AttachmentRecord: ...
+    def get_attachment(self, tenant_id: str, evidence_ref: str) -> tuple[AttachmentRecord, bytes] | None: ...
+    def save_document_extraction(self, tenant_id: str, extraction: DocumentExtractionResult) -> DocumentExtractionResult: ...
+    def get_document_extraction(self, tenant_id: str, evidence_ref: str) -> DocumentExtractionResult | None: ...
 

@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, Index, String, UniqueConstraint, desc, func, or_, select
+from sqlalchemy import CheckConstraint, DateTime, Index, LargeBinary, String, Text, UniqueConstraint, desc, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
@@ -22,6 +22,7 @@ from .association_schemas import (
     MessageAssociationRecord,
     OrderReference,
 )
+from .document_schemas import AttachmentRecord, DocumentEvidence, DocumentExtractionResult
 from .deterministic_extraction import PROVISIONAL_PRODUCTS, VERSION, extract_explicit_fields
 from .ingestion_schemas import ExtractionAttemptRecord, IngestResponse, MessagePage, ProcessResponse, StoredMessage
 from .order_context_schemas import (
@@ -182,6 +183,41 @@ class ContextReview(P1Base):
     note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
+
+class AttachmentModel(P1Base):
+    __tablename__ = "attachments"
+    __table_args__ = (
+        Index("ix_p1_attachments_evidence_ref", "tenant_id", "evidence_ref", unique=True),
+        {"schema": "p1_dev"},
+    )
+
+    attachment_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    evidence_ref: Mapped[str] = mapped_column(String(100), nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DocumentExtractionModel(P1Base):
+    __tablename__ = "document_extractions"
+    __table_args__ = (
+        Index("ix_p1_doc_extractions_att", "tenant_id", "attachment_id"),
+        {"schema": "p1_dev"},
+    )
+
+    tenant_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    evidence_ref: Mapped[str] = mapped_column(String(100), primary_key=True)
+    attachment_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    document_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    page_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    text_content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 def fingerprint(envelope: RawMessageEnvelope) -> str:
@@ -907,6 +943,130 @@ class PostgresMessageRepository:
                     ).order_by(ContextReview.created_at.desc())
                 ).all()
                 return [context_review_record(r) for r in rows]
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def save_attachment(self, tenant_id: str, attachment: AttachmentRecord, content: bytes) -> AttachmentRecord:
+        try:
+            with Session(self.engine) as session:
+                stmt = select(AttachmentModel).where(
+                    AttachmentModel.tenant_id == tenant_id,
+                    AttachmentModel.evidence_ref == attachment.evidence_ref,
+                )
+                existing = session.execute(stmt).scalar_one_or_none()
+                if existing:
+                    existing.filename = attachment.filename
+                    existing.media_type = attachment.media_type
+                    existing.size_bytes = attachment.size_bytes
+                    existing.content_sha256 = attachment.content_sha256
+                    existing.content = content
+                else:
+                    record = AttachmentModel(
+                        attachment_id=attachment.attachment_id,
+                        tenant_id=tenant_id,
+                        evidence_ref=attachment.evidence_ref,
+                        filename=attachment.filename,
+                        media_type=attachment.media_type,
+                        size_bytes=attachment.size_bytes,
+                        content_sha256=attachment.content_sha256,
+                        content=content,
+                        created_at=attachment.created_at,
+                    )
+                    session.add(record)
+                session.commit()
+                return attachment
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def get_attachment(self, tenant_id: str, evidence_ref: str) -> tuple[AttachmentRecord, bytes] | None:
+        try:
+            with Session(self.engine) as session:
+                stmt = select(AttachmentModel).where(
+                    AttachmentModel.tenant_id == tenant_id,
+                    AttachmentModel.evidence_ref == evidence_ref,
+                )
+                row = session.execute(stmt).scalar_one_or_none()
+                if not row:
+                    return None
+                rec = AttachmentRecord(
+                    attachment_id=row.attachment_id,
+                    tenant_id=row.tenant_id,
+                    evidence_ref=row.evidence_ref,
+                    filename=row.filename,
+                    media_type=row.media_type,
+                    size_bytes=row.size_bytes,
+                    content_sha256=row.content_sha256,
+                    created_at=row.created_at,
+                )
+                return rec, bytes(row.content)
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def save_document_extraction(self, tenant_id: str, extraction: DocumentExtractionResult) -> DocumentExtractionResult:
+        try:
+            with Session(self.engine) as session:
+                stmt = select(DocumentExtractionModel).where(
+                    DocumentExtractionModel.tenant_id == tenant_id,
+                    DocumentExtractionModel.evidence_ref == extraction.evidence_ref,
+                )
+                existing = session.execute(stmt).scalar_one_or_none()
+                payload = {
+                    "extracted_fields": extraction.extracted_fields,
+                    "evidence_items": [ev.model_dump(mode="json") for ev in extraction.evidence_items],
+                    "is_payment_notice": extraction.is_payment_notice,
+                    "diagnostic": extraction.diagnostic,
+                }
+                if existing:
+                    existing.status = extraction.status
+                    existing.document_type = extraction.document_type
+                    existing.page_count = extraction.page_count
+                    existing.text_content = extraction.text_content
+                    existing.payload = payload
+                else:
+                    record = DocumentExtractionModel(
+                        tenant_id=tenant_id,
+                        evidence_ref=extraction.evidence_ref,
+                        attachment_id=extraction.attachment_id,
+                        status=extraction.status,
+                        document_type=extraction.document_type,
+                        page_count=extraction.page_count,
+                        text_content=extraction.text_content,
+                        payload=payload,
+                        created_at=extraction.extracted_at,
+                    )
+                    session.add(record)
+                session.commit()
+                return extraction
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def get_document_extraction(self, tenant_id: str, evidence_ref: str) -> DocumentExtractionResult | None:
+        try:
+            with Session(self.engine) as session:
+                stmt = select(DocumentExtractionModel).where(
+                    DocumentExtractionModel.tenant_id == tenant_id,
+                    DocumentExtractionModel.evidence_ref == evidence_ref,
+                )
+                row = session.execute(stmt).scalar_one_or_none()
+                if not row:
+                    return None
+                payload = row.payload or {}
+                evidence_items = [
+                    DocumentEvidence(**item) for item in payload.get("evidence_items", [])
+                ]
+                return DocumentExtractionResult(
+                    attachment_id=row.attachment_id,
+                    evidence_ref=row.evidence_ref,
+                    status=row.status,  # type: ignore
+                    document_type=row.document_type,  # type: ignore
+                    page_count=row.page_count,
+                    text_content=row.text_content,
+                    extracted_fields=payload.get("extracted_fields", []),
+                    evidence_items=evidence_items,
+                    is_payment_notice=payload.get("is_payment_notice", False),
+                    diagnostic=payload.get("diagnostic"),
+                    extracted_at=row.created_at,
+                )
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
 
