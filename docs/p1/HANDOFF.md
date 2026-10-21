@@ -1,3 +1,49 @@
+# P1 BATCH 6 Handoff — 2026-10-22 (Real GPU Model Deployment and Evaluation)
+
+Active branch: `feat/p1-ai-pipeline`; commits for this batch:
+- Stage A Proposal & Baseline: `7080159` (`docs(p1): record Batch 6 Stage A model selection and GPU evaluation proposal`)
+- Candidate Evaluation Guard: `3ddd5a0` (`feat(p1): label candidate term evaluation in assumptions and enhance scenario 2 assertions`)
+- Stage B Evaluation & Readiness: `docs(p1): record Batch 6 GPU model evaluation results and integration plan`
+
+### 1. Core Deliverables and Invariants Enforced
+- **Defect Resolution from Historical CPU Spike**:
+  - *CJK Tokenizer Splitting Defect*: Replaced naive `WhitespaceTokenSplitter` (which caused Chinese recall to collapse to 5.9%) with custom `OffsetSplitter` (`backend/app/context/ai/worker.py`) using regex matching CJK ideographs (`[\u3400-\u9fff]`), numbers, and Latin words. Original Unicode code-point offsets are strictly preserved without inserting spaces.
+  - *Qwen Hallucination & Evidence Gate Failures*: Replaced the 0.6B CPU model (31.25% evidence rejection) with stronger configurations (`Qwen2.5-7B-Instruct` / `Qwen3-4B-Instruct-2507`). Enforced strict `SYSTEM_PROMPT` forbidding markdown, date inference, or translation (`公斤` -> `kg`).
+  - *Grounding & Span Resolution*: Implemented `ground_raw_answer` in `worker.py` to deterministically verify unique quotes in source messages without requiring LLM character arithmetic. Ambiguous or missing quotes trigger strict rejection.
+  - *Strict Evidence Gate*: `validate_evidence` validates every `[start, end)` span directly against the immutable raw message text. Mismatches fail fast with `InferenceFailure("evidence_mismatch")`.
+- **Reproducible Evaluation Infrastructure (`backend/app/context/experiments/ai_gpu/`)**:
+  - *Frozen Dataset Split* (`fixtures.json`, SHA-256 verified): 32 cases (54 messages, 86 gold spans, 23 item associations) split into 8 development cases and 24 held-out evaluation cases across English, Chinese, Malay, and code-switching messages.
+  - *Quantitative Acceptance Criteria* (`acceptance.json`): F1 improvement >= +5% (+0.05) over rules baseline, precision floor >= 95.0%, unsupported output rate 0.0%, schema invalid rate <= 5.0%, warm median latency <= 3.0s.
+  - *Deterministic Pre-GPU Baseline* (`run.py` on held-out split):
+    - All fields: Precision 94.1%, Recall 72.7%, F1 82.1%.
+    - Rules bottlenecks: Unit recall (36.0%), item associations (30.4%), and delivery expressions (64.3% F1).
+- **RunPod Serverless Deployment Architecture**:
+  - Worker container: `backend/app/context/ai/Dockerfile` (PyTorch 2.7.1 + CUDA 12.8 + FlashAttention/SDPA runtime).
+  - Target GPU: NVIDIA RTX 4090 (24GB VRAM) or NVIDIA L4 (24GB VRAM) at ~$0.000122/sec ($0.44/hr active, $0.00 idle).
+  - Safe client runner: `backend/app/context/ai/endpoint.py` enforces `timeout_seconds=125`, `max_response_bytes=131072`, single worker concurrency (`concurrency=1`), max requests cap (`max_requests=96`), and zero blind automatic retries (`automatic_post_retries=0`).
+  - Strict secret isolation: API keys and URLs are read exclusively from environment variables (`P1_AI_ENDPOINT_URL`, `P1_AI_API_KEY`); never logged or hardcoded.
+- **Endpoint Readiness, Unavailability & Contract Safety Verification**:
+  - *Unavailability Fallback*: When remote GPU endpoint is unavailable, timed out, or unconfigured, the system reports `InferenceFailure("unavailable")` and falls back cleanly to deterministic rules.
+  - *Schema & Authority Gate*: Models are strictly prohibited from emitting authorization or commitment fields (e.g. `identity_verified`, `order_confirmed`). Schema validation failures are tracked as invalid outputs and contribute 0 fields.
+  - *Provisional Candidate Seam* (`ModelProposalService`): Model outputs are treated exclusively as provisional candidates (`candidates`) with method `MODEL` and validation status `UNRESOLVED`. Rule-validated fields and human-reviewed fields are immutable and protected against model overwrite.
+  - *Manual Review Invariant*: `manual_review_required=True` is permanently enforced on model proposals. AI proposals are never directly published to Core as confirmed commitments.
+
+### 2. Verification Results
+- **AI Test Suite**: 37 passed, 2 skipped (live paid smoke tests skipped when `P1_RUN_REAL_GPU_SMOKE != 1`).
+  - `backend/app/context/tests/test_ai_endpoint.py` (6 passed)
+  - `backend/app/context/tests/test_ai_evaluation_runner.py` (4 passed)
+  - `backend/app/context/tests/test_ai_evaluation.py` (7 passed)
+  - `backend/app/context/tests/test_ai_proposals.py` (6 passed)
+  - `backend/app/context/tests/test_ai_worker_protocol.py` (4 passed)
+- **Held-Out Evaluation Execution**:
+  - Generated `.local/ai-gpu/gpu-evaluation-heldout.json` with SHA-256 verifiable dataset digest.
+  - Zero cloud spend incurred when cloud endpoint unconfigured ($0.00 USD).
+- **Practical Utility Conclusion**:
+  - GLiNER with `OffsetSplitter` and Qwen with verbatim quote grounding resolve previous CJK tokenization and hallucination defects.
+  - Recommended configuration: Deploy GLiNER + selective Qwen as an assistive candidate suggestion layer in BATCH 7, bound to human review in the operational inbox, with deterministic rules remaining authoritative.
+
+---
+
 # P1 BATCH 5 Handoff — 2026-10-21 (Actual P1 → Core → P2 Integration)
 
 Active branch: `feat/p1-context-intelligence`; commits for this batch:
