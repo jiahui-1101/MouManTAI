@@ -388,3 +388,20 @@ export interface RecordFulfilmentRequest {
   causation_id?: string | null;
 }
 
+export interface RecoveryStartRequest {
+  expected_commitment_version: number;
+  reason: string;
+  causation_id?: string | null;
+}
+
+export interface RecoveryExecuteRequest {
+  expected_commitment_version: number;
+  plan: RecoveryPlan;
+  current_snapshot_version: number;
+  approved_at: ISO8601;
+  approval_expires_at: ISO8601;
+  revised_terms?: CommitmentTerms | null;
+  reason: string;
+  causation_id?: string | null;
+}
+

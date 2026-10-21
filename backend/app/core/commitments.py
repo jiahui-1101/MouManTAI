@@ -80,19 +80,44 @@ def build_attention_queue(
 
         # 4. Awaiting customer confirmation on offered proposal
         if c.agreement_state == AgreementState.OFFERED.value:
+            is_ambiguous = bool(c.terms.get("confirmation_ambiguous")) if isinstance(c.terms, dict) else False
+            summary = (
+                f"Commitment {c.commitment_id} received ambiguous customer confirmation; clarification required"
+                if is_ambiguous
+                else f"Commitment {c.commitment_id} proposal offered; awaiting customer confirmation"
+            )
+            severity = AttentionSeverity.HIGH if is_ambiguous else AttentionSeverity.MEDIUM
             items.append(
                 AttentionItem(
                     commitment_id=c.commitment_id,
                     order_id=c.order_id,
                     category=AttentionCategory.UNRESOLVED_CONFIRMATION,
-                    severity=AttentionSeverity.MEDIUM,
-                    summary=f"Commitment {c.commitment_id} proposal offered; awaiting customer confirmation",
+                    severity=severity,
+                    summary=summary,
                     deep_link_path=f"/confirmations/{c.commitment_id}",
                     updated_at=dt,
                 )
             )
 
-        # 5. At Risk or Breached without pending approval already flagged
+        # 5. Unresolved context conflicts or missing fields on requested commitment
+        if (
+            c.agreement_state == AgreementState.REQUESTED.value
+            and isinstance(c.terms, dict)
+            and (c.terms.get("conflicts") or c.terms.get("missing_fields") or c.terms.get("requires_manual_review"))
+        ):
+            items.append(
+                AttentionItem(
+                    commitment_id=c.commitment_id,
+                    order_id=c.order_id,
+                    category=AttentionCategory.MANUAL_REVIEW,
+                    severity=AttentionSeverity.HIGH,
+                    summary=f"Commitment {c.commitment_id} has context conflicts or missing fields; manual review required",
+                    deep_link_path=f"/orders/{c.order_id}",
+                    updated_at=dt,
+                )
+            )
+
+        # 6. At Risk or Breached without pending approval already flagged
         if c.risk_state in (RiskState.AT_RISK.value, RiskState.BREACHED.value):
             if c.recovery_state not in (
                 RecoveryState.PENDING_APPROVAL.value,
@@ -248,7 +273,15 @@ def get_overview(db: Session, context: RequestContext) -> OverviewResponse:
             recovery_state=RecoveryState(c.recovery_state),
             fulfilment_state=FulfilmentState(c.fulfilment_state),
             commitment_version=c.commitment_version,
-            terms=CommitmentTerms.model_validate(c.terms),
+            terms=CommitmentTerms.model_validate(
+                {
+                    k: v
+                    for k, v in c.terms.items()
+                    if k in {"sku", "quantity", "unit", "deadline", "special_instructions"}
+                }
+                if isinstance(c.terms, dict)
+                else c.terms
+            ),
             evidence_refs=c.evidence_refs or [],
             updated_at=_aware(c.updated_at),
         )

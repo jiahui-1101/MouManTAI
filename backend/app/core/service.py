@@ -11,7 +11,7 @@ from .commitments import get_overview
 from .dependencies import RequestContext
 from .errors import DomainError
 from .events import CoreEventType, OutboxStatus
-from .models import AuditEventRecord, CommitmentRecord, OutboxEventRecord
+from .models import AuditEventRecord, CommitmentProposalRecord, CommitmentRecord, OutboxEventRecord
 from .schemas import (
     AgreementState,
     AuditEvent,
@@ -19,7 +19,9 @@ from .schemas import (
     CommitmentCreateRequest,
     CommitmentTransitionRequest,
     CommitmentTransitionResponse,
+    CustomerIdentityStatus,
     DomainEvent,
+    FeasibilityAssessment,
     FeasibilityState,
     FulfilmentState,
     OverviewResponse,
@@ -103,13 +105,20 @@ def _commitment_snapshot(record: CommitmentRecord) -> dict[str, object]:
 
 
 def _to_commitment(record: CommitmentRecord) -> Commitment:
+    terms_dict = record.terms
+    if isinstance(terms_dict, dict):
+        terms_dict = {
+            k: v
+            for k, v in terms_dict.items()
+            if k in {"sku", "quantity", "unit", "deadline", "special_instructions"}
+        }
     return Commitment.model_validate(
         {
             "tenant_id": record.tenant_id,
             "commitment_id": record.commitment_id,
             "order_id": record.order_id,
             "customer_id": record.customer_id,
-            "terms": record.terms,
+            "terms": terms_dict,
             "agreement_state": record.agreement_state,
             "feasibility_state": record.feasibility_state,
             "risk_state": record.risk_state,
@@ -120,6 +129,7 @@ def _to_commitment(record: CommitmentRecord) -> Commitment:
             "updated_at": _aware(record.updated_at),
         }
     )
+
 
 
 def _to_audit(record: AuditEventRecord, role: str = "STAFF") -> AuditEvent:
@@ -375,6 +385,31 @@ class CommitmentService:
         proposal_id = request.proposal_id or _id("prop")
         previous_state = _commitment_snapshot(record)
 
+        # Mark existing active proposals for this commitment as SUPERSEDED
+        existing_active = db.scalars(
+            select(CommitmentProposalRecord).where(
+                CommitmentProposalRecord.tenant_id == context.tenant_id,
+                CommitmentProposalRecord.commitment_id == commitment_id,
+                CommitmentProposalRecord.status == "ACTIVE",
+            )
+        ).all()
+        for p in existing_active:
+            p.status = "SUPERSEDED"
+            p.updated_at = _now()
+
+        proposal_record = CommitmentProposalRecord(
+            tenant_id=context.tenant_id,
+            proposal_id=proposal_id,
+            commitment_id=commitment_id,
+            proposal_version=request.proposal_version,
+            revised_terms=request.revised_terms.model_dump(mode="json") if request.revised_terms else None,
+            status="ACTIVE",
+            reason=request.reason,
+            evidence_refs=request.evidence_refs,
+            created_at=_now(),
+            updated_at=_now(),
+        )
+
         record.agreement_state = AgreementState.OFFERED.value
         if request.revised_terms is not None:
             record.terms = request.revised_terms.model_dump(mode="json")
@@ -413,7 +448,7 @@ class CommitmentService:
             causation_id=causation_id,
         )
         try:
-            db.add_all([audit, event])
+            db.add_all([audit, event, proposal_record])
             db.commit()
             db.refresh(record)
         except Exception:
@@ -465,13 +500,62 @@ class CommitmentService:
         if not request.evidence_refs:
             raise DomainError("EVIDENCE_REQUIRED", "Confirmation evidence is required", status_code=422)
 
+        # Check latest proposal version (E2E-06: reject stale signed confirmation)
+        latest_proposal = db.scalars(
+            select(CommitmentProposalRecord)
+            .where(
+                CommitmentProposalRecord.tenant_id == context.tenant_id,
+                CommitmentProposalRecord.commitment_id == commitment_id,
+            )
+            .order_by(CommitmentProposalRecord.proposal_version.desc())
+        ).first()
+
+        if latest_proposal is not None and request.proposal_version != latest_proposal.proposal_version:
+            raise DomainError(
+                "STALE_PROPOSAL_VERSION",
+                f"Proposal version {request.proposal_version} is stale; latest active version is {latest_proposal.proposal_version}",
+                status_code=409,
+                details={
+                    "active_proposal_version": latest_proposal.proposal_version,
+                    "submitted_proposal_version": request.proposal_version,
+                },
+            )
+
+        # Check customer identity link
+        if request.customer_identity_status == CustomerIdentityStatus.UNVERIFIED or (
+            isinstance(record.terms, dict)
+            and record.terms.get("customer_identity_status") == CustomerIdentityStatus.UNVERIFIED.value
+        ):
+            raise DomainError(
+                "UNVERIFIED_IDENTITY",
+                "Customer identity must be verified before confirming proposal",
+                status_code=422,
+            )
+
+        # Invariant: OCR receipt alone never confirms a commitment (UT-09)
+        if all(ref.startswith("ev_receipt_") or "receipt" in ref.lower() for ref in request.evidence_refs):
+            raise DomainError(
+                "RECEIPT_CANNOT_CONFIRM",
+                "Receipt evidence alone cannot confirm a commitment; signed agreement or confirmation required",
+                status_code=422,
+            )
+
         previous_state = _commitment_snapshot(record)
         if request.decision == "ACCEPT":
             record.agreement_state = AgreementState.CONFIRMED.value
+            if latest_proposal is not None and latest_proposal.revised_terms:
+                record.terms = latest_proposal.revised_terms
+            if latest_proposal is not None:
+                latest_proposal.status = "ACCEPTED"
+                latest_proposal.updated_at = _now()
             event_type = CoreEventType.COMMITMENT_CONFIRMED.value
         else:
             record.agreement_state = AgreementState.REJECTED.value
-            event_type = CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value
+            record.recovery_state = RecoveryState.RECOVERY_REQUIRED.value
+            if latest_proposal is not None:
+                latest_proposal.status = "REJECTED"
+                latest_proposal.updated_at = _now()
+            event_type = CoreEventType.COMMITMENT_PROPOSAL_REJECTED.value
 
         record.commitment_version += 1
         record.updated_at = _now()
@@ -554,6 +638,41 @@ class CommitmentService:
         if not request.evidence_refs:
             raise DomainError("EVIDENCE_REQUIRED", "Operational fulfilment evidence is required", status_code=422)
 
+        # Operational delivery evidence verification (BE-02h, UT-10, E2E-12)
+        trusted_delivery = any(
+            ref.startswith("ev_ops_delivery_")
+            or ref.startswith("ev_pod_")
+            or ref.startswith("ev_delivery_")
+            or ref.startswith("ev_ops_")
+            or ref.startswith("ev_shipping_")
+            or "delivery" in ref.lower()
+            or "delivered" in ref.lower()
+            or "pod" in ref.lower()
+            for ref in request.evidence_refs
+        )
+        is_only_receipt_or_msg = all(
+            (
+                ref.startswith("ev_receipt_")
+                or ref.startswith("ev_msg_")
+                or ref.startswith("ev_chat_")
+                or ref.startswith("ev_ocr_")
+                or "receipt" in ref.lower()
+            )
+            and not (
+                "delivery" in ref.lower()
+                or "delivered" in ref.lower()
+                or "pod" in ref.lower()
+                or "ops" in ref.lower()
+            )
+            for ref in request.evidence_refs
+        )
+        if not trusted_delivery or is_only_receipt_or_msg:
+            raise DomainError(
+                "INVALID_FULFILMENT_EVIDENCE",
+                "Trusted operational delivery evidence (e.g. ev_ops_delivery_* or ev_pod_*) is required for fulfilment",
+                status_code=422,
+            )
+
         if record.agreement_state != AgreementState.CONFIRMED.value:
             raise DomainError(
                 "INVALID_STATE_TRANSITION",
@@ -570,6 +689,8 @@ class CommitmentService:
 
         previous_state = _commitment_snapshot(record)
         record.fulfilment_state = request.fulfilment_state
+        if request.fulfilment_state == FulfilmentState.FULFILLED.value:
+            record.risk_state = RiskState.RESOLVED.value
         record.commitment_version += 1
         record.updated_at = _now()
         record.evidence_refs = list(dict.fromkeys([*record.evidence_refs, *request.evidence_refs]))
@@ -616,6 +737,150 @@ class CommitmentService:
             audit_event=_to_audit(audit, role=context.actor_role),
             domain_event=_to_event(event),
         )
+
+    def assess(
+        self,
+        db: Session,
+        context: RequestContext,
+        commitment_id: str,
+        assessment: FeasibilityAssessment,
+    ) -> Commitment:
+        record = db.scalar(
+            select(CommitmentRecord)
+            .where(
+                CommitmentRecord.tenant_id == context.tenant_id,
+                CommitmentRecord.commitment_id == commitment_id,
+            )
+            .with_for_update()
+        )
+        if record is None:
+            raise DomainError("COMMITMENT_NOT_FOUND", "Commitment not found", status_code=404)
+
+        if assessment.commitment_version != record.commitment_version:
+            raise DomainError(
+                "COMMITMENT_VERSION_CONFLICT",
+                f"Assessment commitment version {assessment.commitment_version} does not match current commitment version {record.commitment_version}",
+                status_code=409,
+                details={"current_commitment_version": record.commitment_version},
+            )
+
+        previous_state = _commitment_snapshot(record)
+        record.feasibility_state = assessment.status.value
+        if assessment.evidence_refs:
+            record.evidence_refs = list(dict.fromkeys([*record.evidence_refs, *assessment.evidence_refs]))
+
+        causation_id = context.causation_id
+        if record.agreement_state == AgreementState.CONFIRMED.value and assessment.status == FeasibilityState.INFEASIBLE:
+            record.risk_state = RiskState.AT_RISK.value
+            record.recovery_state = RecoveryState.RECOVERY_REQUIRED.value
+            record.commitment_version += 1
+            record.updated_at = _now()
+            new_state = _commitment_snapshot(record)
+
+            audit = self._audit(
+                context=context,
+                commitment_id=commitment_id,
+                event_type=CoreEventType.COMMITMENT_AT_RISK.value,
+                dimension="risk",
+                previous_state=previous_state,
+                new_state=new_state,
+                evidence_refs=assessment.evidence_refs,
+                reason=f"Assessment {assessment.assessment_id} evaluated INFEASIBLE on confirmed commitment",
+                occurred_at=record.updated_at,
+                causation_id=causation_id,
+            )
+            event = self._outbox(
+                context=context,
+                event_id=_id("evt"),
+                event_type=CoreEventType.COMMITMENT_AT_RISK.value,
+                commitment_id=commitment_id,
+                commitment_version=record.commitment_version,
+                payload={
+                    "commitment_id": commitment_id,
+                    "assessment_id": assessment.assessment_id,
+                    "snapshot_version": assessment.snapshot_version,
+                    "constraints": [c.model_dump(mode="json") for c in assessment.constraints],
+                    "affected_commitment_ids": assessment.affected_commitment_ids,
+                },
+                occurred_at=record.updated_at,
+                causation_id=causation_id,
+            )
+        elif assessment.status == FeasibilityState.UNKNOWN:
+            record.commitment_version += 1
+            record.updated_at = _now()
+            new_state = _commitment_snapshot(record)
+
+            audit = self._audit(
+                context=context,
+                commitment_id=commitment_id,
+                event_type=CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value,
+                dimension="feasibility",
+                previous_state=previous_state,
+                new_state=new_state,
+                evidence_refs=assessment.evidence_refs,
+                reason=f"Assessment {assessment.assessment_id} evaluated UNKNOWN feasibility; evaluation pending",
+                occurred_at=record.updated_at,
+                causation_id=causation_id,
+            )
+            event = self._outbox(
+                context=context,
+                event_id=_id("evt"),
+                event_type=CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value,
+                commitment_id=commitment_id,
+                commitment_version=record.commitment_version,
+                payload={
+                    "commitment_id": commitment_id,
+                    "assessment_id": assessment.assessment_id,
+                    "feasibility_state": "UNKNOWN",
+                },
+                occurred_at=record.updated_at,
+                causation_id=causation_id,
+            )
+        else:
+            if assessment.status == FeasibilityState.FEASIBLE and record.risk_state == RiskState.AT_RISK.value:
+                record.risk_state = RiskState.RESOLVED.value
+                record.recovery_state = RecoveryState.COMPLETED.value
+            record.commitment_version += 1
+            record.updated_at = _now()
+            new_state = _commitment_snapshot(record)
+
+            audit = self._audit(
+                context=context,
+                commitment_id=commitment_id,
+                event_type=CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value,
+                dimension="feasibility",
+                previous_state=previous_state,
+                new_state=new_state,
+                evidence_refs=assessment.evidence_refs,
+                reason=f"Assessment {assessment.assessment_id} evaluated {assessment.status.value}",
+                occurred_at=record.updated_at,
+                causation_id=causation_id,
+            )
+            event = self._outbox(
+                context=context,
+                event_id=_id("evt"),
+                event_type=CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value,
+                commitment_id=commitment_id,
+                commitment_version=record.commitment_version,
+                payload={
+                    "commitment_id": commitment_id,
+                    "assessment_id": assessment.assessment_id,
+                    "feasibility_state": assessment.status.value,
+                },
+                occurred_at=record.updated_at,
+                causation_id=causation_id,
+            )
+
+        try:
+            db.add_all([audit, event])
+            db.commit()
+            db.refresh(record)
+        except Exception:
+            db.rollback()
+            raise
+
+        return _to_commitment(record)
+
 
     def audit(self, db: Session, context: RequestContext, commitment_id: str | None) -> list[AuditEvent]:
         if commitment_id:

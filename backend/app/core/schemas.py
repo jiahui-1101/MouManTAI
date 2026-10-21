@@ -456,6 +456,7 @@ class ProposalConfirmRequest(ContractModel):
     evidence_refs: list[str] = Field(min_length=1)
     reason: str = Field(min_length=1)
     causation_id: str | None = None
+    customer_identity_status: CustomerIdentityStatus | None = None
 
 
 class RecordFulfilmentRequest(ContractModel):
@@ -464,4 +465,22 @@ class RecordFulfilmentRequest(ContractModel):
     evidence_refs: list[str] = Field(min_length=1)
     reason: str = Field(min_length=1)
     causation_id: str | None = None
+
+
+class RecoveryStartRequest(ContractModel):
+    expected_commitment_version: int = Field(ge=1)
+    reason: str = Field(min_length=1)
+    causation_id: str | None = None
+
+
+class RecoveryExecuteRequest(ContractModel):
+    expected_commitment_version: int = Field(ge=1)
+    plan: RecoveryPlan
+    current_snapshot_version: int = Field(ge=1)
+    approved_at: OffsetAwareDatetime
+    approval_expires_at: OffsetAwareDatetime
+    revised_terms: CommitmentTerms | None = None
+    reason: str = Field(min_length=1)
+    causation_id: str | None = None
+
 

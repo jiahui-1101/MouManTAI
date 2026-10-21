@@ -7,17 +7,22 @@ from sqlalchemy.orm import Session
 
 from .dependencies import RequestContext, get_db, get_request_context
 from .errors import DomainError
+from .integration import CoreIntegrationFacade
 from .schemas import (
     AuditEvent,
+    BusinessContext,
     Commitment,
     CommitmentCreateRequest,
     CommitmentTransitionRequest,
     CommitmentTransitionResponse,
     DomainEvent,
+    FeasibilityAssessment,
     OverviewResponse,
     ProposalConfirmRequest,
     ProposalCreateRequest,
     RecordFulfilmentRequest,
+    RecoveryExecuteRequest,
+    RecoveryStartRequest,
     TimelineEntry,
 )
 from .service import CommitmentService
@@ -25,6 +30,7 @@ from .service import CommitmentService
 
 router = APIRouter(prefix="/v1", tags=["commitments"])
 service = CommitmentService()
+facade = CoreIntegrationFacade(service=service)
 Db = Annotated[Session, Depends(get_db)]
 Context = Annotated[RequestContext, Depends(get_request_context)]
 
@@ -91,6 +97,57 @@ def record_fulfilment(
     context: Context,
 ) -> CommitmentTransitionResponse:
     return service.record_fulfilment(db, context, commitment_id, request)
+
+
+@router.post(
+    "/commitments/{commitment_id}/assess",
+    response_model=Commitment,
+)
+def assess_commitment_endpoint(
+    commitment_id: str,
+    assessment: FeasibilityAssessment,
+    db: Db,
+    context: Context,
+) -> Commitment:
+    return service.assess(db, context, commitment_id, assessment)
+
+
+@router.post(
+    "/integration/context-updated",
+    response_model=Commitment,
+)
+def context_updated_endpoint(
+    business_context: BusinessContext,
+    db: Db,
+    context: Context,
+) -> Commitment:
+    return facade.handle_context_updated(db, context, business_context)
+
+
+@router.post(
+    "/commitments/{commitment_id}/recovery/start",
+    response_model=CommitmentTransitionResponse,
+)
+def start_recovery_endpoint(
+    commitment_id: str,
+    request: RecoveryStartRequest,
+    db: Db,
+    context: Context,
+) -> CommitmentTransitionResponse:
+    return facade.start_recovery(db, context, commitment_id, request)
+
+
+@router.post(
+    "/commitments/{commitment_id}/recovery/execute",
+    response_model=CommitmentTransitionResponse,
+)
+def execute_recovery_endpoint(
+    commitment_id: str,
+    request: RecoveryExecuteRequest,
+    db: Db,
+    context: Context,
+) -> CommitmentTransitionResponse:
+    return facade.execute_recovery_plan(db, context, commitment_id, request)
 
 
 @router.patch("/commitments/{commitment_id}")

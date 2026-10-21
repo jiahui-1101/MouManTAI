@@ -15,6 +15,16 @@ FORBIDDEN_PAYLOAD_KEYS = {
     "access_token",
     "credit_card",
     "private_key",
+    "phone",
+    "email",
+    "customer_phone",
+    "customer_email",
+    "contact_phone",
+    "contact_email",
+    "customer_contact",
+    "message_body",
+    "raw_message",
+    "contact_number",
 }
 
 
@@ -26,6 +36,11 @@ class CoreEventType(StrEnum):
     COMMITMENT_RISK_RESOLVED = "commitment.risk_resolved"
     COMMITMENT_FULFILMENT_VERIFIED = "commitment.fulfilment_verified"
     COMMITMENT_LIFECYCLE_CHANGED = "commitment.lifecycle_changed"
+    COMMITMENT_PROPOSAL_REJECTED = "commitment.proposal_rejected"
+    COMMITMENT_CONTEXT_READY = "commitment.context_ready"
+    RECOVERY_STARTED = "recovery.started"
+    RECOVERY_PLAN_APPROVED = "recovery.plan_approved"
+    RECOVERY_COMMUNICATION_REQUESTED = "recovery.communication_requested"
     AUDIT_RECORDED = "audit.recorded"
 
 
