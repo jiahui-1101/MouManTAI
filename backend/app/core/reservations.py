@@ -174,7 +174,6 @@ def get_available_stock(session: Session, tenant_id: str, resource_id: str) -> D
 
 def seed_resource_stock(
     session: Session,
-    *,
     tenant_id: str,
     resource_id: str,
     total_quantity: Decimal | str | int,

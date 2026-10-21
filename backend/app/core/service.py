@@ -173,7 +173,7 @@ def _to_event(record: OutboxEventRecord) -> DomainEvent:
 class CommitmentService:
     def create_request(self, db: Session, context: RequestContext, request: CommitmentCreateRequest) -> Commitment:
         now = _now()
-        commitment_id = _id("com")
+        commitment_id = request.commitment_id or _id("com")
         causation_id = request.causation_id or context.causation_id
         record = CommitmentRecord(
             tenant_id=context.tenant_id,

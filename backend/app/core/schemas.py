@@ -165,6 +165,7 @@ class RequestedItem(ContractModel):
 class BusinessContext(ContractModel):
     tenant_id: str = Field(min_length=1)
     context_id: str = Field(min_length=1)
+    commitment_id: str | None = None
     source_message_ids: list[str] = Field(min_length=1)
     customer_id: str | None = None
     customer_identity_status: CustomerIdentityStatus = CustomerIdentityStatus.UNVERIFIED
@@ -325,6 +326,7 @@ class AuditEvent(ContractModel):
 
 
 class CommitmentCreateRequest(ContractModel):
+    commitment_id: str | None = None
     order_id: str = Field(min_length=1)
     customer_id: str = Field(min_length=1)
     terms: CommitmentTerms

@@ -151,7 +151,7 @@ class CoreIntegrationFacade:
             terms_dict["customer_identity_status"] = business_context.customer_identity_status.value
 
         if record is None:
-            commitment_id = _id("com")
+            commitment_id = business_context.commitment_id or _id("com")
             record = CommitmentRecord(
                 tenant_id=context.tenant_id,
                 commitment_id=commitment_id,

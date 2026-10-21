@@ -92,6 +92,7 @@ export interface RequestedItem {
 export interface BusinessContext {
   tenant_id: string;
   context_id: string;
+  commitment_id?: string | null;
   source_message_ids: string[];
   customer_id?: string | null;
   customer_identity_status: CustomerIdentityStatus;
@@ -230,6 +231,7 @@ export interface DomainEvent {
 export type OutboxStatus = "PENDING" | "PUBLISHED" | "FAILED" | "DEAD_LETTER";
 
 export interface CommitmentCreateRequest {
+  commitment_id?: string | null;
   order_id: string;
   customer_id: string;
   terms: CommitmentTerms;
