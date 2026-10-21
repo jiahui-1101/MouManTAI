@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 
 from .association_schemas import AssociationDecisionRequest, MessageAssociationRecord
 from .association_service import AssociationService
+from .context_service import ContextService
 from .dependencies import development_context, local_repository
 from .ingestion import IngestionService
 from .ingestion_schemas import (
@@ -17,6 +18,13 @@ from .ingestion_schemas import (
     MessagePage,
     ProcessResponse,
     StoredMessage,
+)
+from .order_context_schemas import (
+    ContextReviewRecord,
+    ContextReviewRequest,
+    ContextUpdateRequest,
+    OrderContextRecord,
+    OrderContextVersionRecord,
 )
 from .repository import MessageRepository
 from .schemas import Channel, ProcessingStatus, RawMessageEnvelope
@@ -119,4 +127,83 @@ def decide_message_association(
     actor_id = x_actor_id or "user_staff_01"
     actor_role = x_actor_role or "STAFF"
     return repository.decide_association(tenant.tenant_id, message_id, request, actor_id=actor_id, actor_role=actor_role)
+
+
+@router.get("/v1/contexts/{context_id}", response_model=OrderContextRecord,
+            responses={**errors, 404: {"model": ApiError}})
+def get_order_context(context_id: str, tenant: Tenant, repository: Repository) -> OrderContextRecord:
+    ctx = repository.get_order_context(tenant.tenant_id, context_id)
+    if ctx is None:
+        raise HTTPException(status_code=404, detail="Order context not found")
+    return ctx
+
+
+@router.get("/v1/contexts/by-order/{order_id}", response_model=OrderContextRecord,
+            responses={**errors, 404: {"model": ApiError}})
+def get_order_context_by_order(order_id: str, tenant: Tenant, repository: Repository) -> OrderContextRecord:
+    ctx = repository.get_order_context_by_order(tenant.tenant_id, order_id)
+    if ctx is None:
+        raise HTTPException(status_code=404, detail=f"Order context for order {order_id} not found")
+    return ctx
+
+
+@router.post("/v1/contexts/from-message/{message_id}", response_model=OrderContextRecord, status_code=201,
+             responses={**errors, 404: {"model": ApiError}, 409: {"model": ApiError}})
+def create_or_update_context_from_message(
+    message_id: str,
+    tenant: Tenant,
+    repository: Repository,
+) -> OrderContextRecord:
+    svc = ContextService(repository)
+    return svc.create_or_update_from_message(tenant.tenant_id, message_id)
+
+
+@router.post("/v1/contexts/{context_id}/review", response_model=OrderContextRecord,
+             responses={**errors, 404: {"model": ApiError}, 409: {"model": ApiError}})
+def review_order_context(
+    context_id: str,
+    request: ContextReviewRequest,
+    tenant: Tenant,
+    repository: Repository,
+    x_actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
+    x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
+) -> OrderContextRecord:
+    actor_id = x_actor_id or "user_staff_01"
+    actor_role = x_actor_role or "STAFF"
+    svc = ContextService(repository)
+    return svc.review_context(tenant.tenant_id, context_id, request, actor_id=actor_id, actor_role=actor_role)
+
+
+@router.patch("/v1/contexts/{context_id}", response_model=OrderContextRecord,
+              responses={**errors, 404: {"model": ApiError}, 409: {"model": ApiError}})
+def update_order_context(
+    context_id: str,
+    request: ContextUpdateRequest,
+    tenant: Tenant,
+    repository: Repository,
+    x_actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
+    x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
+) -> OrderContextRecord:
+    actor_id = x_actor_id or "user_staff_01"
+    actor_role = x_actor_role or "STAFF"
+    svc = ContextService(repository)
+    return svc.update_context(tenant.tenant_id, context_id, request, actor_id=actor_id, actor_role=actor_role)
+
+
+@router.get("/v1/contexts/{context_id}/versions", response_model=list[OrderContextVersionRecord],
+            responses={**errors, 404: {"model": ApiError}})
+def list_context_versions(context_id: str, tenant: Tenant, repository: Repository) -> list[OrderContextVersionRecord]:
+    ctx = repository.get_order_context(tenant.tenant_id, context_id)
+    if ctx is None:
+        raise HTTPException(status_code=404, detail="Order context not found")
+    return repository.list_context_versions(tenant.tenant_id, context_id)
+
+
+@router.get("/v1/contexts/{context_id}/reviews", response_model=list[ContextReviewRecord],
+            responses={**errors, 404: {"model": ApiError}})
+def list_context_reviews(context_id: str, tenant: Tenant, repository: Repository) -> list[ContextReviewRecord]:
+    ctx = repository.get_order_context(tenant.tenant_id, context_id)
+    if ctx is None:
+        raise HTTPException(status_code=404, detail="Order context not found")
+    return repository.list_context_reviews(tenant.tenant_id, context_id)
 

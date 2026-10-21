@@ -734,6 +734,630 @@
         }
       }
     },
+    "/v1/contexts/{context_id}": {
+      "get": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Get Order Context",
+        "operationId": "get_order_context_v1_contexts__context_id__get",
+        "parameters": [
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Context Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderContextRecord"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Update Order Context",
+        "operationId": "update_order_context_v1_contexts__context_id__patch",
+        "parameters": [
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Context Id"
+            }
+          },
+          {
+            "name": "X-Actor-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContextUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderContextRecord"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contexts/by-order/{order_id}": {
+      "get": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Get Order Context By Order",
+        "operationId": "get_order_context_by_order_v1_contexts_by_order__order_id__get",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderContextRecord"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contexts/from-message/{message_id}": {
+      "post": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Create Or Update Context From Message",
+        "operationId": "create_or_update_context_from_message_v1_contexts_from_message__message_id__post",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Message Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderContextRecord"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contexts/{context_id}/review": {
+      "post": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Review Order Context",
+        "operationId": "review_order_context_v1_contexts__context_id__review_post",
+        "parameters": [
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Context Id"
+            }
+          },
+          {
+            "name": "X-Actor-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContextReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderContextRecord"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contexts/{context_id}/versions": {
+      "get": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "List Context Versions",
+        "operationId": "list_context_versions_v1_contexts__context_id__versions_get",
+        "parameters": [
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Context Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrderContextVersionRecord"
+                  },
+                  "title": "Response List Context Versions V1 Contexts  Context Id  Versions Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contexts/{context_id}/reviews": {
+      "get": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "List Context Reviews",
+        "operationId": "list_context_reviews_v1_contexts__context_id__reviews_get",
+        "parameters": [
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Context Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ContextReviewRecord"
+                  },
+                  "title": "Response List Context Reviews V1 Contexts  Context Id  Reviews Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dev/p1/health": {
       "get": {
         "summary": "Health",
@@ -1082,7 +1706,7 @@
           },
           "requested_items": {
             "items": {
-              "$ref": "#/components/schemas/RequestedItem"
+              "$ref": "#/components/schemas/app__context__schemas__RequestedItem"
             },
             "type": "array",
             "title": "Requested Items"
@@ -1234,6 +1858,207 @@
           "status"
         ],
         "title": "ContextReview"
+      },
+      "ContextReviewRecord": {
+        "properties": {
+          "review_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Review Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Tenant Id"
+          },
+          "context_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Context Id"
+          },
+          "context_version_before": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Context Version Before"
+          },
+          "context_version_after": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Context Version After"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "ACCEPT_EXTRACTION",
+              "EDIT_FIELD",
+              "REQUEST_MORE_INFO",
+              "MARK_UNRESOLVED"
+            ],
+            "title": "Action"
+          },
+          "actor_id": {
+            "type": "string",
+            "title": "Actor Id"
+          },
+          "actor_role": {
+            "type": "string",
+            "title": "Actor Role"
+          },
+          "field_changes": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Field Changes"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "review_id",
+          "tenant_id",
+          "context_id",
+          "context_version_before",
+          "context_version_after",
+          "action",
+          "actor_id",
+          "actor_role",
+          "created_at"
+        ],
+        "title": "ContextReviewRecord"
+      },
+      "ContextReviewRequest": {
+        "properties": {
+          "expected_context_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Context Version"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "ACCEPT_EXTRACTION",
+              "EDIT_FIELD",
+              "REQUEST_MORE_INFO",
+              "MARK_UNRESOLVED"
+            ],
+            "title": "Action"
+          },
+          "field_edits": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Field Edits"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_context_version",
+          "action"
+        ],
+        "title": "ContextReviewRequest"
+      },
+      "ContextUpdateRequest": {
+        "properties": {
+          "expected_context_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Context Version"
+          },
+          "requested_items": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RequestedItem-Input"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Items"
+          },
+          "requested_delivery_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Delivery At"
+          },
+          "delivery_qualifier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Qualifier"
+          },
+          "special_instructions": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Special Instructions"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_context_version"
+        ],
+        "title": "ContextUpdateRequest"
       },
       "CustomerAccount": {
         "properties": {
@@ -1874,6 +2699,289 @@
         ],
         "title": "NormalizedMessage"
       },
+      "OrderContextRecord": {
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Context Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Tenant Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "customer_identity_status": {
+            "type": "string",
+            "enum": [
+              "UNVERIFIED",
+              "LINK_CANDIDATE",
+              "LINK_VERIFIED",
+              "CONFLICT"
+            ],
+            "title": "Customer Identity Status",
+            "default": "UNVERIFIED"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "INFORMATION_READY",
+              "INFORMATION_PARTIAL",
+              "CONFLICT",
+              "UNRESOLVED"
+            ],
+            "title": "Status",
+            "default": "UNRESOLVED"
+          },
+          "context_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Context Version",
+            "default": 1
+          },
+          "requested_items": {
+            "items": {
+              "$ref": "#/components/schemas/app__context__order_context_schemas__RequestedItem"
+            },
+            "type": "array",
+            "title": "Requested Items"
+          },
+          "requested_delivery_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Delivery At"
+          },
+          "delivery_qualifier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Qualifier"
+          },
+          "special_instructions": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Special Instructions"
+          },
+          "source_message_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Message Ids"
+          },
+          "field_evidence": {
+            "additionalProperties": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Field Evidence"
+          },
+          "missing_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Fields"
+          },
+          "conflicts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Conflicts"
+          },
+          "last_reviewed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reviewed By"
+          },
+          "last_reviewed_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reviewed Role"
+          },
+          "last_reviewed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reviewed At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "context_id",
+          "tenant_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "OrderContextRecord"
+      },
+      "OrderContextVersionRecord": {
+        "properties": {
+          "version_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Version Id"
+          },
+          "context_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Context Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Tenant Id"
+          },
+          "context_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Context Version"
+          },
+          "snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Snapshot"
+          },
+          "change_type": {
+            "type": "string",
+            "enum": [
+              "INITIAL_CREATION",
+              "MESSAGE_MERGE",
+              "HUMAN_EDIT",
+              "ACCEPT_EXTRACTION",
+              "EDIT_FIELD",
+              "HUMAN_ACCEPT",
+              "MARK_UNRESOLVED",
+              "REQUEST_MORE_INFO"
+            ],
+            "title": "Change Type"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "actor_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Role"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version_id",
+          "context_id",
+          "tenant_id",
+          "context_version",
+          "snapshot",
+          "change_type",
+          "created_at"
+        ],
+        "title": "OrderContextVersionRecord"
+      },
       "OrderReference": {
         "properties": {
           "order_id": {
@@ -2074,26 +3182,21 @@
         ],
         "title": "RawMessageEnvelope"
       },
-      "RequestedItem": {
+      "RequestedItem-Input": {
         "properties": {
           "sku": {
             "type": "string",
-            "maxLength": 200,
             "minLength": 1,
             "title": "Sku"
           },
           "quantity": {
             "type": "string",
-            "pattern": "^\\d+(\\.\\d+)?$",
+            "minLength": 1,
             "title": "Quantity"
           },
           "unit": {
             "type": "string",
-            "enum": [
-              "pcs",
-              "kg",
-              "box"
-            ],
+            "minLength": 1,
             "title": "Unit"
           }
         },
@@ -2199,6 +3302,65 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "app__context__order_context_schemas__RequestedItem": {
+        "properties": {
+          "sku": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Sku"
+          },
+          "quantity": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Quantity"
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Unit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sku",
+          "quantity",
+          "unit"
+        ],
+        "title": "RequestedItem"
+      },
+      "app__context__schemas__RequestedItem": {
+        "properties": {
+          "sku": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Sku"
+          },
+          "quantity": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "title": "Quantity"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "pcs",
+              "kg",
+              "box"
+            ],
+            "title": "Unit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sku",
+          "quantity",
+          "unit"
+        ],
+        "title": "RequestedItem"
       }
     }
   }

@@ -141,6 +141,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/contexts/{context_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Order Context */
+        get: operations["get_order_context_v1_contexts__context_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Order Context */
+        patch: operations["update_order_context_v1_contexts__context_id__patch"];
+        trace?: never;
+    };
+    "/v1/contexts/by-order/{order_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Order Context By Order */
+        get: operations["get_order_context_by_order_v1_contexts_by_order__order_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/contexts/from-message/{message_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Or Update Context From Message */
+        post: operations["create_or_update_context_from_message_v1_contexts_from_message__message_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/contexts/{context_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Order Context */
+        post: operations["review_order_context_v1_contexts__context_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/contexts/{context_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Context Versions */
+        get: operations["list_context_versions_v1_contexts__context_id__versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/contexts/{context_id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Context Reviews */
+        get: operations["list_context_reviews_v1_contexts__context_id__reviews_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dev/p1/health": {
         parameters: {
             query?: never;
@@ -273,7 +376,7 @@ export interface components {
             /** Order Id */
             order_id?: string | null;
             /** Requested Items */
-            requested_items?: components["schemas"]["RequestedItem"][];
+            requested_items?: components["schemas"]["app__context__schemas__RequestedItem"][];
             /** Requested Delivery At */
             requested_delivery_at?: string | null;
             /** Field Evidence */
@@ -313,6 +416,72 @@ export interface components {
             reviewed_at?: string | null;
             /** Note */
             note?: string | null;
+        };
+        /** ContextReviewRecord */
+        ContextReviewRecord: {
+            /** Review Id */
+            review_id: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Context Id */
+            context_id: string;
+            /** Context Version Before */
+            context_version_before: number;
+            /** Context Version After */
+            context_version_after: number;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "ACCEPT_EXTRACTION" | "EDIT_FIELD" | "REQUEST_MORE_INFO" | "MARK_UNRESOLVED";
+            /** Actor Id */
+            actor_id: string;
+            /** Actor Role */
+            actor_role: string;
+            /** Field Changes */
+            field_changes?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /** Note */
+            note?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ContextReviewRequest */
+        ContextReviewRequest: {
+            /** Expected Context Version */
+            expected_context_version: number;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "ACCEPT_EXTRACTION" | "EDIT_FIELD" | "REQUEST_MORE_INFO" | "MARK_UNRESOLVED";
+            /** Field Edits */
+            field_edits?: {
+                [key: string]: unknown;
+            };
+            /** Note */
+            note?: string | null;
+        };
+        /** ContextUpdateRequest */
+        ContextUpdateRequest: {
+            /** Expected Context Version */
+            expected_context_version: number;
+            /** Requested Items */
+            requested_items?: components["schemas"]["RequestedItem-Input"][] | null;
+            /** Requested Delivery At */
+            requested_delivery_at?: string | null;
+            /** Delivery Qualifier */
+            delivery_qualifier?: string | null;
+            /** Special Instructions */
+            special_instructions?: string | null;
+            /** Reason */
+            reason?: string | null;
         };
         /** CustomerAccount */
         CustomerAccount: {
@@ -534,6 +703,101 @@ export interface components {
             /** Diagnostic */
             diagnostic?: string | null;
         };
+        /** OrderContextRecord */
+        OrderContextRecord: {
+            /** Context Id */
+            context_id: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Order Id */
+            order_id?: string | null;
+            /** Customer Id */
+            customer_id?: string | null;
+            /**
+             * Customer Identity Status
+             * @default UNVERIFIED
+             * @enum {string}
+             */
+            customer_identity_status: "UNVERIFIED" | "LINK_CANDIDATE" | "LINK_VERIFIED" | "CONFLICT";
+            /**
+             * Status
+             * @default UNRESOLVED
+             * @enum {string}
+             */
+            status: "INFORMATION_READY" | "INFORMATION_PARTIAL" | "CONFLICT" | "UNRESOLVED";
+            /**
+             * Context Version
+             * @default 1
+             */
+            context_version: number;
+            /** Requested Items */
+            requested_items?: components["schemas"]["app__context__order_context_schemas__RequestedItem"][];
+            /** Requested Delivery At */
+            requested_delivery_at?: string | null;
+            /** Delivery Qualifier */
+            delivery_qualifier?: string | null;
+            /** Special Instructions */
+            special_instructions?: string | null;
+            /** Source Message Ids */
+            source_message_ids?: string[];
+            /** Field Evidence */
+            field_evidence?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                }[];
+            };
+            /** Missing Fields */
+            missing_fields?: string[];
+            /** Conflicts */
+            conflicts?: string[];
+            /** Last Reviewed By */
+            last_reviewed_by?: string | null;
+            /** Last Reviewed Role */
+            last_reviewed_role?: string | null;
+            /** Last Reviewed At */
+            last_reviewed_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** OrderContextVersionRecord */
+        OrderContextVersionRecord: {
+            /** Version Id */
+            version_id: string;
+            /** Context Id */
+            context_id: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Context Version */
+            context_version: number;
+            /** Snapshot */
+            snapshot: {
+                [key: string]: unknown;
+            };
+            /**
+             * Change Type
+             * @enum {string}
+             */
+            change_type: "INITIAL_CREATION" | "MESSAGE_MERGE" | "HUMAN_EDIT" | "ACCEPT_EXTRACTION" | "EDIT_FIELD" | "HUMAN_ACCEPT" | "MARK_UNRESOLVED" | "REQUEST_MORE_INFO";
+            /** Actor Id */
+            actor_id?: string | null;
+            /** Actor Role */
+            actor_role?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** OrderReference */
         OrderReference: {
             /** Order Id */
@@ -599,16 +863,13 @@ export interface components {
             adapter_mode: "SYNTHETIC";
         };
         /** RequestedItem */
-        RequestedItem: {
+        "RequestedItem-Input": {
             /** Sku */
             sku: string;
             /** Quantity */
             quantity: string;
-            /**
-             * Unit
-             * @enum {string}
-             */
-            unit: "pcs" | "kg" | "box";
+            /** Unit */
+            unit: string;
         };
         /** StoredMessage */
         StoredMessage: {
@@ -650,6 +911,27 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** RequestedItem */
+        app__context__order_context_schemas__RequestedItem: {
+            /** Sku */
+            sku: string;
+            /** Quantity */
+            quantity: string;
+            /** Unit */
+            unit: string;
+        };
+        /** RequestedItem */
+        app__context__schemas__RequestedItem: {
+            /** Sku */
+            sku: string;
+            /** Quantity */
+            quantity: string;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "pcs" | "kg" | "box";
         };
     };
     responses: never;
@@ -1148,6 +1430,453 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_order_context_v1_contexts__context_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                context_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderContextRecord"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    update_order_context_v1_contexts__context_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Actor-ID"?: string | null;
+                "X-Actor-Role"?: string | null;
+            };
+            path: {
+                context_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContextUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderContextRecord"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_order_context_by_order_v1_contexts_by_order__order_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderContextRecord"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    create_or_update_context_from_message_v1_contexts_from_message__message_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderContextRecord"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    review_order_context_v1_contexts__context_id__review_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Actor-ID"?: string | null;
+                "X-Actor-Role"?: string | null;
+            };
+            path: {
+                context_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContextReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderContextRecord"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_context_versions_v1_contexts__context_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                context_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderContextVersionRecord"][];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_context_reviews_v1_contexts__context_id__reviews_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                context_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextReviewRecord"][];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

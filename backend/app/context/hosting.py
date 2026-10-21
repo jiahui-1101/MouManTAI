@@ -14,11 +14,13 @@ from .dependencies import development_context, local_repository
 from .ingestion import TenantMismatch, UnsupportedSyntheticChannel
 from .repository import (
     AssociationNotFound,
+    ContextNotFound,
     DuplicateConflict,
     ExtractionNotFound,
     MessageNotFound,
     PersistenceUnavailable,
     ProcessingConflict,
+    StaleContextVersion,
 )
 from .router import router
 
@@ -34,6 +36,8 @@ def register_p1_errors(app: FastAPI) -> None:
         ProcessingConflict: (409, "Message processing conflict"),
         AssociationNotFound: (404, "Association record not found"),
         StaleAssociationVersion: (409, "Stale association version; refresh before updating"),
+        ContextNotFound: (404, "Order context not found"),
+        StaleContextVersion: (409, "Stale context version; refresh before updating"),
     }
     for exception_type, (status, detail) in errors.items():
         def handler(request: Request, exc: Exception, *, status=status, detail=detail, etype=exception_type):

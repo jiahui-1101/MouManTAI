@@ -26,6 +26,8 @@ ChangeType = Literal[
     "INITIAL_CREATION",
     "MESSAGE_MERGE",
     "HUMAN_EDIT",
+    "ACCEPT_EXTRACTION",
+    "EDIT_FIELD",
     "HUMAN_ACCEPT",
     "MARK_UNRESOLVED",
     "REQUEST_MORE_INFO",
