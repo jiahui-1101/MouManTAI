@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import type { IngestResponse, RawMessageEnvelope } from './types';
+import type { Channel, IngestResponse, RawMessageEnvelope } from './types';
 
 export function SyntheticComposer({ tenantId, ingest, onSuccess, onCancel }: {
   tenantId: string;
@@ -8,6 +8,7 @@ export function SyntheticComposer({ tenantId, ingest, onSuccess, onCancel }: {
   onSuccess: (result: IngestResponse) => void;
   onCancel: () => void;
 }) {
+  const [channel, setChannel] = useState<Channel>('WHATSAPP');
   const [providerId, setProviderId] = useState(() => `synthetic-${crypto.randomUUID()}`);
   const [sender, setSender] = useState('Synthetic buyer');
   const [identity, setIdentity] = useState('synthetic_platform_sender');
@@ -40,7 +41,7 @@ export function SyntheticComposer({ tenantId, ingest, onSuccess, onCancel }: {
       return;
     }
     const timestamp = new Date().toISOString();
-    const payload: RawMessageEnvelope = { tenant_id: tenantId, channel: 'WHATSAPP', adapter_mode: 'SYNTHETIC',
+    const payload: RawMessageEnvelope = { tenant_id: tenantId, channel, adapter_mode: 'SYNTHETIC',
       provider_message_id: providerId, sender_identity_id: identity, sender_alias: sender, text,
       received_at: timestamp, message_at: timestamp, business_timezone: 'Asia/Kuala_Lumpur',
       thread_ref: thread || null, reply_to_provider_message_id: null, attachments: [], language: null };
@@ -49,13 +50,22 @@ export function SyntheticComposer({ tenantId, ingest, onSuccess, onCancel }: {
   }
 
   return <section className="p1-compose-card" aria-labelledby="compose-title"><div className="p1-compose-heading"><h2 id="compose-title">New synthetic message</h2><button type="button" className="p1-secondary" disabled={pending} onClick={onCancel}>Close form</button></div>
-    <p className="p1-muted">Synthetic WhatsApp-shaped adapter only · no live provider. Extraction starts in a later task.</p>
+    <p className="p1-muted">Multi-channel synthetic adapter · WhatsApp, Email, Telegram support. Extraction starts upon ingest.</p>
     <form onSubmit={submit} noValidate>
       <fieldset disabled={pending || frozen !== null}><legend className="p1-sr-only">Synthetic message input</legend>
-        <div className="p1-compose-fields"><label>Provider message ID<input value={providerId} maxLength={200} onChange={event => setProviderId(event.target.value)} /></label>
-        <label>Sender platform identity<input value={identity} maxLength={200} onChange={event => setIdentity(event.target.value)} /></label>
-        <label>Sender display alias<input value={sender} maxLength={200} onChange={event => setSender(event.target.value)} /></label>
-        <label>Thread reference (optional)<input value={thread} maxLength={200} onChange={event => setThread(event.target.value)} /></label></div>
+        <div className="p1-compose-fields">
+          <label>Channel
+            <select aria-label="Channel" value={channel} onChange={event => setChannel(event.target.value as Channel)}>
+              <option value="WHATSAPP">WHATSAPP</option>
+              <option value="EMAIL">EMAIL</option>
+              <option value="TELEGRAM">TELEGRAM</option>
+            </select>
+          </label>
+          <label>Provider message ID<input value={providerId} maxLength={200} onChange={event => setProviderId(event.target.value)} /></label>
+          <label>Sender platform identity<input value={identity} maxLength={200} onChange={event => setIdentity(event.target.value)} /></label>
+          <label>Sender display alias<input value={sender} maxLength={200} onChange={event => setSender(event.target.value)} /></label>
+          <label>Thread reference (optional)<input value={thread} maxLength={200} onChange={event => setThread(event.target.value)} /></label>
+        </div>
         <label>Original message text<textarea value={text} maxLength={20_000} rows={4} onChange={event => setText(event.target.value)} placeholder="Enter a synthetic customer request…" /></label>
       </fieldset>
       {error && <p role="alert" className="p1-notice">{error}</p>}
