@@ -417,6 +417,12 @@ class RecoveryPlanner:
         trigger: RecoveryTriggerReference,
     ) -> tuple[RecoveryCase, bool, bool]:
         """Create/reuse an event-triggered case without inventing P2 inputs."""
+        candidate = self.build_trigger_case(commitment, trigger)
+        return self.repository.record_trigger_event(candidate, trigger)
+
+    @staticmethod
+    def build_trigger_case(commitment: Commitment, trigger: RecoveryTriggerReference) -> RecoveryCase:
+        """Build the trigger-only aggregate without writing to either repository."""
         if (commitment.tenant_id, commitment.commitment_id, commitment.commitment_version) != (
             trigger.tenant_id, trigger.commitment_id, trigger.commitment_version,
         ):
@@ -442,7 +448,7 @@ class RecoveryPlanner:
             created_at=now,
             updated_at=now,
         )
-        return self.repository.record_trigger_event(candidate, trigger)
+        return candidate
 
     def complete_resolved_case(
         self,
