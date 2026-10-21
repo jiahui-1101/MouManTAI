@@ -21,9 +21,11 @@ from app.core.schemas import (
 
 class RecoveryCaseStatus(StrEnum):
     OPEN = "OPEN"
+    AWAITING_EVALUATION_INPUTS = "AWAITING_EVALUATION_INPUTS"
     OPTIONS_READY = "OPTIONS_READY"
     NO_SAFE_PLAN = "NO_SAFE_PLAN"
     NEEDS_REPLAN = "NEEDS_REPLAN"
+    COMPLETED = "COMPLETED"
 
 
 class ValidationSource(StrEnum):
@@ -83,6 +85,49 @@ class OperationalSnapshotReference(ContractModel):
     captured_at: OffsetAwareDatetime
     source: str = Field(min_length=1)
     evidence_refs: list[str] = Field(default_factory=list)
+
+
+class RecoveryTriggerReference(ContractModel):
+    """P5 at-risk event provenance retained by the P3 case repository."""
+
+    event_id: str = Field(min_length=1)
+    tenant_id: str = Field(min_length=1)
+    commitment_id: str = Field(min_length=1)
+    commitment_version: int = Field(ge=1)
+    assessment_id: str = Field(min_length=1)
+    assessment_commitment_version: int | None = Field(default=None, ge=1)
+    assessment_provenance_status: Literal[
+        "SOURCE_COMMITMENT_VERSION_MISSING",
+        "SOURCE_COMMITMENT_VERSION_RECORDED_UNVERIFIED",
+    ]
+    snapshot_version: int = Field(ge=1)
+    affected_commitment_ids: list[str] = Field(default_factory=list)
+    correlation_id: str = Field(min_length=1)
+    causation_id: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+    occurred_at: OffsetAwareDatetime
+
+    @model_validator(mode="after")
+    def provenance_matches_source_version(self) -> RecoveryTriggerReference:
+        if self.assessment_commitment_version is None:
+            if self.assessment_provenance_status != "SOURCE_COMMITMENT_VERSION_MISSING":
+                raise ValueError("missing assessment source version must be reported explicitly")
+        elif self.assessment_provenance_status != "SOURCE_COMMITMENT_VERSION_RECORDED_UNVERIFIED":
+            raise ValueError("provided assessment source version must remain labeled unverified")
+        return self
+
+
+class RecoveryResolutionReference(ContractModel):
+    """P5 lifecycle event proving the authoritative risk episode has resolved."""
+
+    event_id: str = Field(min_length=1)
+    tenant_id: str = Field(min_length=1)
+    commitment_id: str = Field(min_length=1)
+    commitment_version: int = Field(ge=1)
+    assessment_id: str | None = None
+    correlation_id: str = Field(min_length=1)
+    causation_id: str | None = None
+    occurred_at: OffsetAwareDatetime
 
 
 class BusinessPreferences(ContractModel):
@@ -335,8 +380,13 @@ class RecoveryCase(ContractModel):
     commitment_version: int = Field(ge=1)
     status: RecoveryCaseStatus
     commitment: Commitment
-    trigger_assessment: FeasibilityAssessment
-    operational_snapshot: OperationalSnapshotReference
+    # Trigger-only cases may be opened from a Core event before P2's complete
+    # historical assessment and current operational snapshot are resolvable.
+    # Such cases must not enter planning until both authoritative inputs exist.
+    trigger_assessment: FeasibilityAssessment | None = None
+    operational_snapshot: OperationalSnapshotReference | None = None
+    trigger_events: list[RecoveryTriggerReference] = Field(default_factory=list)
+    resolution_events: list[RecoveryResolutionReference] = Field(default_factory=list)
     preferences: BusinessPreferences
     options: list[RecoveryOption] = Field(default_factory=list)
     plans: list[RecoveryPlanVersion] = Field(default_factory=list)
@@ -344,6 +394,27 @@ class RecoveryCase(ContractModel):
     customer_confirmation_evidence_refs: list[str] = Field(default_factory=list)
     fulfilment_evidence_refs: list[str] = Field(default_factory=list)
     evidence_refs: list[str] = Field(default_factory=list)
+    storage_mode: Literal["IN_MEMORY_SYNTHETIC"] = "IN_MEMORY_SYNTHETIC"
+    created_at: OffsetAwareDatetime
+    updated_at: OffsetAwareDatetime
+
+
+class RecoveryTriggerCaseView(ContractModel):
+    """Safe read model for cases that exist before P2 inputs are resolvable."""
+
+    case_id: str = Field(min_length=1)
+    tenant_id: str = Field(min_length=1)
+    commitment_id: str = Field(min_length=1)
+    case_version: int = Field(ge=1)
+    commitment_version: int = Field(ge=1)
+    status: RecoveryCaseStatus
+    evaluation_readiness: Literal[
+        "AWAITING_EVALUATION_INPUTS",
+        "CASE_COMPLETED",
+    ] = "AWAITING_EVALUATION_INPUTS"
+    missing_evaluation_inputs: list[str]
+    trigger_events: list[RecoveryTriggerReference]
+    resolution_events: list[RecoveryResolutionReference] = Field(default_factory=list)
     storage_mode: Literal["IN_MEMORY_SYNTHETIC"] = "IN_MEMORY_SYNTHETIC"
     created_at: OffsetAwareDatetime
     updated_at: OffsetAwareDatetime

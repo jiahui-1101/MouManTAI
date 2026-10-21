@@ -12,7 +12,14 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
 from app.core.integration import CoreIntegrationFacade
-from app.core.schemas import ApprovalState, Commitment, ExecutionState, FeasibilityState
+from app.core.schemas import (
+    ApprovalState,
+    Commitment,
+    ExecutionState,
+    FeasibilityState,
+    RecoveryState,
+    RiskState,
+)
 
 from .eventing import (
     ApprovalRequiredPayload,
@@ -36,7 +43,9 @@ from .models import (
     RecoveryOption,
     RecoveryPlanList,
     RecoveryPlanVersion,
+    RecoveryResolutionReference,
     RecoveryStrategy,
+    RecoveryTriggerReference,
     RiskLevel,
     SolverReadiness,
     ValidationSource,
@@ -90,7 +99,10 @@ class RecoveryRepository:
 
     def __init__(self) -> None:
         self._cases: dict[tuple[str, str], RecoveryCase] = {}
+        self._cases_by_id: dict[tuple[str, str], RecoveryCase] = {}
         self._plans: dict[tuple[str, str], RecoveryPlanVersion] = {}
+        self._processed_trigger_events: dict[tuple[str, str], str] = {}
+        self._processed_resolution_events: dict[tuple[str, str], str] = {}
         self._lock = RLock()
 
     @property
@@ -106,12 +118,204 @@ class RecoveryRepository:
             case = self._cases.get((tenant_id, commitment_id))
             return self._copy(case) if case else None  # type: ignore[return-value]
 
+    def get_case_by_id(self, tenant_id: str, case_id: str) -> RecoveryCase | None:
+        with self._lock:
+            case = self._cases_by_id.get((tenant_id, case_id))
+            return self._copy(case) if case else None  # type: ignore[return-value]
+
+    def get_case_for_trigger_event(self, tenant_id: str, event_id: str) -> RecoveryCase | None:
+        with self._lock:
+            case_id = self._processed_trigger_events.get((tenant_id, event_id))
+            case = self._cases_by_id.get((tenant_id, case_id)) if case_id else None
+            return self._copy(case) if case else None  # type: ignore[return-value]
+
+    def has_processed_resolution_event(self, tenant_id: str, event_id: str) -> bool:
+        with self._lock:
+            return (tenant_id, event_id) in self._processed_resolution_events
+
+    def get_case_for_resolution_event(self, tenant_id: str, event_id: str) -> RecoveryCase | None:
+        with self._lock:
+            case_id = self._processed_resolution_events.get((tenant_id, event_id))
+            case = self._cases_by_id.get((tenant_id, case_id)) if case_id else None
+            return self._copy(case) if case else None  # type: ignore[return-value]
+
+    def has_processed_trigger_event(self, tenant_id: str, event_id: str) -> bool:
+        with self._lock:
+            return (tenant_id, event_id) in self._processed_trigger_events
+
     def save_case(self, case: RecoveryCase) -> RecoveryCase:
         with self._lock:
-            self._cases[(case.tenant_id, case.commitment_id)] = self._copy(case)  # type: ignore[assignment]
+            stored = self._copy(case)
+            self._cases_by_id[(case.tenant_id, case.case_id)] = stored  # type: ignore[assignment]
+            active_key = (case.tenant_id, case.commitment_id)
+            active_case = self._cases.get(active_key)
+            if active_case is None or active_case.case_id == case.case_id or active_case.status == RecoveryCaseStatus.COMPLETED:
+                self._cases[active_key] = stored  # type: ignore[assignment]
             for plan in case.plans:
                 self._plans[(case.tenant_id, plan.plan_id)] = self._copy(plan)  # type: ignore[assignment]
             return self._copy(case)  # type: ignore[return-value]
+
+    @staticmethod
+    def _append_approval_invalidations(case: RecoveryCase, reason: str, event_id: str) -> None:
+        system_actor = ActorContext(
+            case.tenant_id,
+            "system:p3",
+            "SYSTEM",
+            f"recovery-case:{case.case_id}",
+            event_id,
+            True,
+        )
+        for plan in case.plans:
+            latest = next((
+                item for item in reversed(case.approval_decisions)
+                if item.plan_id == plan.plan_id and item.plan_version == plan.plan_version
+            ), None)
+            if latest is None or latest.decision not in {
+                ApprovalDecisionState.REQUESTED,
+                ApprovalDecisionState.APPROVED,
+            }:
+                continue
+            case.approval_decisions.append(RecoveryPlanner._new_approval_record(
+                actor=system_actor,
+                case=case,
+                plan=plan,
+                decision=ApprovalDecisionState.INVALIDATED,
+                reason=reason,
+                evidence_refs=latest.evidence_refs,
+                approved_cost_limit=latest.approved_cost_limit,
+                expires_at=latest.expires_at,
+                action_scope=latest.action_scope,
+                idempotency_key=f"{event_id}:invalidate:{plan.plan_id}:v{plan.plan_version}",
+            ))
+
+    def record_trigger_event(
+        self,
+        case: RecoveryCase,
+        trigger: RecoveryTriggerReference,
+    ) -> tuple[RecoveryCase, bool, bool]:
+        """Atomically reuse/create one active case and deduplicate this event.
+
+        Returns (case, created, duplicate). This is process-local only; P5's
+        ProcessedEventRecord remains the durable dispatcher dedupe boundary.
+        """
+        event_key = (trigger.tenant_id, trigger.event_id)
+        case_key = (trigger.tenant_id, trigger.commitment_id)
+        with self._lock:
+            prior_case_id = self._processed_trigger_events.get(event_key)
+            if prior_case_id is not None:
+                prior_case = self._cases_by_id.get((trigger.tenant_id, prior_case_id))
+                if prior_case is None:
+                    return self._copy(case), False, True  # type: ignore[return-value]
+                return self._copy(prior_case), False, True  # type: ignore[return-value]
+
+            existing_case = self._cases.get(case_key)
+            if (existing_case is not None
+                    and trigger.commitment_version < existing_case.commitment_version):
+                raise DomainError(
+                    "RECOVERY_TRIGGER_STALE",
+                    "The P3 case already contains a newer Commitment version",
+                    status_code=409,
+                    details={
+                        "trigger_commitment_version": trigger.commitment_version,
+                        "case_commitment_version": existing_case.commitment_version,
+                    },
+                )
+            if existing_case is not None and existing_case.status == RecoveryCaseStatus.COMPLETED:
+                # A verified P5 resolution closes the previous episode. Keep it
+                # addressable by case_id and start a fresh case for the new risk.
+                saved_case = case
+                created = True
+            elif existing_case is None:
+                saved_case = case
+                created = True
+            else:
+                created = False
+                saved_case = self._copy(existing_case)  # type: ignore[assignment]
+                prior_assessment_ids = {item.assessment_id for item in saved_case.trigger_events}
+                new_material_trigger = (
+                    trigger.commitment_version != saved_case.commitment_version
+                    or trigger.assessment_id not in prior_assessment_ids
+                )
+                saved_case.trigger_events.append(trigger)
+                saved_case.evidence_refs = list(dict.fromkeys([
+                    *saved_case.evidence_refs, *trigger.evidence_refs,
+                ]))
+                saved_case.updated_at = _now()
+                if new_material_trigger:
+                    saved_case.case_version += 1
+                    self._append_approval_invalidations(
+                        saved_case,
+                        "A material commitment.at_risk trigger makes the prior approval stale",
+                        trigger.event_id,
+                    )
+                    saved_case.commitment = case.commitment
+                    saved_case.commitment_version = trigger.commitment_version
+                    # Keep old plans/decisions for audit; none are current until
+                    # authoritative P2 inputs are resolved and plans regenerated.
+                    saved_case.trigger_assessment = None
+                    saved_case.operational_snapshot = None
+                    saved_case.status = (
+                        RecoveryCaseStatus.NEEDS_REPLAN if saved_case.plans
+                        else RecoveryCaseStatus.AWAITING_EVALUATION_INPUTS
+                    )
+
+            stored_case = self._copy(saved_case)
+            self._cases[case_key] = stored_case  # type: ignore[assignment]
+            self._cases_by_id[(saved_case.tenant_id, saved_case.case_id)] = stored_case  # type: ignore[assignment]
+            for plan in saved_case.plans:
+                self._plans[(saved_case.tenant_id, plan.plan_id)] = self._copy(plan)  # type: ignore[assignment]
+            self._processed_trigger_events[event_key] = saved_case.case_id
+            return self._copy(saved_case), created, False  # type: ignore[return-value]
+
+    def complete_resolved_case(
+        self,
+        commitment: Commitment,
+        resolution: RecoveryResolutionReference,
+    ) -> tuple[RecoveryCase | None, bool]:
+        """Close only a matching case after P5's current state confirms resolution."""
+        event_key = (resolution.tenant_id, resolution.event_id)
+        case_key = (resolution.tenant_id, resolution.commitment_id)
+        with self._lock:
+            prior_case_id = self._processed_resolution_events.get(event_key)
+            if prior_case_id is not None:
+                prior_case = self._cases_by_id.get((resolution.tenant_id, prior_case_id))
+                return (self._copy(prior_case) if prior_case else None), False  # type: ignore[return-value]
+
+            case = self._cases.get(case_key)
+            if case is None:
+                return None, False
+            saved_case = self._copy(case)
+            if saved_case.status == RecoveryCaseStatus.COMPLETED:
+                self._processed_resolution_events[event_key] = saved_case.case_id
+                return self._copy(saved_case), False  # type: ignore[return-value]
+            if resolution.commitment_version < saved_case.commitment_version:
+                raise DomainError(
+                    "RECOVERY_RESOLUTION_STALE",
+                    "The P3 case already contains a newer Commitment version",
+                    status_code=409,
+                    details={
+                        "resolution_commitment_version": resolution.commitment_version,
+                        "case_commitment_version": saved_case.commitment_version,
+                    },
+                )
+            self._append_approval_invalidations(
+                saved_case,
+                "The authoritative Commitment risk episode resolved; prior approval is no longer applicable",
+                resolution.event_id,
+            )
+            saved_case.resolution_events.append(resolution)
+            saved_case.commitment = commitment
+            saved_case.commitment_version = commitment.commitment_version
+            saved_case.case_version += 1
+            saved_case.status = RecoveryCaseStatus.COMPLETED
+            saved_case.updated_at = _now()
+            stored_case = self._copy(saved_case)
+            self._cases[case_key] = stored_case  # type: ignore[assignment]
+            self._cases_by_id[(saved_case.tenant_id, saved_case.case_id)] = stored_case  # type: ignore[assignment]
+            for plan in saved_case.plans:
+                self._plans[(saved_case.tenant_id, plan.plan_id)] = self._copy(plan)  # type: ignore[assignment]
+            self._processed_resolution_events[event_key] = saved_case.case_id
+            return self._copy(saved_case), True  # type: ignore[return-value]
 
     def get_plan(self, tenant_id: str, plan_id: str) -> RecoveryPlanVersion | None:
         with self._lock:
@@ -177,19 +381,82 @@ class RecoveryPlanner:
         )
 
     def get_case(self, tenant_id: str, commitment_id: str) -> RecoveryCase:
-        self._get_commitment(tenant_id, commitment_id)
         stored = self.repository.get_case(tenant_id, commitment_id)
         if stored:
             return stored
+        self._get_commitment(tenant_id, commitment_id)
         return self.repository.save_case(self._skeleton(tenant_id, commitment_id))
+
+    def create_trigger_case(
+        self,
+        commitment: Commitment,
+        trigger: RecoveryTriggerReference,
+    ) -> tuple[RecoveryCase, bool, bool]:
+        """Create/reuse an event-triggered case without inventing P2 inputs."""
+        if (commitment.tenant_id, commitment.commitment_id, commitment.commitment_version) != (
+            trigger.tenant_id, trigger.commitment_id, trigger.commitment_version,
+        ):
+            raise DomainError(
+                "RECOVERY_TRIGGER_BINDING_MISMATCH",
+                "Recovery trigger does not match the authoritative Commitment",
+                status_code=409,
+            )
+        now = _now()
+        candidate = RecoveryCase(
+            case_id=f"rc_{uuid4().hex[:16]}",
+            tenant_id=commitment.tenant_id,
+            commitment_id=commitment.commitment_id,
+            case_version=1,
+            commitment_version=commitment.commitment_version,
+            status=RecoveryCaseStatus.AWAITING_EVALUATION_INPUTS,
+            commitment=commitment,
+            trigger_assessment=None,
+            operational_snapshot=None,
+            trigger_events=[trigger],
+            preferences=BusinessPreferences(),
+            evidence_refs=list(trigger.evidence_refs),
+            created_at=now,
+            updated_at=now,
+        )
+        return self.repository.record_trigger_event(candidate, trigger)
+
+    def complete_resolved_case(
+        self,
+        commitment: Commitment,
+        resolution: RecoveryResolutionReference,
+    ) -> tuple[RecoveryCase | None, bool]:
+        """Close P3 history only after a P5 event and current Commitment agree."""
+        if (commitment.tenant_id, commitment.commitment_id, commitment.commitment_version) != (
+            resolution.tenant_id, resolution.commitment_id, resolution.commitment_version,
+        ):
+            raise DomainError(
+                "RECOVERY_RESOLUTION_BINDING_MISMATCH",
+                "Resolution event does not match the authoritative Commitment identity and version",
+                status_code=409,
+            )
+        if (commitment.risk_state != RiskState.RESOLVED
+                or commitment.recovery_state != RecoveryState.COMPLETED):
+            raise DomainError(
+                "RECOVERY_RESOLUTION_NOT_AUTHORITATIVE",
+                "P5 has not confirmed a resolved risk and completed recovery state",
+                status_code=409,
+            )
+        return self.repository.complete_resolved_case(commitment, resolution)
 
     def _candidates(self, case: RecoveryCase) -> list[_Candidate]:
         assessment = case.trigger_assessment
+        if assessment is None:
+            raise DomainError(
+                "AUTHORITATIVE_RECOVERY_INPUT_REQUIRED",
+                "Recovery planning requires the complete triggering P2 assessment",
+                status_code=409,
+            )
         evidence_refs = _unique(assessment.evidence_refs + self.inputs.snapshot.evidence_refs)
+        plan_prefix = "" if case.case_id == "rc_001" else f"{case.case_id}_"
         return [
             _Candidate(
                 option_id="option_a",
-                plan_id="plan_a",
+                plan_id=f"{plan_prefix}plan_a",
                 strategy=RecoveryStrategy.ALTERNATIVE_SUPPLY,
                 label="Alternative supply for packaging shortage",
                 estimated_extra_cost=Decimal("80.00"),
@@ -229,7 +496,7 @@ class RecoveryPlanner:
             ),
             _Candidate(
                 option_id="option_b",
-                plan_id="plan_b",
+                plan_id=f"{plan_prefix}plan_b",
                 strategy=RecoveryStrategy.RESCHEDULE_PARTIAL_FULFILMENT,
                 label="Reschedule with partial fulfilment proposal",
                 estimated_extra_cost=Decimal("0.00"),
@@ -311,17 +578,40 @@ class RecoveryPlanner:
             )
 
         existing = self.repository.get_case(tenant_id, commitment_id)
-        if existing and existing.plans and existing.trigger_assessment.assessment_id == assessment.assessment_id:
+        if existing and existing.status == RecoveryCaseStatus.COMPLETED:
+            raise DomainError(
+                "RECOVERY_CASE_COMPLETED",
+                "A completed recovery episode cannot be reopened; a new P5 risk trigger creates a separate case",
+                status_code=409,
+                details={"recovery_case_id": existing.case_id},
+            )
+        if existing and existing.trigger_events and (
+            existing.trigger_assessment is None or existing.operational_snapshot is None
+        ):
+            raise DomainError(
+                "AUTHORITATIVE_RECOVERY_INPUT_REQUIRED",
+                "This event-created case needs the complete P2 assessment and operational snapshot before planning",
+                status_code=409,
+            )
+        if existing and existing.plans and existing.trigger_assessment is not None \
+                and existing.trigger_assessment.assessment_id == assessment.assessment_id:
             return existing
 
         case = existing or self._skeleton(tenant_id, commitment_id)
         case.trigger_assessment = assessment
+        snapshot = case.operational_snapshot
+        if snapshot is None:
+            raise DomainError(
+                "AUTHORITATIVE_RECOVERY_INPUT_REQUIRED",
+                "Recovery planning requires a current operational snapshot",
+                status_code=409,
+            )
         case.preferences = preferences or case.preferences
         generated_at = _now()
         plans: list[RecoveryPlanVersion] = []
         evaluated_candidates = []
         for candidate in self._candidates(case):
-            result = self.evaluator.evaluate(case.operational_snapshot, candidate.proposed_changes, commitment)
+            result = self.evaluator.evaluate(snapshot, candidate.proposed_changes, commitment)
             affected_commitment_ids = result.affected_commitment_ids or assessment.affected_commitment_ids
             if not result.affected_commitment_ids and affected_commitment_ids:
                 result.assumptions.append(
@@ -352,7 +642,7 @@ class RecoveryPlanner:
                 plan_id=candidate.plan_id,
                 plan_version=1,
                 commitment_version=commitment.commitment_version,
-                snapshot_version=case.operational_snapshot.snapshot_version,
+                snapshot_version=snapshot.snapshot_version,
                 feasibility_status=result.status,
                 validation_source=result.validation_source,
                 readiness=_readiness(result.status),
@@ -372,7 +662,7 @@ class RecoveryPlanner:
                     plan_version=1,
                     commitment_id=commitment_id,
                     based_on_assessment_id=assessment.assessment_id,
-                    snapshot_version=case.operational_snapshot.snapshot_version,
+                    snapshot_version=snapshot.snapshot_version,
                     feasibility_status=result.status,
                     estimated_extra_cost=candidate.estimated_extra_cost,
                     currency="MYR",
@@ -574,6 +864,12 @@ class RecoveryPlanner:
         if expected_plan_version != plan.plan_version:
             raise DomainError("RECOVERY_PLAN_VERSION_CONFLICT", "Recovery plan version is stale", status_code=409,
                               details={"current_plan_version": plan.plan_version})
+        if case.operational_snapshot is None:
+            raise DomainError(
+                "AUTHORITATIVE_RECOVERY_INPUT_REQUIRED",
+                "The recovery case has no current operational snapshot",
+                status_code=409,
+            )
         if expected_snapshot_version != plan.snapshot_version or expected_snapshot_version != case.operational_snapshot.snapshot_version:
             raise DomainError("SNAPSHOT_VERSION_CONFLICT", "Operational snapshot version is stale", status_code=409,
                               details={"current_snapshot_version": case.operational_snapshot.snapshot_version})
@@ -855,9 +1151,12 @@ class RecoveryPlanner:
             )
             decisions = [d for d in case.approval_decisions if d.plan_id == plan_id
                          and d.plan_version == plan.plan_version]
-            approval = next((d for d in reversed(decisions) if d.decision == ApprovalDecisionState.APPROVED), None)
-            if approval is None or plan.approval_state != ApprovalState.APPROVED:
+            latest_decision = decisions[-1] if decisions else None
+            if (latest_decision is None
+                    or latest_decision.decision != ApprovalDecisionState.APPROVED
+                    or plan.approval_state != ApprovalState.APPROVED):
                 raise DomainError("APPROVAL_NOT_ACTIVE", "No active approval exists for this plan version", status_code=409)
+            approval = latest_decision
             now = _now()
             if approval.expires_at is None or approval.expires_at <= now:
                 expired = self._new_approval_record(

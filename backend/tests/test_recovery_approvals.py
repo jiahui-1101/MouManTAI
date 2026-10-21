@@ -142,6 +142,32 @@ def test_authoritative_approval_does_not_execute_plan_and_is_immutable():
         approved.reason = "mutated"
 
 
+def test_latest_immutable_invalidation_decision_blocks_still_approved_plan_state():
+    planner, case, plan = setup_plan()
+    plan.evaluation.validation_source = ValidationSource.REAL_P2_VALIDATED
+    planner.repository.save_case(case)
+    planner.request_approval(actor(), plan.plan_id, request_for(plan))
+    planner.approve_plan(actor(), plan.plan_id, decision_for(plan))
+
+    stored = planner.get_case(case.tenant_id, case.commitment_id)
+    approved = next(
+        decision for decision in reversed(stored.approval_decisions)
+        if decision.plan_id == plan.plan_id and decision.decision == ApprovalDecisionState.APPROVED
+    )
+    stored.approval_decisions.append(approved.model_copy(update={
+        "approval_id": "approval_invalidation_test",
+        "decision": ApprovalDecisionState.INVALIDATED,
+        "reason": "A later trigger invalidated this approval",
+        "approved_at": None,
+    }))
+    # Preserve immutable history; the latest decision must govern approval use.
+    planner.repository.save_case(stored)
+
+    with pytest.raises(DomainError) as exc_info:
+        planner.get_active_approval(actor(), plan.plan_id, decision_for(plan))
+    assert exc_info.value.code == "APPROVAL_NOT_ACTIVE"
+
+
 def test_stale_versions_scope_cost_and_expired_request_are_rejected():
     planner, _, plan = setup_plan()
     with pytest.raises(DomainError, match="version is stale"):
