@@ -14,7 +14,7 @@ from pydantic import (
     StringConstraints, field_validator, model_validator,
 )
 
-Identifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+Identifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Channel = Literal["WHATSAPP", "EMAIL", "TELEGRAM", "UNKNOWN"]
 ProcessingStatus = Literal["RECEIVED", "PROCESSING", "PROCESSED", "PROCESSING_FAILED"]
 Readiness = Literal["READY", "PARTIAL", "CONFLICT", "UNRESOLVED"]
@@ -37,7 +37,7 @@ class Attachment(P1Model):
     attachment_id: Identifier
     filename: Identifier
     media_type: Identifier
-    size_bytes: int = Field(ge=0)
+    size_bytes: int = Field(ge=0, le=25_000_000)
     # Opaque evidence reference, never a client-controlled local filesystem path.
     evidence_ref: Identifier
 
@@ -47,15 +47,32 @@ class RawMessageEnvelope(P1Model):
     channel: Channel
     provider_message_id: Identifier
     sender_identity_id: Identifier
-    sender_alias: Identifier
+    sender_alias: Annotated[str, StringConstraints(min_length=1, max_length=200)]
     received_at: Timestamp
-    business_timezone: str = "Asia/Kuala_Lumpur"
-    text: str = Field(min_length=1)
-    attachments: list[Attachment] = Field(default_factory=list)
-    thread_ref: str | None = None
-    reply_to_provider_message_id: str | None = None
-    language: str | None = None
+    message_at: Timestamp | None = None
+    business_timezone: str = Field(default="Asia/Kuala_Lumpur", max_length=100)
+    text: str = Field(min_length=1, max_length=20_000)
+    attachments: list[Attachment] = Field(default_factory=list, max_length=10)
+    thread_ref: str | None = Field(default=None, max_length=200)
+    reply_to_provider_message_id: str | None = Field(default=None, max_length=200)
+    language: str | None = Field(default=None, max_length=35)
     adapter_mode: Literal["SYNTHETIC"] = "SYNTHETIC"
+
+    @model_validator(mode="after")
+    def supported_original_content(self):
+        if not self.text.strip() or not self.sender_alias.strip():
+            raise ValueError("message text and sender alias must contain non-whitespace characters")
+        def contains_nul(value):
+            if isinstance(value, str):
+                return "\x00" in value
+            if isinstance(value, list):
+                return any(contains_nul(item) for item in value)
+            if isinstance(value, dict):
+                return any(contains_nul(item) for item in value.values())
+            return False
+        if contains_nul(self.model_dump()):
+            raise ValueError("NUL characters cannot be persisted in PostgreSQL JSONB")
+        return self
 
     @field_validator("business_timezone")
     @classmethod

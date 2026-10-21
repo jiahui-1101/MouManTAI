@@ -56,26 +56,31 @@
         "properties": {
           "attachment_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Attachment Id"
           },
           "filename": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Filename"
           },
           "media_type": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Media Type"
           },
           "size_bytes": {
             "type": "integer",
+            "maximum": 25000000.0,
             "minimum": 0.0,
             "title": "Size Bytes"
           },
           "evidence_ref": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Evidence Ref"
           }
@@ -95,17 +100,20 @@
         "properties": {
           "tenant_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Tenant Id"
           },
           "context_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Context Id"
           },
           "source_message_ids": {
             "items": {
               "type": "string",
+              "maxLength": 200,
               "minLength": 1
             },
             "type": "array",
@@ -116,6 +124,7 @@
             "anyOf": [
               {
                 "type": "string",
+                "maxLength": 200,
                 "minLength": 1
               },
               {
@@ -137,6 +146,7 @@
             "anyOf": [
               {
                 "type": "string",
+                "maxLength": 200,
                 "minLength": 1
               },
               {
@@ -168,6 +178,7 @@
             "additionalProperties": {
               "items": {
                 "type": "string",
+                "maxLength": 200,
                 "minLength": 1
               },
               "type": "array"
@@ -221,16 +232,19 @@
         "properties": {
           "tenant_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Tenant Id"
           },
           "context_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Context Id"
           },
           "review_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Review Id"
           },
@@ -378,11 +392,13 @@
         "properties": {
           "evidence_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Evidence Id"
           },
           "message_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Message Id"
           },
@@ -413,6 +429,7 @@
           },
           "method_version": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Method Version"
           }
@@ -463,11 +480,13 @@
         "properties": {
           "scenario_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Scenario Id"
           },
           "title": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Title"
           },
@@ -496,6 +515,7 @@
         "properties": {
           "message_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Message Id"
           },
@@ -550,6 +570,7 @@
         "properties": {
           "tenant_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Tenant Id"
           },
@@ -565,16 +586,19 @@
           },
           "provider_message_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Provider Message Id"
           },
           "sender_identity_id": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Sender Identity Id"
           },
           "sender_alias": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Sender Alias"
           },
@@ -583,13 +607,27 @@
             "format": "date-time",
             "title": "Received At"
           },
+          "message_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message At"
+          },
           "business_timezone": {
             "type": "string",
+            "maxLength": 100,
             "title": "Business Timezone",
             "default": "Asia/Kuala_Lumpur"
           },
           "text": {
             "type": "string",
+            "maxLength": 20000,
             "minLength": 1,
             "title": "Text"
           },
@@ -598,12 +636,14 @@
               "$ref": "#/components/schemas/Attachment"
             },
             "type": "array",
+            "maxItems": 10,
             "title": "Attachments"
           },
           "thread_ref": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               {
                 "type": "null"
@@ -614,7 +654,8 @@
           "reply_to_provider_message_id": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               {
                 "type": "null"
@@ -625,7 +666,8 @@
           "language": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 35
               },
               {
                 "type": "null"
@@ -657,6 +699,7 @@
         "properties": {
           "sku": {
             "type": "string",
+            "maxLength": 200,
             "minLength": 1,
             "title": "Sku"
           },

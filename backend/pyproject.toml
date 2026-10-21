@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "monmantai-p1-dev"
 version = "0.0.1"
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.115,<1", "pydantic>=2.10,<3", "uvicorn>=0.34,<1", "tzdata>=2025.1"]
+dependencies = ["fastapi>=0.115,<1", "pydantic>=2.10,<3", "uvicorn>=0.34,<1", "tzdata>=2025.1", "sqlalchemy>=2.0,<3", "psycopg[binary]>=3.2,<4"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "httpx>=0.28,<1"]

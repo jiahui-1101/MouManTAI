@@ -220,6 +220,8 @@ export interface components {
              * Format: date-time
              */
             received_at: string;
+            /** Message At */
+            message_at?: string | null;
             /**
              * Business Timezone
              * @default Asia/Kuala_Lumpur
