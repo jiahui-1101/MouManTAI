@@ -382,5 +382,20 @@ Metric protocol: always disclose dataset size, date, ground truth creation metho
   - Backend tests: 46 passed (`pytest -v backend/tests`), including 18 new integration tests in `test_feature_handshakes.py`.
   - Frontend checks: `tsc --noEmit` passed; Vitest 12 passed; production build passed (`npm run build`).
 
+  ### 2026-10-21 — P4 / Commit 01: Communication foundation and integration boundaries
+- Person: P4. Milestone: Commit 01. Status: Foundation prepared in an isolated project copy; real working tree untouched pending manual application. Full P4 feature remains incomplete.
+- Baseline: inspected local `P4-communication` at `0485d3d`; requested branch label was `branchP4-communication`. No branch change, fetch, merge or synchronization was performed; remote main was not verified.
+- Implemented Features: P4-local reference-only event view; pure event shape/tenant/reference consistency inspection preserving independent plan/proposal/commitment versions; frontend type-only entry point reusing shared types; evidence-based integration notes. Existing P4 `__init__.py` preserved. No event consumer or public API registered.
+- Changed Files: added `backend/app/communication/schemas.py`, `service.py`, `tests/test_foundation.py`, `INTEGRATION_NOTES.md`; added `frontend/src/features/communication/types.ts`, `README.md`; appended this record to `docs/TEAM_LOG.md` in the isolated copy only. No existing record or teammate status changed.
+- Tests Executed (isolated copy, using existing Python venv dependencies): `python -B -m pytest tests app/communication/tests -v` from backend: **69 passed** (46 existing + 23 P4). Initial run had one new test-fixture error (string datetime passed to Core factory); corrected only the P4 test and reran the complete suite successfully. One existing Starlette/httpx deprecation warning remains.
+- Backend Import Check: `python -B -c "from app.communication.schemas import RecoveryCommunicationReference; from app.communication.service import inspect_recovery_communication_event"`: passed.
+- Frontend Tests Executed: `npm run typecheck`: passed; `node_modules/.bin/tsc.cmd --noEmit -p tsconfig.app.json`: passed (checks actual app files despite root solution tsconfig); `npm test`: **12 passed**; `npm run build`: passed. No lint script is configured. No dependencies added or changed.
+- Diff Checks: `git status --short`, `git diff --stat`, `git diff --check` reviewed against the local baseline using the isolated work tree; added files separately reviewed and whitespace-checked. Original working tree remains clean. No Git index/history mutations performed.
+- Known Limitations: no request management, draft generation, message send, confirmation processing, UI page, DB table/migration, live provider, real API/UI or E2E flow in Commit 01. A valid reference does not verify identity, consent, approval, current authority or freshness. Only schema version 1 is understood. No PostgreSQL smoke test required/run for this foundation-only change.
+- Integration Dependencies / Blockers: no blocker for Commit 01. Future integration needs P1 normalized reply/verified identity contract, P3 exact approved plan/proposal reader and replan handoff, P5 scoped proposal reader and completion of proposal ID/status/expiry/identity guards, shared persistence/outbox transaction coordination and later routing. Existing Core readers/confirmation services/auth simulator/outbox are documented as existing, not reimplemented. P4 target confirmation event names are not claimed as registered consumers.
+- Next Milestone: **Commit 02 — Communication Request Management**. Not started.
+- Git Status: **Not committed yet**. No commit hash, push, merge or PR is claimed. After manual application, record the user's actual test results and eventual commit reference separately.
+
+
 
 
