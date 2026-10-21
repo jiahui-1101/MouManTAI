@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { PreviewError } from './api';
 import { operationalApi } from './operationalApi';
@@ -551,7 +552,17 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
           api={api}
         />
       )}
-      {showContextModal && activeContext && (
+      {showContextModal && activeContext && (typeof document !== 'undefined' ? createPortal(
+        <div className="p1-modal-backdrop" role="dialog" aria-modal="true" aria-label="Order Context Details">
+          <div className="p1-modal-card">
+            <OrderContextDetail
+              contextId={activeContext.context_id}
+              onClose={() => setShowContextModal(false)}
+            />
+          </div>
+        </div>,
+        document.body
+      ) : (
         <div className="p1-modal-backdrop" role="dialog" aria-modal="true" aria-label="Order Context Details">
           <div className="p1-modal-card">
             <OrderContextDetail
@@ -560,7 +571,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
             />
           </div>
         </div>
-      )}
+      ))}
       {showReviewDrawer && activeContext && (
         <ReviewDrawer
           context={activeContext}

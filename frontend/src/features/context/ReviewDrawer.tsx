@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ContextReviewRequest, OrderContextRecord, RequestedItem } from './types';
 import { operationalApi } from './operationalApi';
 
@@ -70,7 +71,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
     }
   };
 
-  return (
+  const drawerContent = (
     <div className="p1-drawer-backdrop" role="dialog" aria-modal="true" aria-labelledby="review-drawer-title">
       <div className="p1-drawer-panel">
         <div className="p1-drawer-header">
@@ -231,4 +232,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(drawerContent, document.body) : drawerContent;
 }
+

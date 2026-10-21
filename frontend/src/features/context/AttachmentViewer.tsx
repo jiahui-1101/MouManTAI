@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { AttachmentRecord, DocumentExtractionResult, DocumentEvidence } from './types';
 import { operationalApi, type OperationalApi } from './operationalApi';
 
@@ -74,7 +75,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
 
   const contentUrl = `/v1/attachments/${encodeURIComponent(evidenceRef)}/content`;
 
-  return (
+  const modalContent = (
     <div className="attachment-viewer-backdrop" data-testid="attachment-viewer-modal" role="dialog" aria-modal="true">
       <div className="attachment-viewer-card">
         <header className="attachment-viewer-header">
@@ -143,6 +144,13 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
                 {extracting ? 'Extracting...' : 'Run Extraction / OCR'}
               </button>
             </div>
+
+            {extracting && (
+              <div className="extracting-progress-banner" style={{ padding: '10px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', fontSize: '12px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="spinner" style={{ display: 'inline-block', width: '13px', height: '13px', border: '2px solid #3b82f6', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></span>
+                <span>Executing PaddleOCR on CPU (first-time model load takes ~60-80s; subsequent runs are fast)...</span>
+              </div>
+            )}
 
             {/* UNVERIFIED PAYMENT EVIDENCE ALERT */}
             {extraction?.is_payment_notice && (
@@ -263,4 +271,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };
+
