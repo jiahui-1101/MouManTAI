@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -21,6 +21,44 @@ def changed(snapshot, mutate):
     data = snapshot.model_dump(exclude_computed_fields=True)
     mutate(data)
     return EvaluationSnapshot.model_validate(data)
+
+
+def competing_snapshot():
+    """Two versioned commitments sharing one SKU, ordered by material-use time."""
+    from app.feasibility.production import EvaluationSnapshot
+
+    snapshot, commitment = fixture()
+    data = snapshot.model_dump(exclude_computed_fields=True)
+    for lot in data['operational']['inventory_lots']:
+        if lot['sku_id'] != 'PATTY':
+            lot['quantity'] = '180'
+    original = data['operational']['confirmed_commitments'][0]
+    original_line = original['lines'][0]
+    at_a = datetime.fromisoformat('2026-10-23T10:40:00+08:00')
+    at_b = datetime.fromisoformat('2026-10-23T12:00:00+08:00')
+    deadline = datetime.fromisoformat('2026-10-24T15:00:00+08:00')
+    commitment_a = {
+        **original,
+        'commitment_id': 'commitment-A',
+        'delivery_deadline': deadline,
+        'lines': ({**original_line, 'line_id': 'line-A', 'quantity': '80', 'material_use_at': at_a},),
+    }
+    commitment_b = {
+        **original,
+        'commitment_id': 'commitment-B',
+        'delivery_deadline': deadline,
+        'lines': ({**original_line, 'line_id': 'line-B', 'quantity': '100', 'material_use_at': at_b},),
+    }
+    data['operational']['confirmed_commitments'] = (commitment_a, commitment_b)
+    data['production']['plans'] = (
+        {**data['production']['plans'][0], 'commitment_id': 'commitment-A', 'line_id': 'line-A', 'start_at': at_a},
+        {**data['production']['plans'][0], 'commitment_id': 'commitment-B', 'line_id': 'line-B', 'start_at': at_b},
+    )
+    core_b = commitment.model_copy(update={
+        'commitment_id': 'commitment-B',
+        'terms': commitment.terms.model_copy(update={'deadline': deadline}),
+    })
+    return EvaluationSnapshot.model_validate(data), core_b
 
 
 def test_four_statuses_and_shared_constraint_mapping():
@@ -127,7 +165,7 @@ def test_metadata_evidence_time_assumptions_and_no_invented_affected_ids():
     assert result.solver_status is SolverStatus.COMPLETED
     assert result.evidence_refs and result.assumptions
     assert 'affected_commitment_ids' not in result.model_dump()
-    assert result.shared_output_blocker == 'P5_AFFECTED_COMMITMENT_IDS_SEMANTICS'
+    assert result.shared_output_blocker == 'P5_AFFECTED_COMMITMENT_IDS_EMPTY_SCHEMA_SUPPORT'
     assert run(snapshot) == result
 
 
@@ -240,3 +278,110 @@ def test_stale_production_and_inventory_sources_preserve_stale_solver_status():
     result = run(changed(snapshot, mutate))
     assert result.status is FeasibilityState.UNKNOWN
     assert result.solver_status is SolverStatus.STALE
+
+
+def test_provisional_allocation_shortage_is_unknown_with_aggregate_shortage_evidence():
+    snapshot, target = competing_snapshot()
+
+    result = run(snapshot, commitment=target)
+
+    assert result.status is FeasibilityState.UNKNOWN
+    dependency = next(c for c in result.constraints
+                      if c.code == 'ALLOCATION_DEPENDENT_MATERIAL_SHORTAGE' and c.resource_id == 'PATTY')
+    assert (dependency.resource_id, dependency.shortage, dependency.unit, dependency.severity) == (
+        'PATTY', Decimal('80'), 'pcs', 'INFORMATIONAL')
+    assert dependency.evidence_refs
+    assert not any(c.code == 'MATERIAL_SHORTAGE' and c.severity == 'HARD' for c in result.constraints)
+    rows = {r.commitment_id: r for r in result.materials.materials if r.sku_id == 'PATTY'}
+    assert (rows['commitment-A'].shortage, rows['commitment-B'].shortage) == (0, Decimal('80'))
+
+
+def test_f2_01_total_eligible_supply_shortage_remains_hard_and_infeasible():
+    snapshot, _ = fixture()
+    short = changed(snapshot, lambda data: data['operational']['inventory_lots'][0].update(quantity='70'))
+
+    result = run(short)
+
+    assert result.status is FeasibilityState.INFEASIBLE
+    shortage = next(c for c in result.constraints if c.code == 'MATERIAL_SHORTAGE')
+    assert (shortage.shortage, shortage.unit, shortage.severity) == (Decimal('30'), 'pcs', 'HARD')
+
+
+@pytest.mark.parametrize('eligibility', ['protected_reservation', 'wrong_location', 'expired_before_target'])
+def test_protected_or_ineligible_competitor_allocations_are_not_reallocatable(eligibility):
+    snapshot, target = competing_snapshot()
+    def mutate(data):
+        lot = data['operational']['inventory_lots'][0]
+        if eligibility == 'protected_reservation':
+            data['operational']['reservations'] = ({
+                'reservation_id': 'reservation-A', 'tenant_id': target.tenant_id,
+                'inventory_lot_id': lot['lot_id'], 'commitment_id': 'commitment-A',
+                'quantity': '80', 'unit': 'pcs', 'status': 'ACTIVE',
+                'source_refs': ('source-reservations-001',),
+            },)
+        elif eligibility == 'wrong_location':
+            lot['warehouse_id'] = 'warehouse-A'
+            for row in data['operational']['confirmed_commitments']:
+                row['lines'][0]['warehouse_id'] = 'warehouse-A' if row['commitment_id'] == 'commitment-A' else 'warehouse-B'
+        else:
+            lot['expires_at'] = datetime.fromisoformat('2026-10-23T11:30:00+08:00')
+    snapshot = changed(snapshot, mutate)
+
+    result = run(snapshot, commitment=target)
+
+    assert result.status is FeasibilityState.INFEASIBLE
+    assert not any(c.code == 'ALLOCATION_DEPENDENT_MATERIAL_SHORTAGE' for c in result.constraints)
+    assert any(c.code == 'MATERIAL_SHORTAGE' and c.severity == 'HARD' for c in result.constraints)
+
+
+def test_hypothetical_reallocation_cannot_hide_displaced_confirmed_material_demand():
+    from app.feasibility.production import ProposedChanges
+    snapshot, target = competing_snapshot()
+    proposal = ProposedChanges(
+        tenant_id=target.tenant_id, commitment_id=target.commitment_id,
+        expected_commitment_version=target.commitment_version,
+        expected_snapshot_version=snapshot.operational.snapshot_version,
+        production_start_at=datetime.fromisoformat('2026-10-23T09:00:00+08:00'),
+        evidence_refs=('synthetic-reallocation-proposal',),
+    )
+
+    result = run(snapshot, proposal, target)
+
+    assert result.status is FeasibilityState.INFEASIBLE
+    displaced = next(c for c in result.constraints
+                      if c.code == 'HYPOTHETICAL_COMPETING_MATERIAL_SHORTAGE' and c.resource_id == 'PATTY')
+    assert (displaced.shortage, displaced.severity) == (Decimal('80'), 'HARD')
+
+
+@pytest.mark.parametrize('failure,expected_code', [
+    ('deadline', 'DELIVERY_DEADLINE'),
+    ('job_conflict', 'JOB_CONFLICT'),
+    ('working_window', 'CAPACITY_WINDOW_VIOLATION'),
+])
+def test_independent_capacity_hard_failures_remain_infeasible(failure, expected_code):
+    from app.feasibility.tests.test_capacity import dt
+    snapshot, commitment = fixture()
+    def mutate(data):
+        if failure == 'deadline':
+            deadline = dt('11:00:00')
+            data['operational']['confirmed_commitments'][0]['delivery_deadline'] = deadline
+        elif failure == 'job_conflict':
+            data['production']['jobs'] = ({
+                'job_id': 'blocking-job', 'tenant_id': commitment.tenant_id,
+                'resource_ids': ('kitchen-line-1',), 'start_at': dt('10:00:00'),
+                'end_at': dt('11:00:00'), 'source_refs': ('production-jobs',),
+            },)
+        else:
+            data['operational']['capacity_calendars'][0]['windows'][0]['end_at'] = dt('10:00:00')
+            data['operational']['capacity_calendars'][0]['windows'][0]['available_minutes'] = '180'
+    snapshot = changed(snapshot, mutate)
+    if failure == 'deadline':
+        commitment = commitment.model_copy(update={
+            'terms': commitment.terms.model_copy(update={'deadline': dt('11:00:00')}),
+        })
+
+    result = run(snapshot, commitment=commitment)
+
+    assert result.materials.status == 'COVERED'
+    assert result.status is FeasibilityState.INFEASIBLE
+    assert any(c.code == expected_code and c.severity == 'HARD' for c in result.constraints)

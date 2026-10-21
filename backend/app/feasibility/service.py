@@ -1,11 +1,12 @@
 """Pure P2 evaluation, using the existing batch ATP/BOM and capacity checks.
 
-Final FeasibilityAssessment serialization is BLOCKED: P5 has not defined
-affected_commitment_ids for ordinary single-commitment results. No affected
-IDs are fabricated. This local result is not a substitute shared contract.
+Final FeasibilityAssessment serialization remains BLOCKED until the P5 schema
+accepts an empty actual-impact set. No affected IDs are fabricated. This local
+result is not a substitute shared contract.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from hashlib import sha256
 
 from pydantic import Field
@@ -14,9 +15,10 @@ from app.core.schemas import Commitment, ConstraintReason, FeasibilityState, Sol
 
 from .capacity import CapacityResult, check_capacity
 from .inventory import calculate_atp
-from .materials import MaterialATP
-from .models import FrozenModel
+from .materials import MaterialATP, MaterialAvailability
+from .models import FrozenModel, _utc
 from .production import EvaluationSnapshot, ProposedChanges
+from .quantities import add, subtract
 
 
 class EvaluationResult(FrozenModel):
@@ -34,7 +36,55 @@ class EvaluationResult(FrozenModel):
     evidence_refs: tuple[str, ...]
     materials: MaterialATP
     capacity: CapacityResult
-    shared_output_blocker: str = Field(default='P5_AFFECTED_COMMITMENT_IDS_SEMANTICS', frozen=True)
+    shared_output_blocker: str = Field(default='P5_AFFECTED_COMMITMENT_IDS_EMPTY_SCHEMA_SUPPORT', frozen=True)
+
+
+def _allocation_can_cover_target(snapshot: EvaluationSnapshot, materials: MaterialATP,
+                                 target_row: MaterialAvailability) -> tuple[bool, Decimal]:
+    """Return whether currently allocated, target-eligible supply could cover a short row.
+
+    This is a status proof over the existing ATP allocation evidence, not a
+    second inventory calculator or a proposed stock reallocation. Reservations
+    are deliberately excluded: they remain protected for their owners.
+    """
+    operational = snapshot.operational
+    lots = {lot.lot_id: lot for lot in operational.inventory_lots}
+    deliveries = {delivery.delivery_id: delivery for delivery in operational.incoming_deliveries}
+    reassignable = Decimal(0)
+
+    for competing in materials.materials:
+        if (competing.commitment_id == target_row.commitment_id
+                or competing.sku_id != target_row.sku_id
+                or competing.unit != target_row.unit):
+            continue
+        for allocation in competing.allocations:
+            if allocation.kind == 'LOT':
+                supply = lots.get(allocation.supply_id)
+                eligible = (supply is not None
+                    and (target_row.warehouse_id is None or supply.warehouse_id == target_row.warehouse_id)
+                    and not supply.is_expired_at(target_row.needed_by))
+            elif allocation.kind == 'RECEIPT':
+                supply = deliveries.get(allocation.supply_id)
+                eligible = (supply is not None and supply.confirmation_status == 'CONFIRMED'
+                    and (target_row.warehouse_id is None or supply.warehouse_id == target_row.warehouse_id)
+                    and _utc(supply.expected_at) <= _utc(target_row.needed_by)
+                    and _utc(supply.expected_at) <= _utc(operational.logistics_cutoff_at))
+            else:
+                # An active reservation is owned supply, never a free pool.
+                eligible = False
+            if eligible:
+                reassignable = add(reassignable, allocation.quantity)
+
+    current_target_supply = subtract(target_row.required, target_row.shortage)
+    return add(current_target_supply, reassignable) >= target_row.required, reassignable
+
+
+def _batch_shortage(materials: MaterialATP, target_row: MaterialAvailability) -> Decimal:
+    total = Decimal(0)
+    for row in materials.materials:
+        if row.sku_id == target_row.sku_id and row.unit == target_row.unit:
+            total = add(total, row.shortage)
+    return total
 
 
 def evaluate(snapshot: EvaluationSnapshot, proposed_changes: ProposedChanges | None,
@@ -94,14 +144,7 @@ def evaluate(snapshot: EvaluationSnapshot, proposed_changes: ProposedChanges | N
     for issue in materials.issues:
         constraints.append(ConstraintReason(code=issue.code, resource_id=issue.resource_id or 'materials',
             severity='INFORMATIONAL', evidence_refs=list(issue.evidence_refs)))
-    for row in materials.materials:
-        if row.commitment_id == commitment.commitment_id and row.shortage > 0:
-            constraints.append(ConstraintReason(code=row.code, resource_id=row.sku_id,
-                shortage=row.shortage, unit=row.unit, deadline=row.needed_by, severity='HARD',
-                evidence_refs=list(row.evidence_refs)))
-    # Query-mode proposals must not gain coverage by quietly displacing an
-    # existing commitment. Compare the same batch ATP, never another calculator.
-    # This is candidate validation only; no Phase 4 graph/events/risk propagation.
+    allocation_dependent = False
     if proposed_changes is not None and materials.status != 'UNKNOWN':
         baseline = calculate_atp(original, tenant_id=commitment.tenant_id, as_of=snapshot.as_of)
         if baseline.status == 'UNKNOWN':
@@ -115,13 +158,30 @@ def evaluate(snapshot: EvaluationSnapshot, proposed_changes: ProposedChanges | N
                     constraints.append(ConstraintReason(code='HYPOTHETICAL_COMPETING_MATERIAL_SHORTAGE',
                         resource_id=row.sku_id, shortage=row.shortage, unit=row.unit, deadline=row.needed_by,
                         severity='HARD', evidence_refs=list(row.evidence_refs)))
+    for row in materials.materials:
+        if row.commitment_id == commitment.commitment_id and row.shortage > 0:
+            can_cover, reassignable = _allocation_can_cover_target(candidate, materials, row)
+            if reassignable > 0:
+                allocation_dependent |= can_cover
+                constraints.append(ConstraintReason(code='ALLOCATION_DEPENDENT_MATERIAL_SHORTAGE',
+                    resource_id=row.sku_id, shortage=_batch_shortage(materials, row), unit=row.unit,
+                    deadline=row.needed_by, severity='INFORMATIONAL', evidence_refs=list(row.evidence_refs)))
+            if not can_cover:
+                proven_shortage = subtract(row.required,
+                    add(subtract(row.required, row.shortage), reassignable))
+                constraints.append(ConstraintReason(code=row.code, resource_id=row.sku_id,
+                    shortage=proven_shortage, unit=row.unit, deadline=row.needed_by, severity='HARD',
+                    evidence_refs=list(row.evidence_refs)))
+    # Query-mode proposals must not gain coverage by quietly displacing an
+    # existing commitment. Compare the same batch ATP, never another calculator.
+    # This is candidate validation only; no Phase 4 graph/events/risk propagation.
     stale_version = (candidate.current_snapshot_version is not None
                      and candidate.current_snapshot_version != original.snapshot_version)
     if stale_version:
         constraints.append(ConstraintReason(code='STALE_SNAPSHOT_VERSION', resource_id=original.snapshot_id,
                                             severity='INFORMATIONAL', evidence_refs=[]))
     stale = stale_version or any(c.code.startswith('STALE_') for c in constraints)
-    unknown = (stale or materials.status == 'UNKNOWN' or capacity.status == FeasibilityState.UNKNOWN
+    unknown = (stale or allocation_dependent or materials.status == 'UNKNOWN' or capacity.status == FeasibilityState.UNKNOWN
                or any(c.code == 'UNKNOWN_BASELINE_FOR_PROPOSAL' for c in constraints))
     hard = any(c.severity == 'HARD' for c in constraints)
     status = (FeasibilityState.UNKNOWN if unknown else FeasibilityState.INFEASIBLE if hard
@@ -131,9 +191,13 @@ def evaluate(snapshot: EvaluationSnapshot, proposed_changes: ProposedChanges | N
             resource_id=commitment.commitment_id, severity='INFORMATIONAL', evidence_refs=list(proposal_refs)))
     refs = tuple(sorted({*commitment.evidence_refs, *materials.evidence_refs, *capacity.evidence_refs, *proposal_refs}))
     material_assumptions = tuple(a for a in materials.assumptions if not a.startswith('Material-only check;'))
+    allocation_assumptions = (
+        'Allocation-dependent shortage is UNKNOWN; its informational amount is the current ATP batch aggregate and no confirmed demand is reprioritized.',
+    ) if allocation_dependent else ()
     assumptions = (*material_assumptions, *capacity.assumptions, *proposal_assumptions,
         'Assessment time is explicit historical replay time; current operational version must be supplied by P5.',
-        'Shared affected_commitment_ids semantics are unresolved; no impact IDs inferred.')
+        'affected_commitment_ids represents the actual Impact Set; no impact IDs are inferred from assessment scope.',
+        *allocation_assumptions)
     identity = (snapshot.model_dump_json() + commitment.model_dump_json()
                 + (proposed_changes.model_dump_json() if proposed_changes is not None else 'null'))
     return EvaluationResult(assessment_id='p2-local-' + sha256(identity.encode()).hexdigest(),

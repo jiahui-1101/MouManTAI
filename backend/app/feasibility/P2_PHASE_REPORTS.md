@@ -373,14 +373,14 @@ P5's shared demo snapshot remains an untyped summary and lacks required source f
 
 ### Contract clarification received during this phase
 
-The user explicitly confirmed there is **no verified P5 decision** for
-affected_commitment_ids in ordinary single-commitment assessments, particularly
-FEASIBLE/UNKNOWN. Nonempty schema validation does not define business semantics.
-User forbade automatically inserting the evaluated ID and authorized independent
-local calculations using actual Core enums/ConstraintReason, while keeping final
-shared mapping BLOCKED. Therefore evaluate returns P2-local EvaluationResult,
-not FeasibilityAssessment. No affected IDs, shared schema modification or
-caller-controlled bypass was added. Phase 3 cannot be fully PASS on local tests.
+At initial implementation, the user confirmed there was no verified P5 decision
+for `affected_commitment_ids`; P2 therefore used a local result without invented
+IDs. In the later external-review follow-up, P5 confirmed the field is the actual
+Impact Set, not assessment scope. That semantic decision is now RESOLVED. The
+current shared schema still requires at least one ID, so an empty actual Impact
+Set remains blocked pending P5's schema change, merge and verification. P2 makes
+no shared schema edit and still returns a local `EvaluationResult`, not a shared
+`FeasibilityAssessment`.
 
 ### Changes and precise supported behavior
 
@@ -442,3 +442,14 @@ canonical app imports, `python -B`, no path aliases and no shared config changes
 - Trace: PH3-01..05/08 local evidence PASS; PH3-06/07 shared integration BLOCKED; applicable owner/F2/system rows updated truthfully. Phase3 overall PARTIAL, P2-FE NOT_STARTED, Phases4–7 NOT_STARTED.
 
 **STOP for external Phase 3 review. Do not claim full Phase 3 PASS or start Phase 4.**
+
+## External review correction — allocation-dependent material status
+
+- **Reviewed input:** external review of `9ff7535417cf0508d1940775a2530d9353551269` accepted the local capacity/deadline/evaluator work in principle and required correction where provisional ATP priority made a target shortage HARD.
+- **P2-local correction:** `service.py` now reads existing ATP allocations to determine whether other confirmed demand currently holds same-SKU supply that is still eligible by lot expiry/receipt ETA and target warehouse. Protected reservation quantities, expired lots, late receipts and location-ineligible supply are excluded. ATP ordering/allocation code is unchanged and no demand is displaced.
+- **Status behavior:** if eligible competing allocations could fully cover a target's provisional shortage, output `ALLOCATION_DEPENDENT_MATERIAL_SHORTAGE` with INFORMATIONAL severity, current ATP batch aggregate shortage, and evidence; overall status is UNKNOWN. If compatible reallocation still leaves a positive minimum shortfall, `MATERIAL_SHORTAGE` remains HARD at that proven amount and the result is INFEASIBLE. A proposal that newly shortens another confirmed commitment remains HARD through the existing baseline/candidate ATP comparison. Independent capacity HARD constraints remain unchanged.
+- **Focused regressions:** added the 100-stock / 80-plus-100 demand case; F2-01 target100/eligible70; protected reservation and time/location-ineligible supply; proposal displacement; and deadline, job-conflict and working-window capacity failures. The pre-fix test `test_provisional_allocation_shortage_is_unknown_with_aggregate_shortage_evidence` failed because the result was INFEASIBLE; after the correction it passes.
+- **Current validation from `backend/`:** `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_capacity.py app/feasibility/tests/test_service.py -q -p no:cacheprovider` — **63 passed in 0.78s**. Existing suite `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_snapshots.py app/feasibility/tests/test_bom.py app/feasibility/tests/test_inventory.py tests/test_contracts.py tests/test_smoke.py tests/test_registry.py -q -p no:cacheprovider` — **73 passed, 1 existing Starlette/httpx deprecation warning in 2.74s**.
+- **P5 contract:** actual Impact Set semantics are RESOLVED by P5. Current `FeasibilityAssessment.affected_commitment_ids` still has `min_length=1`; empty-set schema support is PENDING merge/verification. Final shared adapter remains BLOCKED. No P5-owned code changed.
+- **Files changed in this review follow-up:** `backend/app/feasibility/service.py`, `backend/app/feasibility/tests/test_service.py`, `backend/app/feasibility/P2_PROGRESS.md`, `backend/app/feasibility/P2_REQUIREMENT_TRACE.md`, `backend/app/feasibility/PHASE3_HANDOFF.md`, `backend/app/feasibility/PHASE3_PLAN.md`, `backend/app/feasibility/P2_PHASE_REPORTS.md`, and the P2-only entry in `docs/TEAM_LOG.md`.
+- **Remaining blockers:** P3 ProposedChanges integration/serialization and P2/P5 operational snapshot/catalog adapter remain provisional; the shared demo is not complete operational evidence. Phase 3 remains PARTIAL and STOPPED for independent review. Phase 4 has not started.

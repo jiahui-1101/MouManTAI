@@ -89,6 +89,26 @@ events or risk propagation. Proposals cannot insert stock, promote quotes, delet
 jobs or update lifecycle state. P3/P5 command-side locking and execution-time
 revalidation remain mandatory; query calls never reserve stock across plans.
 
+### Allocation-dependent material shortage
+
+A target's provisional ATP shortage is not automatically a HARD target failure.
+P2 examines the existing ATP allocations for the same SKU/base unit and counts
+only currently allocated LOT/confirmed RECEIPT quantities that are still
+eligible for the target's material-use time and warehouse. Active reservations,
+expired lots, late receipts and location-ineligible supply remain unavailable.
+No supply is reallocated and no confirmed commitment is reprioritized.
+
+If compatible supply already allocated to other demand could cover the target,
+the evaluator emits `ALLOCATION_DEPENDENT_MATERIAL_SHORTAGE` as INFORMATIONAL,
+reports the current batch aggregate shortage with row evidence, and returns
+UNKNOWN. It does not treat a hypothetical displacement as approval or use
+CONDITIONAL. If all target-eligible allocated supply still leaves a positive
+minimum shortage, `MATERIAL_SHORTAGE` remains HARD with that proven minimum.
+ATP's allocation algorithm and its evidence remain unchanged. A proposal that
+increases another confirmed commitment's shortage still receives a HARD
+`HYPOTHETICAL_COMPETING_MATERIAL_SHORTAGE` from the baseline/candidate ATP
+comparison.
+
 ## Core constraints and blocked output adapter
 
 All constraints are actual `app.core.schemas.ConstraintReason` objects, with
@@ -96,7 +116,8 @@ Core FeasibilityState and SolverStatus. No P5 schema is modified.
 
 | Local result | Shared mapping |
 |---|---|
-| Target material shortage | MATERIAL_SHORTAGE, SKU resource, exact shortage/base unit, material-need deadline, HARD, row evidence |
+| Proven target-level material shortage after compatible alternate allocations | MATERIAL_SHORTAGE, SKU resource, proven minimum shortage/base unit, material-need deadline, HARD, row evidence |
+| Shortage coverable only by supply currently allocated to competing demand | ALLOCATION_DEPENDENT_MATERIAL_SHORTAGE, SKU resource, current ATP batch aggregate shortage/base unit, material-need deadline, INFORMATIONAL, row evidence; overall UNKNOWN |
 | New competitor shortage under proposal | HYPOTHETICAL_COMPETING_MATERIAL_SHORTAGE, SKU resource, candidate shortage/base unit, competitor material deadline, HARD, row evidence |
 | Work/resource/job constraint | specific code/resource, exact missing minutes if representable, minutes unit when numeric, deadline where applicable, HARD, relevant evidence |
 | Missing/stale/unsupported data | specific code/resource, no invented shortage/unit, INFORMATIONAL, available evidence |
@@ -108,14 +129,15 @@ resource sharing stay in local materials/capacity results. Core constraint
 objects follow Core's mutable contract, but each evaluation creates fresh output:
 mutating an output cannot affect inputs or subsequent evaluations.
 
-**BLOCK-P2-P3-001 / P5:** FeasibilityAssessment requires nonempty
-affected_commitment_ids but no verified decision defines its meaning for ordinary
-single-commitment FEASIBLE/UNKNOWN/CONDITIONAL/INFEASIBLE results. User explicitly
-confirmed the ambiguity and forbade inserting the target by default. Therefore
-EvaluationResult has no affected IDs and carries
-`shared_output_blocker=P5_AFFECTED_COMMITMENT_IDS_SEMANTICS`; it is not a
-FeasibilityAssessment. P5 must define assessed-vs-impacted semantics for all four
-statuses, including safe/unknown cases. Only then can P2 implement the adapter.
+**BLOCK-P2-P3-001 / P5:** P5 confirmed `affected_commitment_ids` is the actual
+Impact Set, not assessment scope; this semantic decision is RESOLVED. The current
+Core schema still requires at least one ID (`min_length=1`), so an empty actual
+Impact Set cannot yet be serialized. P5's schema update to allow `[]` is PENDING
+merge and verification. P2 does not fabricate IDs or edit shared schemas;
+`EvaluationResult` has no affected IDs and carries
+`shared_output_blocker=P5_AFFECTED_COMMITMENT_IDS_EMPTY_SCHEMA_SUPPORT`. The
+final shared `FeasibilityAssessment` adapter remains BLOCKED until P5's change is
+merged and verified.
 
 **BLOCK-P2-P3-002 / P3:** confirm ProposedChanges serialization and fixed-booking
 query usage. Supply substitution needs reviewed provenance/conditional types;

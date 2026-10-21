@@ -26,11 +26,11 @@ Hypothetical quantity/deadline/start changes are version-bound, evaluated in a
 private copy with all competing demand, and explicitly conditional on approval.
 SOFT preferences never make a hard-feasible schedule infeasible.
 
-Shared-output gate: P5 has not confirmed the meaning of nonempty
-affected_commitment_ids for a single-commitment assessment. Do not default it
-to the target or infer impacted IDs. Provide independent local calculation;
-evaluate returns a P2-local result using shared enums/ConstraintReason but no
-affected IDs. User confirmed this gate during implementation; the final shared
-assessment adapter stays BLOCKED until P5 records a decision. Do not implement
-a caller-controlled bypass or claim full Phase 3 PASS.
+Shared-output gate: P5 confirmed `affected_commitment_ids` represents the actual
+Impact Set, not assessment scope. Do not default it to the target or infer
+impacted IDs. The current schema's `min_length=1` rejects an empty actual Impact
+Set; P5's schema update to allow `[]` is PENDING merge and verification. Provide
+independent local calculation; `evaluate` returns a P2-local result using shared
+enums/ConstraintReason but no affected IDs and identifies the schema-support
+blocker. Do not implement a caller-controlled bypass or claim full Phase 3 PASS.
 No shared schema, dependency, persistence, route, impact propagation or UI changes.

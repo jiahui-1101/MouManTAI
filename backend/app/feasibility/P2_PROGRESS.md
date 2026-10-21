@@ -3,19 +3,19 @@
 ## Current checkpoint
 
 - **Phase:** 3 only — production capacity/deadlines and pure evaluator.
-- **State:** PARTIAL; independent local calculations tested. Final shared-output integration BLOCKED pending P5 affected_commitment_ids semantics; external review pending. No Phase 4 work.
+- **State:** PARTIAL; independent local calculations tested and the allocation-dependent status correction is implemented. Final shared-output integration remains BLOCKED pending P5 schema support for an empty actual Impact Set; independent external review is pending. No Phase 4 work.
 - **Branch:** feat/p2-feasibility-engine.
-- **Approved baseline:** user reported external approval of runtime correction 5a1e827b6431d4fddbaf6bf2938865f0bfdef567; verified exact clean HEAD before edits.
-- **Scope:** only new P2-local production inputs, interval capacity validation, pure evaluation, explicit synthetic fixture and tests; existing ATP/BOM algorithms/tests unchanged; one exact calendar-bound validation correction in P2 models.py. P5 schemas/Core/DB/dependencies/UI unchanged.
-- **Validation:** final Phase 3 command (backend): `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_capacity.py app/feasibility/tests/test_service.py -q -p no:cacheprovider` — 54 passed. Existing P2/shared regression command — 73 passed, one existing Starlette/httpx warning. Exact commands/red-green evidence in phase report.
+- **Reviewed baseline:** external review of `9ff7535417cf0508d1940775a2530d9353551269` requested allocation-dependent shortage semantics. Branch and exact baseline were verified before this correction.
+- **Scope:** P2-local `service.py` allocation-status correction and focused tests plus P2 progress/trace/handoff/report/TEAM_LOG updates. Existing ATP/BOM algorithms, capacity logic, P5 schemas/Core/DB/dependencies/UI remain unchanged.
+- **Validation:** Phase 3 command (backend): `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_capacity.py app/feasibility/tests/test_service.py -q -p no:cacheprovider` — 63 passed. Existing P2/shared regression command — 73 passed, one existing Starlette/httpx warning. Exact evidence in phase report.
 - **Interface:** app.feasibility.service.evaluate(EvaluationSnapshot, ProposedChanges | None, app.core.schemas.Commitment) -> P2-local EvaluationResult. Uses actual Core enums/ConstraintReason; does not fabricate affected IDs or claim to return FeasibilityAssessment. See PHASE3_HANDOFF.md.
-- **Semantics:** exact fixed bookings, resource sharing, existing jobs, real working windows, explicit processing/setup/transport times and dispatch/deadline checks. Missing/incomplete/unsupported data -> UNKNOWN. Material COVERED alone is insufficient. Hypothetical changes remain CONDITIONAL on approval/customer agreement unless hard-infeasible/unknown.
+- **Semantics:** exact fixed bookings, resource sharing, existing jobs, real working windows, explicit processing/setup/transport times and dispatch/deadline checks. Missing/incomplete/unsupported data -> UNKNOWN. Material COVERED alone is insufficient. A shortage that compatible competing LOT/confirmed RECEIPT allocations could cover is UNKNOWN with an INFORMATIONAL current batch aggregate constraint; only proven minimum material shortage is HARD. Protected reservations and time/location-ineligible supply are not transferable. Hypothetical changes remain CONDITIONAL only when otherwise supported and pending identified approval/customer agreement; new competitor shortage stays HARD.
 - **Purity:** version-bound target quantity/deadline/start proposals use a validated private copy and same batch ATP/BOM. Newly displaced competing material demand rejects a proposal. No stock/job/reservation/terms/Core lifecycle writes.
-- **Shared blocker:** user confirmed no P5 decision for nonempty affected_commitment_ids; do not auto-insert target. P5 must define semantics for all four statuses before final shared adapter. P3 serialization and P2/P5 source/catalog adapter also remain provisional.
+- **Shared blocker:** P5 confirmed `affected_commitment_ids` is the actual Impact Set (semantic decision RESOLVED). The current Core schema still rejects `[]`; P5's schema implementation is PENDING merge/verification. Do not fabricate IDs or edit P5 schemas. Final shared adapter remains BLOCKED. P3 serialization and P2/P5 source/catalog adapter also remain provisional.
 - **Environment:** Python 3.14.3, Pydantic 2.13.4, pytest 9.1.1 (outside P5 >=8.3,<9). No dependency changes. Existing seven shared tests use SQLite, not live PostgreSQL.
 - **Canonical instructions:** old docs/AGENTS.md absent; root AGENTS.md is canonical per TEAM_LOG and current user instruction. Current Master path P2_CODEX_MASTER.txt exists. External requirements remain read-only.
 - **Git:** local commit and feature-only push authorized by this task; exact SHA/ref/clean-state evidence in final response. No merge, force push or Main change.
-- **Gate:** STOP for external Phase 3 review. Phase 3 is not fully PASS; do not begin Phase 4.
+- **Gate:** STOP for independent external review. Phase 3 remains PARTIAL; do not begin Phase 4.
 
 ## Repository baseline
 
