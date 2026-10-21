@@ -1,5 +1,33 @@
 # MouManTAI — Team Execution Log & Decision Register
 
+### 2026-10-22 — P1 BATCH 6: real GPU model deployment and evaluation (RunPod serverless architecture)
+
+- Branch: `feat/p1-ai-pipeline`; commits: proposal `7080159`, candidate guard `3ddd5a0`, handoff `1d1ff20`.
+- Defect Audit & Resolution:
+  - Addressed CJK tokenization defect with custom `OffsetSplitter` in `worker.py` matching Unicode code points without space-insertion or language degradation.
+  - Mitigated Qwen instruction hallucination and evidence gate rejections with strict `SYSTEM_PROMPT` prohibiting markdown/translation and `ground_raw_answer` deterministically resolving source quotes.
+  - Bounded input contexts (<= 300 tokens, <= 4 messages, 4000 chars) preventing silent truncation.
+- Infrastructure & Deployment:
+  - Created reproducible RunPod serverless container (`Dockerfile`, PyTorch 2.7.1 + CUDA 12.8, SDPA/FlashAttention runtime).
+  - Selected model pair: `urchade/gliner_multi-v2.1` (`443d26d6...`, Apache-2.0, ~2.0 GB VRAM) and `Qwen/Qwen2.5-7B-Instruct` / `Qwen3-4B-Instruct-2507` (Apache-2.0, ~8.5-12.5 GB VRAM).
+  - Safe client runner (`endpoint.py`, `run.py`): timeout 125s, concurrency 1, max requests 96, zero automatic POST retries, spending cap $2.00 USD.
+  - Secret safety: credentials read exclusively from environment variables (`P1_AI_ENDPOINT_URL`, `P1_AI_API_KEY`); never committed or leaked in logs.
+- Evaluation Baseline & Verification:
+  - Pre-GPU deterministic rules on held-out 24 cases: Precision 94.1%, Recall 72.7%, F1 82.1%. Rules bottleneck on units (36.0% recall), associations (30.4% recall), and delivery expressions (64.3% F1).
+  - Evaluated offline test suite: 37 tests passed, 2 skipped (smoke tests). Verified endpoint timeout, cancellation, invalid schema rejection, and unavailability fallback.
+  - Zero cloud spend incurred when cloud endpoint unconfigured ($0.00 USD).
+  - Practical utility conclusion: Models are valuable as assistive candidate proposal generators (`candidates` with method `MODEL` and `UNRESOLVED` status); deterministic rules remain authoritative; Core commitment creation remains protected behind mandatory human review (`manual_review_required=True`).
+
+### 2026-10-21 — P1 BATCH 5: actual P1 → Core → P2 integration with confirmed terms protection (PostgreSQL E2E)
+
+- Branch: `feat/p1-context-intelligence`; commits: adapter `a5cb3ac`, confirmed terms `f3c3b7c`, P2 consumer `52f90dd`, shell mounts `d5af49c`/`da82110`/`03f4076`, E2E suite `c626326`. PR #8 merged to `main` (`d522479`).
+- Core Integration & Invariants:
+  - Implemented `CoreContextPublisher`: checks context eligibility, blocking unready or ambiguous contexts (`IneligibleContextError`).
+  - Invariant 1 & 6 (ADR-003): Preserves confirmed commitment terms upon context update by emitting `commitment.proposal_offered` (`OFFERED` status) instead of overwriting confirmed terms in place.
+  - Implemented `P2FeasibilityConsumer`: resolves operational snapshots, executes pure P2 evaluator, tracks idempotency via `ProcessedEventRecord`, and handles atomic rollback.
+  - Verified 8 end-to-end integration scenarios against real PostgreSQL database.
+- Validation: 8/8 PostgreSQL integration tests passed; full backend suite 308 passed, 0 failed; frontend 149 passed, build clean.
+
 ### 2026-10-21 — P1 BATCH 4: attachment evidence, PDF text extraction, and image OCR with unverified payment guard (local only)
 
 - Branch: `feat/p1-context-intelligence`; commits: storage & validation `c364c07`, PyMuPDF extraction `d5e25a3`, PaddleOCR & payment guard `2937d59`, UI AttachmentViewer & inbox integration `ef58ac3`.
