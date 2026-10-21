@@ -59,3 +59,14 @@ def test_perfect_and_failed_scoring():
     failed = score(cases, [{"id": c["id"], "fields": []} for c in cases])
     assert failed["all"]["recall"] == 0
     assert baseline(cases[0]["messages"])
+
+
+def test_missing_duplicate_or_rejected_run_evidence_cannot_inflate_scores():
+    case = fixtures()["cases"][0]
+    good = {"id": case["id"], "fields": gold(case)}
+    with pytest.raises(ValueError, match="exactly one"):
+        score([case], [])
+    with pytest.raises(ValueError, match="exactly one"):
+        score([case], [good, good])
+    with pytest.raises(ValueError, match="Rejected"):
+        score([case], [{**good, "status": "invalid_output"}])

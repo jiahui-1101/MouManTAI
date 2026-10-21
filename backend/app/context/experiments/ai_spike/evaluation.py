@@ -81,6 +81,13 @@ def keys(spans, field=None):
 def score(cases, records):
     """Micro exact-span P/R; failed answers score empty, never drop hard cases."""
     by_id = {r["id"]: r for r in records}
+    expected_ids = {c["id"] for c in cases}
+    if len(by_id) != len(records) or set(by_id) != expected_ids:
+        raise ValueError("Evaluation requires exactly one result per selected case, including failures")
+    for case in cases:
+        record = by_id[case["id"]]
+        if record.get("status", "ok") != "ok" and record["fields"]:
+            raise ValueError("Rejected model outputs must not contribute accepted fields")
     report = {}
     for field in (*FIELDS, "all"):
         tp = fp = fn = exact = 0
