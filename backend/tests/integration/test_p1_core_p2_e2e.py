@@ -214,6 +214,24 @@ def test_scenario_2_reviewed_correction_and_updated_context(pg_engine):
         assert com_2.commitment_version == com_1.commitment_version + 1
         assert com_2.terms.quantity == Decimal("120")
 
+    # Dispatch ALL pending outbox events to P2 consumer (both v1 and v2)
+    dispatcher = OutboxDispatcher()
+    register_p2_subscribers(dispatcher)
+
+    with Session(pg_engine) as session:
+        batch_result = dispatcher.process_outbox_batch(session, batch_size=200)
+        assert batch_result.processed_count >= 1
+
+    # Verify P2 assessed the 120 pcs update as INFEASIBLE (100 pcs inventory < 120 pcs demand)
+    with Session(pg_engine) as session:
+        record = session.get(CommitmentRecord, (tenant_id, com_2.commitment_id))
+        assert record is not None
+        # The latest feasibility state should reflect the 120 pcs evaluation
+        assert record.feasibility_state == FeasibilityState.INFEASIBLE.value, (
+            f"Expected INFEASIBLE for 120 pcs demand against 100 pcs inventory, "
+            f"got {record.feasibility_state}"
+        )
+
 
 # -----------------------------------------------------------------------------
 # Scenario 3: Ambiguous identity blocks unsafe publication

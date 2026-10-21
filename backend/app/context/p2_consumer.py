@@ -95,15 +95,32 @@ class P2FeasibilityConsumer:
         commitment = _to_commitment(record)
 
         # For feasibility evaluation in P2, a confirmed operational baseline target is required.
+        # When the commitment is not yet CONFIRMED (e.g. REQUESTED), we synthetically elevate
+        # the agreement_state to satisfy the evaluator's precondition. This is explicitly labeled
+        # as a candidate/indicative evaluation — not an authoritative feasibility assessment.
+        # See: P2 integration review §3 — pending resolution of pre-commitment evaluation semantics.
+        is_candidate_evaluation = commitment.agreement_state != "CONFIRMED"
         eval_commitment = commitment
-        if commitment.agreement_state != "CONFIRMED":
-            # For pre-confirmation feasibility evaluation, evaluate against candidate terms
+        if is_candidate_evaluation:
+            logger.warning(
+                "Evaluating non-CONFIRMED commitment %s (state=%s) as candidate terms; "
+                "result is INDICATIVE only — not an authoritative feasibility assessment",
+                commitment.commitment_id,
+                commitment.agreement_state,
+            )
             eval_dict = commitment.model_dump()
             eval_dict["agreement_state"] = "CONFIRMED"
             eval_commitment = Commitment.model_validate(eval_dict)
 
         snapshot = resolve_snapshot_for_commitment(eval_commitment)
         result = evaluate(snapshot, None, eval_commitment)
+
+        # Merge candidate evaluation assumption into result assumptions
+        result_assumptions = list(result.assumptions)
+        if is_candidate_evaluation:
+            result_assumptions.append(
+                f"EVALUATED_AS_CANDIDATE_TERMS:agreement_state={commitment.agreement_state}"
+            )
 
         assessment = FeasibilityAssessment(
             assessment_id=result.assessment_id,
@@ -116,7 +133,7 @@ class P2FeasibilityConsumer:
             constraints=list(result.constraints),
             affected_commitment_ids=[result.commitment_id],
             evidence_refs=list(result.evidence_refs),
-            assumptions=list(result.assumptions),
+            assumptions=result_assumptions,
             assessed_at=result.assessed_at,
         )
 
@@ -159,8 +176,16 @@ class P2FeasibilityConsumer:
 
         commitment = _to_commitment(record)
 
+        # Same candidate evaluation labeling as handle_context_ready — see P2 review §3.
+        is_candidate_evaluation = commitment.agreement_state != "CONFIRMED"
         eval_commitment = commitment
-        if commitment.agreement_state != "CONFIRMED":
+        if is_candidate_evaluation:
+            logger.warning(
+                "Evaluating non-CONFIRMED commitment %s (state=%s) proposal as candidate terms; "
+                "result is INDICATIVE only — not an authoritative feasibility assessment",
+                commitment.commitment_id,
+                commitment.agreement_state,
+            )
             eval_dict = commitment.model_dump()
             eval_dict["agreement_state"] = "CONFIRMED"
             eval_commitment = Commitment.model_validate(eval_dict)
@@ -185,6 +210,13 @@ class P2FeasibilityConsumer:
 
         result = evaluate(snapshot, proposed_changes, eval_commitment)
 
+        # Merge candidate evaluation assumption into result assumptions
+        result_assumptions = list(result.assumptions)
+        if is_candidate_evaluation:
+            result_assumptions.append(
+                f"EVALUATED_AS_CANDIDATE_TERMS:agreement_state={commitment.agreement_state}"
+            )
+
         assessment = FeasibilityAssessment(
             assessment_id=result.assessment_id,
             tenant_id=result.tenant_id,
@@ -196,7 +228,7 @@ class P2FeasibilityConsumer:
             constraints=list(result.constraints),
             affected_commitment_ids=[result.commitment_id],
             evidence_refs=list(result.evidence_refs),
-            assumptions=list(result.assumptions),
+            assumptions=result_assumptions,
             assessed_at=result.assessed_at,
         )
 
