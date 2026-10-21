@@ -1,5 +1,13 @@
 # MouManTAI — Team Execution Log & Decision Register
 
+### 2026-10-21 — P1 BATCH 2: verified identity and order association with manual review & audit (local only)
+
+- Branch: `feat/p1-context-intelligence`; commits: backend & storage `4457c75`, association API `5f1bc10`, UI association panel `d351cbe`.
+- Backend: Implemented `MessageAssociation` schema and storage in `p1_dev` schema. Separated `PlatformIdentity`, `CustomerAccount`, `IdentityLinkStatus` (`VERIFIED`, `LINK_CANDIDATE`, `UNLINKED`, `CONFLICT`), and `MatchType`. Strict zero-guessing: extracted order ref alone is not authorization (flagged for manual confirmation); sender-order mismatch triggers `SECURITY CONFLICT`; multiple matching orders listed fully without guessing. Added `GET /v1/messages/{id}/association` and `POST /v1/messages/{id}/association` with optimistic concurrency (`expected_version`, 409 Conflict) and actor/role audit persistence.
+- Directory & Contracts: Created provisional `SyntheticCustomerDirectory` with synthetic customer accounts (`cust_bk`, `cust_mcd`, etc.) and orders; clearly flagged as provisional replaceable interface pending P5 shared customer/order contract.
+- Frontend: Connected `DurableInbox` to real association APIs. Added Identity & Order Association panel displaying verified customer/order, conflicts box, candidate cards with match type & reasons, `✓ Confirm link` and `✗ Reject / Unlink` buttons, and last decision audit history.
+- Validation: 7 new backend tests in `test_association_models_and_storage.py`; full backend suite: 303 passed / 0 failed. Frontend tests: 129 passed / 5 skipped / 0 failed. Frontend build (`tsc -b && vite build`) passed with 0 errors.
+
 ### 2026-10-21 — P1 TASK 2C: persisted extraction, processing API, and operational Inbox UI (local only)
 
 - Branch: `feat/p1-context-intelligence`; commits: backend `2dcab66`, frontend `1527f8e`, evidence validation & retry `9eb0c4c`.
@@ -101,9 +109,9 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 
 | ID | Deliverable | Owner | Status | Evidence / PR / Test | Blocker | Next action |
 |---|---|---|---|---|---|---|
-| P1-FE | Inbox + Context Review UI | P1 | IN_PROGRESS | Task 2C completed (`1527f8e`): DurableInbox operational with Process/Reprocess actions, exact Unicode code-point evidence highlights, RULE (p1-deterministic-v3) labels, attempt audit history; 128 frontend tests pass | — | Wire route to App.tsx when P5 coordinates & build Review Drawer |
-| P1-BE | Ingestion/Extraction/Context API | P1 | IN_PROGRESS | Task 2C completed (`2dcab66`, `9eb0c4c`): ExtractionAttempt persistence, row-level locks, idempotency, evidence validation, history tracking, POST /v1/messages/{id}/process, GET /extraction, GET /attempts; 296 backend tests pass | Awaiting P5 BusinessContext & DB migration coordination | Order context linking & Review workflow |
-| P1-TST | Context tests and metrics | P1 | IN_PROGRESS | 8 new persisted extraction/concurrency tests in test_persisted_extraction.py; 296 backend tests + 128 frontend tests passing (100% green) | — | Contract integration tests with Core |
+| P1-FE | Inbox + Context Review UI | P1 | IN_PROGRESS | Batch 2 completed (`d351cbe`): Identity & Order Association panel in DurableInbox with candidate review, conflicts, manual confirmation & audit; 129 frontend tests pass | — | Wire route to App.tsx when P5 coordinates & build Batch 3 Order Context / Review Drawer |
+| P1-BE | Ingestion/Extraction/Context API | P1 | IN_PROGRESS | Batch 2 completed (`4457c75`, `5f1bc10`): MessageAssociation persistence, zero-guessing security rules, optimistic concurrency (409), actor/role tracking, GET/POST association APIs; 303 backend tests pass | Awaiting P5 BusinessContext & shared customer/order directory coordination | Batch 3 OrderContext lifecycle, version history, and human review amendments |
+| P1-TST | Context tests and metrics | P1 | IN_PROGRESS | 7 new identity/association & security tests in test_association_models_and_storage.py; 303 backend tests + 129 frontend tests passing (100% green) | — | Batch 3 context lifecycle and optimistic concurrency tests |
 | P2-FE | Feasibility / Impact UI | P2 | IN_REVIEW | Phase 6 exportable pages, typed feature adapters, labeled preview; 43 focused tests and typecheck/build pass | P5 public detail/auth/persistence adapters and route mounting pending; no live page API integration | Independent external Phase 6 review; do not begin Phase 7 |
 | P2-BE | Constraint + Impact engine | P2 | IN_PROGRESS | Phase 5 local correction `85d46b2` externally approved; historical 24 router / 188 combined tests pass, backend unchanged in Phase 6 | P5 mounting/auth/snapshot/version/persistence/supplier processing/Core risk integration; empty Impact Set implemented on P5 branch pending integration; P3 HTTP confirmation | Preserve approved backend; shared integration handoff remains open |
 | P2-TST | Feasibility/Impact tests | P2 | IN_PROGRESS | Phase 6: 43 focused frontend tests and typecheck/build pass; historical Phase 5 backend tests preserved | Live authenticated API/UI/DB/outbox/P3/E2E remain unverified; browser viewport QA pending | Independent external Phase 6 review; no full P2 completion claim |

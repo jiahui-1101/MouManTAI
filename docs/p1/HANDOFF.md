@@ -1,3 +1,39 @@
+# P1 BATCH 2 handoff — 2026-10-21 (Verified Identity and Order Association)
+
+当前分支 `feat/p1-context-intelligence`；本次实现提交：
+- 模型、合成客户/订单目录与存储：`4457c75` (`feat(p1): implement identity association models, synthetic directory, and storage`)
+- 关联服务与 API 接口：`5f1bc10` (`feat(p1): add association API endpoints with actor tracking and optimistic concurrency`)
+- 前端关联面板 UI 与组件单测：`d351cbe` (`feat(p1): add identity and order association panel to DurableInbox UI`)
+
+### 1. 核心交付与安全规则落实
+- **身份边界分离**：严格区分平台标识（PlatformIdentity，如手机号/channel）、客户主数据（CustomerAccount）、已验证绑定（Verified Link）与推测候选（Suggested Match）。
+- **零猜测防篡改底线**：
+  - 绝不凭发件人名字相似度（name similarity）或模型输出自动绑定客户身份。
+  - 提取出的订单号引用（如 `ORD-1001`）**单独绝不是授权凭据**：陌生人发送合法订单号仅作为候选记录（`LINK_CANDIDATE`），强制人工授权。
+  - 跨客户订单引用安全冲突拦截：已验证客户引用属于其他客户的订单时，立即触发并持久化 `SECURITY CONFLICT` 警报（`CONFLICT` 状态）。
+  - 绝不擅自决策：同一客户存在多个进行中订单且消息未指明单号时，绝不随机选取，全量列出候选订单及判定依据。
+- **持久化与审计 (`p1_dev.message_associations`)**：
+  - 存储：`association_id`, `tenant_id`, `message_id`, `status`, `verified_customer`, `verified_order`, `candidates`, `conflicts`, `last_decision`, `version`, `updated_at`。
+  - 人工决断接口：`POST /v1/messages/{id}/association`，完整持久化决策（`CONFIRMED`/`REJECTED`）、经办人（actor_id）、角色（actor_role）、时间戳、证据与理由。
+  - 乐观并发保护：请求必须携带 `expected_version`，并发陈旧请求直接安全返回 `409 Conflict`，杜绝覆盖。
+- **前端关联面板 (`DurableInbox`)**：
+  - 展现已验证身份 vs 推测身份状态徽标与版本。
+  - 候选卡片列表呈现匹配类型（`TRUSTED_SENDER`, `EXTRACTED_ORDER_REF`）、置信度与详细理由。
+  - 一键确认（`✓ Confirm link`）与拒绝（`✗ Reject / Unlink`）操作，带防重与错误恢复机制。
+  - 审计回溯卡片：清晰展示最后一次裁决的操作人、角色、时间与原因。
+
+### 2. 验证结果
+- **后端测试**：
+  - 新增 `backend/app/context/tests/test_association_models_and_storage.py`（7 个端到端与安全隔离单测全部通过）。
+  - 覆盖已验证关联、未知发件人防冒充、多订单候选消歧、跨租户与跨客户订单冲突、人工裁决防重及乐观锁（409）。
+  - P1 后端全量测试集：**303 passed, 0 failed**。
+- **前端测试与打包**：
+  - `DurableInbox.test.tsx` 新增端到端关联与裁决测试（10 个用例全部通过）。
+  - 前端全量测试集：**129 passed, 5 skipped (LiveApiSmoke), 0 failed**。
+  - 前端类型校验与构建：`tsc -b && vite build` 成功（0 错误，耗时 1.62s）。
+
+---
+
 # P1 TASK 2C handoff — 2026-10-21
 
 当前分支 `feat/p1-context-intelligence`；本次实现提交：
