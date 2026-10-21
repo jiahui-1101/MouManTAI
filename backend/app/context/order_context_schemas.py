@@ -88,6 +88,8 @@ class OrderContextRecord(P1ContextModel):
     last_reviewed_by: str | None = None
     last_reviewed_role: str | None = None
     last_reviewed_at: datetime | None = None
+    core_commitment_id: str | None = None
+    published_to_core_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

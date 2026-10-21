@@ -3,7 +3,7 @@
 import os
 import sys
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.schema import CreateSchema
@@ -30,6 +30,8 @@ def initialize_p1_schema(engine: Engine) -> None:
     with engine.begin() as connection:
         connection.execute(CreateSchema("p1_dev", if_not_exists=True))
         P1Base.metadata.create_all(connection)
+        connection.execute(text("ALTER TABLE p1_dev.order_contexts ADD COLUMN IF NOT EXISTS core_commitment_id VARCHAR(100);"))
+        connection.execute(text("ALTER TABLE p1_dev.order_contexts ADD COLUMN IF NOT EXISTS published_to_core_at TIMESTAMPTZ;"))
 
 
 if __name__ == "__main__":

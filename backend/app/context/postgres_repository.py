@@ -141,6 +141,8 @@ class OrderContext(P1Base):
     last_reviewed_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     last_reviewed_role: Mapped[str | None] = mapped_column(String(50), nullable=True)
     last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    core_commitment_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    published_to_core_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -290,6 +292,8 @@ def order_context_record(row: OrderContext) -> OrderContextRecord:
         last_reviewed_by=row.last_reviewed_by,
         last_reviewed_role=row.last_reviewed_role,
         last_reviewed_at=row.last_reviewed_at,
+        core_commitment_id=getattr(row, "core_commitment_id", None),
+        published_to_core_at=getattr(row, "published_to_core_at", None),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -709,6 +713,8 @@ class PostgresMessageRepository:
                         last_reviewed_by=record.last_reviewed_by,
                         last_reviewed_role=record.last_reviewed_role,
                         last_reviewed_at=record.last_reviewed_at,
+                        core_commitment_id=record.core_commitment_id,
+                        published_to_core_at=record.published_to_core_at,
                         created_at=record.created_at or now,
                         updated_at=record.updated_at or now,
                     )
@@ -747,6 +753,8 @@ class PostgresMessageRepository:
                     existing.field_evidence = record.field_evidence
                     existing.missing_fields = record.missing_fields
                     existing.conflicts = record.conflicts
+                    existing.core_commitment_id = record.core_commitment_id
+                    existing.published_to_core_at = record.published_to_core_at
                     existing.updated_at = now
                     session.flush()
 
