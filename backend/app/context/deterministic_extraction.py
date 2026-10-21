@@ -179,6 +179,24 @@ def _safe_date(year: int, month: int, day: int) -> date | None:
         return None
 
 
+def _unique_local_instant(wall: datetime, tz: ZoneInfo) -> tuple[datetime | None, str | None]:
+    """ZoneInfo attachment alone accepts DST gaps/folds. Require a round trip
+    for each fold choice and exactly one distinct UTC instant. Do not choose
+    an offset or shift a nonexistent wall time without source evidence.
+    """
+    candidates = {}
+    for fold in (0, 1):
+        local = wall.replace(tzinfo=tz, fold=fold)
+        instant = local.astimezone(timezone.utc)
+        if instant.astimezone(tz).replace(tzinfo=None) == wall:
+            candidates[instant] = local
+    if not candidates:
+        return None, "Nonexistent DST local time; explicit valid time required"
+    if len(candidates) != 1:
+        return None, "Ambiguous DST local time; explicit offset/disambiguation required"
+    return next(iter(candidates.values())), None
+
+
 def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate], list[tuple[int, int]], list[tuple[int, int]], list[tuple[int, int]]]:
     """Find full dates; never assign a year to yearless/ambiguous formats.
 
@@ -490,27 +508,30 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
                     metadata={"reason": tz_error or "Missing timezone"},
                 )
             else:
-                combined = datetime(
+                wall = datetime(
                     parsed_date.date_val.year,
                     parsed_date.date_val.month,
                     parsed_date.date_val.day,
                     parsed_time.hour,
                     parsed_time.minute,
-                    tzinfo=tz,
                 )
-                delivery_field = field(
-                    "requested_delivery_at",
-                    combined.isoformat(),
-                    "VALID",
-                    [(span_start, span_end)],
-                    qualifier=qualifier,
-                    metadata={
-                        "qualifier": qualifier,
-                        "raw_expression": text[span_start:span_end],
-                        "timezone": message.raw.business_timezone or "",
-                        "local_time": combined.strftime("%Y-%m-%d %H:%M:%S"),
-                    },
-                )
+                combined, instant_error = _unique_local_instant(wall, tz)
+                if instant_error:
+                    delivery_field = field("requested_delivery_at", None, "UNRESOLVED", [(span_start, span_end)],
+                                           metadata={"reason": instant_error})
+                else:
+                    delivery_field = field(
+                        "requested_delivery_at", combined.isoformat(), "VALID", [(span_start, span_end)],
+                        qualifier=qualifier,
+                        metadata={"qualifier": qualifier, "raw_expression": text[span_start:span_end],
+                                  "timezone": message.raw.business_timezone or "",
+                                  "local_time": combined.strftime("%Y-%m-%d %H:%M:%S")},
+                    )
+                    if combined.astimezone(timezone.utc) < message.raw.received_at.astimezone(timezone.utc):
+                        delivery_field.metadata.update(reason="Delivery is in the past relative to received_at; delayed/historical requests require review",
+                                                       candidate_delivery_value=delivery_field.value)
+                        delivery_field.validation_status = "UNRESOLVED"
+                        delivery_field.value = None
         else:
             qualifier = "DATE_ONLY"
             delivery_field = field(
@@ -525,6 +546,13 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
                     "timezone": message.raw.business_timezone or "",
                 },
             )
+            # Date-only is compared as a business calendar date, not midnight.
+            # No current wall clock or automatic roll-forward is used.
+            if tz and parsed_date.date_val < message.raw.received_at.astimezone(tz).date():
+                delivery_field.metadata.update(reason="Delivery date is in the past relative to received_at; manual review required",
+                                               candidate_delivery_value=delivery_field.value)
+                delivery_field.validation_status = "UNRESOLVED"
+                delivery_field.value = None
     elif times_found:
         pt = times_found[0]
         delivery_spans.append((pt.start, pt.end))
@@ -545,6 +573,7 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
             "source_timestamp_source": source_kind,
             "source_timestamp": source_time.isoformat(),
             "received_at": message.raw.received_at.isoformat(),
+            "past_validation_reference": "received_at",
             "timezone_source": "message.business_timezone" if message.raw.business_timezone else "missing",
         })
 
