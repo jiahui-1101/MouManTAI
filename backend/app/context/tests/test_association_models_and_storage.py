@@ -45,6 +45,18 @@ def test_directory_lookups_and_tenant_isolation(directory):
     # Cross tenant order
     assert directory.get_order("synthetic_tenant_b", "ORD-1001") is None
 
+    # Typed contact lookup (P4 outbound support)
+    wa_contact = directory.get_contact_for_channel("synthetic_tenant_a", "cust_bk", "MOCK_WHATSAPP")
+    assert wa_contact is not None
+    assert wa_contact.sender_identity_id == "+60123456789"
+
+    tg_contact = directory.get_contact_for_channel("synthetic_tenant_a", "cust_bk", "MOCK_TELEGRAM")
+    assert tg_contact is not None
+    assert tg_contact.sender_identity_id == "tg_bk_ops"
+
+    # Cross tenant contact lookup
+    assert directory.get_contact_for_channel("synthetic_tenant_b", "cust_bk", "MOCK_WHATSAPP") is None
+
 
 def test_verified_sender_with_explicit_matching_order(service):
     # Sender +60123456789 is cust_bk who owns ORD-1001

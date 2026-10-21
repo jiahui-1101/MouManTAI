@@ -47,6 +47,7 @@ class CustomerAccount(BaseModel):
     display_name: str = Field(min_length=1, max_length=200)
     active: bool = True
     verified_channels: list[str] = Field(default_factory=list)
+    verified_contacts: list[PlatformIdentity] = Field(default_factory=list)
 
 
 class OrderReference(BaseModel):
