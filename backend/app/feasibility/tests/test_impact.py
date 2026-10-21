@@ -13,8 +13,14 @@ from app.feasibility.impact import (
     ResourceKind,
     assess_impact,
 )
-from app.feasibility.models import CapacityWindow, SourceKind
-from app.feasibility.production import EvaluationSnapshot, ProductionData, ProductionJob, ProductionSource
+from app.feasibility.models import CapacityWindow, SourceEvidence, SourceKind
+from app.feasibility.production import (
+    EvaluationSnapshot,
+    ProductionData,
+    ProductionJob,
+    ProductionProcess,
+    ProductionSource,
+)
 
 
 CAPTURE = datetime.fromisoformat("2026-10-22T12:00:00+08:00")
@@ -575,3 +581,289 @@ def test_shortage_delta_is_independent_of_ambient_decimal_precision():
     delta = next(row.delta for row in next(row for row in result.impacts if row.commitment_id == "com-001").material_deltas
                  if row.resource_id == "PATTY")
     assert delta == Decimal("1.234")
+
+
+def test_capacity_event_does_not_claim_concurrent_supplier_shortage_as_its_causal_impact():
+    scenario = build_supplier_delay_scenario()
+    before = production_for(scenario.before)
+    after_base = production_for(scenario.after)
+    captured = after_base.operational.captured_at
+    production_data = after_base.production.model_dump(exclude_computed_fields=True)
+    production_data["sources"] = tuple({**source, "observed_at": captured,
+        "evidence_refs": (*source["evidence_refs"], "capacity-nonoverlap-job-p4-v2")
+        if source["kind"] == "jobs" else source["evidence_refs"]}
+        for source in production_data["sources"])
+    production_data["jobs"] = (ProductionJob(job_id="capacity-nonoverlap-p4",
+        tenant_id=after_base.operational.tenant_id, resource_ids=("p4-line-1",),
+        start_at=datetime.fromisoformat("2026-10-23T14:00:00+08:00"),
+        end_at=datetime.fromisoformat("2026-10-23T15:00:00+08:00"), source_refs=("p4-jobs",)),)
+    after = EvaluationSnapshot.model_validate({"operational": after_base.operational,
+        "production": ProductionData.model_validate(production_data), "as_of": captured,
+        "current_snapshot_version": after_base.current_snapshot_version})
+    change = OperationalChange(event_id="evt-capacity-with-supplier-delay",
+        tenant_id=after.operational.tenant_id, correlation_id="corr-capacity-with-supplier-delay",
+        event_type=OperationalChangeType.CAPACITY_CHANGED, occurred_at=captured,
+        before_snapshot_version=before.operational.snapshot_version,
+        after_snapshot_version=after.operational.snapshot_version,
+        resource_keys=(ResourceKey(kind=ResourceKind.PRODUCTION_JOB, resource_id="capacity-nonoverlap-p4"),),
+        evidence_refs=("capacity-nonoverlap-job-p4-v2",))
+
+    result = assess_impact(before, after, change,
+        before_commitments=core_commitments(scenario.before),
+        after_commitments=core_commitments(scenario.after))
+
+    com1 = next(row for row in result.impacts if row.commitment_id == "com-001")
+    assert com1.before_assessment.status is FeasibilityState.FEASIBLE
+    assert com1.after_assessment.status is FeasibilityState.INFEASIBLE
+    assert next(delta.delta for delta in com1.material_deltas if delta.resource_id == "PATTY") == Decimal("40")
+    assert com1.verified_material_deterioration
+    assert com1.classification is ImpactClassification.UNKNOWN
+    assert "UNATTRIBUTED_CONCURRENT_DEPENDENCY_CHANGE" in com1.reasons
+    assert com1.commitment_id not in result.confirmed_impacted_commitment_ids
+    assert not any(intent.event.event_type == "commitment.at_risk" for intent in com1.event_intents)
+    assert result.verified_unaffected_commitment_ids == ("com-002",)
+
+
+def test_multi_resource_capacity_event_confirms_when_all_changed_jobs_are_declared():
+    scenario = build_supplier_delay_scenario()
+    before = production_for(scenario.before)
+    captured = before.operational.captured_at + timedelta(minutes=30)
+    operational_data = before.operational.model_dump(exclude_computed_fields=True)
+    operational_data.update(snapshot_id="snapshot-multi-capacity-v2", snapshot_version=2,
+                            captured_at=captured)
+    after_operational = type(before.operational).model_validate(operational_data)
+    production_data = before.production.model_dump(exclude_computed_fields=True)
+    conflict_ref = "capacity-conflict-job-p4-v2"
+    unrelated_ref = "capacity-nonoverlap-job-p4-v2"
+    production_data["sources"] = tuple({**source, "observed_at": captured,
+        "evidence_refs": (*source["evidence_refs"], conflict_ref) if source["source_id"] == "p4-jobs"
+        else source["evidence_refs"]} for source in production_data["sources"]) + (
+        ProductionSource(source_id="p4-jobs-nonoverlap", tenant_id=after_operational.tenant_id,
+            kind="jobs", source_ref="synthetic://p2/phase4/jobs/nonoverlap", observed_at=captured,
+            valid_through=datetime.fromisoformat("2026-10-26T00:00:00+08:00"),
+            evidence_refs=(unrelated_ref,)),)
+    production_data["jobs"] = (
+        ProductionJob(job_id="capacity-conflict-p4", tenant_id=after_operational.tenant_id,
+            resource_ids=("p4-line-1",), start_at=datetime.fromisoformat("2026-10-23T09:00:00+08:00"),
+            end_at=datetime.fromisoformat("2026-10-23T10:00:00+08:00"), source_refs=("p4-jobs",)),
+        ProductionJob(job_id="capacity-nonoverlap-p4", tenant_id=after_operational.tenant_id,
+            resource_ids=("p4-line-1",), start_at=datetime.fromisoformat("2026-10-23T14:00:00+08:00"),
+            end_at=datetime.fromisoformat("2026-10-23T15:00:00+08:00"),
+            source_refs=("p4-jobs-nonoverlap",)),
+    )
+    after = EvaluationSnapshot.model_validate({"operational": after_operational,
+        "production": ProductionData.model_validate(production_data), "as_of": captured,
+        "current_snapshot_version": 2})
+    change = OperationalChange(event_id="evt-multi-capacity", tenant_id=after_operational.tenant_id,
+        correlation_id="corr-multi-capacity", event_type=OperationalChangeType.CAPACITY_CHANGED,
+        occurred_at=captured, before_snapshot_version=1, after_snapshot_version=2,
+        resource_keys=(ResourceKey(kind=ResourceKind.PRODUCTION_JOB, resource_id="capacity-conflict-p4"),
+                       ResourceKey(kind=ResourceKind.PRODUCTION_JOB, resource_id="capacity-nonoverlap-p4")),
+        evidence_refs=(conflict_ref, unrelated_ref))
+
+    result = assess_impact(before, after, change, before_commitments=core_commitments(scenario.before),
+        after_commitments=core_commitments(scenario.before))
+
+    assert result.confirmed_impacted_commitment_ids == ("com-001",)
+    assert result.verified_unaffected_commitment_ids == ("com-002",)
+
+
+def test_multi_lot_change_accepts_distinct_resource_linked_evidence():
+    before_snapshot = build_supplier_delay_scenario().before
+    captured = before_snapshot.captured_at + timedelta(minutes=30)
+    data = before_snapshot.model_dump(exclude_computed_fields=True)
+    data.update(snapshot_id="snapshot-two-lot-change-v2", snapshot_version=2, captured_at=captured)
+    selected = before_snapshot.inventory_lots[:2]
+    lot_sources = []
+    evidence_refs = []
+    resource_keys = []
+    for index, lot in enumerate(selected, start=1):
+        source_id = f"source-lot-change-{index}"
+        evidence_ref = f"lot-change-evidence-{index}-v2"
+        lot_sources.append(SourceEvidence(source_id=source_id, tenant_id=before_snapshot.tenant_id,
+            kind=SourceKind.INVENTORY, source_ref=f"synthetic://p2/inventory/lot-{index}/v2",
+            observed_at=captured, valid_through=datetime.fromisoformat("2026-10-26T00:00:00+08:00"),
+            evidence_refs=(evidence_ref,)))
+        evidence_refs.append(evidence_ref)
+        resource_keys.append(ResourceKey(kind=ResourceKind.INVENTORY_LOT, resource_id=lot.lot_id))
+    source_id_by_lot = {lot.lot_id: f"source-lot-change-{index}"
+                        for index, lot in enumerate(selected, start=1)}
+    data["inventory_lots"] = tuple({**lot.model_dump(), "source_refs": (source_id_by_lot[lot.lot_id],),
+        "quantity": lot.quantity + Decimal("1")} if lot.lot_id in source_id_by_lot else lot.model_dump()
+        for lot in before_snapshot.inventory_lots)
+    data["sources"] = (*data["sources"], *lot_sources)
+    after_snapshot = type(before_snapshot).model_validate(data)
+    change = OperationalChange(event_id="evt-two-lot-change", tenant_id=after_snapshot.tenant_id,
+        correlation_id="corr-two-lot-change", event_type=OperationalChangeType.INVENTORY_CHANGED,
+        occurred_at=captured, before_snapshot_version=before_snapshot.snapshot_version,
+        after_snapshot_version=after_snapshot.snapshot_version, resource_keys=tuple(resource_keys),
+        evidence_refs=tuple(evidence_refs))
+
+    result = assess_impact(wrapped(before_snapshot), wrapped(after_snapshot), change,
+        before_commitments=core_commitments(before_snapshot), after_commitments=core_commitments(after_snapshot))
+
+    assert len(result.candidate_commitment_ids) > 0
+
+
+def test_inventory_event_rejects_unaccounted_evidence_reference():
+    scenario = build_supplier_delay_scenario()
+    captured = scenario.before.captured_at + timedelta(minutes=30)
+    data = scenario.before.model_dump(exclude_computed_fields=True)
+    data.update(snapshot_id="snapshot-inventory-unaccounted-v2", snapshot_version=2, captured_at=captured)
+    data["inventory_lots"] = tuple({**lot.model_dump(), "quantity": Decimal("70")} if lot.lot_id == "lot-patty-001"
+        else lot.model_dump() for lot in scenario.before.inventory_lots)
+    data["sources"] = tuple({**source.model_dump(), "observed_at": captured,
+        "evidence_refs": (*source.evidence_refs, "stock-adjustment-p4-v2")}
+        if source.source_id == "source-inventory-001" else source.model_dump() for source in scenario.before.sources)
+    after_snapshot = type(scenario.before).model_validate(data)
+    change = OperationalChange(event_id="evt-inventory-unaccounted", tenant_id=after_snapshot.tenant_id,
+        correlation_id="corr-inventory-unaccounted", event_type=OperationalChangeType.INVENTORY_CHANGED,
+        occurred_at=captured, before_snapshot_version=1, after_snapshot_version=2,
+        resource_keys=(ResourceKey(kind=ResourceKind.INVENTORY_LOT, resource_id="lot-patty-001"),),
+        evidence_refs=("stock-adjustment-p4-v2", "unrelated-unaccounted-evidence"))
+
+    with pytest.raises(ValueError, match="change evidence is not linked"):
+        assess_impact(wrapped(scenario.before), wrapped(after_snapshot), change,
+            before_commitments=core_commitments(scenario.before), after_commitments=core_commitments(after_snapshot))
+
+
+def test_inventory_event_rejects_resource_without_actual_change():
+    scenario = build_supplier_delay_scenario()
+    captured = scenario.before.captured_at + timedelta(minutes=30)
+    data = scenario.before.model_dump(exclude_computed_fields=True)
+    data.update(snapshot_id="snapshot-inventory-partial-v2", snapshot_version=2, captured_at=captured)
+    data["inventory_lots"] = tuple({**lot.model_dump(), "quantity": Decimal("70")} if lot.lot_id == "lot-patty-001"
+        else lot.model_dump() for lot in scenario.before.inventory_lots)
+    data["sources"] = tuple({**source.model_dump(), "observed_at": captured,
+        "evidence_refs": (*source.evidence_refs, "stock-adjustment-p4-v2")}
+        if source.source_id == "source-inventory-001" else source.model_dump() for source in scenario.before.sources)
+    after_snapshot = type(scenario.before).model_validate(data)
+    change = OperationalChange(event_id="evt-inventory-partial", tenant_id=after_snapshot.tenant_id,
+        correlation_id="corr-inventory-partial", event_type=OperationalChangeType.INVENTORY_CHANGED,
+        occurred_at=captured, before_snapshot_version=1, after_snapshot_version=2,
+        resource_keys=(ResourceKey(kind=ResourceKind.INVENTORY_LOT, resource_id="lot-patty-001"),
+                       ResourceKey(kind=ResourceKind.INVENTORY_LOT, resource_id="lot-bun-001")),
+        evidence_refs=("stock-adjustment-p4-v2",))
+
+    with pytest.raises(ValueError, match="no before/after data change"):
+        assess_impact(wrapped(scenario.before), wrapped(after_snapshot), change,
+            before_commitments=core_commitments(scenario.before), after_commitments=core_commitments(after_snapshot))
+
+
+def test_supplier_eta_event_still_requires_typed_eta_change_evidence():
+    scenario = build_supplier_delay_scenario()
+    valid_change = supplier_change(scenario.before, scenario.after, scenario.changed_delivery_id)
+    unsupported = valid_change.model_copy(update={"evidence_refs": ("supplier-quote-v1",)})
+
+    with pytest.raises(ValueError, match="requires its linked ETA-change evidence"):
+        assess_impact(wrapped(scenario.before), wrapped(scenario.after), unsupported,
+            before_commitments=core_commitments(scenario.before), after_commitments=core_commitments(scenario.after))
+
+
+def _retime_commitment(snapshot, *, snapshot_id, version, captured_at, deadline, material_use_at=None,
+                       commitment_version=None, evidence_ref=None):
+    data = snapshot.model_dump(exclude_computed_fields=True)
+    data.update(snapshot_id=snapshot_id, snapshot_version=version, captured_at=captured_at)
+    commitments = []
+    for row in data["confirmed_commitments"]:
+        if row["commitment_id"] != "com-001":
+            commitments.append(row)
+            continue
+        lines = row["lines"]
+        if material_use_at is not None:
+            lines = ({**lines[0], "material_use_at": material_use_at},)
+        row = {**row, "delivery_deadline": deadline, "lines": lines,
+            "commitment_version": commitment_version or row["commitment_version"]}
+        commitments.append(row)
+    data["confirmed_commitments"] = tuple(commitments)
+    if evidence_ref:
+        data["sources"] = tuple({**source, "observed_at": captured_at,
+            "evidence_refs": (*source["evidence_refs"], evidence_ref)}
+            if source["source_id"] == "source-commitments-001" else source
+            for source in data["sources"])
+    return type(snapshot).model_validate(data)
+
+
+def test_deadline_extension_is_reported_as_improved_existing_lateness_not_new_impact():
+    original = build_supplier_delay_scenario().before
+    start = datetime.fromisoformat("2026-10-23T09:00:00+08:00")
+    before_operational = _retime_commitment(original, snapshot_id="snapshot-deadline-improve-v1", version=1,
+        captured_at=original.captured_at, deadline=datetime.fromisoformat("2026-10-23T11:00:00+08:00"),
+        material_use_at=start)
+    captured = original.captured_at + timedelta(minutes=30)
+    after_operational = _retime_commitment(before_operational, snapshot_id="snapshot-deadline-improve-v2", version=2,
+        captured_at=captured, deadline=datetime.fromisoformat("2026-10-23T11:05:00+08:00"), material_use_at=start,
+        commitment_version=2, evidence_ref="deadline-extension-p4-v2")
+    before = production_for(before_operational)
+    after = production_for(after_operational)
+    change = OperationalChange(event_id="evt-deadline-extension", tenant_id=after_operational.tenant_id,
+        correlation_id="corr-deadline-extension", event_type=OperationalChangeType.ORDER_REQUEST_CHANGED,
+        occurred_at=captured, before_snapshot_version=1, after_snapshot_version=2,
+        resource_keys=(ResourceKey(kind=ResourceKind.COMMITMENT, resource_id="com-001"),),
+        evidence_refs=("deadline-extension-p4-v2",))
+
+    result = assess_impact(before, after, change, before_commitments=core_commitments(before_operational),
+        after_commitments=core_commitments(after_operational))
+
+    impact = next(row for row in result.impacts if row.commitment_id == "com-001")
+    assert impact.before_assessment.status is FeasibilityState.INFEASIBLE
+    assert impact.after_assessment.status is FeasibilityState.INFEASIBLE
+    before_operation = next(row for row in impact.before_assessment.capacity.operations
+                            if row.commitment_id == "com-001")
+    after_operation = next(row for row in impact.after_assessment.capacity.operations
+                           if row.commitment_id == "com-001")
+    assert before_operation.finish_at + timedelta(minutes=30) == datetime.fromisoformat(
+        "2026-10-23T11:10:00+08:00")
+    assert after_operation.finish_at + timedelta(minutes=30) == datetime.fromisoformat(
+        "2026-10-23T11:10:00+08:00")
+    deadline_delta = next(delta for delta in impact.hard_constraint_deltas if delta.code == "DELIVERY_DEADLINE")
+    assert (deadline_delta.before_shortage, deadline_delta.after_shortage, deadline_delta.delta,
+            deadline_delta.severity_change) == (Decimal("10"), Decimal("5"), Decimal("-5"), "IMPROVED")
+    assert impact.classification is ImpactClassification.PRE_EXISTING_UNCHANGED
+    assert impact.commitment_id not in result.confirmed_impacted_commitment_ids
+
+
+def test_worsened_existing_deadline_violation_uses_numeric_lateness_delta():
+    original = build_supplier_delay_scenario().before
+    start = datetime.fromisoformat("2026-10-23T10:40:00+08:00")
+    deadline = datetime.fromisoformat("2026-10-23T12:30:00+08:00")
+    before_operational = _retime_commitment(original, snapshot_id="snapshot-deadline-worsen-v1", version=1,
+        captured_at=original.captured_at, deadline=deadline, material_use_at=start)
+    captured = original.captured_at + timedelta(minutes=30)
+    after_operational = _retime_commitment(before_operational, snapshot_id="snapshot-deadline-worsen-v2", version=2,
+        captured_at=captured, deadline=deadline, material_use_at=start)
+    before = production_for(before_operational)
+    after_base = production_for(after_operational)
+    production_data = after_base.production.model_dump(exclude_computed_fields=True)
+    production_data["sources"] = tuple({**source, "observed_at": captured,
+        "evidence_refs": (*source["evidence_refs"], "process-lead-change-p4-v2")
+        if source["kind"] == "processes" else source["evidence_refs"]}
+        for source in production_data["sources"])
+    production_data["processes"] = tuple(ProductionProcess.model_validate({**process.model_dump(),
+        "delivery_lead_minutes": Decimal("40")}) if process.sku_id == "BURGER" else process
+        for process in after_base.production.processes)
+    after = EvaluationSnapshot.model_validate({"operational": after_base.operational,
+        "production": ProductionData.model_validate(production_data), "as_of": captured,
+        "current_snapshot_version": 2})
+    change = OperationalChange(event_id="evt-process-lead-change", tenant_id=after_operational.tenant_id,
+        correlation_id="corr-process-lead-change", event_type=OperationalChangeType.CAPACITY_CHANGED,
+        occurred_at=captured, before_snapshot_version=1, after_snapshot_version=2,
+        resource_keys=(ResourceKey(kind=ResourceKind.PRODUCTION_RESOURCE, resource_id="p4-line-1"),),
+        evidence_refs=("process-lead-change-p4-v2",))
+
+    result = assess_impact(before, after, change, before_commitments=core_commitments(before_operational),
+        after_commitments=core_commitments(after_operational))
+
+    impact = next(row for row in result.impacts if row.commitment_id == "com-001")
+    before_operation = next(row for row in impact.before_assessment.capacity.operations
+                            if row.commitment_id == "com-001")
+    after_operation = next(row for row in impact.after_assessment.capacity.operations
+                           if row.commitment_id == "com-001")
+    assert before_operation.finish_at + timedelta(minutes=30) == datetime.fromisoformat(
+        "2026-10-23T12:50:00+08:00")
+    assert after_operation.finish_at + timedelta(minutes=40) == datetime.fromisoformat(
+        "2026-10-23T13:00:00+08:00")
+    deadline_delta = next(delta for delta in impact.hard_constraint_deltas if delta.code == "DELIVERY_DEADLINE")
+    assert (deadline_delta.before_shortage, deadline_delta.after_shortage, deadline_delta.delta,
+            deadline_delta.severity_change) == (Decimal("20"), Decimal("30"), Decimal("10"), "WORSENED")
+    assert impact.classification is ImpactClassification.CONFIRMED_IMPACT

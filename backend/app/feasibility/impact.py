@@ -21,6 +21,7 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 from app.core.schemas import Commitment, DomainEvent, FeasibilityState
 
 from .bom import explode_bom
+from .capacity import diagnostic_minutes, duration_delta, microseconds
 from .models import (
     DeliveryConfirmationStatus,
     FrozenModel,
@@ -43,6 +44,7 @@ class ResourceKind(StrEnum):
     PRODUCTION_PLAN = "PRODUCTION_PLAN"
     ORDER = "ORDER"
     COMMITMENT = "COMMITMENT"
+    LOGISTICS_CUTOFF = "LOGISTICS_CUTOFF"
 
 
 class OperationalChangeType(StrEnum):
@@ -189,6 +191,7 @@ class ImpactDelta(FrozenModel):
     unit: str | None = None
     deadline: datetime | None = None
     is_new: bool = False
+    severity_change: Literal["NEW", "WORSENED", "IMPROVED", "UNCHANGED"] | None = None
     evidence_refs: tuple[str, ...] = ()
 
 
@@ -348,6 +351,13 @@ def build_dependency_graph(snapshot: EvaluationSnapshot,
         refs = tuple(sorted({*refs, *(ref for claim in claims
                                       for ref in (claim.evidence_id, claim.evidence_ref))}))
         edge(delivery_node, sku_node, "SUPPLIES_SKU", refs)
+    cutoff_node = ResourceKey(kind=ResourceKind.LOGISTICS_CUTOFF, resource_id="receiving-cutoff")
+    cutoff_refs = tuple(sorted({ref for source in operational.sources
+                                if source.kind is SourceKind.LOGISTICS_CUTOFF
+                                for ref in _expanded_operational_evidence(operational, (source.source_id,))}))
+    for delivery in operational.incoming_deliveries:
+        edge(cutoff_node, ResourceKey(kind=ResourceKind.SUPPLIER_DELIVERY,
+            resource_id=delivery.delivery_id), "RECEIPT_ELIGIBILITY", cutoff_refs)
     for lot in operational.inventory_lots:
         edge(ResourceKey(kind=ResourceKind.INVENTORY_LOT, resource_id=lot.lot_id),
              ResourceKey(kind=ResourceKind.SKU, resource_id=lot.sku_id), "STOCKS_SKU",
@@ -449,7 +459,10 @@ def _snapshot_rows(snapshot: OperationalSnapshot, kind: ResourceKind, resource_i
         return tuple(row.model_dump_json() for row in snapshot.incoming_deliveries
                      if row.delivery_id == resource_id)
     if kind is ResourceKind.INVENTORY_LOT:
-        return tuple(row.model_dump_json() for row in snapshot.inventory_lots if row.lot_id == resource_id)
+        rows = [row.model_dump_json() for row in snapshot.inventory_lots if row.lot_id == resource_id]
+        rows.extend(row.model_dump_json() for row in snapshot.reservations
+                    if row.inventory_lot_id == resource_id)
+        return tuple(sorted(rows))
     if kind is ResourceKind.SKU:
         rows = [row.model_dump_json() for row in snapshot.sku_catalog if row.sku_id == resource_id]
         rows.extend(row.model_dump_json() for row in snapshot.inventory_lots if row.sku_id == resource_id)
@@ -516,6 +529,155 @@ def _actual_change_exists(before: EvaluationSnapshot, after: EvaluationSnapshot,
     return False
 
 
+def _changed_resource_keys(before: EvaluationSnapshot, after: EvaluationSnapshot,
+                           before_commitments: tuple[Commitment, ...],
+                           after_commitments: tuple[Commitment, ...]) -> tuple[ResourceKey, ...]:
+    """Return changed atomic resources, excluding capture/source metadata churn."""
+    changed: set[ResourceKey] = set()
+
+    def keyed_rows(rows, key):
+        return {key(row): row.model_dump_json() for row in rows}
+
+    def diff(kind: ResourceKind, left: dict[str, str], right: dict[str, str]) -> None:
+        for resource_id in set(left) | set(right):
+            if left.get(resource_id) != right.get(resource_id):
+                changed.add(ResourceKey(kind=kind, resource_id=resource_id))
+
+    diff(ResourceKind.SUPPLIER_DELIVERY,
+         keyed_rows(before.operational.incoming_deliveries, lambda row: row.delivery_id),
+         keyed_rows(after.operational.incoming_deliveries, lambda row: row.delivery_id))
+    diff(ResourceKind.INVENTORY_LOT,
+         keyed_rows(before.operational.inventory_lots, lambda row: row.lot_id),
+         keyed_rows(after.operational.inventory_lots, lambda row: row.lot_id))
+    before_reservations = keyed_rows(before.operational.reservations, lambda row: row.reservation_id)
+    after_reservations = keyed_rows(after.operational.reservations, lambda row: row.reservation_id)
+    for reservation_id in set(before_reservations) | set(after_reservations):
+        if before_reservations.get(reservation_id) == after_reservations.get(reservation_id):
+            continue
+        reservation = next((row for row in (*before.operational.reservations, *after.operational.reservations)
+                            if row.reservation_id == reservation_id), None)
+        if reservation is not None:
+            changed.add(ResourceKey(kind=ResourceKind.INVENTORY_LOT,
+                                    resource_id=reservation.inventory_lot_id))
+    if before.operational.logistics_cutoff_at != after.operational.logistics_cutoff_at:
+        changed.add(ResourceKey(kind=ResourceKind.LOGISTICS_CUTOFF, resource_id="receiving-cutoff"))
+
+    def sku_signature(snapshot: EvaluationSnapshot, sku_id: str) -> tuple[str, ...]:
+        op = snapshot.operational
+        rows = [row.model_dump_json() for row in op.sku_catalog if row.sku_id == sku_id]
+        rows.extend(row.model_dump_json() for row in op.bom_components
+                    if row.parent_sku_id == sku_id or row.component_sku_id == sku_id)
+        rows.extend(row.model_dump_json() for row in op.unit_conversions if row.sku_id == sku_id)
+        return tuple(sorted(rows))
+
+    sku_ids = {row.sku_id for snapshot in (before, after) for row in snapshot.operational.sku_catalog}
+    sku_ids.update(row.parent_sku_id for snapshot in (before, after) for row in snapshot.operational.bom_components)
+    sku_ids.update(row.component_sku_id for snapshot in (before, after) for row in snapshot.operational.bom_components)
+    sku_ids.update(row.sku_id for snapshot in (before, after) for row in snapshot.operational.unit_conversions)
+    for sku_id in sku_ids:
+        if sku_signature(before, sku_id) != sku_signature(after, sku_id):
+            changed.add(ResourceKey(kind=ResourceKind.SKU, resource_id=sku_id))
+
+    def job_rows(snapshot: EvaluationSnapshot) -> dict[str, str]:
+        return keyed_rows(snapshot.production.jobs or (), lambda row: row.job_id) if snapshot.production else {}
+
+    diff(ResourceKind.PRODUCTION_JOB, job_rows(before), job_rows(after))
+
+    def resource_ids(snapshot: EvaluationSnapshot) -> set[str]:
+        ids = {row.resource_id for row in snapshot.operational.capacity_calendars}
+        if snapshot.production:
+            ids.update(row.resource_id for row in snapshot.production.resources)
+            ids.update(resource_id for row in snapshot.production.processes for resource_id in row.resource_ids)
+        return ids
+
+    def resource_signature(snapshot: EvaluationSnapshot, resource_id: str) -> tuple[str, ...]:
+        rows = [row.model_dump_json() for row in snapshot.operational.capacity_calendars
+                if row.resource_id == resource_id]
+        if snapshot.production:
+            rows.extend(row.model_dump_json() for row in snapshot.production.resources
+                        if row.resource_id == resource_id)
+            rows.extend(row.model_dump_json() for row in snapshot.production.processes
+                        if resource_id in row.resource_ids)
+        return tuple(sorted(rows))
+
+    for resource_id in resource_ids(before) | resource_ids(after):
+        if resource_signature(before, resource_id) != resource_signature(after, resource_id):
+            changed.add(ResourceKey(kind=ResourceKind.PRODUCTION_RESOURCE, resource_id=resource_id))
+
+    def plan_rows(snapshot: EvaluationSnapshot) -> dict[str, str]:
+        if snapshot.production is None:
+            return {}
+        return keyed_rows(snapshot.production.plans,
+                          lambda row: f"{row.commitment_id}/{row.line_id}")
+
+    diff(ResourceKind.PRODUCTION_PLAN, plan_rows(before), plan_rows(after))
+
+    def operational_commitments(snapshot: EvaluationSnapshot) -> dict[str, str]:
+        return keyed_rows(snapshot.operational.confirmed_commitments, lambda row: row.commitment_id)
+
+    def core_commitments_by_id(rows: tuple[Commitment, ...]) -> dict[str, str]:
+        return {row.commitment_id: row.model_dump_json(exclude={"updated_at"}) for row in rows}
+
+    before_op, after_op = operational_commitments(before), operational_commitments(after)
+    before_core, after_core = core_commitments_by_id(before_commitments), core_commitments_by_id(after_commitments)
+    for commitment_id in set(before_op) | set(after_op) | set(before_core) | set(after_core):
+        if (before_op.get(commitment_id), before_core.get(commitment_id)) != (
+                after_op.get(commitment_id), after_core.get(commitment_id)):
+            changed.add(ResourceKey(kind=ResourceKind.COMMITMENT, resource_id=commitment_id))
+
+    return tuple(sorted(changed, key=_resource_sort_key))
+
+
+def _change_covers_resource(key: ResourceKey, change: OperationalChange,
+                            before: EvaluationSnapshot, after: EvaluationSnapshot,
+                            before_commitments: tuple[Commitment, ...],
+                            after_commitments: tuple[Commitment, ...]) -> bool:
+    if key in change.resource_keys:
+        return True
+    if key.kind is ResourceKind.PRODUCTION_JOB:
+        jobs = [row for snapshot in (before, after) if snapshot.production
+                for row in (snapshot.production.jobs or ()) if row.job_id == key.resource_id]
+        return any(declared.kind is ResourceKind.PRODUCTION_RESOURCE
+                   and declared.resource_id in job.resource_ids
+                   for declared in change.resource_keys for job in jobs)
+    if key.kind is ResourceKind.PRODUCTION_PLAN:
+        commitment_id, _, line_id = key.resource_id.partition("/")
+        plan_resources = set()
+        for snapshot in (before, after):
+            if snapshot.production is None:
+                continue
+            plan = next((row for row in snapshot.production.plans
+                         if row.commitment_id == commitment_id and row.line_id == line_id), None)
+            committed = next((row for row in snapshot.operational.confirmed_commitments
+                              if row.commitment_id == commitment_id), None)
+            if plan is None or committed is None:
+                continue
+            line = next((row for row in committed.lines if row.line_id == line_id), None)
+            process = next((row for row in snapshot.production.processes
+                            if line is not None and row.sku_id == line.sku_id), None)
+            if process is not None:
+                plan_resources.update(process.resource_ids)
+        return any(declared.kind is ResourceKind.PRODUCTION_RESOURCE
+                   and declared.resource_id in plan_resources for declared in change.resource_keys)
+    if key.kind is ResourceKind.COMMITMENT:
+        core = [row for row in (*before_commitments, *after_commitments)
+                if row.commitment_id == key.resource_id]
+        return any(declared.kind is ResourceKind.ORDER
+                   and any(row.order_id == declared.resource_id for row in core)
+                   for declared in change.resource_keys)
+    if key.kind in (ResourceKind.INVENTORY_LOT, ResourceKind.SUPPLIER_DELIVERY):
+        sku_ids = set()
+        for snapshot in (before, after):
+            rows = (snapshot.operational.inventory_lots if key.kind is ResourceKind.INVENTORY_LOT
+                    else snapshot.operational.incoming_deliveries)
+            sku_ids.update(row.sku_id for row in rows
+                           if (row.lot_id if key.kind is ResourceKind.INVENTORY_LOT else row.delivery_id)
+                           == key.resource_id)
+        return any(declared.kind is ResourceKind.SKU and declared.resource_id in sku_ids
+                   for declared in change.resource_keys)
+    return False
+
+
 def _after_key_evidence(snapshot: EvaluationSnapshot, commitments: tuple[Commitment, ...],
                         key: ResourceKey) -> set[str]:
     op, production = snapshot.operational, snapshot.production
@@ -529,6 +691,8 @@ def _after_key_evidence(snapshot: EvaluationSnapshot, commitments: tuple[Commitm
                     refs.update((claim.evidence_id, claim.evidence_ref))
     elif key.kind is ResourceKind.INVENTORY_LOT:
         refs.update(ref for row in op.inventory_lots if row.lot_id == key.resource_id
+                    for ref in _expanded_operational_evidence(op, row.source_refs))
+        refs.update(ref for row in op.reservations if row.inventory_lot_id == key.resource_id
                     for ref in _expanded_operational_evidence(op, row.source_refs))
     elif key.kind is ResourceKind.SKU:
         rows_refs = []
@@ -585,9 +749,17 @@ def _validate_change(before: EvaluationSnapshot, after: EvaluationSnapshot,
     if any(not _actual_change_exists(before, after, change, before_commitments,
                                      after_commitments, key) for key in change.resource_keys):
         raise ValueError("changed resource key has no before/after data change")
+    resource_evidence = {
+        key: _after_key_evidence(after, after_commitments, key)
+        for key in change.resource_keys
+    }
+    for key, linked_refs in resource_evidence.items():
+        if not (set(change.evidence_refs) & linked_refs):
+            raise ValueError("changed resource has no linked event evidence in the after snapshot")
+    accounted_evidence = set().union(*resource_evidence.values())
+    if not set(change.evidence_refs).issubset(accounted_evidence):
+        raise ValueError("change evidence is not linked to any changed resource in the after snapshot")
     for key in change.resource_keys:
-        if not set(change.evidence_refs).issubset(_after_key_evidence(after, after_commitments, key)):
-            raise ValueError("change evidence is not linked to the changed resource in the after snapshot")
         if key.kind is ResourceKind.SUPPLIER_DELIVERY:
             delivery = next(row for row in after.operational.incoming_deliveries
                             if row.delivery_id == key.resource_id)
@@ -622,32 +794,147 @@ def _material_deltas(before: EvaluationResult | None, after: EvaluationResult | 
     return tuple(deltas)
 
 
-def _constraint_deltas(before: EvaluationResult | None, after: EvaluationResult | None) -> tuple[ImpactDelta, ...]:
+def _severity_direction(before: Decimal, after: Decimal) -> Literal["NEW", "WORSENED", "IMPROVED", "UNCHANGED"]:
+    if before <= 0 < after:
+        return "NEW"
+    if before > 0 and after > before:
+        return "WORSENED"
+    if after < before:
+        return "IMPROVED"
+    return "UNCHANGED"
+
+
+def _deadline_severities(snapshot: EvaluationSnapshot, result: EvaluationResult | None,
+                         commitment_id: str):
+    """Measure lateness from the evaluator's actual finish, explicit lead and deadline."""
+    if result is None or snapshot.production is None:
+        return {}, False
+    committed = next((row for row in snapshot.operational.confirmed_commitments
+                     if row.commitment_id == commitment_id), None)
+    if committed is None:
+        return {}, False
+    processes = {row.sku_id: row for row in snapshot.production.processes}
+    operations = {(row.commitment_id, row.line_id): row for row in result.capacity.operations}
+    output = {}
+    complete = True
+    for line in committed.lines:
+        process = processes.get(line.sku_id)
+        operation = operations.get((commitment_id, line.line_id))
+        if process is None or process.delivery_lead_minutes is None or operation is None:
+            output[line.line_id] = None
+            complete = False
+            continue
+        try:
+            expected_delivery = operation.finish_at + duration_delta(process.delivery_lead_minutes)
+            lateness_us = max(0, microseconds(committed.delivery_deadline, expected_delivery))
+            severity_minutes = diagnostic_minutes(lateness_us)
+        except (ArithmeticError, OverflowError, ValueError):
+            output[line.line_id] = None
+            complete = False
+            continue
+        evidence = set(operation.evidence_refs)
+        evidence.update(_expanded_production_evidence(snapshot.production, process.source_refs))
+        evidence.update(_expanded_operational_evidence(snapshot.operational, committed.source_refs))
+        if not evidence:
+            complete = False
+        output[line.line_id] = (line.sku_id, severity_minutes, committed.delivery_deadline,
+                                tuple(sorted(evidence)))
+    return output, complete
+
+
+def _deadline_deltas(before_snapshot: EvaluationSnapshot, before: EvaluationResult | None,
+                     after_snapshot: EvaluationSnapshot, after: EvaluationResult | None,
+                     commitment_id: str) -> tuple[tuple[ImpactDelta, ...], bool]:
     if before is None or after is None:
-        return ()
+        return (), True
+    old, old_complete = _deadline_severities(before_snapshot, before, commitment_id)
+    new, new_complete = _deadline_severities(after_snapshot, after, commitment_id)
+    has_deadline_constraint = any(constraint.code == "DELIVERY_DEADLINE" and constraint.severity == "HARD"
+        for result in (before, after) for constraint in result.constraints)
+    complete = old_complete and new_complete
+    deltas = []
+    for line_id in sorted(set(old) | set(new)):
+        left, right = old.get(line_id), new.get(line_id)
+        if left is None or right is None:
+            if has_deadline_constraint:
+                complete = False
+            continue
+        sku_id = right[0]
+        if left[0] != sku_id:
+            complete = False
+            continue
+        before_severity, after_severity = left[1], right[1]
+        if before_severity == 0 and after_severity == 0:
+            continue
+        direction = _severity_direction(before_severity, after_severity)
+        refs = tuple(sorted(set(left[3]) | set(right[3])))
+        if not refs:
+            complete = False
+        deltas.append(ImpactDelta(kind="HARD_CONSTRAINT", code="DELIVERY_DEADLINE",
+            resource_id=sku_id, line_id=line_id, before_shortage=before_severity,
+            after_shortage=after_severity, delta=subtract(after_severity, before_severity),
+            unit="minutes", deadline=right[2], is_new=direction == "NEW",
+            severity_change=direction, evidence_refs=refs))
+    for result, values in ((before, old), (after, new)):
+        deadline_constraints = [constraint for constraint in result.constraints
+                                if constraint.code == "DELIVERY_DEADLINE" and constraint.severity == "HARD"]
+        for constraint in deadline_constraints:
+            if not any(value is not None and value[0] == constraint.resource_id and value[1] > 0
+                       for value in values.values()):
+                complete = False
+        if any(value is not None and value[1] > 0 for value in values.values()) and not deadline_constraints:
+            complete = False
+    return tuple(deltas), complete
+
+
+def _constraint_deltas(before_snapshot: EvaluationSnapshot, before: EvaluationResult | None,
+                       after_snapshot: EvaluationSnapshot, after: EvaluationResult | None,
+                       commitment_id: str) -> tuple[tuple[ImpactDelta, ...], bool]:
+    if before is None or after is None:
+        return (), True
+
     def rows(result):
         output = {}
         for constraint in result.constraints:
-            if constraint.severity != "HARD":
+            if constraint.severity != "HARD" or constraint.code == "DELIVERY_DEADLINE":
                 continue
-            key = (constraint.code, constraint.resource_id, constraint.unit, constraint.deadline)
+            # Deadline is descriptive metadata. It is not constraint identity;
+            # violations compare by type and affected resource.
+            key = (constraint.code, constraint.resource_id, constraint.unit)
             output[key] = constraint
         return output
+
     old, new = rows(before), rows(after)
     deltas = []
-    for key in sorted(set(old) | set(new), key=lambda row: (row[0], row[1], row[2] or "", str(row[3]))):
+    comparison_complete = True
+    for key in sorted(set(old) | set(new), key=lambda row: (row[0], row[1], row[2] or "")):
         left, right = old.get(key), new.get(key)
-        left_shortage = left.shortage if left else Decimal(0)
-        right_shortage = right.shortage if right else Decimal(0)
-        is_new = left is None and right is not None
-        delta = subtract(right_shortage, left_shortage) if left_shortage is not None and right_shortage is not None else None
-        if not is_new and (delta is None or delta == 0):
+        if (left is not None and right is not None
+                and (left.shortage is None) != (right.shortage is None)):
+            comparison_complete = False
+            refs = tuple(sorted({*left.evidence_refs, *right.evidence_refs}))
+            deltas.append(ImpactDelta(kind="HARD_CONSTRAINT", code=key[0], resource_id=key[1],
+                before_shortage=left.shortage, after_shortage=right.shortage, delta=None,
+                unit=key[2], deadline=right.deadline, severity_change=None, evidence_refs=refs))
             continue
+        before_severity = (left.shortage if left and left.shortage is not None
+                           else Decimal(1) if left else Decimal(0))
+        after_severity = (right.shortage if right and right.shortage is not None
+                          else Decimal(1) if right else Decimal(0))
+        direction = _severity_direction(before_severity, after_severity)
+        refs = tuple(sorted({*(left.evidence_refs if left else ()), *(right.evidence_refs if right else ())}))
         deltas.append(ImpactDelta(kind="HARD_CONSTRAINT", code=key[0], resource_id=key[1],
-            before_shortage=left_shortage, after_shortage=right_shortage, delta=delta,
-            unit=key[2], deadline=key[3], is_new=is_new,
-            evidence_refs=tuple(sorted({*(left.evidence_refs if left else ()), *(right.evidence_refs if right else ())}))))
-    return tuple(deltas)
+            before_shortage=before_severity, after_shortage=after_severity,
+            delta=subtract(after_severity, before_severity), unit=key[2],
+            deadline=right.deadline if right else left.deadline, is_new=direction == "NEW",
+            severity_change=direction, evidence_refs=refs))
+
+    deadline_deltas, deadline_complete = _deadline_deltas(before_snapshot, before, after_snapshot,
+                                                           after, commitment_id)
+    deltas.extend(deadline_deltas)
+    ordered = tuple(sorted(deltas, key=lambda row: (row.code or "", row.resource_id, row.line_id or "",
+                                                     row.unit or "", str(row.deadline))))
+    return ordered, comparison_complete and deadline_complete
 
 
 def _is_known(result: EvaluationResult | None) -> bool:
@@ -688,10 +975,20 @@ def _buffers(snapshot: EvaluationSnapshot, change: OperationalChange,
 
 def _classify(before: EvaluationResult | None, after: EvaluationResult | None,
               material_deltas: tuple[ImpactDelta, ...], hard_deltas: tuple[ImpactDelta, ...],
-              buffers: tuple[ImpactBuffer, ...], discovery_complete: bool) -> tuple[ImpactClassification, tuple[str, ...]]:
+              buffers: tuple[ImpactBuffer, ...], discovery_complete: bool,
+              causal_attribution_complete: bool, severity_comparison_complete: bool
+              ) -> tuple[ImpactClassification, tuple[str, ...]]:
     if not discovery_complete:
         return ImpactClassification.UNKNOWN, ("DEPENDENCY_GRAPH_INCOMPLETE",)
-    adverse_hard = any(row.is_new or (row.delta is not None and row.delta > 0) for row in hard_deltas)
+    adverse_hard = any(row.severity_change in ("NEW", "WORSENED")
+                       if row.severity_change is not None
+                       else row.is_new or (row.delta is not None and row.delta > 0)
+                       for row in hard_deltas)
+    adverse_material = any(row.delta is not None and row.delta > 0 for row in material_deltas)
+    if (adverse_hard or adverse_material) and not causal_attribution_complete:
+        return ImpactClassification.UNKNOWN, ("UNATTRIBUTED_CONCURRENT_DEPENDENCY_CHANGE",)
+    if not severity_comparison_complete:
+        return ImpactClassification.UNKNOWN, ("HARD_VIOLATION_SEVERITY_INSUFFICIENT",)
     if (adverse_hard and before is not None and after is not None
             and before.evidence_complete and after.evidence_complete):
         return ImpactClassification.CONFIRMED_IMPACT, ("EVIDENCED_NEW_OR_WORSENED_HARD_CONSTRAINT",)
@@ -699,7 +996,6 @@ def _classify(before: EvaluationResult | None, after: EvaluationResult | None,
         return ImpactClassification.UNKNOWN, ("BEFORE_EVIDENCE_INSUFFICIENT",)
     if not _is_known(after):
         return ImpactClassification.UNKNOWN, ("AFTER_EVIDENCE_INSUFFICIENT",)
-    adverse_material = any(row.delta is not None and row.delta > 0 for row in material_deltas)
     if adverse_material or adverse_hard:
         return ImpactClassification.CONFIRMED_IMPACT, ("EVIDENCED_ADVERSE_BEFORE_AFTER_DELTA",)
     if (before.status is FeasibilityState.INFEASIBLE
@@ -807,6 +1103,14 @@ def assess_impact(before: EvaluationSnapshot, after: EvaluationSnapshot,
         fallback_ids = set(before_graph.commitment_ids) | set(after_graph.commitment_ids)
         candidates.update(fallback_ids)
     candidate_ids = tuple(sorted(candidates))
+    changed_keys = _changed_resource_keys(before, after, before_core, after_core)
+    unreported_keys = tuple(key for key in changed_keys
+        if not _change_covers_resource(key, change, before, after, before_core, after_core))
+    unreported_candidate_ids: set[str] = set()
+    for graph in (before_graph, after_graph):
+        for path in graph.paths_from(unreported_keys):
+            if path.nodes[-1].resource_id in candidates:
+                unreported_candidate_ids.add(path.nodes[-1].resource_id)
     before_by_id = {row.commitment_id: row for row in before_core}
     after_by_id = {row.commitment_id: row for row in after_core}
     after_snapshot_by_id = {row.commitment_id: row for row in after.operational.confirmed_commitments}
@@ -815,13 +1119,16 @@ def assess_impact(before: EvaluationSnapshot, after: EvaluationSnapshot,
         before_result = _evaluate_candidate(before, before_by_id.get(commitment_id), commitment_id)
         after_result = _evaluate_candidate(after, after_by_id.get(commitment_id), commitment_id)
         material_deltas = _material_deltas(before_result, after_result, commitment_id)
-        hard_deltas = _constraint_deltas(before_result, after_result)
+        hard_deltas, severity_complete = _constraint_deltas(before, before_result, after,
+                                                              after_result, commitment_id)
         buffers = _buffers(after, change, after_result, commitment_id)
         paths = tuple(sorted({path.model_dump_json(): path for path in path_by_commitment.get(commitment_id, ())}.values(),
                              key=lambda row: ( _resource_sort_key(row.resource_key), row.nodes, row.relationships)))
         classification, reasons = _classify(before_result, after_result, material_deltas,
                                              hard_deltas, buffers,
-                                             relevant_complete and commitment_id not in fallback_ids)
+                                              relevant_complete and commitment_id not in fallback_ids,
+                                              commitment_id not in unreported_candidate_ids,
+                                              severity_complete)
         before_version = before_result.commitment_version if before_result else next(
             (row.commitment_version for row in before.operational.confirmed_commitments
              if row.commitment_id == commitment_id), None)
