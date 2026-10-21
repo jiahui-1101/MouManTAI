@@ -8,6 +8,8 @@ import re
 import uuid
 from typing import Any, Sequence
 
+import numpy as np
+
 from .deterministic_extraction import ORDER_RE, PROVISIONAL_PRODUCTS, ProductAlias
 from .document_schemas import AttachmentRecord, BoundingBox, DocumentEvidence, DocumentExtractionResult
 
@@ -281,9 +283,23 @@ def extract_image_ocr(
             diagnostic=f"Image dimensions {width}x{height} exceed maximum allowed {MAX_IMAGE_DIMENSION}x{MAX_IMAGE_DIMENSION} limit",
         )
 
-    rgb_array = np.array(img.convert("RGB"))
-    ocr = get_ocr_engine()
-    results = ocr.predict(rgb_array)
+    try:
+        rgb_array = np.array(img.convert("RGB"))
+        ocr = get_ocr_engine()
+        results = ocr.predict(rgb_array)
+    except Exception as exc:
+        return DocumentExtractionResult(
+            attachment_id=attachment.attachment_id,
+            evidence_ref=attachment.evidence_ref,
+            status="FAILED",
+            document_type="IMAGE",
+            page_count=1,
+            text_content="",
+            extracted_fields=[],
+            evidence_items=[],
+            is_payment_notice=False,
+            diagnostic=f"OCR engine execution failed: {exc}",
+        )
 
     rec_texts: list[str] = []
     rec_scores: list[float] = []
