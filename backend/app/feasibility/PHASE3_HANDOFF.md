@@ -73,12 +73,30 @@ shortage is omitted when it cannot be represented exactly.
 
 ## Status, purity and candidate validation
 
-Missing/stale/unsupported inputs or stale declared current version -> UNKNOWN.
-Otherwise target HARD violations/shared resource conflicts -> INFEASIBLE.
-Otherwise an explicit hypothesis -> CONDITIONAL pending required authorization
-or customer agreement. Otherwise -> FEASIBLE for this snapshot/time/fixed booking.
+Status precedence distinguishes evidence reliability from allocation policy:
+
+1. Missing, stale, incomplete, unsupported or stale-version evidence -> UNKNOWN,
+   even if a constraint that would otherwise be HARD is present. The evaluator
+   preserves that constraint, but does not treat untrusted data as proof.
+2. With complete and trustworthy evidence, an independently proven HARD failure
+   -> INFEASIBLE for the evaluated target or supplied fixed booking. This includes
+   a proven residual material shortage, capacity/deadline violation or job conflict.
+   A capacity/job HARD result says the supplied schedule conflicts; it does not
+   establish impossibility under every alternative rescheduling plan.
+3. With no independent HARD proof, a shortage that could be covered only by
+   changing provisional ATP priority -> UNKNOWN. It neither reprioritizes demand
+   nor authorizes displacement.
+4. Otherwise an explicit hypothesis -> CONDITIONAL pending identified required
+   authorization or customer agreement. Otherwise -> FEASIBLE for this
+   snapshot/time/fixed booking.
+
 SOFT preferences do not make hard-feasible schedules infeasible. Material COVERED
-alone cannot establish overall FEASIBLE.
+alone cannot establish overall FEASIBLE. Independent HARD proof takes precedence
+over allocation-policy uncertainty only when the relevant evidence is complete
+and trustworthy; evidence/data uncertainty retains conservative UNKNOWN
+precedence. When trusted independent HARD proof makes the overall status
+INFEASIBLE while allocation policy remains unresolved, `solver_status` remains
+UNKNOWN to preserve that unresolved calculation detail.
 
 Proposals change only target quantity/deadline/start in a private validated copy.
 They preserve original commitment/snapshot versions and retain evidence. Existing
@@ -100,14 +118,16 @@ No supply is reallocated and no confirmed commitment is reprioritized.
 
 If compatible supply already allocated to other demand could cover the target,
 the evaluator emits `ALLOCATION_DEPENDENT_MATERIAL_SHORTAGE` as INFORMATIONAL,
-reports the current batch aggregate shortage with row evidence, and returns
-UNKNOWN. It does not treat a hypothetical displacement as approval or use
-CONDITIONAL. If all target-eligible allocated supply still leaves a positive
-minimum shortage, `MATERIAL_SHORTAGE` remains HARD with that proven minimum.
-ATP's allocation algorithm and its evidence remain unchanged. A proposal that
-increases another confirmed commitment's shortage still receives a HARD
-`HYPOTHETICAL_COMPETING_MATERIAL_SHORTAGE` from the baseline/candidate ATP
-comparison.
+reports the current batch aggregate shortage with row evidence. If this is the
+only unresolved feasibility issue, the result is UNKNOWN. If complete, trusted
+evidence also proves an independent HARD failure, that result is INFEASIBLE while
+retaining the allocation-dependency constraint. It does not treat hypothetical
+displacement as approval or use CONDITIONAL. If all target-eligible allocated
+supply still leaves a positive minimum shortage, `MATERIAL_SHORTAGE` remains
+HARD with that proven minimum. ATP's allocation algorithm and its evidence remain
+unchanged. A proposal that increases another confirmed commitment's shortage
+still receives a HARD `HYPOTHETICAL_COMPETING_MATERIAL_SHORTAGE` from the
+baseline/candidate ATP comparison.
 
 ## Core constraints and blocked output adapter
 

@@ -433,7 +433,7 @@ canonical app imports, `python -B`, no path aliases and no shared config changes
 
 ### Safety, assumptions, blockers and handoff
 
-- **BLOCK-P2-P3-001 / P5:** define affected_commitment_ids for every single-query status and distinguish assessed subject from confirmed operational impact. Exact request in PHASE3_HANDOFF.md; user will obtain P5 decision. Final shared serializer remains BLOCKED.
+- **BLOCK-P2-P3-001 / P5:** actual-Impact-Set semantics are RESOLVED. The current P5 schema still requires a nonempty list; merged and verified support for an empty set is pending. Final shared serializer remains BLOCKED.
 - **BLOCK-P2-P3-002 / P3:** review exact ProposedChanges shape and fixed-booking evaluator import/usage. Current P3 package is a placeholder; no agreement or live P3 parity claim. Arbitrary supply insertion/job deletion is refused; supply substitution needs reviewed typed provenance/conditional semantics.
 - **BLOCK-P2-P3-003 / P2+P5:** shared demo summary is not a complete operational snapshot. Shared tenant_demo_01/com_001 and SAUCE/PACKAGING differ from existing P2 IDs/WRAP catalog. Need reviewed operational-data/catalog adapter with trusted full ledgers, freshness, lots/reservation ownership, typed receipts, exact calendars/jobs/processes/transport. No invented stock/rates/evidence to make shared demo FEASIBLE.
 - P5 source authenticity/completeness/current-version/persistence/auth/Core audit/outbox and P3/P5 transactional command reservations remain pending integration. Pure proposals cannot allocate stock across concurrent plans.
@@ -442,6 +442,19 @@ canonical app imports, `python -B`, no path aliases and no shared config changes
 - Trace: PH3-01..05/08 local evidence PASS; PH3-06/07 shared integration BLOCKED; applicable owner/F2/system rows updated truthfully. Phase3 overall PARTIAL, P2-FE NOT_STARTED, Phases4–7 NOT_STARTED.
 
 **STOP for external Phase 3 review. Do not claim full Phase 3 PASS or start Phase 4.**
+
+## External review #2 correction — evidence-aware status precedence
+
+- **Reviewed baseline:** `40c526a0bf05b215333a0832e13a88c275d61cad`. Before editing, `HEAD`, `origin/feat/p2-feasibility-engine`, and the expected branch were verified to match; the worktree was clean.
+- **Finding:** allocation-policy uncertainty was included in the same UNKNOWN gate as data uncertainty, which allowed a provisional ATP allocation shortage to mask a separately evidenced HARD failure.
+- **P2-local correction:** `service.py` now classifies evidence uncertainty (stale snapshot/source, UNKNOWN ATP/capacity, or unknown proposal baseline) separately from allocation-dependent shortage. Missing, stale or incomplete evidence still yields UNKNOWN even when a HARD constraint is retained. With complete trusted evidence, an independent HARD failure yields INFEASIBLE; allocation-dependent shortage alone remains UNKNOWN. Existing ATP, BOM, capacity scheduling and P5 contracts are unchanged.
+- **Solver metadata:** in mixed trusted-evidence results, `FeasibilityState.INFEASIBLE` records the independent fixed-target/fixed-booking proof while `SolverStatus.UNKNOWN` retains the unresolved ATP allocation-policy detail.
+- **Fixed-schedule meaning:** a HARD capacity/deadline/job constraint proves that the supplied fixed booking fails the known schedule constraints. It does not prove that every alternative rescheduling plan is impossible. The capacity result assumption is preserved in the evaluator output and the distinction is covered by regression assertions and PHASE3_HANDOFF.md.
+- **Focused regressions:** added target B allocation uncertainty plus overlapping evidenced job; allocation-dependent PATTY plus unavoidable BUN shortage30; and parameterized stale inventory/production evidence with an independent HARD job constraint. Existing tests continue to cover allocation-only UNKNOWN, F2-01 shortage30, protected/ineligible allocations, missing/stale evidence and proposal displacement HARD safeguards. The two mixed trusted-evidence tests failed before the fix (UNKNOWN masked the HARD proof); all four new test cases passed after it.
+- **Validation from `backend/`:** `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_capacity.py app/feasibility/tests/test_service.py -q -p no:cacheprovider` — **67 passed in 0.82s**. `python -B -m pytest -o 'addopts=' app/feasibility/tests/test_snapshots.py app/feasibility/tests/test_bom.py app/feasibility/tests/test_inventory.py tests/test_contracts.py tests/test_smoke.py tests/test_registry.py -q -p no:cacheprovider` — **73 passed, 1 existing Starlette/httpx deprecation warning in 1.71s**. Targeted new precedence nodes — **4 passed, 28 deselected**. Initial red run: 2 expected failures and 2 stale-evidence passes.
+- **P5 contract:** P5's actual Impact Set semantics remain RESOLVED. Empty-list schema support remains PENDING merge and verification (`min_length=1` observed); final shared FeasibilityAssessment adapter remains BLOCKED. No P5 schema or other-owner code changed.
+- **Current P2 board:** the prior reviewed checkpoint had 63 Phase 3 tests; this follow-up adds four parametrized test cases, bringing the current Phase 3 count to **67**. The preserved P2/shared regression remains **73**.
+- **Scope and gate:** P2 `service.py`, P2 tests, P2 progress/trace/report/handoff and P2-only TEAM_LOG board/log entry. No Phase 2 calculator/scheduler, P3, P5, Phase 4 or shared contract changed. Phase 3 remains PARTIAL and stops for independent external review.
 
 ## External review correction — allocation-dependent material status
 

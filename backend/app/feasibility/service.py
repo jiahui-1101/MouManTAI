@@ -181,10 +181,16 @@ def evaluate(snapshot: EvaluationSnapshot, proposed_changes: ProposedChanges | N
         constraints.append(ConstraintReason(code='STALE_SNAPSHOT_VERSION', resource_id=original.snapshot_id,
                                             severity='INFORMATIONAL', evidence_refs=[]))
     stale = stale_version or any(c.code.startswith('STALE_') for c in constraints)
-    unknown = (stale or allocation_dependent or materials.status == 'UNKNOWN' or capacity.status == FeasibilityState.UNKNOWN
-               or any(c.code == 'UNKNOWN_BASELINE_FOR_PROPOSAL' for c in constraints))
+    evidence_unknown = (stale or materials.status == 'UNKNOWN' or capacity.status == FeasibilityState.UNKNOWN
+                        or any(c.code == 'UNKNOWN_BASELINE_FOR_PROPOSAL' for c in constraints))
+    allocation_unknown = allocation_dependent
     hard = any(c.severity == 'HARD' for c in constraints)
-    status = (FeasibilityState.UNKNOWN if unknown else FeasibilityState.INFEASIBLE if hard
+    # Untrusted/incomplete evidence still dominates. With complete evidence,
+    # independent HARD proof applies to this supplied target/fixed booking even
+    # if material coverage remains allocation-policy dependent. Allocation-only
+    # uncertainty stays UNKNOWN and never implies approval to displace demand.
+    status = (FeasibilityState.UNKNOWN if evidence_unknown else FeasibilityState.INFEASIBLE if hard
+              else FeasibilityState.UNKNOWN if allocation_unknown
               else FeasibilityState.CONDITIONAL if proposed_changes is not None else FeasibilityState.FEASIBLE)
     if proposed_changes is not None:
         constraints.append(ConstraintReason(code='HYPOTHETICAL_CHANGE_PENDING_APPROVAL',
@@ -204,6 +210,7 @@ def evaluate(snapshot: EvaluationSnapshot, proposed_changes: ProposedChanges | N
         tenant_id=commitment.tenant_id, commitment_id=commitment.commitment_id,
         commitment_version=commitment.commitment_version, snapshot_id=original.snapshot_id,
         snapshot_version=original.snapshot_version, status=status,
-        solver_status=SolverStatus.STALE if stale else SolverStatus.UNKNOWN if unknown else SolverStatus.COMPLETED,
+        solver_status=SolverStatus.STALE if stale else SolverStatus.UNKNOWN if (evidence_unknown or allocation_unknown)
+        else SolverStatus.COMPLETED,
         assessed_at=snapshot.as_of, constraints=tuple(constraints), assumptions=tuple(assumptions),
         evidence_refs=refs, materials=materials, capacity=capacity)

@@ -296,6 +296,69 @@ def test_provisional_allocation_shortage_is_unknown_with_aggregate_shortage_evid
     assert (rows['commitment-A'].shortage, rows['commitment-B'].shortage) == (0, Decimal('80'))
 
 
+def test_allocation_uncertainty_does_not_mask_fixed_booking_job_conflict():
+    from app.feasibility.tests.test_capacity import dt
+    snapshot, target = competing_snapshot()
+    snapshot = changed(snapshot, lambda data: data['production'].update(jobs=({
+        'job_id': 'blocking-target-job', 'tenant_id': target.tenant_id,
+        'resource_ids': ('kitchen-line-1',), 'start_at': dt('12:30:00'),
+        'end_at': dt('13:30:00'), 'source_refs': ('production-jobs',),
+    },)))
+
+    result = run(snapshot, commitment=target)
+
+    assert result.status is FeasibilityState.INFEASIBLE
+    assert result.solver_status is SolverStatus.UNKNOWN
+    assert any(c.code == 'ALLOCATION_DEPENDENT_MATERIAL_SHORTAGE' and c.resource_id == 'PATTY'
+               for c in result.constraints)
+    conflict = next(c for c in result.constraints if c.code == 'JOB_CONFLICT')
+    assert conflict.severity == 'HARD'
+    assert any('fixed bookings only' in a.lower() and 'reschedules impossible' in a.lower()
+               for a in result.assumptions)
+
+
+def test_allocation_uncertainty_does_not_mask_separate_proven_material_shortage():
+    snapshot, target = competing_snapshot()
+    snapshot = changed(snapshot, lambda data: next(
+        lot for lot in data['operational']['inventory_lots'] if lot['sku_id'] == 'BUN'
+    ).update(quantity='70'))
+
+    result = run(snapshot, commitment=target)
+
+    assert result.status is FeasibilityState.INFEASIBLE
+    assert result.solver_status is SolverStatus.UNKNOWN
+    assert any(c.code == 'ALLOCATION_DEPENDENT_MATERIAL_SHORTAGE' and c.resource_id == 'PATTY'
+               for c in result.constraints)
+    bun_shortage = next(c for c in result.constraints
+                        if c.code == 'MATERIAL_SHORTAGE' and c.resource_id == 'BUN')
+    assert (bun_shortage.shortage, bun_shortage.unit, bun_shortage.severity) == (
+        Decimal('30'), 'pcs', 'HARD')
+
+
+@pytest.mark.parametrize('stale_scope', ['inventory', 'production'])
+def test_stale_evidence_keeps_unknown_precedence_over_independent_hard_failure(stale_scope):
+    from app.feasibility.tests.test_capacity import dt
+    snapshot, target = competing_snapshot()
+    def mutate(data):
+        data['production']['jobs'] = ({
+            'job_id': 'blocking-target-job', 'tenant_id': target.tenant_id,
+            'resource_ids': ('kitchen-line-1',), 'start_at': dt('12:30:00'),
+            'end_at': dt('13:30:00'), 'source_refs': ('production-jobs',),
+        },)
+        if stale_scope == 'inventory':
+            source = next(s for s in data['operational']['sources'] if s['kind'] == 'inventory')
+        else:
+            source = next(s for s in data['production']['sources'] if s['kind'] == 'jobs')
+        source['observed_at'] -= timedelta(days=1)
+        source['valid_through'] = data['as_of'] - timedelta(seconds=1)
+    snapshot = changed(snapshot, mutate)
+
+    result = run(snapshot, commitment=target)
+
+    assert result.status is FeasibilityState.UNKNOWN
+    assert any(c.code == 'JOB_CONFLICT' and c.severity == 'HARD' for c in result.constraints)
+
+
 def test_f2_01_total_eligible_supply_shortage_remains_hard_and_infeasible():
     snapshot, _ = fixture()
     short = changed(snapshot, lambda data: data['operational']['inventory_lots'][0].update(quantity='70'))
@@ -385,3 +448,5 @@ def test_independent_capacity_hard_failures_remain_infeasible(failure, expected_
     assert result.materials.status == 'COVERED'
     assert result.status is FeasibilityState.INFEASIBLE
     assert any(c.code == expected_code and c.severity == 'HARD' for c in result.constraints)
+    assert any('fixed bookings only' in assumption.lower() and 'reschedules impossible' in assumption.lower()
+               for assumption in result.assumptions)
