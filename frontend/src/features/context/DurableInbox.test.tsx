@@ -12,8 +12,46 @@ const message: StoredMessage = { message_id: 'stored_message_1', raw, synthetic_
 const page = (items: StoredMessage[] = []): MessagePage => ({ items, total: items.length, limit: 25, offset: 0 });
 
 function fakeApi(): OperationalApi {
-  return { config: vi.fn().mockResolvedValue(context), list: vi.fn().mockResolvedValue(page()),
-    detail: vi.fn().mockResolvedValue(message), ingest: vi.fn().mockResolvedValue({ message, duplicate: false }) };
+  return {
+    config: vi.fn().mockResolvedValue(context),
+    list: vi.fn().mockResolvedValue(page()),
+    detail: vi.fn().mockResolvedValue(message),
+    ingest: vi.fn().mockResolvedValue({ message, duplicate: false }),
+    process: vi.fn().mockResolvedValue({
+      message: { ...message, processing_status: 'PROCESSED' },
+      attempt: {
+        attempt_id: 'att_1',
+        tenant_id: 'server_tenant',
+        message_id: 'stored_message_1',
+        extractor_version: 'p1-deterministic-v3',
+        input_content_sha256: 'a'.repeat(64),
+        status: 'PROCESSED',
+        fields: [
+          {
+            field_name: 'sku',
+            value: 'BURGER',
+            validation_status: 'VALID',
+            qualifier: null,
+            metadata: {},
+            evidence: [{ evidence_id: 'ev_1', message_id: 'stored_message_1', quote: 'burgers', start: 11, end: 18, method: 'RULE', method_version: 'p1-deterministic-v3' }],
+          },
+          {
+            field_name: 'quantity',
+            value: '100',
+            validation_status: 'VALID',
+            qualifier: null,
+            metadata: {},
+            evidence: [{ evidence_id: 'ev_2', message_id: 'stored_message_1', quote: '100', start: 7, end: 10, method: 'RULE', method_version: 'p1-deterministic-v3' }],
+          },
+        ],
+        started_at: timestamp,
+        completed_at: timestamp,
+      },
+      reprocessed: false,
+    }),
+    getExtraction: vi.fn().mockRejectedValue(new Error('No extraction')),
+    listAttempts: vi.fn().mockResolvedValue({ items: [] }),
+  };
 }
 
 async function openComposer(api: OperationalApi) {
@@ -133,6 +171,26 @@ describe('durable synthetic Inbox', () => {
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search messages' }), { target: { value: 'burger' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Processing' }), { target: { value: 'RECEIVED' } });
     await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'burger', processing: 'RECEIVED' })));
+  });
+
+  it('triggers process extraction from detail panel and displays extracted fields and RULE method', async () => {
+    const api = fakeApi();
+    vi.mocked(api.list).mockResolvedValue(page([message]));
+    vi.mocked(api.detail).mockResolvedValue(message);
+
+    render(<DurableInbox api={api} />);
+    expect(await screen.findByText('1 persisted messages')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Synthetic buyer' }));
+    const detail = screen.getByRole('region', { name: 'Persisted message details' });
+
+    const processBtn = await within(detail).findByRole('button', { name: 'Process extraction' });
+    fireEvent.click(processBtn);
+
+    await waitFor(() => expect(api.process).toHaveBeenCalledWith('stored_message_1', false));
+    expect(await within(detail).findByText(/RULE \(p1-deterministic-v3\)/)).toBeInTheDocument();
+    expect(within(detail).getByText('BURGER')).toBeInTheDocument();
+    expect(within(detail).getAllByText('100').length).toBeGreaterThanOrEqual(2);
   });
 });
 

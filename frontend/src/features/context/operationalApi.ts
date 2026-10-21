@@ -1,5 +1,14 @@
 import { PreviewError } from './api';
-import type { DevelopmentContext, IngestResponse, MessagePage, RawMessageEnvelope, StoredMessage } from './types';
+import type {
+  DevelopmentContext,
+  ExtractionAttemptRecord,
+  ExtractionHistoryResponse,
+  IngestResponse,
+  MessagePage,
+  ProcessResponse,
+  RawMessageEnvelope,
+  StoredMessage,
+} from './types';
 
 export interface MessageQuery {
   channel: string;
@@ -13,6 +22,9 @@ export interface OperationalApi {
   list(query: MessageQuery): Promise<MessagePage>;
   detail(id: string): Promise<StoredMessage>;
   ingest(envelope: RawMessageEnvelope): Promise<IngestResponse>;
+  process(id: string, reprocess?: boolean): Promise<ProcessResponse>;
+  getExtraction(id: string): Promise<ExtractionAttemptRecord>;
+  listAttempts(id: string): Promise<ExtractionHistoryResponse>;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -40,4 +52,8 @@ export const operationalApi: OperationalApi = {
   },
   detail: id => request(`/v1/messages/${encodeURIComponent(id)}`),
   ingest: envelope => request('/v1/messages/ingest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(envelope) }),
+  process: (id, reprocess = false) =>
+    request(`/v1/messages/${encodeURIComponent(id)}/process${reprocess ? '?reprocess=true' : ''}`, { method: 'POST' }),
+  getExtraction: id => request(`/v1/messages/${encodeURIComponent(id)}/extraction`),
+  listAttempts: id => request(`/v1/messages/${encodeURIComponent(id)}/attempts`),
 };

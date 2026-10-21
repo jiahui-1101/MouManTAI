@@ -12,3 +12,7 @@ export type StoredMessage = components['schemas']['StoredMessage'];
 export type MessagePage = components['schemas']['MessagePage'];
 export type IngestResponse = components['schemas']['IngestResponse'];
 export type DevelopmentContext = components['schemas']['DevelopmentContext'];
+export type ExtractionAttemptRecord = components['schemas']['ExtractionAttemptRecord'];
+export type ProcessResponse = components['schemas']['ProcessResponse'];
+export type ExtractionHistoryResponse = components['schemas']['ExtractionHistoryResponse'];
+export type FieldEvidence = components['schemas']['FieldEvidence'];

@@ -72,6 +72,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/messages/{message_id}/process": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Process Message */
+        post: operations["process_message_v1_messages__message_id__process_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/messages/{message_id}/extraction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Message Extraction */
+        get: operations["get_message_extraction_v1_messages__message_id__extraction_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/messages/{message_id}/attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Message Attempts */
+        get: operations["list_message_attempts_v1_messages__message_id__attempts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dev/p1/health": {
         parameters: {
             query?: never;
@@ -233,6 +284,46 @@ export interface components {
             evidence?: components["schemas"]["FieldEvidence"][];
             /** Corrected By */
             corrected_by?: string | null;
+            /** Qualifier */
+            qualifier?: ("EXACT" | "DEADLINE" | "DATE_ONLY") | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: string;
+            };
+        };
+        /** ExtractionAttemptRecord */
+        ExtractionAttemptRecord: {
+            /** Attempt Id */
+            attempt_id: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Message Id */
+            message_id: string;
+            /** Extractor Version */
+            extractor_version: string;
+            /** Input Content Sha256 */
+            input_content_sha256: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "PROCESSING" | "PROCESSED" | "PROCESSING_FAILED";
+            /** Fields */
+            fields?: components["schemas"]["ExtractedField"][];
+            /** Diagnostic */
+            diagnostic?: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Completed At */
+            completed_at?: string | null;
+        };
+        /** ExtractionHistoryResponse */
+        ExtractionHistoryResponse: {
+            /** Items */
+            items: components["schemas"]["ExtractionAttemptRecord"][];
         };
         /** FieldEvidence */
         FieldEvidence: {
@@ -318,6 +409,13 @@ export interface components {
             /** Diagnostic */
             diagnostic?: string | null;
         };
+        /** ProcessResponse */
+        ProcessResponse: {
+            message: components["schemas"]["StoredMessage"];
+            attempt: components["schemas"]["ExtractionAttemptRecord"];
+            /** Reprocessed */
+            reprocessed: boolean;
+        };
         /** RawMessageEnvelope */
         RawMessageEnvelope: {
             /** Tenant Id */
@@ -340,11 +438,8 @@ export interface components {
             received_at: string;
             /** Message At */
             message_at?: string | null;
-            /**
-             * Business Timezone
-             * @default Asia/Kuala_Lumpur
-             */
-            business_timezone: string;
+            /** Business Timezone */
+            business_timezone?: string | null;
             /** Text */
             text: string;
             /** Attachments */
@@ -410,10 +505,6 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -582,6 +673,191 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StoredMessage"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    process_message_v1_messages__message_id__process_post: {
+        parameters: {
+            query?: {
+                reprocess?: boolean;
+            };
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_message_extraction_v1_messages__message_id__extraction_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionAttemptRecord"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_message_attempts_v1_messages__message_id__attempts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionHistoryResponse"];
                 };
             };
             /** @description Forbidden */

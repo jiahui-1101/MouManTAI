@@ -304,6 +304,242 @@
         }
       }
     },
+    "/v1/messages/{message_id}/process": {
+      "post": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Process Message",
+        "operationId": "process_message_v1_messages__message_id__process_post",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Message Id"
+            }
+          },
+          {
+            "name": "reprocess",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Reprocess"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/messages/{message_id}/extraction": {
+      "get": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Get Message Extraction",
+        "operationId": "get_message_extraction_v1_messages__message_id__extraction_get",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Message Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionAttemptRecord"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/messages/{message_id}/attempts": {
+      "get": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "List Message Attempts",
+        "operationId": "list_message_attempts_v1_messages__message_id__attempts_get",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Message Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionHistoryResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dev/p1/health": {
       "get": {
         "summary": "Health",
@@ -724,6 +960,29 @@
               }
             ],
             "title": "Corrected By"
+          },
+          "qualifier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "EXACT",
+                  "DEADLINE",
+                  "DATE_ONLY"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualifier"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Metadata"
           }
         },
         "additionalProperties": false,
@@ -734,6 +993,111 @@
           "validation_status"
         ],
         "title": "ExtractedField"
+      },
+      "ExtractionAttemptRecord": {
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Attempt Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Tenant Id"
+          },
+          "message_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Message Id"
+          },
+          "extractor_version": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Extractor Version"
+          },
+          "input_content_sha256": {
+            "type": "string",
+            "title": "Input Content Sha256"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PROCESSING",
+              "PROCESSED",
+              "PROCESSING_FAILED"
+            ],
+            "title": "Status"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractedField"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "diagnostic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "attempt_id",
+          "tenant_id",
+          "message_id",
+          "extractor_version",
+          "input_content_sha256",
+          "status",
+          "started_at"
+        ],
+        "title": "ExtractionAttemptRecord"
+      },
+      "ExtractionHistoryResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionAttemptRecord"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "ExtractionHistoryResponse"
       },
       "FieldEvidence": {
         "properties": {
@@ -981,6 +1345,28 @@
         ],
         "title": "NormalizedMessage"
       },
+      "ProcessResponse": {
+        "properties": {
+          "message": {
+            "$ref": "#/components/schemas/StoredMessage"
+          },
+          "attempt": {
+            "$ref": "#/components/schemas/ExtractionAttemptRecord"
+          },
+          "reprocessed": {
+            "type": "boolean",
+            "title": "Reprocessed"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message",
+          "attempt",
+          "reprocessed"
+        ],
+        "title": "ProcessResponse"
+      },
       "RawMessageEnvelope": {
         "properties": {
           "tenant_id": {
@@ -1035,10 +1421,16 @@
             "title": "Message At"
           },
           "business_timezone": {
-            "type": "string",
-            "maxLength": 100,
-            "title": "Business Timezone",
-            "default": "Asia/Kuala_Lumpur"
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Timezone"
           },
           "text": {
             "type": "string",
@@ -1219,13 +1611,6 @@
           "type": {
             "type": "string",
             "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
           }
         },
         "type": "object",
