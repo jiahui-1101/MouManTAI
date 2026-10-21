@@ -117,12 +117,12 @@ NUMERIC_DATE_RE = re.compile(r"(?<![A-Za-z0-9])[0-9]{1,2}[/-][0-9]{1,2}(?:[/-][0
 # Time patterns
 TIME_12H_RE = re.compile(
     r"(?<![A-Za-z0-9_:])(?P<hour>[0-9]+)(?::(?P<minute>[0-9]+))?"
-    r"(?P<extra>(?::[0-9]+)*)\s*(?P<meridiem>am|pm)(?![A-Za-z0-9_:])",
+    r"(?P<extra>(?::[0-9]+)*)\s*(?P<meridiem>am|pm)(?P<suffix>[A-Za-z0-9_]*)(?![A-Za-z0-9_:])",
     re.IGNORECASE
 )
 TIME_24H_RE = re.compile(
     r"(?<![A-Za-z0-9_:])(?P<hour>[0-9]+):(?P<minute>[0-9]+)"
-    r"(?P<extra>(?::[0-9]+)*)(?![A-Za-z0-9_:])"
+    r"(?P<extra>(?::[0-9]+)*)(?P<suffix>[A-Za-z_]*)(?![A-Za-z0-9_:])"
 )
 TIME_ZH_RE = re.compile(
     r"(?<![0-9])(?:(?P<meridiem>下午|晚上|上午|早上|中午)\s*)?"
@@ -132,7 +132,7 @@ TIME_ZH_RE = re.compile(
 # These semantics cannot be represented by EXACT/DEADLINE/DATE_ONLY. Keep
 # the original expression unresolved rather than silently dropping a modifier.
 UNSUPPORTED_TIME_SEMANTICS_RE = re.compile(
-    r"\b(?:after|not\s+before|earlier\s+than|around|about|between|from|not\s+at|"
+    r"\b(?:after|not\s+before|earlier\s+than|around|about|between|from|maybe|possibly|at\s+least|not\s+at|"
     r"not\s+by|UTC|GMT|EST|EDT|CST|CDT|MST|MDT|PST|PDT|BST|CET|CEST|HKT|SGT|MYT|JST|AEST|AEDT)\b|"
     r"(?<![A-Za-z0-9])[+-][0-9]{2}:?[0-9]{2}(?![0-9])|"
     r"\b[A-Za-z_]+/[A-Za-z_]+\b|之后|以后|过后|大约|左右|不早于|不要|不是|(?<=点)后",
@@ -293,7 +293,7 @@ def _find_all_times(text: str) -> tuple[list[ParsedTime], list[tuple[int, int]]]
             groups = m.groupdict()
             mer = (groups.get("meridiem") or "").lower()
             if (len(hour) > 2 or (minute is not None and len(minute) != 2)
-                    or groups.get("extra")):
+                    or groups.get("extra") or groups.get("suffix")):
                 invalid.append(m.span())
                 continue
             hr = int(hour)
