@@ -1,0 +1,61 @@
+.p1-inbox { color: #292538; max-width: 1320px; margin: auto; padding: 34px 32px 48px; font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.p1-inbox * { box-sizing: border-box; }
+.p1-inbox h1, .p1-inbox h2, .p1-inbox h3, .p1-inbox p { margin: 0; }
+.p1-inbox h1 { font-size: 30px; letter-spacing: -.8px; font-weight: 650; margin: 3px 0; }
+.p1-inbox h2 { font-size: 17px; font-weight: 650; }
+.p1-inbox h3 { font-size: 15px; font-weight: 650; }
+.p1-muted { color: #696475; }
+.p1-eyebrow { color: #746887; font-size: 10px; letter-spacing: 1.6px; font-weight: 700; }
+.p1-page-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.p1-badge { display: inline-block; border: 1px solid transparent; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 650; letter-spacing: .2px; white-space: nowrap; }
+.p1-purple { background: #eee6ff; color: #643ca0; border-color: #e0d3f5; }
+.p1-neutral { background: #f1f0f5; color: #56505f; border-color: #e6e3ed; }
+.p1-attention { background: #fff3df; color: #845413; border-color: #f2dfbd; }
+.p1-preview-note { font-size: 12px; color: #625174; background: #eee9f6; border: 1px solid #ded5eb; padding: 10px 13px; border-radius: 6px; margin-top: 22px; }
+.p1-toolbar { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin: 24px 0 16px; }
+.p1-inbox button, .p1-inbox input { font: inherit; }
+.p1-inbox button { cursor: pointer; }
+.p1-inbox button:focus-visible, .p1-inbox input:focus-visible { outline: 3px solid #8761bf; outline-offset: 3px; }
+.p1-filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.p1-filters button { border: 1px solid transparent; border-radius: 5px; padding: 8px 10px; background: transparent; color: #625b70; font-size: 12px; }
+.p1-filters button[aria-pressed=true] { background: white; border-color: #ded7e9; color: #6d41a6; box-shadow: 0 1px 3px #2d15440a; font-weight: 650; }
+.p1-search { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #655e72; }
+.p1-search input { width: 245px; background: white; border: 1px solid #ddd8e5; border-radius: 5px; padding: 8px 11px; font-size: 12px; color: #292538; }
+.p1-workspace { display: grid; grid-template-columns: minmax(285px, .85fr) minmax(0, 1.65fr); gap: 18px; align-items: start; }
+.p1-list, .p1-detail, .p1-state { background: white; border: 1px solid #e4dfeb; border-radius: 7px; box-shadow: 0 3px 10px #2d154405; overflow: hidden; }
+.p1-list-heading { padding: 18px 18px 15px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #ebe7f0; }
+.p1-list-heading span { font-size: 11px; color: #746d80; }
+.p1-list ul { margin: 0; padding: 0; list-style: none; }
+.p1-message { width: 100%; text-align: left; border: 0; border-bottom: 1px solid #eeeaf3; background: white; display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; border-left: 3px solid transparent; color: #332c40; }
+.p1-message:hover { background: #faf8fd; }
+.p1-message[aria-pressed=true] { background: #f6f2fc; border-left-color: #8755bd; }
+.p1-message strong { font-size: 13px; font-weight: 650; }
+.p1-message .p1-muted { font-size: 11px; }
+.p1-message-meta { display: flex; justify-content: space-between; width: 100%; font-size: 9px; font-weight: 650; color: #71637e; letter-spacing: .6px; }
+.p1-snippet { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; width: 100%; font-size: 12px; color: #686171; }
+.p1-message-status { display: flex; align-items: center; gap: 9px; font-size: 10px; color: #776c82; margin-top: 5px; }
+.p1-detail { padding: 25px; }
+.p1-detail-heading h2 { font-size: 21px; margin: 5px 0 8px; }
+.p1-detail-heading p:last-child { font-size: 12px; }
+.p1-dimensions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 23px 0; padding: 14px 16px; gap: 13px 16px; background: #faf9fc; border: 1px solid #ede9f3; border-radius: 5px; }
+.p1-dimensions dt { color: #746b80; font-size: 11px; }
+.p1-dimensions dd { margin: 2px 0 0; font-size: 11px; font-weight: 650; overflow-wrap: anywhere; }
+.p1-original { margin: 20px 0 12px; padding: 16px; border-left: 3px solid #bca4d8; background: #f7f5fb; border-radius: 0 5px 5px 0; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.p1-source-meta { display: flex; flex-direction: column; gap: 2px; color: #756d80; font-size: 10px; overflow-wrap: anywhere; }
+.p1-evidence { margin-top: 27px; border-top: 1px solid #eeeaf3; padding-top: 22px; }
+.p1-evidence > p { font-size: 11px; margin-top: 4px; }
+.p1-evidence dl { margin: 15px 0 0; }
+.p1-field { padding: 14px 0; border-bottom: 1px solid #eeeaf3; }
+.p1-field dt { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; color: #686070; }
+.p1-field dd { margin: 5px 0 0; }
+.p1-field strong { font-size: 14px; font-weight: 600; }
+.p1-field small { display: block; color: #736a80; font-size: 10px; overflow-wrap: anywhere; margin-top: 3px; }
+.p1-source { margin-top: 8px; padding: 8px 10px; background: #faf9fc; border-radius: 4px; border: 1px solid #eee9f4; }
+.p1-source q { color: #6c4a91; font-size: 12px; }
+.p1-notice { background: #fffaef; border: 1px solid #eedfbb; color: #79551c; padding: 12px; border-radius: 5px; font-size: 12px; margin: 14px 0; }
+.p1-notice p { margin-top: 4px; }
+.p1-detail-footer { display: flex; flex-direction: column; gap: 4px; color: #766d81; font-size: 10px; margin-top: 23px; overflow-wrap: anywhere; }
+.p1-state { padding: 30px 22px; color: #696075; }
+.p1-state button { margin-top: 15px; border-radius: 4px; padding: 7px 14px; color: #643b91; border: 1px solid #d8c9e9; background: #f3edf9; }
+@media (max-width: 850px) { .p1-inbox { padding: 24px 16px; } .p1-toolbar { flex-direction: column; align-items: stretch; } .p1-search input { width: 100%; } .p1-workspace { grid-template-columns: minmax(230px, .8fr) minmax(0, 1.2fr); gap: 12px; } .p1-detail { padding: 18px; } }
+@media (max-width: 620px) { .p1-workspace { grid-template-columns: minmax(0, 1fr); } .p1-list ul { max-height: 340px; overflow-y: auto; } .p1-page-heading { align-items: start; } .p1-inbox h1 { font-size: 27px; } .p1-filters button { padding: 8px; } }
