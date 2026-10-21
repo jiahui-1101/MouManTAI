@@ -43,8 +43,13 @@ class ModelProposalService:
         if not self.enabled or self.endpoint is None:
             result.outcomes["models"] = "disabled"
             return result
-        needs_interpretation = any(f.validation_status in {"UNRESOLVED", "CONFLICT"}
-                                   and f.field_name != "order_id" for f in rules.fields)
+        needs_interpretation = any(
+            f.validation_status in {"UNRESOLVED", "CONFLICT", "INVALID"} and f.field_name != "order_id"
+            for f in rules.fields
+        ) or any(
+            f.field_name in {"sku", "quantity"} and f.validation_status == "MISSING"
+            for f in rules.fields
+        )
         for engine in self.stages:
             if engine == "qwen" and not needs_interpretation:
                 result.outcomes[engine] = "not_needed"

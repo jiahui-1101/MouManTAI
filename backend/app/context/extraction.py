@@ -20,11 +20,34 @@ class UnavailableExtractor:
         return ExtractionResult(status="UNAVAILABLE", fields=[], reason="No inference adapter configured; manual review required")
 
 
-def prepare_model_proposal_service(endpoint=None, *, enabled=False, stages=("gliner", "qwen")):
-    """Opt-in preparation seam; not installed in ingestion or processing routes.
+def prepare_model_proposal_service(endpoint=None, *, enabled: bool | None = None, stages: tuple[str, ...] | None = None):
+    """Opt-in preparation seam with lazy environment resolution.
 
-    Enable only for explicit evaluation until a real endpoint and the acceptance
-    criteria are verified. No model imports/downloads occur in this factory.
+    If endpoint is not supplied, it resolves from P1_AI_ENDPOINT_URL/P1_AI_API_KEY
+    if available in the environment. If enabled is None, it defaults to False unless
+    an endpoint is configured and P1_AI_ENABLED is truthy.
+    No heavy model imports or downloads occur during this factory initialization.
     """
+    import os
+    from .ai.endpoint import EndpointAdapter, EndpointConfig
     from .ai.service import ModelProposalService
-    return ModelProposalService(endpoint, enabled=enabled, stages=stages)
+
+    if endpoint is None:
+        cfg = EndpointConfig.from_env_or_none()
+        if cfg is not None:
+            endpoint = EndpointAdapter(cfg)
+
+    is_enabled = enabled
+    if is_enabled is None:
+        env_flag = os.environ.get("P1_AI_ENABLED", "").lower()
+        is_enabled = env_flag in ("1", "true", "yes") and endpoint is not None
+
+    stage_tuple = stages
+    if stage_tuple is None:
+        env_stages = os.environ.get("P1_AI_STAGES")
+        if env_stages:
+            stage_tuple = tuple(s.strip() for s in env_stages.split(",") if s.strip())
+        else:
+            stage_tuple = ("gliner", "qwen")
+
+    return ModelProposalService(endpoint, enabled=is_enabled, stages=stage_tuple)
