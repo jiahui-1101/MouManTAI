@@ -1,6 +1,6 @@
 # P2 Phase 5 API and Integration Handoff — 2026-10-21
 
-**State: PARTIAL.** P2 has implemented five P2-owned route definitions and locally testable request/response boundaries. Production integration remains blocked on P5-owned security, authoritative data, persistence/outbox contracts, empty Impact Set support, and router mounting. The test app mounts the P2 router explicitly; this does not prove that the production FastAPI app is mounted, authenticated, or integrated.
+**State: PARTIAL.** P2 has implemented five P2-owned route definitions and locally testable request/response boundaries. External review correction PH5-R1-01 now binds the Core Commitment to the resolved Commitment before assessment calculation/write, and binds the requested to resolved baseline for internal evaluation. Production integration remains blocked on P5-owned security, authoritative data, persistence/outbox contracts, empty Impact Set support, and router mounting. The test app mounts the P2 router explicitly; this does not prove that the production FastAPI app is mounted, authenticated, or integrated.
 
 ## Approved baseline and ownership
 
@@ -13,13 +13,13 @@
 
 | Route | P2 behavior implemented | Integration status |
 |---|---|---|
-| `POST /internal/feasibility/evaluate` | Validates the typed request, requires matching resolved tenant scope, obtains vetted snapshot/commitment through an injectable authority port, checks tenant and versions, then calls the existing pure `evaluate()`. Returns P2-local `EvaluationResult`, preserving status/solver/provenance and an explicit shared-output blocker. | Local route behavior tested. P5 must provide internal authorization, authoritative snapshot/input resolution, and production mounting. It returns unavailable when those dependencies are absent. |
-| `POST /v1/commitments/{id}/assess` | Uses Core's tenant-scoped commitment lookup, requires the authoritative current snapshot and matching current commitment/snapshot versions, calls existing `evaluate(snapshot, None, commitment)`, then passes that exact P2 result and snapshot to the P5 writer. | No current-input authority or persistence writer is configured; returns 503 rather than a simulated success. |
+| `POST /internal/feasibility/evaluate` | Validates the typed request, requires matching resolved tenant scope, obtains snapshot/commitment through an injectable authority port, checks snapshot/version identity and typed equality of the requested and resolved baseline Commitment across tenant/id/version/order/customer/agreement/complete confirmed terms, then calls the existing pure `evaluate()`. It does not compare hypothetical ProposedChanges terms to baseline terms. Returns P2-local `EvaluationResult`, preserving status/solver/provenance and an explicit shared-output blocker. | Local route behavior tested. P5 must provide internal authorization, authoritative snapshot/input resolution, and production mounting. It returns unavailable when those dependencies are absent. |
+| `POST /v1/commitments/{id}/assess` | Uses Core's tenant-scoped commitment lookup, requires the authoritative current snapshot and matching current commitment/snapshot versions, compares Core and resolved Commitment identity and complete confirmed terms, then calls existing `evaluate(snapshot, None, commitment)` and passes that exact P2 result and snapshot to the P5 writer. Mismatches return 409 before evaluation or writing. | No current-input authority or persistence writer is configured; returns 503 rather than a simulated success. |
 | `GET /v1/commitments/{id}/assessments` | Performs tenant-scoped Core commitment lookup before calling the history reader. | No durable versioned history reader exists; returns 503. |
 | `POST /v1/operations/events/supplier-delay` | Validates typed delivery-linked ETA evidence, tenant, one declared delivery resource, and increasing snapshot versions; delegates to the processor port. | No authoritative source-row verifier or transactional event/outbox processor exists; returns 503. Repeated unavailable requests do not demonstrate idempotent processing. |
 | `GET /v1/impacts/{impact_id}` | Delegates to an injected impact reader. | No approved persistence reader exists; returns 503. |
 
-P2 ports are interfaces, not persistence implementations. The assessment writer receives the route's exact `EvaluationResult`; it must re-read/lock the current commitment and snapshot versions and append this result to immutable history with audit/outbox records in one approved transaction. It must preserve status, solver status, snapshot identity and evidence/provenance. A future adapter must preserve Core's transaction/audit/outbox boundary. P2 does not write agreement, risk, recovery, or fulfilment state. `assess_impact()` remains the only P2 impact calculation and must be called by an approved supplier-event processor rather than duplicated.
+P2 ports are interfaces, not persistence implementations. The assessment writer receives the route's exact `EvaluationResult`; it must re-read/lock the current commitment and snapshot versions and append this result to immutable history with audit/outbox records in one approved transaction. It must preserve status, solver status, snapshot identity and evidence/provenance. A future adapter must preserve Core's transaction/audit/outbox boundary. Before calculation, P2 compares typed Commitment fields only: tenant, ID/version, order, customer, agreement state, and all terms (SKU, quantity, unit, deadline, special instructions); unrelated lifecycle metadata is intentionally excluded. The Phase 3 evaluator continues to validate operational snapshot terms against the supplied Core Commitment independently. P2 does not write agreement, risk, recovery, or fulfilment state. `assess_impact()` remains the only P2 impact calculation and must be called by an approved supplier-event processor rather than duplicated.
 
 ## Exact decisions requested from P5
 
@@ -57,13 +57,13 @@ From `backend/`:
 
 ```text
 python -B -m pytest -o 'addopts=' app/feasibility/tests/test_router.py -q -p no:cacheprovider
-16 passed (one existing Starlette/httpx deprecation warning)
+24 passed (one existing Starlette/httpx deprecation warning)
 
 python -B -m pytest -o 'addopts=' app/feasibility/tests tests -q -p no:cacheprovider
-180 passed (one existing Starlette/httpx deprecation warning)
+188 passed (one existing Starlette/httpx deprecation warning)
 ```
 
-The tests exercise a local app that explicitly mounts P2 and Core routers with test dependencies. They cover typed validation, scope/version checks, missing adapters, no false persistence/event success, pure evaluation reuse, and empty/nonempty shared schema behavior. They do **not** establish production router registration, authenticated RBAC/tenant isolation, PostgreSQL persistence, source authenticity, atomic outbox behavior, P3 integration, or end-to-end success. Frontend, live PostgreSQL, production auth, actual event publishing, and E2E were not run.
+The tests exercise a local app that explicitly mounts P2 and Core routers with test dependencies. They cover typed validation, scope/version checks, Core/resolver identity-and-terms binding, internal baseline binding, missing adapters, no false persistence/event success, pure evaluation reuse, and empty/nonempty shared schema behavior. They do **not** establish production router registration, authenticated RBAC/tenant isolation, PostgreSQL persistence, source authenticity, atomic outbox behavior, P3 integration, or end-to-end success. Frontend, live PostgreSQL, production auth, actual event publishing, and E2E were not run.
 
 `docs/AGENTS.md`, listed in the initial instructions, was not present. The repository root `AGENTS.md` was read but still refers to the old PromiseFlow name; canonical MouManTAI system requirements, TEAM_LOG ADR-010, and the user's supplied instructions were followed. No instruction file was guessed or changed.
 

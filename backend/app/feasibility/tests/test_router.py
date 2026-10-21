@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import timedelta
 
 import pytest
 from fastapi import FastAPI, Request
@@ -12,7 +13,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.dependencies import RequestContext, get_db, get_request_context
 from app.core.errors import DomainError
 from app.core.router import router as core_router
-from app.core.schemas import FeasibilityAssessment
+from app.core.schemas import Commitment, FeasibilityAssessment
 from app.db.base import Base
 from app.feasibility.api_dependencies import (
     get_assessment_history,
@@ -140,33 +141,78 @@ def _evaluation_payload() -> dict:
 
 def _assessment_inputs(core_commitment: dict) -> tuple:
     snapshot, fixture_commitment = build_production_example()
-    confirmed_commitments = tuple(
-        row.model_copy(
+    core = Commitment.model_validate(core_commitment)
+    resolved = fixture_commitment.model_copy(
+        update={
+            "tenant_id": core.tenant_id,
+            "commitment_id": core.commitment_id,
+            "order_id": core.order_id,
+            "customer_id": core.customer_id,
+            "terms": core.terms,
+            "agreement_state": core.agreement_state,
+            "commitment_version": core.commitment_version,
+        }
+    )
+    snapshot = _snapshot_with_commitment_terms(snapshot, resolved).model_copy(
+        update={"current_snapshot_version": snapshot.operational.snapshot_version}
+    )
+    return snapshot, resolved
+
+
+def _snapshot_with_commitment_terms(snapshot, commitment: Commitment):
+    matched = False
+    confirmed_commitments = []
+    for row in snapshot.operational.confirmed_commitments:
+        if row.commitment_id not in {"com-001", commitment.commitment_id}:
+            confirmed_commitments.append(row)
+            continue
+        matched = True
+        line = row.lines[0].model_copy(
             update={
-                "commitment_id": core_commitment["commitment_id"],
-                "commitment_version": core_commitment["commitment_version"],
+                "sku_id": commitment.terms.sku,
+                "quantity": commitment.terms.quantity,
+                "unit": commitment.terms.unit,
             }
         )
-        if row.commitment_id == fixture_commitment.commitment_id
-        else row
-        for row in snapshot.operational.confirmed_commitments
-    )
+        confirmed_commitments.append(
+            row.model_copy(
+                update={
+                    "tenant_id": commitment.tenant_id,
+                    "commitment_id": commitment.commitment_id,
+                    "commitment_version": commitment.commitment_version,
+                    "delivery_deadline": commitment.terms.deadline,
+                    "lines": (line,),
+                }
+            )
+        )
+    assert matched, "fixture target commitment must be present in the snapshot"
     operational = snapshot.operational.model_copy(
-        update={"confirmed_commitments": confirmed_commitments}
+        update={"confirmed_commitments": tuple(confirmed_commitments)}
     )
-    snapshot = snapshot.model_copy(
-        update={
-            "operational": operational,
-            "current_snapshot_version": snapshot.operational.snapshot_version,
-        }
-    )
-    commitment = fixture_commitment.model_copy(
-        update={
-            "commitment_id": core_commitment["commitment_id"],
-            "commitment_version": core_commitment["commitment_version"],
-        }
-    )
-    return snapshot, commitment
+    return snapshot.model_copy(update={"operational": operational})
+
+
+def _changed_commitment(core: Commitment, mismatch: str) -> Commitment:
+    data = core.model_dump(mode="python")
+    terms = core.terms.model_dump(mode="python")
+    if mismatch == "tenant_id":
+        data["tenant_id"] = "tenant-resolver-mismatch"
+    elif mismatch == "order_id":
+        data["order_id"] = "order-resolver-mismatch"
+    elif mismatch == "customer_id":
+        data["customer_id"] = "customer-resolver-mismatch"
+    elif mismatch == "agreement_state":
+        data["agreement_state"] = "OFFERED"
+    elif mismatch == "terms.quantity":
+        terms["quantity"] = "125"
+    elif mismatch == "terms.deadline":
+        terms["deadline"] = core.terms.deadline + timedelta(days=1)
+    elif mismatch == "terms.special_instructions":
+        terms["special_instructions"] = "Pack sauce separately"
+    else:
+        raise AssertionError(f"unsupported mismatch test: {mismatch}")
+    data["terms"] = terms
+    return Commitment.model_validate(data)
 
 
 def test_internal_evaluate_reuses_pure_engine_and_preserves_unknown_metadata(
@@ -232,6 +278,45 @@ def test_internal_evaluate_rejects_authority_version_mismatch(api_client: TestCl
     assert response.status_code == 409
     assert response.json()["code"] == "EVALUATION_INPUT_VERSION_CONFLICT"
     assert authority.calls == 1
+
+
+def test_internal_evaluate_rejects_resolved_baseline_terms_before_evaluation(
+    api_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import importlib
+
+    payload = _evaluation_payload()
+    requested_commitment = Commitment.model_validate(payload["commitment"])
+    resolved_commitment = _changed_commitment(requested_commitment, "terms.quantity")
+    evaluation_snapshot, _ = build_production_example()
+    resolved_snapshot = _snapshot_with_commitment_terms(
+        evaluation_snapshot,
+        resolved_commitment,
+    )
+    calls = {"evaluate": 0}
+
+    class ContradictoryAuthority:
+        def resolve(self, context, request):
+            return resolved_snapshot, resolved_commitment
+
+    router_module = importlib.import_module("app.feasibility.router")
+
+    def recording_evaluate(*args, **kwargs):
+        calls["evaluate"] += 1
+        raise AssertionError("evaluator must not receive contradictory baseline terms")
+
+    monkeypatch.setattr(router_module, "evaluate", recording_evaluate)
+    api_client.app.dependency_overrides[get_evaluation_input_authority] = (
+        lambda: ContradictoryAuthority()
+    )
+
+    response = api_client.post("/internal/feasibility/evaluate", json=payload)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "COMMITMENT_BINDING_MISMATCH"
+    assert "terms.quantity" in response.json()["details"]["mismatched_fields"]
+    assert calls["evaluate"] == 0
 
 
 def test_internal_evaluate_preserves_stale_unknown_and_evidence(api_client: TestClient) -> None:
@@ -308,6 +393,70 @@ def test_assess_checks_core_tenant_and_version_then_reports_missing_persistence(
     )
     assert current.status_code == 503
     assert current.json()["code"] == "P2_ASSESSMENT_PERSISTENCE_NOT_CONFIGURED"
+
+
+@pytest.mark.parametrize(
+    ("mismatch", "mismatch_field"),
+    [
+        ("tenant_id", "tenant_id"),
+        ("order_id", "order_id"),
+        ("customer_id", "customer_id"),
+        ("terms.quantity", "terms.quantity"),
+        ("terms.deadline", "terms.deadline"),
+        ("terms.special_instructions", "terms.special_instructions"),
+        ("agreement_state", "agreement_state"),
+    ],
+)
+def test_assess_rejects_core_resolver_commitment_mismatch_before_evaluate_or_write(
+    api_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    mismatch: str,
+    mismatch_field: str,
+) -> None:
+    core_data = _create_confirmed_commitment(api_client)
+    snapshot, core_commitment = _assessment_inputs(core_data)
+    resolved_commitment = _changed_commitment(core_commitment, mismatch)
+    # Keep the operational row aligned to the resolver so quantity/deadline
+    # cases isolate Core-versus-resolver binding, not Phase 3 snapshot checks.
+    snapshot = _snapshot_with_commitment_terms(snapshot, resolved_commitment)
+    calls = {"evaluate": 0, "writer": 0}
+
+    class AssessmentAuthority:
+        def resolve_current(self, context, commitment_id, expected_commitment_version):
+            return snapshot, resolved_commitment
+
+    class RecordingWriter:
+        def assess(self, *args, **kwargs):
+            calls["writer"] += 1
+            raise DomainError(
+                "TEST_WRITER_CALLED",
+                "Writer must not be called for mismatched Core identity",
+                status_code=503,
+            )
+
+    import importlib
+    router_module = importlib.import_module("app.feasibility.router")
+    p2_evaluate = router_module.evaluate
+
+    def recording_evaluate(*args, **kwargs):
+        calls["evaluate"] += 1
+        return p2_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(router_module, "evaluate", recording_evaluate)
+    api_client.app.dependency_overrides[get_evaluation_input_authority] = (
+        lambda: AssessmentAuthority()
+    )
+    api_client.app.dependency_overrides[get_assessment_writer] = lambda: RecordingWriter()
+
+    response = api_client.post(
+        f"/v1/commitments/{core_data['commitment_id']}/assess",
+        json={"expected_commitment_version": core_data["commitment_version"]},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "COMMITMENT_BINDING_MISMATCH"
+    assert mismatch_field in response.json()["details"]["mismatched_fields"]
+    assert calls == {"evaluate": 0, "writer": 0}
 
 
 def test_assess_passes_authoritative_p2_result_to_writer_without_claiming_persistence(

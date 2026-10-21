@@ -49,6 +49,47 @@ ImpactReaderDependency = Annotated[ImpactReader | None, Depends(get_impact_reade
 commitment_service = CommitmentService()
 
 
+def _commitment_binding_mismatches(expected: Commitment, actual: Commitment) -> list[str]:
+    """Return identity and confirmed-term fields that differ between typed commitments."""
+
+    mismatches = [
+        field
+        for field in (
+            "tenant_id",
+            "commitment_id",
+            "commitment_version",
+            "order_id",
+            "customer_id",
+            "agreement_state",
+        )
+        if getattr(expected, field) != getattr(actual, field)
+    ]
+    mismatches.extend(
+        f"terms.{field}"
+        for field in (
+            "sku",
+            "quantity",
+            "unit",
+            "deadline",
+            "special_instructions",
+        )
+        if getattr(expected.terms, field) != getattr(actual.terms, field)
+    )
+    return mismatches
+
+
+def _raise_commitment_binding_mismatch(
+    mismatched_fields: list[str], *, correlation_id: str | None
+) -> None:
+    raise DomainError(
+        "COMMITMENT_BINDING_MISMATCH",
+        "Resolved commitment does not match the requested or Core commitment identity and confirmed terms",
+        status_code=409,
+        details={"mismatched_fields": mismatched_fields},
+        correlation_id=correlation_id,
+    )
+
+
 def _blocked(code: str, message: str, *, correlation_id: str | None = None) -> DomainError:
     return DomainError(code, message, status_code=503, correlation_id=correlation_id)
 
@@ -97,7 +138,7 @@ def evaluate_feasibility(
         )
 
     snapshot, commitment = authority.resolve(context, request)
-    _require_tenant(context, snapshot.operational.tenant_id, commitment.tenant_id)
+    _require_tenant(context, snapshot.operational.tenant_id)
     if (
         snapshot.operational.snapshot_id != request.snapshot.operational.snapshot_id
         or snapshot.operational.snapshot_version != request.snapshot.operational.snapshot_version
@@ -108,6 +149,12 @@ def evaluate_feasibility(
             "EVALUATION_INPUT_VERSION_CONFLICT",
             "Authoritative input does not match the requested snapshot or commitment version",
             status_code=409,
+            correlation_id=context.correlation_id,
+        )
+    mismatched_fields = _commitment_binding_mismatches(request.commitment, commitment)
+    if mismatched_fields:
+        _raise_commitment_binding_mismatch(
+            mismatched_fields,
             correlation_id=context.correlation_id,
         )
     try:
@@ -169,18 +216,22 @@ def assess_commitment(
     _require_tenant(
         context,
         snapshot.operational.tenant_id,
-        authoritative_commitment.tenant_id,
     )
     if (
         authoritative_commitment.commitment_id != commitment_id
         or authoritative_commitment.commitment_version != request.expected_commitment_version
         or authoritative_commitment.commitment_version != commitment.commitment_version
-        or authoritative_commitment.agreement_state.value != "CONFIRMED"
     ):
         raise DomainError(
             "COMMITMENT_VERSION_CONFLICT",
-            "Authoritative commitment identity, version, or agreement state is stale",
+            "Authoritative commitment identity or version is stale",
             status_code=409,
+            correlation_id=context.correlation_id,
+        )
+    mismatched_fields = _commitment_binding_mismatches(commitment, authoritative_commitment)
+    if mismatched_fields:
+        _raise_commitment_binding_mismatch(
+            mismatched_fields,
             correlation_id=context.correlation_id,
         )
     if snapshot.current_snapshot_version is None:
