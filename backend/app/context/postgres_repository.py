@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import CheckConstraint, DateTime, Index, LargeBinary, String, Text, UniqueConstraint, desc, func, or_, select
@@ -44,6 +45,21 @@ from .repository import (
     StaleContextVersion,
 )
 from .schemas import Channel, ExtractedField, ProcessingStatus, RawMessageEnvelope
+
+
+def _to_json_compatible(val: Any) -> Any:
+    """Recursively convert datetime and pydantic models to JSON-safe primitives for JSONB columns."""
+    if val is None or isinstance(val, (int, float, str, bool)):
+        return val
+    if isinstance(val, (datetime, date)):
+        return val.isoformat()
+    if isinstance(val, list):
+        return [_to_json_compatible(item) for item in val]
+    if isinstance(val, dict):
+        return {k: _to_json_compatible(v) for k, v in val.items()}
+    if hasattr(val, "model_dump"):
+        return val.model_dump(mode="json")
+    return str(val)
 
 
 class P1Base(DeclarativeBase):
@@ -918,11 +934,23 @@ class PostgresMessageRepository:
                             old_val = getattr(row, field_name)
                             if field_name == "requested_items" and isinstance(new_val, list):
                                 norm_new = [it if isinstance(it, dict) else it.model_dump(mode="json") for it in new_val]
-                                field_changes[field_name] = {"old": old_val, "new": norm_new}
+                                field_changes[field_name] = {
+                                    "old": _to_json_compatible(old_val),
+                                    "new": _to_json_compatible(norm_new),
+                                }
                                 setattr(row, field_name, norm_new)
                             else:
-                                field_changes[field_name] = {"old": old_val, "new": new_val}
-                                setattr(row, field_name, new_val)
+                                model_val = new_val
+                                if field_name == "requested_delivery_at" and isinstance(new_val, str):
+                                    try:
+                                        model_val = datetime.fromisoformat(new_val)
+                                    except Exception:
+                                        model_val = new_val
+                                field_changes[field_name] = {
+                                    "old": _to_json_compatible(old_val),
+                                    "new": _to_json_compatible(new_val),
+                                }
+                                setattr(row, field_name, model_val)
 
                 if request.action == "ACCEPT_EXTRACTION":
                     # Mark READY if no conflicts, no missing fields, and requested_items present
