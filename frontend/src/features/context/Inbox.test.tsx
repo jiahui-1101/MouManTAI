@@ -12,6 +12,7 @@ describe('fixture Inbox', () => {
   it('shows loading, source evidence and four independent state dimensions', async () => {
     render(<Inbox load={async () => data} />);
     expect(screen.getByRole('status')).toHaveTextContent('Loading');
+    fireEvent.click(await screen.findByRole('button', { name: 'New customer request' }));
     const detail = await screen.findByRole('region', { name: 'Message details' });
     expect(within(detail).getByText('Processing')).toBeInTheDocument();
     expect(within(detail).getByText('Information')).toBeInTheDocument();
@@ -26,16 +27,16 @@ describe('fixture Inbox', () => {
   it('filters channels, searches and shows empty results', async () => {
     render(<Inbox load={async () => data} />);
     await screen.findByText('9 examples');
-    fireEvent.click(screen.getByRole('button', { name: 'Email' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Channel' }), { target: { value: 'EMAIL' } });
     expect(screen.getByText('2 examples')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Email' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('combobox', { name: 'Channel' })).toHaveValue('EMAIL');
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search messages' }), { target: { value: 'nonexistent' } });
     expect(screen.getByRole('status')).toHaveTextContent('No messages');
   });
 
   it('shows ambiguity without asserting an order link', async () => {
     render(<Inbox load={async () => data} />);
-    fireEvent.click(await screen.findByRole('button', { name: /Several possible orders/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Several possible orders' }));
     const detail = screen.getByRole('region', { name: 'Message details' });
     expect(within(detail).getByText('AMBIGUOUS')).toBeInTheDocument();
     expect(within(detail).getByText(/Expected order: Unlinked/)).toBeInTheDocument();
@@ -45,7 +46,7 @@ describe('fixture Inbox', () => {
 
   it('keeps proposed confirmed-term conflicts visible', async () => {
     render(<Inbox load={async () => data} />);
-    fireEvent.click(await screen.findByRole('button', { name: /Change to confirmed terms/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Change to confirmed terms' }));
     expect(screen.getByText(/Quantity differs from confirmed 80 pcs/)).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Message details' })).getByText('CONFLICT')).toBeInTheDocument();
   });
@@ -53,6 +54,31 @@ describe('fixture Inbox', () => {
   it('supports empty datasets', async () => {
     render(<Inbox load={async () => ({ ...data, records: [] })} />);
     expect(await screen.findByText('No messages match this view.')).toBeInTheDocument();
+  });
+
+  it('filters independent information/processing states and clears filters', async () => {
+    render(<Inbox load={async () => data} />);
+    await screen.findByText('9 examples');
+    fireEvent.click(screen.getByRole('button', { name: 'Needs attention' }));
+    expect(screen.getByText('5 examples')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Processing' }), { target: { value: 'PROCESSING_FAILED' } });
+    expect(screen.getByText('1 examples')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Clear/ }));
+    expect(screen.getByText('9 examples')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Information' }), { target: { value: 'CONFLICT' } });
+    expect(screen.getByText('1 examples')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change to confirmed terms' })).toBeInTheDocument();
+  });
+
+  it('focuses evidence, closes with Escape and restores the invoking control', async () => {
+    render(<Inbox load={async () => data} />);
+    const action = await screen.findByRole('button', { name: 'View evidence: New customer request' });
+    fireEvent.click(action);
+    const detail = screen.getByRole('region', { name: 'Message details' });
+    expect(detail).toHaveFocus();
+    fireEvent.keyDown(detail, { key: 'Escape' });
+    expect(screen.queryByRole('region', { name: 'Message details' })).not.toBeInTheDocument();
+    expect(action).toHaveFocus();
   });
 
   it('reports failed loads and retries successfully', async () => {
