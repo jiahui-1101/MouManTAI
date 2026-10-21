@@ -173,7 +173,9 @@
 .p1-drawer-body { padding: 20px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 16px; }
 .p1-drawer-section { border-bottom: 1px solid #f1f5f9; padding-bottom: 14px; }
 .p1-drawer-section h4 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: #334155; }
-.p1-drawer-footer { padding: 16px 20px; border-top: 1px solid #e2e8f0; display: flex; gap: 8px; flex-wrap: wrap; background: #f8fafc; }
+.p1-drawer-footer { padding: 16px 20px; border-top: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 8px; background: #f8fafc; }
+.p1-drawer-footer-row { display: flex; gap: 8px; width: 100%; }
+.p1-drawer-footer-row .p1-btn { flex: 1; text-align: center; justify-content: center; display: inline-flex; align-items: center; }
 .p1-form-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .p1-form-group label { font-size: 11px; font-weight: 600; color: #475569; }
 .p1-form-group input, .p1-form-group select, .p1-form-group textarea { border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px 10px; font-size: 12px; font-family: inherit; }
@@ -181,20 +183,35 @@
 .p1-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .p1-error-banner { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 10px 14px; margin: 12px 20px 0; border-radius: 4px; font-size: 12px; }
 
+/* Status Badges & Dim Badges */
+.p1-dim-badge { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; display: inline-flex; align-items: center; }
+.p1-badge-information_partial, .p1-badge-partial { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+.p1-badge-resolved, .p1-badge-valid { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+.p1-badge-unresolved, .p1-badge-conflict { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+
 /* Buttons */
-.p1-btn { padding: 7px 14px; border-radius: 6px; font-size: 12px; font-weight: 550; cursor: pointer; transition: all 0.15s ease; }
-.p1-btn-primary { background: #4f46e5; color: #ffffff; border: 1px solid #4338ca; }
-.p1-btn-primary:hover { background: #4338ca; }
-.p1-btn-success { background: #16a34a; color: #ffffff; border: none; }
-.p1-btn-success:hover { background: #15803d; }
-.p1-btn-warning { background: #f59e0b; color: #ffffff; border: none; }
-.p1-btn-warning:hover { background: #d97706; }
-.p1-btn-danger { background: #dc2626; color: #ffffff; border: none; }
-.p1-btn-danger:hover { background: #b91c1c; }
+.p1-btn { padding: 8px 14px; border-radius: 6px; font-size: 12px; font-weight: 550; cursor: pointer; transition: all 0.15s ease; border: 1px solid transparent; }
+.p1-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.p1-btn-primary { background: #0f172a; color: #ffffff; border: 1px solid #0f172a; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+.p1-btn-primary:hover:not(:disabled) { background: #1e293b; border-color: #1e293b; }
+.p1-btn-secondary { background: #ffffff; color: #1e293b; border: 1px solid #cbd5e1; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+.p1-btn-secondary:hover:not(:disabled) { background: #f8fafc; border-color: #94a3b8; }
+.p1-btn-subtle-amber { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; font-weight: 550; }
+.p1-btn-subtle-amber:hover:not(:disabled) { background: #fef3c7; border-color: #fcd34d; }
+.p1-btn-subtle-red { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; font-weight: 550; }
+.p1-btn-subtle-red:hover:not(:disabled) { background: #fee2e2; border-color: #fca5a5; }
+
+/* Backward-compatible button classes */
+.p1-btn-success { background: #ffffff; color: #166534; border: 1px solid #bbf7d0; font-weight: 600; }
+.p1-btn-success:hover:not(:disabled) { background: #dcfce7; }
+.p1-btn-warning { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+.p1-btn-warning:hover:not(:disabled) { background: #fef3c7; }
+.p1-btn-danger { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.p1-btn-danger:hover:not(:disabled) { background: #fee2e2; }
 .p1-btn-outline { background: #ffffff; border: 1px solid #cbd5e1; color: #334155; }
-.p1-btn-outline:hover { background: #f8fafc; border-color: #94a3b8; }
-.p1-btn-subtle { background: #f1f5f9; border: 1px solid #cbd5e1; font-size: 16px; color: #64748b; cursor: pointer; width: 32px; height: 32px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; }
-.p1-btn-subtle:hover { background: #e2e8f0; color: #0f172a; }
+.p1-btn-outline:hover:not(:disabled) { background: #f8fafc; border-color: #94a3b8; }
+.p1-btn-subtle { background: #f8fafc; border: 1px solid #cbd5e1; font-size: 15px; color: #64748b; cursor: pointer; width: 32px; height: 32px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; }
+.p1-btn-subtle:hover { background: #f1f5f9; color: #0f172a; border-color: #94a3b8; }
 
 /* Modal overlay for OrderContextDetail */
 .p1-modal-backdrop { position: fixed; inset: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 32px 24px; box-sizing: border-box; }

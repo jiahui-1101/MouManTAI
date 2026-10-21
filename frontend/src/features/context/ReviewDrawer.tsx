@@ -75,10 +75,14 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
     <div className="p1-drawer-backdrop" role="dialog" aria-modal="true" aria-labelledby="review-drawer-title">
       <div className="p1-drawer-panel">
         <div className="p1-drawer-header">
-          <div>
-            <h3 id="review-drawer-title">Context Review & Amendments</h3>
-            <span className="p1-dim-badge">v{context.context_version}</span>
-            <span className={`p1-badge p1-badge-${context.status.toLowerCase()}`}>{context.status}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <h3 id="review-drawer-title" style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+              Context Review & Amendments
+            </h3>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <span className="p1-dim-badge">v{context.context_version}</span>
+              <span className={`status-badge status-${context.status.toLowerCase()}`}>{context.status}</span>
+            </div>
           </div>
           <button type="button" className="p1-btn-subtle" onClick={onClose} aria-label="Close drawer">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -196,38 +200,42 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
         </div>
 
         <div className="p1-drawer-footer">
-          <button
-            type="button"
-            className="p1-btn p1-btn-primary"
-            disabled={submitting}
-            onClick={() => handleSubmit('EDIT_FIELD')}
-          >
-            Apply Field Edits
-          </button>
-          <button
-            type="button"
-            className="p1-btn p1-btn-success"
-            disabled={submitting}
-            onClick={() => handleSubmit('ACCEPT_EXTRACTION')}
-          >
-            Accept Extraction
-          </button>
-          <button
-            type="button"
-            className="p1-btn p1-btn-warning"
-            disabled={submitting}
-            onClick={() => handleSubmit('REQUEST_MORE_INFO')}
-          >
-            Request More Info
-          </button>
-          <button
-            type="button"
-            className="p1-btn p1-btn-danger"
-            disabled={submitting}
-            onClick={() => handleSubmit('MARK_UNRESOLVED')}
-          >
-            Mark Unresolved
-          </button>
+          <div className="p1-drawer-footer-row">
+            <button
+              type="button"
+              className="p1-btn p1-btn-primary"
+              disabled={submitting}
+              onClick={() => handleSubmit('EDIT_FIELD')}
+            >
+              Apply Field Edits
+            </button>
+            <button
+              type="button"
+              className="p1-btn p1-btn-secondary"
+              disabled={submitting}
+              onClick={() => handleSubmit('ACCEPT_EXTRACTION')}
+            >
+              Accept Extraction
+            </button>
+          </div>
+          <div className="p1-drawer-footer-row">
+            <button
+              type="button"
+              className="p1-btn p1-btn-subtle-amber"
+              disabled={submitting}
+              onClick={() => handleSubmit('REQUEST_MORE_INFO')}
+            >
+              Request More Info
+            </button>
+            <button
+              type="button"
+              className="p1-btn p1-btn-subtle-red"
+              disabled={submitting}
+              onClick={() => handleSubmit('MARK_UNRESOLVED')}
+            >
+              Mark Unresolved
+            </button>
+          </div>
         </div>
       </div>
     </div>
