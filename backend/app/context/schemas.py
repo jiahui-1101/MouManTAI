@@ -107,6 +107,8 @@ class ExtractedField(P1Model):
     confidence: float | None = Field(default=None, ge=0, le=1)
     evidence: list[FieldEvidence] = Field(default_factory=list)
     corrected_by: str | None = None
+    qualifier: Literal["EXACT", "DEADLINE", "DATE_ONLY"] | None = None
+    metadata: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def grounded_value(self):
