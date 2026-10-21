@@ -39,6 +39,17 @@ class EvaluationResult(FrozenModel):
     capacity: CapacityResult
 
 
+def evaluation_identity(snapshot: EvaluationSnapshot, proposed_changes: ProposedChanges | None,
+                        commitment: Commitment) -> str:
+    """Existing deterministic input identity, also used to bind history payloads.
+
+    This is a content binding, not a signature or proof of source authenticity.
+    """
+    identity = (snapshot.model_dump_json() + commitment.model_dump_json()
+                + (proposed_changes.model_dump_json() if proposed_changes is not None else 'null'))
+    return 'p2-local-' + sha256(identity.encode()).hexdigest()
+
+
 def _allocation_can_cover_target(snapshot: EvaluationSnapshot, materials: MaterialATP,
                                  target_row: MaterialAvailability) -> tuple[bool, Decimal]:
     """Return whether currently allocated, target-eligible supply could cover a short row.
@@ -204,9 +215,7 @@ def evaluate(snapshot: EvaluationSnapshot, proposed_changes: ProposedChanges | N
         'Assessment time is explicit historical replay time; current operational version must be supplied by P5.',
         'affected_commitment_ids represents the actual Impact Set; no impact IDs are inferred from assessment scope.',
         *allocation_assumptions)
-    identity = (snapshot.model_dump_json() + commitment.model_dump_json()
-                + (proposed_changes.model_dump_json() if proposed_changes is not None else 'null'))
-    return EvaluationResult(assessment_id='p2-local-' + sha256(identity.encode()).hexdigest(),
+    return EvaluationResult(assessment_id=evaluation_identity(snapshot, proposed_changes, commitment),
         tenant_id=commitment.tenant_id, commitment_id=commitment.commitment_id,
         commitment_version=commitment.commitment_version, snapshot_id=original.snapshot_id,
         snapshot_version=original.snapshot_version, status=status,
