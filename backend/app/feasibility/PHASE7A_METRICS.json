@@ -1,0 +1,116 @@
+{
+  "scope": "SYNTHETIC_P2_BENCHMARK",
+  "dataset": {
+    "feasibility_cases": 6,
+    "impact_scenarios": 8,
+    "impact_commitment_observations": 16,
+    "labelled_impact_observations": 6,
+    "latency_repetitions": 10,
+    "label_file": "benchmark_labels.json"
+  },
+  "metrics": {
+    "false_feasible": {
+      "numerator": 0,
+      "denominator": 2,
+      "rate": 0.0
+    },
+    "impacted_recall": {
+      "numerator": 3,
+      "denominator": 3,
+      "rate": 1.0
+    },
+    "false_alert": {
+      "numerator": 0,
+      "denominator": 3,
+      "rate": 0.0
+    },
+    "stale_result": {
+      "numerator": 0,
+      "denominator": 2,
+      "rate": 0.0
+    },
+    "unknown_feasibility_count": 2,
+    "unlabelled_impact_count": 10
+  },
+  "latency_ms": {
+    "feasibility": {
+      "sample_count": 60,
+      "median": 2.2536,
+      "p95": 3.4925,
+      "unit": "milliseconds",
+      "includes": "calculation and boundary validation; excludes fixture construction, I/O and persistence"
+    },
+    "impact": {
+      "sample_count": 80,
+      "median": 20.3921,
+      "p95": 28.1276,
+      "unit": "milliseconds",
+      "includes": "calculation and boundary validation; excludes fixture construction, I/O and persistence"
+    }
+  },
+  "feasibility_outputs": {
+    "complete": "FEASIBLE",
+    "shortage": "INFEASIBLE",
+    "empty_stock": "INFEASIBLE",
+    "missing_production": "UNKNOWN",
+    "stale_version": "UNKNOWN",
+    "missing_current_version": "FEASIBLE"
+  },
+  "impact_outputs": {
+    "complete": {
+      "com-001": "CONFIRMED_IMPACT",
+      "com-002": "VERIFIED_UNAFFECTED"
+    },
+    "two_affected": {
+      "com-001": "CONFIRMED_IMPACT",
+      "com-002": "CONFIRMED_IMPACT"
+    },
+    "material_only": {
+      "com-001": "UNKNOWN",
+      "com-002": "UNKNOWN"
+    },
+    "missing_supplier": {
+      "com-001": "UNKNOWN",
+      "com-002": "UNKNOWN"
+    },
+    "stale_inventory": {
+      "com-001": "UNKNOWN",
+      "com-002": "UNKNOWN"
+    },
+    "stale_production": {
+      "com-001": "UNKNOWN",
+      "com-002": "UNKNOWN"
+    },
+    "confounded": {
+      "com-001": "UNKNOWN",
+      "com-002": "VERIFIED_UNAFFECTED"
+    },
+    "preexisting": {
+      "com-001": "PRE_EXISTING_UNCHANGED",
+      "com-002": "VERIFIED_UNAFFECTED"
+    }
+  },
+  "observed_impact_unknown_count": 9,
+  "stale_current_acceptance": [
+    "UNKNOWN",
+    "UNKNOWN"
+  ],
+  "current_guard_errors": {
+    "stale_version": {
+      "status": 409,
+      "code": "SNAPSHOT_VERSION_CONFLICT"
+    },
+    "missing_current_version": {
+      "status": 503,
+      "code": "P2_CURRENT_SNAPSHOT_VERSION_UNAVAILABLE"
+    }
+  },
+  "limitations": [
+    "Small manually labelled synthetic dataset, not live SME accuracy.",
+    "Null impact labels excluded from recall/false-alert denominators; UNKNOWN outputs retained.",
+    "UNKNOWN on a labelled true impact counts as missed recall; it is never a false FEASIBLE.",
+    "Stale rate exercises the public assessment current-version guard, not DB races or durable writes.",
+    "Pure historical evaluation can be FEASIBLE without current authority; it must not be accepted as current.",
+    "Production auth, source trust, transaction, network and persistence latency not measured."
+  ]
+}

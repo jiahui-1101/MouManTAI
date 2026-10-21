@@ -246,6 +246,8 @@ class ImpactAssessment(FrozenModel):
     candidate_commitment_ids: tuple[str, ...]
     impacts: tuple[CommitmentImpact, ...]
     event_intents: tuple[ImpactEventIntent, ...]
+    # Additive local metadata; existing impact/event IDs retain approved semantics.
+    calculation_input_digest: str | None = None
     shared_assessment_status: str = "P2_LOCAL_ONLY_P5_FEASIBILITY_ASSESSMENT_ADAPTER_PENDING"
 
     @property
@@ -1031,6 +1033,16 @@ def _evaluate_candidate(snapshot: EvaluationSnapshot, commitment: Commitment | N
         return None
 
 
+def impact_input_digest(before: EvaluationSnapshot, after: EvaluationSnapshot,
+                        change: OperationalChange, before_commitments: tuple[Commitment, ...],
+                        after_commitments: tuple[Commitment, ...]) -> str:
+    """Bind full inputs, including unresolved/missing Core rows, without recalculation."""
+    return _digest({'before': before.model_dump(mode='json'), 'after': after.model_dump(mode='json'),
+                    'change': change.model_dump(mode='json'),
+                    'before_commitments': [c.model_dump(mode='json') for c in before_commitments],
+                    'after_commitments': [c.model_dump(mode='json') for c in after_commitments]})
+
+
 def assess_impact(before: EvaluationSnapshot, after: EvaluationSnapshot,
                   change: OperationalChange, *,
                   before_commitments: tuple[Commitment, ...],
@@ -1152,4 +1164,5 @@ def assess_impact(before: EvaluationSnapshot, after: EvaluationSnapshot,
         after_snapshot_id=after.operational.snapshot_id,
         after_snapshot_version=after.operational.snapshot_version,
         discovery_complete=relevant_complete, candidate_commitment_ids=candidate_ids,
-        impacts=tuple(completed), event_intents=tuple(all_intents))
+        impacts=tuple(completed), event_intents=tuple(all_intents),
+        calculation_input_digest=impact_input_digest(before, after, change, before_core, after_core))

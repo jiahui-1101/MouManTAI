@@ -1,5 +1,43 @@
 # P2 Feasibility & Impact Progress
 
+## Current post-review follow-up — first-insert result integrity
+
+Approved Phase 7A baseline `0f82ced0cdbac248d49efaaa10b0b223f27152af`.
+SyntheticHistoryRepository now verifies complete results against the existing
+`evaluate` / `recalculate_supplier_delay` flows before first insertion. Input hashes
+are not authenticity proof. Tampered result/classification/intents reject; genuine
+UNKNOWN, supported proposals and identical replay remain accepted. Producer math
+and P5/P3 code unchanged. Exact production trusted-writer boundary documented in
+`ports.py` and PHASE7A_HANDOFF; it remains a P5 integration dependency.
+
+Focused history/impact **52 passed**; full backend **307 passed** (228 P2 + 79 P5),
+one existing warning; frontend **108 passed / 5 skipped**, typecheck/build passed.
+See latest P2_PHASE_REPORTS entry for commands and red/green evidence. Stop for
+review after feature-only push; no Phase 7B or production authenticity claim.
+
+
+## Current checkpoint — Phase 7A (2026-10-21)
+
+**Independent implementation ready for review; production integration PARTIAL/BLOCKED.**
+New branch `feat/p2-phase7-integration`, starting Main `ee4dfc73deb998a5af902422220cb1a34e0182cc`.
+Current Phase 7A report at end of P2_PHASE_REPORTS.md supersedes old NOT_STARTED
+and empty-set/P3-placeholder notes below. 131 current trace rows; runnable
+`python -B -m app.feasibility.demo` and `python -B -m app.feasibility.benchmark --iterations 10`
+from backend. Complete supplier flow, same evaluator, synthetic history + content
+binding, actual limited P5 resource read, canonical mapping and measured metrics.
+
+Final backend: **291 passed** (212 P2 + 79 P5), one existing warning.
+Frontend: **108 passed / 5 skipped**, typecheck/build passed. No live E2E run.
+Synthetic metrics: false-feasible 0/2, impacted recall 3/3, false-alert 0/3,
+actual current-version guard stale acceptance 0/2. Nine impact UNKNOWN outputs retained.
+
+Exact P3/P5 source/auth/version/history/transaction/outbox/UI dependencies and
+proposed schema in PHASE7A_HANDOFF.md. Synthetic history is not durable; resource
+summary is INCOMPLETE, never a fabricated global EvaluationSnapshot. No production
+router, auth, migration or shared module changes. No Phase 7B or PR/Main integration.
+Git final SHA and remote push verification are recorded in the task response.
+
+
 ## Current Main synchronization checkpoint — VALIDATED (2026-10-21)
 
 - **Main:** `origin/main` `0c082ceb0d1fa926a8b5fdf53b451505d3bd2250`, containing P5 PR #3 and D-013 `2f06a6ac7451def712aa080eb6c1189b8d57f216`.
