@@ -3,12 +3,14 @@
 当前分支 `feat/p1-context-intelligence`；本次实现提交：
 - 后端：`2dcab66` (`feat(p1): persist deterministic extraction and implement processing API`)
 - 前端：`1527f8e` (`feat(p1): integrate extraction processing and evidence highlights in DurableInbox`)
+- 证据校验与失败重试：`9eb0c4c` (`feat(p1): validate source evidence spans before persistence and add failed attempt test`)
 
 ### 1. 核心交付与实现内容
 - **持久化抽取存储 (`p1_dev.extraction_attempts`)**：
   - 新增字段：`attempt_id`, `tenant_id`, `message_id`, `extractor_version`, `input_content_sha256`, `status`, `fields` (JSONB), `diagnostic`, `started_at`, `completed_at`。
   - 行级锁与并发保护：`process(tenant_id, message_id, reprocess=False)` 使用 `with_for_update()` 避免同一消息被并发重复处理（并发返回 409 `ProcessingConflict`）。
   - 幂等性保证：同一输入与相同抽取版本默认复用已有 Attempt，不重复计算；显式 `reprocess=True` 时创建新 Attempt 并完整保留历史版本审计追踪。
+  - 证据强校验：入库前逐一校验 `evidence.start`/`evidence.end` 并在不可变消息文本上验证实际切片内容等于 `evidence.quote`，失配或越界将安全转入 `PROCESSING_FAILED` 并记录 diagnostic。
 - **处理与检索 API**：
   - `POST /v1/messages/{message_id}/process?reprocess={true|false}`：触发抽取并持久化结果与状态。
   - `GET /v1/messages/{message_id}/extraction`：获取最新一次抽取结果及字段（404 若未处理或消息不存在）。
@@ -25,9 +27,9 @@
 
 ### 2. 验证结果
 - **后端测试**：
-  - 新增 `backend/app/context/tests/test_persisted_extraction.py`（7 个端到端持久化与并发测试全部通过）。
-  - 包含 engine 重启后持久化完备性、幂等性、reprocess 历史保留、多线程并发锁保护、跨租户隔离、API 404/409 边界测试。
-  - P1 测试集全绿（295 passed / 0 failed, 1 Starlette warning）。
+  - 新增 `backend/app/context/tests/test_persisted_extraction.py`（8 个端到端持久化与并发测试全部通过）。
+  - 包含 engine 重启后持久化完备性、幂等性、reprocess 历史保留、多线程并发锁保护、跨租户隔离、抽取失败记录与安全重试、API 404/409 边界测试。
+  - P1 测试集全绿（296 passed / 0 failed, 1 Starlette warning）。
 - **前端测试与构建**：
   - `DurableInbox.test.tsx` 扩充 9 个端到端用例，覆盖处理、重新处理、代码点高亮与历史列表呈现。
   - 前端全量测试：128 passed, 5 skipped (LiveApiSmoke), 0 failed。
