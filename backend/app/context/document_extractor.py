@@ -8,10 +8,6 @@ import re
 import uuid
 from typing import Any, Sequence
 
-import numpy as np
-from PIL import Image
-import pymupdf
-
 from .deterministic_extraction import ORDER_RE, PROVISIONAL_PRODUCTS, ProductAlias
 from .document_schemas import AttachmentRecord, BoundingBox, DocumentEvidence, DocumentExtractionResult
 
@@ -58,6 +54,7 @@ def extract_pdf_document(
 ) -> DocumentExtractionResult:
     """Extract text, bounding boxes, and traceable evidence from machine-readable PDF bytes."""
     try:
+        import pymupdf
         doc = pymupdf.open(stream=content, filetype="pdf")
     except Exception as exc:
         return DocumentExtractionResult(
@@ -253,6 +250,7 @@ def extract_image_ocr(
 ) -> DocumentExtractionResult:
     """Bounded, traceable OCR on synthetic or uploaded images using PaddleOCR."""
     try:
+        from PIL import Image
         img = Image.open(io.BytesIO(content))
         width, height = img.size
     except Exception as exc:
