@@ -224,7 +224,7 @@ def test_p1_ocr_receipt_evidence_never_auto_confirms_commitment(client: TestClie
 # 2. P2 → P5 / P3 Handshake Tests (BE-06b)
 # =============================================================================
 
-def test_p2_infeasible_assessment_on_confirmed_triggers_at_risk_and_recovery(client: TestClient) -> None:
+def test_p2_infeasible_assessment_on_confirmed_triggers_at_risk_and_recovery(client: TestClient, session: Session) -> None:
     """When assessment is INFEASIBLE on CONFIRMED commitment: set AT_RISK, RECOVERY_REQUIRED, emit event."""
     # 1. Create and confirm commitment
     create_res = client.post(
@@ -268,41 +268,44 @@ def test_p2_infeasible_assessment_on_confirmed_triggers_at_risk_and_recovery(cli
         },
     )
 
-    # 2. P2 submits INFEASIBLE assessment
-    assess_res = client.post(
-        f"/v1/commitments/{com_id}/assess",
-        headers=_headers(),
-        json={
-            "assessment_id": "fa_p2_001",
-            "tenant_id": "tenant_demo_01",
-            "commitment_id": com_id,
-            "commitment_version": 3,
-            "snapshot_version": 142,
-            "status": "INFEASIBLE",
-            "constraints": [
-                {
-                    "code": "RAW_MATERIAL_SHORTAGE",
-                    "resource_id": "BEEF_PATTIES",
-                    "shortage": "40",
-                    "unit": "pcs",
-                    "severity": "HARD",
-                    "evidence_refs": ["ev_stock_shortage_01"],
-                }
-            ],
-            "affected_commitment_ids": [com_id],
-            "evidence_refs": ["ev_stock_shortage_01"],
-            "solver_status": "COMPLETED",
-            "assumptions": ["Supplier lead time delayed by 3 days"],
-            "assessed_at": _now().isoformat(),
-        },
+    # 2. [SIMULATED P2 HANDSHAKE] Trusted P2 service principal applies INFEASIBLE assessment via internal writer (D-013)
+    service = CommitmentService()
+    service_context = RequestContext(
+        tenant_id="tenant_demo_01",
+        actor_id="service_p2_feasibility",
+        actor_role="SERVICE",
+        correlation_id="corr_p2_001",
+        causation_id="evt_p2_001",
     )
-    assert assess_res.status_code == 200, assess_res.text
-    body = assess_res.json()
-    assert body["feasibility_state"] == "INFEASIBLE"
-    assert body["risk_state"] == "AT_RISK"
-    assert body["recovery_state"] == "RECOVERY_REQUIRED"
-    assert body["agreement_state"] == "CONFIRMED"  # Invariant: CONFIRMED + AT_RISK coexist!
-    assert body["commitment_version"] == 4
+    assessment = FeasibilityAssessment(
+        assessment_id="fa_p2_001",
+        tenant_id="tenant_demo_01",
+        commitment_id=com_id,
+        commitment_version=3,
+        snapshot_version=142,
+        status=FeasibilityState.INFEASIBLE,
+        constraints=[
+            ConstraintReason(
+                code="RAW_MATERIAL_SHORTAGE",
+                resource_id="BEEF_PATTIES",
+                shortage=Decimal("40"),
+                unit="pcs",
+                severity="HARD",
+                evidence_refs=["ev_stock_shortage_01"],
+            )
+        ],
+        affected_commitment_ids=[com_id],
+        evidence_refs=["ev_stock_shortage_01"],
+        solver_status="COMPLETED",
+        assumptions=["Supplier lead time delayed by 3 days"],
+        assessed_at=_now(),
+    )
+    c1 = service.assess(session, service_context, com_id, assessment)
+    assert c1.feasibility_state == FeasibilityState.INFEASIBLE
+    assert c1.risk_state == RiskState.AT_RISK
+    assert c1.recovery_state == RecoveryState.RECOVERY_REQUIRED
+    assert c1.agreement_state == AgreementState.CONFIRMED  # Invariant: CONFIRMED + AT_RISK coexist!
+    assert c1.commitment_version == 4
 
     # 3. Verify outbox event emitted
     events_res = client.get(f"/v1/commitments/{com_id}/timeline", headers=_headers())
@@ -313,7 +316,7 @@ def test_p2_infeasible_assessment_on_confirmed_triggers_at_risk_and_recovery(cli
     assert at_risk_entries[0]["new_state"]["risk_state"] == "AT_RISK"
 
 
-def test_p2_unknown_feasibility_flags_attention_queue_without_false_infeasibility(client: TestClient) -> None:
+def test_p2_unknown_feasibility_flags_attention_queue_without_false_infeasibility(client: TestClient, session: Session) -> None:
     """UNKNOWN feasibility flags UNKNOWN_FEASIBILITY attention item without setting AT_RISK."""
     create_res = client.post(
         "/v1/commitments",
@@ -332,30 +335,33 @@ def test_p2_unknown_feasibility_flags_attention_queue_without_false_infeasibilit
     )
     com_id = create_res.json()["commitment_id"]
 
-    # Submit UNKNOWN assessment
-    assess_res = client.post(
-        f"/v1/commitments/{com_id}/assess",
-        headers=_headers(),
-        json={
-            "assessment_id": "fa_p2_unk_001",
-            "tenant_id": "tenant_demo_01",
-            "commitment_id": com_id,
-            "commitment_version": 1,
-            "snapshot_version": 142,
-            "status": "UNKNOWN",
-            "constraints": [],
-            "affected_commitment_ids": [],
-            "evidence_refs": ["ev_telemetry_missing"],
-            "solver_status": "NOT_RUN",
-            "assumptions": ["Missing supplier stock telemetry"],
-            "assessed_at": _now().isoformat(),
-        },
+    # [SIMULATED P2 HANDSHAKE] Trusted P2 service principal applies UNKNOWN assessment via internal writer (D-013)
+    service = CommitmentService()
+    service_context = RequestContext(
+        tenant_id="tenant_demo_01",
+        actor_id="service_p2_feasibility",
+        actor_role="SERVICE",
+        correlation_id="corr_p2_unk_001",
+        causation_id="evt_p2_unk_001",
     )
-    assert assess_res.status_code == 200
-    body = assess_res.json()
-    assert body["feasibility_state"] == "UNKNOWN"
+    assessment = FeasibilityAssessment(
+        assessment_id="fa_p2_unk_001",
+        tenant_id="tenant_demo_01",
+        commitment_id=com_id,
+        commitment_version=1,
+        snapshot_version=142,
+        status=FeasibilityState.UNKNOWN,
+        constraints=[],
+        affected_commitment_ids=[],
+        evidence_refs=["ev_telemetry_missing"],
+        solver_status="NOT_RUN",
+        assumptions=["Missing supplier stock telemetry"],
+        assessed_at=_now(),
+    )
+    c1 = service.assess(session, service_context, com_id, assessment)
+    assert c1.feasibility_state == FeasibilityState.UNKNOWN
     # Invariant: UNKNOWN != INFEASIBLE; risk remains NORMAL
-    assert body["risk_state"] == "NORMAL"
+    assert c1.risk_state == RiskState.NORMAL
 
     # Verify overview attention queue has UNKNOWN_FEASIBILITY
     overview_res = client.get("/v1/overview", headers=_headers())
@@ -369,7 +375,7 @@ def test_p2_unknown_feasibility_flags_attention_queue_without_false_infeasibilit
     assert "unknown" in unknown_items[0]["summary"].lower()
 
 
-def test_p2_stale_assessment_version_rejected_with_409(client: TestClient) -> None:
+def test_p2_stale_assessment_version_rejected_with_409(client: TestClient, session: Session) -> None:
     """P2 assessment with stale commitment_version is rejected with 409 Conflict."""
     create_res = client.post(
         "/v1/commitments",
@@ -400,26 +406,32 @@ def test_p2_stale_assessment_version_rejected_with_409(client: TestClient) -> No
         },
     )
 
-    # Attempt assessment with stale commitment_version=1
-    stale_res = client.post(
-        f"/v1/commitments/{com_id}/assess",
-        headers=_headers(),
-        json={
-            "assessment_id": "fa_stale_01",
-            "tenant_id": "tenant_demo_01",
-            "commitment_id": com_id,
-            "commitment_version": 1,  # Stale! Current is 2
-            "snapshot_version": 140,
-            "status": "FEASIBLE",
-            "constraints": [],
-            "affected_commitment_ids": [],
-            "solver_status": "COMPLETED",
-            "assessed_at": _now().isoformat(),
-        },
+    # [SIMULATED P2 HANDSHAKE] Attempt assessment with stale commitment_version=1 via internal writer
+    service = CommitmentService()
+    service_context = RequestContext(
+        tenant_id="tenant_demo_01",
+        actor_id="service_p2_feasibility",
+        actor_role="SERVICE",
+        correlation_id="corr_p2_stale_001",
+        causation_id="evt_p2_stale_001",
     )
-    assert stale_res.status_code == 409
-    assert stale_res.json()["code"] == "COMMITMENT_VERSION_CONFLICT"
-    assert stale_res.json()["details"]["current_commitment_version"] == 2
+    stale_assessment = FeasibilityAssessment(
+        assessment_id="fa_stale_01",
+        tenant_id="tenant_demo_01",
+        commitment_id=com_id,
+        commitment_version=1,  # Stale! Current is 2
+        snapshot_version=140,
+        status=FeasibilityState.FEASIBLE,
+        constraints=[],
+        affected_commitment_ids=[],
+        solver_status="COMPLETED",
+        assessed_at=_now(),
+    )
+    with pytest.raises(DomainError) as exc_info:
+        service.assess(session, service_context, com_id, stale_assessment)
+    assert exc_info.value.code == "COMMITMENT_VERSION_CONFLICT"
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.details["current_commitment_version"] == 2
 
 
 # =============================================================================

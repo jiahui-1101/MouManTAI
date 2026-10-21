@@ -165,6 +165,7 @@ class RequestedItem(ContractModel):
 class BusinessContext(ContractModel):
     tenant_id: str = Field(min_length=1)
     context_id: str = Field(min_length=1)
+    commitment_id: str | None = None
     source_message_ids: list[str] = Field(min_length=1)
     customer_id: str | None = None
     customer_identity_status: CustomerIdentityStatus = CustomerIdentityStatus.UNVERIFIED
@@ -325,6 +326,7 @@ class AuditEvent(ContractModel):
 
 
 class CommitmentCreateRequest(ContractModel):
+    commitment_id: str | None = None
     order_id: str = Field(min_length=1)
     customer_id: str = Field(min_length=1)
     terms: CommitmentTerms
@@ -482,5 +484,38 @@ class RecoveryExecuteRequest(ContractModel):
     revised_terms: CommitmentTerms | None = None
     reason: str = Field(min_length=1)
     causation_id: str | None = None
+
+
+class ResourceStockResponse(ContractModel):
+    tenant_id: str
+    resource_id: str
+    total_quantity: Decimal
+    reserved_quantity: Decimal
+    available_quantity: Decimal
+    unit: str
+    snapshot_version: int
+    updated_at: OffsetAwareDatetime
+
+
+class ResourceReservationRequest(ContractModel):
+    commitment_id: str = Field(min_length=1)
+    plan_id: str = Field(min_length=1)
+    action_id: str = Field(min_length=1)
+    idempotency_key: str = Field(min_length=1)
+    resource_id: str = Field(min_length=1)
+    quantity: Decimal = Field(gt=0)
+
+
+class ResourceReservationResponse(ContractModel):
+    reservation_id: str
+    tenant_id: str
+    commitment_id: str
+    plan_id: str
+    action_id: str
+    idempotency_key: str
+    resource_id: str
+    quantity: Decimal
+    status: str
+    created_at: OffsetAwareDatetime
 
 

@@ -422,4 +422,28 @@ describe("ActivityPage (FE-03a–d, UI-02)", () => {
       forbiddenRender.getByRole("button", { name: /Manager \(MANAGER\)/i }),
     ).toBeInTheDocument();
   });
+
+  it("verifies linked event timeline F1 -> F2 -> F3 -> F4 -> Core and no fake optimistic fulfilment (UI-02)", async () => {
+    // Timeline contains progression: F1 -> F2 -> F3 -> Core -> F4
+    renderActivity();
+
+    // Verify unbroken chain of entries
+    const entries = await screen.findAllByTestId("timeline-entry");
+    expect(entries).toHaveLength(5);
+
+    // Verify monotonic version numbers present in trace
+    expect(screen.getByText("v1 → v2")).toBeInTheDocument();
+
+    // Verify that at entry_04 (manager signed off proposal) and entry_05 (customer confirmed),
+    // fulfilment state is NOT FULFILLED.
+    expect(screen.queryByText(/fulfilment_state.*FULFILLED/i)).not.toBeInTheDocument();
+
+    // Submitting or pending state never shows FULFILLED until operational verification
+    const pendingBadges = document.querySelectorAll(".badge-purple, .badge-warning");
+    expect(pendingBadges.length).toBeGreaterThan(0);
+    for (const badge of pendingBadges) {
+      expect(badge.classList.contains("badge-success")).toBe(false);
+      expect(badge.textContent).not.toContain("FULFILLED");
+    }
+  });
 });

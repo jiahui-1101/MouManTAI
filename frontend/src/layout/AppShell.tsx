@@ -11,7 +11,7 @@ const navigation = [
 ] as const;
 
 export function AppShell() {
-  const { tenantId, actorRole } = useAuth();
+  const { tenantId, actorId, setActorId, actorRole } = useAuth();
 
   return (
     <div className="app-shell">
@@ -20,9 +20,28 @@ export function AppShell() {
           <p className="eyebrow">Synthetic integration mode</p>
           <h1>MouManTAI</h1>
         </div>
-        <span className="tenant-badge">
-          {tenantId} · {actorRole}
-        </span>
+        <div className="topbar-controls">
+          <div className="role-simulator">
+            <label htmlFor="shell-role-select" className="role-label">
+              Simulated Role:
+            </label>
+            <select
+              id="shell-role-select"
+              aria-label="Demo role selector"
+              value={actorId}
+              onChange={(e) => setActorId(e.target.value)}
+              className="role-selector"
+              data-testid="shell-role-selector"
+            >
+              <option value="user_owner_01">Owner (user_owner_01)</option>
+              <option value="user_manager_01">Manager (user_manager_01)</option>
+              <option value="user_staff_01">Staff (user_staff_01)</option>
+            </select>
+          </div>
+          <span className="tenant-badge" data-testid="shell-tenant-badge">
+            {tenantId} · {actorRole}
+          </span>
+        </div>
       </header>
 
       <div className="shell-body">

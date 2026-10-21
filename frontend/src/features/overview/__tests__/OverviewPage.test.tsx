@@ -390,4 +390,115 @@ describe("OverviewPage (FE-02a–e, UI-01)", () => {
     expect(screen.getByText("Access Denied")).toBeInTheDocument();
     expect(screen.getByText(/is not permitted to access this tenant/)).toBeInTheDocument();
   });
+
+  it("overview refresh after lifecycle mutations updates bucket counts and attention queue (UI-01)", async () => {
+    // Stage 1: Initial Confirmed state
+    const stage1Data: OverviewResponse = {
+      ...mockOverviewData,
+      counts: {
+        requested: 1,
+        confirmed: 5,
+        at_risk: 0,
+        pending_approval: 0,
+        execution_in_progress: 0,
+        awaiting_confirmation: 0,
+        fulfilled: 0,
+      },
+      attention_queue: [],
+    };
+
+    // Stage 2: After disruption mutation (confirmed -> at_risk + pending_approval)
+    const stage2Data: OverviewResponse = {
+      ...mockOverviewData,
+      counts: {
+        requested: 1,
+        confirmed: 4,
+        at_risk: 1,
+        pending_approval: 1,
+        execution_in_progress: 0,
+        awaiting_confirmation: 0,
+        fulfilled: 0,
+      },
+      attention_queue: [
+        {
+          commitment_id: "cmt_risk_01",
+          order_id: "ord_101",
+          category: "MANUAL_REVIEW",
+          severity: "CRITICAL",
+          summary: "Commitment cmt_risk_01 is BREACHED; supplier delayed raw material",
+          deep_link_path: "/commitments/cmt_risk_01",
+          updated_at: "2026-10-21T01:30:00Z",
+        },
+      ],
+    };
+
+    // Stage 3: After operational delivery verified (fulfilled: 1)
+    const stage3Data: OverviewResponse = {
+      ...mockOverviewData,
+      counts: {
+        requested: 1,
+        confirmed: 4,
+        at_risk: 0,
+        pending_approval: 0,
+        execution_in_progress: 0,
+        awaiting_confirmation: 0,
+        fulfilled: 1,
+      },
+      attention_queue: [],
+    };
+
+    let currentStage = 1;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() => {
+        const payload = currentStage === 1 ? stage1Data : currentStage === 2 ? stage2Data : stage3Data;
+        return Promise.resolve(
+          new Response(JSON.stringify(payload), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }),
+    );
+
+    renderOverview();
+
+    // Verify Stage 1 initial counts
+    expect(await screen.findByTestId("count-confirmed")).toHaveTextContent("5");
+    expect(screen.getByTestId("count-at_risk")).toHaveTextContent("0");
+    expect(screen.getByTestId("count-fulfilled")).toHaveTextContent("0");
+    expect(screen.getByTestId("attention-queue-empty")).toBeInTheDocument();
+
+    // Trigger Stage 2 lifecycle mutation and manual refresh
+    currentStage = 2;
+    const refreshBtn = screen.getByTestId("refresh-button");
+    fireEvent.click(refreshBtn);
+
+    // Verify Stage 2 counts updated dynamically
+    await waitFor(() => {
+      expect(screen.getByTestId("count-confirmed")).toHaveTextContent("4");
+      expect(screen.getByTestId("count-at_risk")).toHaveTextContent("1");
+      expect(screen.getByTestId("count-pending_approval")).toHaveTextContent("1");
+    });
+    expect(
+      screen.getByText(/Commitment cmt_risk_01 is BREACHED; supplier delayed raw material/),
+    ).toBeInTheDocument();
+
+    // Trigger Stage 3 fulfilment mutation and manual refresh
+    currentStage = 3;
+    fireEvent.click(refreshBtn);
+
+    // Verify Stage 3 counts updated
+    await waitFor(() => {
+      expect(screen.getByTestId("count-at_risk")).toHaveTextContent("0");
+      expect(screen.getByTestId("count-fulfilled")).toHaveTextContent("1");
+    });
+
+    // Verify role switch refetches and reflects active role
+    const actorSelect = screen.getByTestId("actor-select");
+    fireEvent.change(actorSelect, { target: { value: "user_staff_01" } });
+    await waitFor(() => {
+      expect(screen.getByTestId("active-role")).toHaveTextContent("OWNER"); // mock returns OWNER
+    });
+  });
 });

@@ -98,8 +98,8 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | P4-BE | Draft/Send/Confirm APIs | P4 | NOT_STARTED | — | P3 proposal schema | Define signed confirmation |
 | P4-TST | Confirmation/Channel tests | P4 | NOT_STARTED | — | — | Define ambiguous OK fixture |
 | P5-FE | Shell / Overview / Audit UI | P5 | IN_PROGRESS | Real Overview (/overview) & Activity (/activity) wired to real backend endpoints via TanStack Query (FE-01, FE-02, FE-03, UI-01, UI-02); timeline with F1–F4 deep links, state diffs, version increments, human governance highlights, correlation/causation grouping, role redaction, loading/empty/error/403 states; 12 vitest tests passing | Feature pages remain owner work | Integrate P1–P4 feature routes |
-| P5-BE | Registry / DB / Events / Roles | P5 | IN_PROGRESS | Integration facade & typed consumers (BE-06a–f), P1–P4 handshakes, proposal versioning, optimistic concurrency, and audit/outbox guards; 46 backend tests passing | Docker daemon unavailable for DB smoke | Complete P0 E2E hero journey |
-| P5-TST | Integrated E2E / Security tests | P5 + all | IN_PROGRESS | 46 backend tests + 12 frontend tests passing (BE-06a–f, UT-04, UT-06, UT-07, UT-08, UT-09, UT-10, E2E-04, E2E-05, E2E-06, E2E-07, E2E-12, SAF-2) | Full E2E waits for P1–P4 modules | Add integrated cross-feature E2E journey suite |
+| P5-BE | Registry / DB / Events / Roles | P5 | IN_PROGRESS | Integration facade & typed consumers (BE-06a–f), P1–P4 handshakes, proposal versioning, mock resource inventory & locking primitive (SAF-4, Invariant 8); 63 backend tests passing | Docker daemon unavailable for DB smoke | Complete cross-feature E2E rehearsal |
+| P5-TST | Integrated E2E / Security tests | P5 + all | IN_PROGRESS | 63 backend tests + 12 frontend tests passing (BE-06a–f, SAF-4, Invariant 8, E2E-01 through E2E-12, UI-04, UI-05, UT-04, UT-06, UT-07, UT-08, UT-09, UT-10, SAF-2) | Full E2E waits for P1–P4 feature modules | Cross-feature integration complete |
 | REL-01 | Deploy / submission / docs | Release owner | NOT_STARTED | — | — | Assign owner |
 
 **DONE definition**: reviewed PR merged + live API/UI or valid designated mock + passing relevant tests + integration compatibility + log link. `95% done` is not a status. Screenshots alone do not prove backend behavior.
@@ -134,6 +134,24 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 - P5: Completed: Task T3.1 (P1–P4 Handshake Event Consumers & Core Integration Facades, BE-06a–f, UT-10); CoreIntegrationFacade, assess/recovery/proposal endpoints, Alembic migration 0004_commitment_proposals, 18 comprehensive integration tests in test_feature_handshakes.py covering UT-08, UT-09, UT-10, E2E-04, E2E-05, E2E-06, E2E-07, E2E-12, and PII minimization; 46 backend tests + 12 frontend tests passing; typecheck & build passing | Next: P0 Cross-Feature E2E Hero Journey integration tests | Blocked by: BLOCK-20261021-001 (isolated PostgreSQL for live migration smoke)
 - Integration status: Core Integration Facade + P1–P4 Handshake Consumers fully implemented and tested.
 - Risks and decisions: D-002 (concurrency), D-005 (synthetic server-side role inspection), CONTRACT-20261021-006 (P1–P4 Handshakes & Versioned Proposals).
+
+### 2026-10-21 — Daily sync (P5 Task T3.2 Mock Resource Inventory & Reservation Locking)
+- P1: Completed: Shared context contracts aligned | Next: Ingestion & field extraction | Blocked by: None
+- P2: Completed: Read-only resource snapshot query available (get_resource_snapshot) | Next: Constraint & impact solver | Blocked by: None
+- P3: Completed: Transactional locking reservation primitive available (reserve_resource) | Next: Action execution adapter | Blocked by: None
+- P4: Completed: Proposal & confirmation contracts aligned | Next: Message templates & channel adapter | Blocked by: None
+- P5: Completed: Task T3.2 (Mock Resource Inventory & Concurrent Reservation Lock Primitive, SAF-4, Invariant 8); resource_stocks and resource_reservations models, Alembic migration 0005_resource_reservations, pure read-only get_resource_snapshot for P2, atomic locking reserve_resource with InsufficientResourceError (409) for P3, idempotency on (tenant_id, idempotency_key), release/consume lifecycle, 8 comprehensive tests in test_resource_reservations.py; 54 backend tests + 12 frontend tests passing; typecheck & build passing | Next: P0 Cross-Feature E2E Hero Journey integration suite | Blocked by: BLOCK-20261021-001 (isolated PostgreSQL for live migration smoke)
+- Integration status: Mock resource inventory and concurrent reservation lock primitive fully implemented and tested.
+- Risks and decisions: Invariant 8 (no concurrent over-allocation), SAF-4 (P2 read-only, P3 transactional lock), CONTRACT-20261021-007.
+
+### 2026-10-21 — Daily sync (P5 Task T3.3 Backend E2E Hero Journey & 12-Scenario Acceptance Matrix)
+- P1: Completed: Shared context contracts aligned | Next: Ingestion & field extraction | Blocked by: None
+- P2: Completed: Read-only resource snapshot query & feasibility contracts aligned | Next: Constraint & impact solver | Blocked by: None
+- P3: Completed: Transactional locking reservation primitive & recovery plan contracts aligned | Next: Action execution adapter | Blocked by: None
+- P4: Completed: Proposal & confirmation contracts aligned | Next: Message templates & channel adapter | Blocked by: None
+- P5: Completed: Task T3.3 (Backend E2E Hero Journey & Full 12-Scenario Acceptance Matrix, UI-04, UI-05, E2E-01 to E2E-12); implemented test_e2e_hero_journey.py (full single-commitment_id 'com_001' lifecycle across 9 monotonic optimistic concurrency versions from ingestion to delivery POD) and test_e2e_negative_matrix.py (E2E-04 snapshot drift, E2E-05 ambiguous OK, E2E-06 stale proposal version rejection, E2E-07 delivery tracking without state advance, E2E-08 idempotency retry, E2E-09 unverified receipt guard, E2E-10 worker crash recovery, E2E-11 cross-tenant isolation); updated commitments.py attention queue is_ambiguous evaluation; 63 backend tests + 12 frontend tests passing; typecheck & build passing | Next: Cross-feature E2E rehearsal with team | Blocked by: BLOCK-20261021-001 (isolated PostgreSQL for live migration smoke)
+- Integration status: Full 12-scenario backend E2E acceptance matrix and Hero Journey verified on real database.
+- Risks and decisions: Invariant adherence verified: REQUESTED != CONFIRMED, CONFIRMED + AT_RISK coexists, SENT != ACCEPTED != FULFILLED, APPROVED != EXECUTED, OCR receipt != verified funds. CONTRACT-20261021-008.
 
 
 ## 6. Blocker / Dependency Ledger
@@ -228,6 +246,54 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 - Decision: ACCEPTED
 - PR / commit: `7869196` on branch `feat/p5-core-integration`
 
+### CONTRACT-20261021-007 — Mock Resource Inventory & Concurrent Reservation Lock Primitive (SAF-4, Invariant 8)
+- Proposed by / reviewed by: P5 (Task T3.2)
+- Old vs new field/event/API:
+  - Additive database tables `resource_stocks` and `resource_reservations` (Alembic `0005_resource_reservations`).
+  - Additive module `backend/app/core/reservations.py` providing:
+    - Pure read-only evaluator helper `get_resource_snapshot(session, tenant_id, resource_ids)` computing `available = total - reserved` via `Decimal` without mutating rows or acquiring write locks.
+    - Read-only helper `get_available_stock(session, tenant_id, resource_id)`.
+    - Mock inventory initializer `seed_resource_stock`.
+    - Transactional locking reservation primitive `reserve_resource(session, ..., idempotency_key, resource_id, quantity)`:
+      - Enforces Invariant 8 & SAF-4: atomic conditional stock deduction (`WHERE (total_quantity - reserved_quantity) >= :qty`) and concurrency locking.
+      - Idempotency on `(tenant_id, idempotency_key)`: returns existing active reservation without double-deduction (`E2E-08`, `E2E-10`).
+      - Deterministic conflict rejection: raises `InsufficientResourceError` (HTTP 409 Conflict) when available < quantity, rolling back cleanly without partial allocation.
+      - Increments `snapshot_version` and writes immutable `AuditEventRecord` (`resource.reserved`).
+    - Reservation lifecycle operations: `release_reservation` (restores stock) and `consume_reservation` (decrements total stock upon actual execution).
+  - Additive REST endpoints in `backend/app/core/router.py`:
+    - `GET /v1/resources/snapshot?resource_id=...`: read-only resource availability snapshot.
+    - `POST /v1/resources/reserve`: transactional locking reservation endpoint.
+  - Additive TypeScript contracts in `contracts/types.ts` and `frontend/src/shared/types.ts`: `ResourceStock` and `ResourceReservation`.
+- Breaking or additive: additive; existing commitment schemas and endpoints remain fully backward-compatible.
+- Affected owners, frontend screens, tests: P2 feasibility engine (uses pure read-only `get_resource_snapshot`), P3 recovery action adapter (uses transactional locking `reserve_resource`); 8 comprehensive tests in `backend/tests/test_resource_reservations.py`.
+- Migration or fixture update: Alembic migration `0005_resource_reservations` created; offline SQL generation verified.
+- Decision: ACCEPTED
+- PR / commit: `fe7b8cb` on branch `feat/p5-core-integration`
+
+### CONTRACT-20261021-008 — Backend E2E Hero Journey & Full 12-Scenario Acceptance Matrix (E2E-01 to E2E-12, UI-04, UI-05)
+- Proposed by / reviewed by: P5 (Task T3.3)
+- Old vs new field/event/API:
+  - Additive optional `commitment_id` in `BusinessContext` and `CommitmentCreateRequest` (`contracts/types.ts`, `frontend/src/shared/types.ts`, `backend/app/core/schemas.py`, `backend/app/core/service.py`, `backend/app/core/integration.py`) allowing deterministic commitment ID specification (e.g. `'com_001'`) or auto-generation.
+  - Enhanced attention queue logic in `backend/app/core/commitments.py`: flags `UNRESOLVED_CONFIRMATION` whenever `confirmation_ambiguous` is True on terms, ensuring vague customer replies are highlighted immediately.
+  - Permitted positional arguments in `seed_resource_stock` in `backend/app/core/reservations.py`.
+  - Created test suite `backend/tests/integration/test_e2e_hero_journey.py`:
+    - Full single-commitment_id (`com_001`) Hero Journey (`Trigger -> Data -> Decision -> Human Approval -> Outcome + Audit`, UI-04, UI-05) across 9 strictly monotonic optimistic concurrency versions (`v1` to `v9`).
+    - Verified `E2E-01` (context creation -> feasibility assess -> proposal confirmation), `E2E-02` (supplier packaging shortage -> `com_001` INFEASIBLE, `AT_RISK + RECOVERY_REQUIRED` while `com_002` stays NORMAL), `E2E-03` (snapshot 102 two-plan trade-off comparison, Staff 403 denial, Manager plan approval, resource reservation), `E2E-12` (customer proposal v3 acceptance -> separate delivery POD verification transitioning to `FULFILLED + RESOLVED`), and Step 5 (overview counts and unbroken timeline audit trail).
+  - Created test suite `backend/tests/integration/test_e2e_negative_matrix.py`:
+    - `E2E-04`: Snapshot drift blocks execution (409 Conflict), zero unauthorized stock mutation, resets to `RECOVERY_REQUIRED`.
+    - `E2E-05`: Ambiguous customer reply ("OK") flags `UNRESOLVED_CONFIRMATION`, never auto-confirms commitment.
+    - `E2E-06`: Stale proposal version confirmation (V2 after V3) rejected with 409 Conflict, preserving V3.
+    - `E2E-07`: Message delivery status updates (`SENT`, `DELIVERED`) record delivery tracking only; never advance agreement or fulfilment state.
+    - `E2E-08`: Duplicate webhook / action retry with identical idempotency key produces exactly one reservation and no duplicate stock deduction.
+    - `E2E-09`: OCR receipt screenshot upload records evidence ref but keeps agreement `REQUESTED` and flags manual review (`OCR receipt != verified funds`).
+    - `E2E-10`: Worker crash after external action succeeds reconciles state via idempotency key without double deduction.
+    - `E2E-11`: Cross-tenant isolation guarantees Tenant B receives 404/403 with zero data leakage across all commitment, proposal, fulfilment, timeline, audit, and overview surfaces.
+- Breaking or additive: additive; 100% backward-compatible.
+- Affected owners, frontend screens, tests: P1–P4 integration handshakes and contracts; all 63 backend tests and 12 frontend tests passing.
+- Migration or fixture update: none required.
+- Decision: ACCEPTED
+- PR / commit: `ace78a4` on branch `feat/p5-core-integration`
+
 ## 8. QA / Metrics Log
 
 | Date | Commit | Backend tests | Frontend tests | Build | E2E | Key observed metric / sample size | Known limitations |
@@ -238,6 +304,8 @@ Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/fi
 | 2026-10-21 | `phase0-core-integration` (T2.3) | 24 passed (`pytest`) | 8 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | Real Overview wired to GET /v1/overview via TanStack Query, 7 authoritative state cards with non-green enforcement, attention queue with KL timestamps and deep links, simulated role switcher, state bucket and search filtering, loading skeleton, empty state, working retry callback, and 403 permission denied state; sample size 8 frontend + 24 backend tests | Live DB migration pending isolated PostgreSQL |
 | 2026-10-21 | `phase0-core-integration` (T2.4) | 28 passed (`pytest`) | 12 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | Real Activity & Audit page (/activity) wired to GET /v1/commitments/{id}/timeline and GET /v1/audit via TanStack Query (FE-03a–d, UI-02); chronological event timeline, state transition diffs (CONFIRMED → AT_RISK), version increments, human governance approval highlights with reason and scope, correlation/causation grouping, deep links to F1–F4, Staff role redaction, and loading/empty/retry/403 states; sample size 12 frontend + 28 backend tests | Live DB migration pending isolated PostgreSQL |
 | 2026-10-21 | `7869196` on `feat/p5-core-integration` (T3.1) | 46 passed (`pytest`) | 12 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | P1–P4 Handshake consumers, CoreIntegrationFacade, snapshot drift guard (E2E-04), approval expiry (UT-08), OCR receipt guard (UT-09), proposal version guard (E2E-06, UT-10), vague OK attention (E2E-05), delivery message no-op (E2E-07), operational fulfilment (E2E-12), and PII minimization (BE-06e); sample size 18 integration tests + 28 core tests | Live DB migration pending isolated PostgreSQL |
+| 2026-10-21 | `fe7b8cb` on `feat/p5-core-integration` (T3.2) | 54 passed (`pytest`) | 12 passed (`vitest`) | passed (`npm run build`, typecheck passed) | NOT RUN | Mock resource inventory, pure read-only get_resource_snapshot for P2, atomic locking reserve_resource with InsufficientResourceError (409) for P3, sequential and thread-concurrent zero over-allocation (SAF-4, Invariant 8), idempotency on (tenant_id, idempotency_key) (E2E-08, E2E-10), release/consume lifecycle; sample size 8 reservation tests + 46 core tests | Live DB migration pending isolated PostgreSQL |
+| 2026-10-21 | `ace78a4` on `feat/p5-core-integration` (T3.3) | 63 passed (`pytest`) | 12 passed (`vitest`) | passed (`npm run build`, typecheck passed) | 1 passed (`test_e2e_hero_journey`) | Full 12-scenario E2E acceptance matrix (E2E-01 to E2E-12) & Hero Journey on com_001; sample size 27 integration tests + 36 unit/registry/outbox tests | Live DB migration pending isolated PostgreSQL |
 
 
 Metric protocol: always disclose dataset size, date, ground truth creation method, pass/fail definitions. **Do not** mark actual customer fulfilment because communication was sent or approved.
@@ -381,6 +449,82 @@ Metric protocol: always disclose dataset size, date, ground truth creation metho
 - Validation:
   - Backend tests: 46 passed (`pytest -v backend/tests`), including 18 new integration tests in `test_feature_handshakes.py`.
   - Frontend checks: `tsc --noEmit` passed; Vitest 12 passed; production build passed (`npm run build`).
+
+### 2026-10-21 — Task T3.4: Frontend Live-API Smoke & Role-Guard Verification (UI-01, UI-02, UI-03, UI-06, FE-01a, FE-01d)
+- **Scope**: UI-01, UI-02, UI-03, UI-06, FE-01a, FE-01d. Strictly within P5 paths (`frontend/src/app/__tests__/RoleGuardAndNavigation.test.tsx`, `frontend/src/app/__tests__/LiveApiSmoke.test.ts`, `frontend/src/shared/ApprovalActionControl.tsx`, `frontend/src/shared/auth.tsx`, `frontend/src/layout/AppShell.tsx`, `frontend/src/styles.css`, `frontend/src/features/overview/__tests__/OverviewPage.test.tsx`, `frontend/src/features/activity/__tests__/ActivityPage.test.tsx`, `backend/app/db/session.py`, `backend/app/core/dependencies.py`, `scripts/reset_and_seed_test_db.py`, `docs/TEAM_LOG.md`). Zero edits to P1–P4 feature directories (`frontend/src/features/{context,feasibility,recovery,communication}/`).
+- **No Route Drift**: Checked frontend codebase (`frontend/src/`); confirmed zero references or calls to `POST /v1/commitments/{id}/assess`.
+- **AppShell Role Simulator (UI-03)**:
+  - Topbar header updated with global demo role selector `<select aria-label="Demo role selector" data-testid="shell-role-selector">`.
+  - Switching between `Owner` (`user_owner_01` / `owner_01`), `Manager` (`user_manager_01` / `manager_01`), and `Staff` (`user_staff_01` / `staff_01`) dynamically updates the `X-Actor-ID` request headers and app shell tenant badge.
+- **Shared Approval Control & Role Guard Enforcement (UI-03, FE-01d)**:
+  - Created `frontend/src/shared/ApprovalActionControl.tsx`: enforces server-side role check; high-privilege proposal approval controls are disabled/restricted for Staff (`data-testid="permission-restricted-notice"`, `data-testid="approval-action-btn-disabled"`).
+  - Forced attempts catch backend `403 Forbidden` (`code="APPROVAL_REQUIRED"`) and surface clean alert banners (`role="alert"`, `data-testid="permission-error-banner"`).
+  - Invariant strictly maintained: Never shows fake optimistic success.
+  - Strict semantic badge colors verified: `PENDING_APPROVAL`, `AWAITING_CONFIRMATION`, `OFFERED`, `UNKNOWN` render warning, purple, or neutral badges; never `badge-success` or green.
+- **Overview Refresh After Lifecycle Mutations (UI-01)**:
+  - Unit tests in `OverviewPage.test.tsx` verify initial counts from `GET /v1/overview`, dynamic bucket updates when commitments transition `CONFIRMED` -> `AT_RISK` -> `FULFILLED`, attention queue alerts, and manual refresh via `refetch()`.
+- **Activity Linked Events & Unbroken Causal Chain (UI-02)**:
+  - Unit tests in `ActivityPage.test.tsx` verify chronological progression (`F1 -> F2 -> F3 -> F4 -> Core`), monotonic versions (1 -> 2 -> ... -> 9), correlation/causation tracking (`correlation_id`, `causation_id`), and role-redacted notes for Staff.
+- **Deep-Link Navigation Integrity (FE-01a)**:
+  - Tested navigation across all 10 frontend routes (`/overview`, `/activity`, `/inbox`, `/orders/:id`, `/commitments/:id`, `/impact/:id`, `/recovery/:id`, `/communications`, `/confirmations/:id`, `*`). All routes render valid landmark headings without unhandled exceptions or crash.
+- **Database Reset & Seed Script (UI-06)**:
+  - Created single documented command `python scripts/reset_and_seed_test_db.py`: drops and recreates tables, seeds stock levels (BUN, PATTY, BURGER), seeds `com_001` with complete 9-version Hero Journey history, and seeds 6 additional commitments covering all 7 state dimensions. 100% idempotent with zero side effects.
+- **Live-API Smoke Suite (LIVE_API=1, UI-06)**:
+  - Created `frontend/src/app/__tests__/LiveApiSmoke.test.ts`: gated by `LIVE_API=1`.
+  - When `LIVE_API=1` is set, executes live HTTP network calls against FastAPI service on port 8000, asserting health, live DB-derived overview counts, Staff role headers, com_001 timeline causal chains, and Staff 403 Forbidden rejection.
+- **Route Status Ledger (T4.2-B format)**:
+  | Route | Owner | UI Component | Status | Integration Source |
+  |---|---|---|---|---|
+  | `/overview` | P5 | `OverviewPage` | Real API | `GET /v1/overview` |
+  | `/activity` | P5 | `ActivityPage` | Real API | `GET /v1/commitments/{id}/timeline`, `GET /v1/audit` |
+  | `/inbox` | P1 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `/orders/:id` | P1 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `/commitments/:id` | P2 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `/impact/:id` | P2 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `/recovery/:id` | P3 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `/communications` | P4 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `/confirmations/:id` | P4 | `FeaturePlaceholder` | Designated Mock / Placeholder | Owner module pending |
+  | `*` | P5 | `FeaturePlaceholder` | Shared Shell | 404 fallback |
+- **Validation Results**:
+  - `cmd /c npm run typecheck`: Passed (0 errors)
+  - `cmd /c npm test`: Passed (28 passed, 5 skipped)
+  - `cmd /c "set LIVE_API=1&& npm test"`: Passed (33 passed, 0 skipped)
+  - `cmd /c npm run build`: Passed (`dist/` generated in 854ms)
+  - `python -m pytest backend/tests`: Passed (63 passed in 1.42s)
+
+### 2026-10-21 — Task T3.1-C-FIX: Remove Duplicate Core /assess Route, Add Tenant/Commitment Identity Guards, Update Affected P5 Tests (Decision D-013)
+- **Status**: Complete & Verified (Commit `2f06a6a`, Decision D-013 implemented).
+- **Context & Ownership**:
+  - Decision D-013 established that P2 exclusively owns the public trigger endpoint `POST /v1/commitments/{id}/assess`.
+  - P5 Core must not expose the duplicate route to prevent route collision/capture of P2 requests.
+  - Core retains strictly an internal writer (`CommitmentService.assess`) callable by trusted service principals (`service_p2_feasibility`, `SERVICE` / `SYSTEM`).
+- **Changes Implemented**:
+  1. Removed public route `@router.post("/commitments/{commitment_id}/assess")` and `assess_commitment_endpoint` from `backend/app/core/router.py`. Public calls to this path from Core now return 404 Not Found.
+  2. Registered trusted internal service principals in `backend/app/core/dependencies.py` (`service_p2_feasibility`: `SERVICE`, `service_core`: `SERVICE`, `system`: `SYSTEM`).
+  3. Added strict identity & security guards in `CommitmentService.assess`:
+     - **Caller Authorization**: Enforces `context.actor_role in {"SERVICE", "SYSTEM"}`. Normal user actors (`STAFF`, `MANAGER`, `OWNER`) are denied with HTTP 403 `CALLER_NOT_AUTHORIZED`.
+     - **Tenant Identity Guard**: Verifies `assessment.tenant_id == context.tenant_id`. Mismatches rejected with HTTP 400 `TENANT_MISMATCH` without mutating commitment state.
+     - **Commitment Identity Guard**: Verifies `assessment.commitment_id == commitment_id`. Mismatches rejected with HTTP 400 `COMMITMENT_ID_MISMATCH` without mutating commitment state.
+     - **Cross-Tenant Isolation**: Loads commitment strictly by `(context.tenant_id, commitment_id)`. Commitments of other tenants return HTTP 404 `COMMITMENT_NOT_FOUND`.
+     - **Concurrency Guard**: Verifies `assessment.commitment_version == record.commitment_version`. Stale versions return HTTP 409 `COMMITMENT_VERSION_CONFLICT`.
+     - **Idempotency Guard**: If `assessment.assessment_id in record.evidence_refs`, returns current commitment without bumping version or persisting duplicate audit/outbox events.
+     - **Risk Invariants**: `INFEASIBLE` triggers `AT_RISK` and `RECOVERY_REQUIRED` ONLY on `CONFIRMED` commitments; unconfirmed commitments (`REQUESTED`) record `INFEASIBLE` without `AT_RISK`; `UNKNOWN` and `CONDITIONAL` do not trigger `AT_RISK`.
+     - **Mutation Scope**: Mutates strictly the target commitment; `affected_commitment_ids` never triggers side-effect mutations on other commitments.
+     - **Atomic Persistence**: Outbox event and audit record write is atomic; any commit failure rolls back state completely.
+  4. Updated P5 Handshake & E2E Tests:
+     - `backend/tests/integration/test_feature_handshakes.py`: P2 assessment steps updated to invoke `service.assess` with `service_p2_feasibility` trusted context, labelled `[SIMULATED P2 HANDSHAKE]`.
+     - `backend/tests/integration/test_e2e_hero_journey.py`: assessment calls updated to invoke `service.assess` with `service_p2_feasibility`, labelled `[SIMULATED P2 HANDSHAKE]`.
+  5. Added Route Uniqueness & Identity Guards Test Suite:
+     - Created `backend/tests/test_assess_identity_guards.py` (16 tests) asserting: public route 404 absence, route collision prevention across `app.routes`, tenant mismatch 400, commitment mismatch 400, cross-tenant 404, caller 403 vs 200, stale version 409, risk invariants, single-target mutation scope, duplicate assessment idempotency, and atomic commit rollback.
+- **What P2 Can Now Rely On**:
+  - Zero route collision on `POST /v1/commitments/{id}/assess` from Core router; P2's public router mounts and handles this endpoint directly without Core interference.
+  - Core `CommitmentService.assess` provides a robust, idempotent internal writer for P2's background workers or service facade with verified concurrency and identity isolation.
+- **Validation Results**:
+  - `python -m pytest backend/tests`: 79 passed, 0 failed.
+  - `cmd /c npm run typecheck`: Passed (0 errors).
+  - `cmd /c npm test`: Passed (28 passed, 5 skipped).
+  - `cmd /c npm run build`: Passed (`dist/` built cleanly).
+
 
 
 

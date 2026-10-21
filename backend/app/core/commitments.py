@@ -78,9 +78,9 @@ def build_attention_queue(
                 )
             )
 
-        # 4. Awaiting customer confirmation on offered proposal
-        if c.agreement_state == AgreementState.OFFERED.value:
-            is_ambiguous = bool(c.terms.get("confirmation_ambiguous")) if isinstance(c.terms, dict) else False
+        # 4. Awaiting customer confirmation on offered proposal or ambiguous response received
+        is_ambiguous = bool(c.terms.get("confirmation_ambiguous")) if isinstance(c.terms, dict) else False
+        if c.agreement_state == AgreementState.OFFERED.value or is_ambiguous:
             summary = (
                 f"Commitment {c.commitment_id} received ambiguous customer confirmation; clarification required"
                 if is_ambiguous
