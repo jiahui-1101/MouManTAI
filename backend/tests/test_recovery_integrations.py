@@ -27,7 +27,7 @@ def _commitment() -> Commitment:
     return load_demo_recovery_inputs().commitment
 
 
-def _snapshot(commitment: Commitment, *, source=IntegrationSource.AUTHORITATIVE, version=7):
+def _snapshot(commitment: Commitment, *, source=IntegrationSource.SYNTHETIC_TEST_DOUBLE, version=7):
     inner = SimpleNamespace(snapshot_id="snap-1", snapshot_version=version, tenant_id=commitment.tenant_id)
     payload = SimpleNamespace(operational=inner)
     return VersionedSnapshot(payload, commitment.tenant_id, commitment.commitment_id,
@@ -51,7 +51,9 @@ def test_p2_adapter_invokes_only_the_p2_evaluate_contract():
         calls.append(args)
         return result
 
-    returned = P2FeasibilityEvaluatorAdapter(evaluate).evaluate(snapshot, proposal, commitment)
+    returned = P2FeasibilityEvaluatorAdapter(evaluate, allow_test_double=True).evaluate(
+        snapshot, proposal, commitment
+    )
     assert returned is result
     assert calls == [(snapshot.snapshot, proposal, commitment)]
 
@@ -63,15 +65,29 @@ def test_p2_result_version_mismatch_is_rejected():
                                  commitment_version=commitment.commitment_version - 1, snapshot_id="snap-1",
                                  snapshot_version=7)
     with pytest.raises(DomainError, match="result identity or versions"):
-        P2FeasibilityEvaluatorAdapter(lambda *args: bad_result).evaluate(snapshot, None, commitment)
+        P2FeasibilityEvaluatorAdapter(lambda *args: bad_result, allow_test_double=True).evaluate(
+            snapshot, None, commitment
+        )
 
 
 @pytest.mark.parametrize("source", [IntegrationSource.SYNTHETIC_TEST_DOUBLE])
-def test_synthetic_snapshot_cannot_enter_authoritative_p2_adapter(source):
+def test_test_double_snapshot_requires_explicit_isolated_opt_in(source):
     commitment = _commitment()
-    with pytest.raises(DomainError, match="Synthetic snapshots"):
+    with pytest.raises(DomainError, match="explicitly isolated tests"):
         P2FeasibilityEvaluatorAdapter(SimpleNamespace(evaluate=lambda *args: None)).evaluate(
             _snapshot(commitment, source=source), None, commitment)
+
+
+def test_authoritative_p2_evaluation_requires_matching_current_snapshot_token():
+    commitment = _commitment()
+    snapshot = _snapshot(commitment, source=IntegrationSource.AUTHORITATIVE)
+    snapshot.snapshot.current_snapshot_version = None
+    with pytest.raises(DomainError, match="current snapshot version token"):
+        P2FeasibilityEvaluatorAdapter(lambda *args: None).evaluate(snapshot, None, commitment)
+
+    snapshot.snapshot.current_snapshot_version = snapshot.snapshot_version + 1
+    with pytest.raises(DomainError, match="does not match"):
+        P2FeasibilityEvaluatorAdapter(lambda *args: None).evaluate(snapshot, None, commitment)
 
 
 def test_synthetic_evaluator_result_retains_test_double_provenance():

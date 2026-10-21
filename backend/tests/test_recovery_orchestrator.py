@@ -220,9 +220,14 @@ def test_p2_plan_revalidator_calls_evaluate_snapshot_proposal_commitment_contrac
         snapshot=inner_snapshot, tenant_id=commitment.tenant_id,
         commitment_id=commitment.commitment_id, commitment_version=commitment.commitment_version,
         snapshot_id=inner_snapshot.snapshot_id, snapshot_version=3, captured_at=datetime.now(UTC),
-        source=IntegrationSource.AUTHORITATIVE,
+        source=IntegrationSource.SYNTHETIC_TEST_DOUBLE,
     )
-    proposal = object()
+    proposal = SimpleNamespace(
+        tenant_id=commitment.tenant_id,
+        commitment_id=commitment.commitment_id,
+        expected_commitment_version=commitment.commitment_version,
+        expected_snapshot_version=snapshot.snapshot_version,
+    )
     calls = []
 
     class Builder:
@@ -241,9 +246,11 @@ def test_p2_plan_revalidator_calls_evaluate_snapshot_proposal_commitment_contrac
                 evidence_refs=["ev_p2_authoritative"], assumptions=["bound authoritative snapshot"],
             )
 
-    result = P2PlanRevalidatorAdapter(Evaluator(), Builder()).evaluate_plan(snapshot, plan, commitment)
+    result = P2PlanRevalidatorAdapter(
+        Evaluator(), Builder(), allow_test_double=True
+    ).evaluate_plan(snapshot, plan, commitment)
     assert calls == [(inner_snapshot, proposal, commitment)]
-    assert result.source == IntegrationSource.AUTHORITATIVE
+    assert result.source == IntegrationSource.SYNTHETIC_TEST_DOUBLE
     assert result.evaluation_id == "p2_assessment_3"
     assert result.evidence_refs == ("ev_p2_authoritative",)
 

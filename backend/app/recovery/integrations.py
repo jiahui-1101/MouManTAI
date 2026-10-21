@@ -23,6 +23,7 @@ from app.core.service import CommitmentService
 
 class IntegrationSource(StrEnum):
     AUTHORITATIVE = "AUTHORITATIVE"
+    SYNTHETIC_FIXTURE = "SYNTHETIC_FIXTURE"
     SYNTHETIC_TEST_DOUBLE = "SYNTHETIC_TEST_DOUBLE"
 
 
@@ -142,15 +143,46 @@ def validate_proposal_binding(proposal: Any | None, snapshot: VersionedSnapshot,
 class P2FeasibilityEvaluatorAdapter:
     """Thin adapter to the P2 evaluate() call; never computes feasibility."""
 
-    def __init__(self, evaluator: P2EvaluationFunction | FeasibilityEvaluator | Callable[..., Any]) -> None:
+    def __init__(
+        self,
+        evaluator: P2EvaluationFunction | FeasibilityEvaluator | Callable[..., Any],
+        *,
+        allow_test_double: bool = False,
+    ) -> None:
         self._evaluator = evaluator
+        self._allow_test_double = allow_test_double
 
     def evaluate(self, snapshot: VersionedSnapshot, proposed_changes: Any | None,
                  commitment: Commitment) -> Any:
-        if snapshot.source is not IntegrationSource.AUTHORITATIVE:
-            raise DomainError("AUTHORITATIVE_INPUT_REQUIRED", "Synthetic snapshots cannot validate live plans", status_code=409)
+        if snapshot.source is IntegrationSource.SYNTHETIC_TEST_DOUBLE and not self._allow_test_double:
+            raise DomainError(
+                "AUTHORITATIVE_INPUT_REQUIRED",
+                "Test doubles are available only to explicitly isolated tests",
+                status_code=409,
+            )
+        if snapshot.source not in (
+            IntegrationSource.AUTHORITATIVE,
+            IntegrationSource.SYNTHETIC_FIXTURE,
+            IntegrationSource.SYNTHETIC_TEST_DOUBLE,
+        ):
+            raise DomainError("P2_INPUT_PROVENANCE_INVALID", "P2 input provenance is unsupported", status_code=409)
         validate_snapshot_binding(snapshot, commitment)
         validate_proposal_binding(proposed_changes, snapshot, commitment)
+        current_version = getattr(snapshot.snapshot, "current_snapshot_version", None)
+        if snapshot.source is IntegrationSource.AUTHORITATIVE and current_version is None:
+            raise DomainError(
+                "CURRENT_SNAPSHOT_VERSION_REQUIRED",
+                "Authoritative P2 evaluation requires a current snapshot version token",
+                status_code=503,
+            )
+        if current_version is not None and current_version != snapshot.snapshot_version:
+            raise DomainError(
+                "SNAPSHOT_VERSION_CONFLICT",
+                "P2 current snapshot token does not match the evaluated snapshot",
+                status_code=409,
+                details={"current_snapshot_version": current_version,
+                         "snapshot_version": snapshot.snapshot_version},
+            )
         # P2 expects EvaluationSnapshot, ProposedChanges | None, Commitment.
         evaluate = getattr(self._evaluator, "evaluate", self._evaluator)
         if not callable(evaluate):

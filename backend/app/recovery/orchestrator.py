@@ -11,7 +11,7 @@ import logging
 from datetime import UTC, datetime
 from enum import StrEnum
 from threading import RLock
-from typing import Protocol
+from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 from pydantic import ConfigDict, Field
@@ -38,6 +38,7 @@ from .integrations import (
     CommitmentReader,
     IntegrationSource,
     OperationalSnapshotProvider,
+    P2FeasibilityEvaluatorAdapter,
     VerifiedActorContextProvider,
     VersionedSnapshot,
     require_verified_actor,
@@ -50,6 +51,7 @@ from .models import (
     RecoveryPlanVersion,
     ValidationSource,
 )
+from .proposal_mapping import P2ProposalMapping, ProposalMappingStatus
 from .service import RecoveryPlanner
 
 logger = logging.getLogger(__name__)
@@ -89,7 +91,14 @@ class PlanReevaluation(ContractModel):
     source: IntegrationSource
     evidence_refs: tuple[str, ...] = ()
     assumptions: tuple[str, ...] = ()
+    constraints: tuple[dict[str, Any], ...] = ()
+    solver_status: str | None = None
+    evidence_complete: bool | None = None
+    allocation_dependent: bool | None = None
     evaluated_at: OffsetAwareDatetime
+    evaluation_origin: Literal["P2", "P3_UNSUPPORTED_MAPPING"] = "P2"
+    source_assessment_id: str | None = None
+    unsupported_reason_code: str | None = None
 
 
 class PlanRevalidator(Protocol):
@@ -110,19 +119,67 @@ class P2ProposalBuilder(Protocol):
 class P2PlanRevalidatorAdapter:
     """Calls P2's evaluator; proposal conversion is injected to avoid guessing P2 types."""
 
-    def __init__(self, evaluator: object, proposal_builder: P2ProposalBuilder) -> None:
+    def __init__(
+        self,
+        evaluator: object,
+        proposal_builder: P2ProposalBuilder,
+        *,
+        allow_test_double: bool = False,
+    ) -> None:
         self.evaluator = evaluator
         self.proposal_builder = proposal_builder
+        self.allow_test_double = allow_test_double
 
     def evaluate_plan(self, snapshot: VersionedSnapshot, plan: RecoveryPlanVersion,
                       commitment: Commitment) -> PlanReevaluation:
-        if snapshot.source != IntegrationSource.AUTHORITATIVE:
-            raise DomainError("AUTHORITATIVE_INPUT_REQUIRED", "P2 revalidation requires an authoritative snapshot", status_code=409)
-        proposal = self.proposal_builder.build(plan, snapshot, commitment)
-        method = getattr(self.evaluator, "evaluate", self.evaluator)
-        if not callable(method):
-            raise DomainError("P2_EVALUATOR_UNAVAILABLE", "Configured P2 evaluator has no evaluate() method", status_code=503)
-        result = method(snapshot.snapshot, proposal, commitment)
+        if (snapshot.source is IntegrationSource.SYNTHETIC_TEST_DOUBLE
+                and not self.allow_test_double):
+            raise DomainError(
+                "AUTHORITATIVE_INPUT_REQUIRED",
+                "Test-double P2 revalidation is available only to explicitly isolated tests",
+                status_code=409,
+            )
+        if snapshot.source not in (
+            IntegrationSource.AUTHORITATIVE,
+            IntegrationSource.SYNTHETIC_FIXTURE,
+            IntegrationSource.SYNTHETIC_TEST_DOUBLE,
+        ):
+            raise DomainError("P2_INPUT_PROVENANCE_INVALID", "P2 input provenance is unsupported", status_code=409)
+        mapping = self.proposal_builder.build(plan, snapshot, commitment)
+        if isinstance(mapping, P2ProposalMapping):
+            if mapping.status is ProposalMappingStatus.UNSUPPORTED:
+                return PlanReevaluation(
+                    evaluation_id=f"p3-unsupported-{plan.plan_id}-v{plan.plan_version}",
+                    tenant_id=commitment.tenant_id,
+                    commitment_id=commitment.commitment_id,
+                    commitment_version=commitment.commitment_version,
+                    plan_id=plan.plan_id,
+                    plan_version=plan.plan_version,
+                    snapshot_id=snapshot.snapshot_id,
+                    snapshot_version=snapshot.snapshot_version,
+                    status=FeasibilityState.CONDITIONAL,
+                    source=snapshot.source,
+                    evidence_refs=mapping.evidence_refs,
+                    assumptions=mapping.assumptions,
+                    evaluated_at=datetime.now(UTC),
+                    evaluation_origin="P3_UNSUPPORTED_MAPPING",
+                    source_assessment_id=mapping.source_assessment_id,
+                    unsupported_reason_code=mapping.reason_code,
+                )
+            proposal = mapping.proposed_changes
+            mapping_evidence_refs = mapping.evidence_refs
+            mapping_assumptions = mapping.assumptions
+            source_assessment_id = mapping.source_assessment_id
+        else:
+            # Preserve the original protocol's direct P2 proposal behavior for
+            # existing injected builders while the concrete typed mapper rolls out.
+            proposal = mapping
+            mapping_evidence_refs = ()
+            mapping_assumptions = ()
+            source_assessment_id = plan.based_on_assessment_id
+        result = P2FeasibilityEvaluatorAdapter(
+            self.evaluator, allow_test_double=self.allow_test_double
+        ).evaluate(snapshot, proposal, commitment)
         result_binding = (
             getattr(result, "tenant_id", None), getattr(result, "commitment_id", None),
             getattr(result, "commitment_version", None), getattr(result, "snapshot_id", None),
@@ -139,16 +196,37 @@ class P2PlanRevalidatorAdapter:
         evaluated_at = getattr(result, "assessed_at", None) or getattr(result, "evaluated_at", None)
         if not evaluation_id or evaluated_at is None:
             raise DomainError("P2_RESULT_INVALID", "P2 result must include its evaluation ID and timestamp", status_code=409)
+        constraints = []
+        for constraint in getattr(result, "constraints", ()):
+            if hasattr(constraint, "model_dump"):
+                constraints.append(constraint.model_dump(mode="json"))
+            elif isinstance(constraint, dict):
+                constraints.append(dict(constraint))
+            else:
+                constraints.append({"reason": str(constraint)})
+        solver_status = getattr(result, "solver_status", None)
+        if solver_status is not None:
+            solver_status = getattr(solver_status, "value", solver_status)
         return PlanReevaluation(
             evaluation_id=str(evaluation_id),
             tenant_id=commitment.tenant_id, commitment_id=commitment.commitment_id,
             commitment_version=commitment.commitment_version, plan_id=plan.plan_id,
             plan_version=plan.plan_version, snapshot_id=snapshot.snapshot_id,
             snapshot_version=snapshot.snapshot_version, status=FeasibilityState(status),
-            source=IntegrationSource.AUTHORITATIVE,
-            evidence_refs=tuple(getattr(result, "evidence_refs", ())),
-            assumptions=tuple(getattr(result, "assumptions", ())),
+            source=snapshot.source,
+            evidence_refs=tuple(dict.fromkeys((
+                *getattr(result, "evidence_refs", ()), *mapping_evidence_refs,
+            ))),
+            assumptions=tuple(dict.fromkeys((
+                *getattr(result, "assumptions", ()), *mapping_assumptions,
+            ))),
+            constraints=tuple(constraints),
+            solver_status=str(solver_status) if solver_status is not None else None,
+            evidence_complete=getattr(result, "evidence_complete", None),
+            allocation_dependent=getattr(result, "allocation_dependent", None),
             evaluated_at=evaluated_at,
+            evaluation_origin="P2",
+            source_assessment_id=source_assessment_id,
         )
 
 
@@ -463,6 +541,13 @@ class GovernedRecoveryOrchestrator:
             )
             if actual_binding != expected_binding:
                 raise DomainError("P2_RESULT_VERSION_MISMATCH", "Re-evaluation identity/version binding is stale", status_code=409)
+            if reevaluation.evaluation_origin != "P2":
+                raise DomainError(
+                    "PLAN_REVALIDATION_BLOCKED",
+                    "P2 did not evaluate this plan because its proposal strategy is unsupported",
+                    status_code=409,
+                    details={"unsupported_reason_code": reevaluation.unsupported_reason_code},
+                )
             if (snapshot.source != IntegrationSource.AUTHORITATIVE
                     or reevaluation.source != IntegrationSource.AUTHORITATIVE
                     or plan.evaluation.validation_source != ValidationSource.REAL_P2_VALIDATED):
