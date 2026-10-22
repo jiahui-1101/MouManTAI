@@ -1855,3 +1855,9 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Frontend evidence: npm test -- --reporter=dot → 414 passed, 5 skipped; npm run typecheck and npm run build passed on the unchanged frontend source tree after the route-test correction. Build retains the existing >500 kB bundle warning.
 - Remaining limitations: this deterministic test covers the two requested orderings and a stale source outcome; it is not stress testing or proof of all database lock interactions. P2 and P5 must review the lock-order implementation and the D-041 boundary reconciliation. The PR remains Draft; production subscriber registration remains disabled.
 - Next action: normal push of the review branch and request renewed P2 (meishuet16) and P5 (Gan0117) review on PR #16. Do not merge Main.
+
+## 2026-10-22 — PR #16 owner review and CI follow-up
+
+- On published implementation head 5ee00e21fee895adb685ca26862c46ea54792807, P5 reviewer Gan0117 submitted APPROVED. P2 reviewer meishuet16 remains requested; the latest submitted P2 review is COMMENTED on older commit 8b15cc5d9d22fce3e8dd3b8593af51c946ae53b3, so P2 approval on the lock-order correction is still pending.
+- GitHub checks on implementation head 5ee00e2 completed: Hygiene & Secret Checks, Frontend Checks (Typecheck, Vitest, Build), and Backend Tests (pytest & syntax) all SUCCESS.
+- PR #16 remains OPEN and DRAFT. This follow-up records status after the initial TEAM_LOG entry; a log-only commit follows and does not change implementation or test results. P2 and P5 review requests are renewed for that resulting head.
