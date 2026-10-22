@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import importlib
 
 import pytest
@@ -46,11 +46,31 @@ def _route_method_paths(router) -> list[tuple[str, str]]:
     )
 
 
+class RecordingAssessmentHistoryReader:
+    def __init__(self, *, result=None, error: DomainError | None = None, listed=None) -> None:
+        self.result = result
+        self.error = error
+        self.listed = listed or []
+        self.get_calls: list[tuple[str, str, str]] = []
+        self.list_calls: list[tuple[str, str]] = []
+
+    def get_assessment(self, db, context, commitment_id: str, assessment_id: str):
+        self.get_calls.append((context.tenant_id, commitment_id, assessment_id))
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+    def list_for_commitment(self, db, context, commitment_id: str):
+        self.list_calls.append((context.tenant_id, commitment_id))
+        return self.listed
+
+
 def test_feasibility_routers_are_separately_mountable_and_compatibly_combined() -> None:
     router_module = importlib.import_module("app.feasibility.router")
     expected_by_router = {
         "feasibility_read_router": {
             ("GET", "/v1/commitments/{commitment_id}/assessments"),
+            ("GET", "/v1/commitments/{commitment_id}/assessments/{assessment_id}"),
             ("GET", "/v1/impacts/{impact_id}"),
         },
         "feasibility_assessment_router": {
@@ -72,8 +92,11 @@ def test_feasibility_routers_are_separately_mountable_and_compatibly_combined() 
     expected_combined_routes = set().union(*expected_by_router.values())
     combined_routes = _route_method_paths(router_module.router)
     assert router_module.router is feasibility_router
+    assert all(method == "GET" for method, _ in _route_method_paths(
+        router_module.feasibility_read_router
+    ))
     assert set(combined_routes) == expected_combined_routes
-    assert len(combined_routes) == len(expected_combined_routes) == 5
+    assert len(combined_routes) == len(expected_combined_routes) == 6
 
     assessment_path = "/v1/commitments/{commitment_id}/assess"
     assessment_endpoint = next(
@@ -204,6 +227,199 @@ def _create_confirmed_commitment(client: TestClient) -> dict:
     )
     assert confirmed.status_code == 200, confirmed.text
     return confirmed.json()["commitment"]
+
+
+def _assessment_for_lookup(commitment: dict, assessment_id: str) -> FeasibilityAssessment:
+    return FeasibilityAssessment(
+        assessment_id=assessment_id,
+        tenant_id=commitment["tenant_id"],
+        commitment_id=commitment["commitment_id"],
+        commitment_version=commitment["commitment_version"],
+        snapshot_version=101,
+        status="FEASIBLE",
+        solver_status="COMPLETED",
+        assessed_at=datetime.now(timezone.utc),
+    )
+
+
+def test_assessment_lookup_returns_exact_persisted_result_without_recalculation(
+    api_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commitment = _create_confirmed_commitment(api_client)
+    assessment = _assessment_for_lookup(commitment, "fa_exact_lookup_001")
+    reader = RecordingAssessmentHistoryReader(result=assessment)
+    api_client.app.dependency_overrides[get_assessment_history] = lambda: reader
+
+    router_module = importlib.import_module("app.feasibility.router")
+    monkeypatch.setattr(
+        router_module,
+        "evaluate",
+        lambda *args, **kwargs: pytest.fail("lookup must not calculate a new assessment"),
+    )
+    response = api_client.get(
+        f"/v1/commitments/{commitment['commitment_id']}/assessments/{assessment.assessment_id}"
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == assessment.model_dump(mode="json")
+    assert reader.get_calls == [
+        (commitment["tenant_id"], commitment["commitment_id"], assessment.assessment_id)
+    ]
+    assert reader.list_calls == []
+
+
+def test_assessment_lookup_returns_not_found_for_missing_assessment_id(
+    api_client: TestClient,
+) -> None:
+    commitment = _create_confirmed_commitment(api_client)
+    reader = RecordingAssessmentHistoryReader(
+        error=DomainError(
+            "ASSESSMENT_NOT_FOUND",
+            "Authoritative assessment was not found",
+            status_code=404,
+        )
+    )
+    api_client.app.dependency_overrides[get_assessment_history] = lambda: reader
+
+    response = api_client.get(
+        f"/v1/commitments/{commitment['commitment_id']}/assessments/fa_missing_lookup"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "ASSESSMENT_NOT_FOUND"
+    assert reader.get_calls == [
+        (commitment["tenant_id"], commitment["commitment_id"], "fa_missing_lookup")
+    ]
+
+
+def test_assessment_lookup_hides_cross_tenant_commitment(
+    api_client: TestClient,
+) -> None:
+    commitment = _create_confirmed_commitment(api_client)
+    assessment = _assessment_for_lookup(commitment, "fa_cross_tenant_lookup")
+    reader = RecordingAssessmentHistoryReader(result=assessment)
+    api_client.app.dependency_overrides[get_assessment_history] = lambda: reader
+    api_client.app.dependency_overrides[get_request_context] = lambda: RequestContext(
+        tenant_id="tenant-other",
+        actor_id="user_manager_01",
+        actor_role="MANAGER",
+        correlation_id="corr_other_tenant",
+    )
+
+    response = api_client.get(
+        f"/v1/commitments/{commitment['commitment_id']}/assessments/{assessment.assessment_id}"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "COMMITMENT_NOT_FOUND"
+    assert reader.get_calls == []
+
+
+def test_assessment_lookup_fails_closed_without_history_dependency(
+    api_client: TestClient,
+) -> None:
+    commitment = _create_confirmed_commitment(api_client)
+    response = api_client.get(
+        f"/v1/commitments/{commitment['commitment_id']}/assessments/fa_unavailable_lookup"
+    )
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "P2_ASSESSMENT_HISTORY_NOT_CONFIGURED"
+
+
+def test_assessment_lookup_propagates_advisory_provenance_rejection(
+    api_client: TestClient,
+) -> None:
+    from app.core.events import CoreEventType
+    from app.core.feasibility_adapters import AuthoritativeAssessmentHistoryReader
+    from app.core.models import AuditEventRecord
+
+    commitment = _create_confirmed_commitment(api_client)
+    assessment_id = "fa_advisory_lookup"
+    audit = AuditEventRecord(
+        audit_id="aud_advisory_lookup_01",
+        tenant_id=commitment["tenant_id"],
+        commitment_id=commitment["commitment_id"],
+        event_type=CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value,
+        actor_id="service_p2",
+        actor_role="SERVICE",
+        dimension="feasibility",
+        previous_state={},
+        new_state={
+            "advisory": True,
+            "assessment_id": assessment_id,
+            "feasibility_state": "FEASIBLE",
+            "commitment_version": commitment["commitment_version"],
+            "snapshot_version": 101,
+        },
+        evidence_refs=[],
+        reason="Advisory lookup regression",
+        correlation_id="corr_advisory_lookup",
+        occurred_at=datetime.now(timezone.utc),
+    )
+    db_generator = api_client.app.dependency_overrides[get_db]()
+    db = next(db_generator)
+    try:
+        db.add(audit)
+        db.commit()
+    finally:
+        db_generator.close()
+    api_client.app.dependency_overrides[get_assessment_history] = (
+        lambda: AuthoritativeAssessmentHistoryReader()
+    )
+
+    response = api_client.get(
+        f"/v1/commitments/{commitment['commitment_id']}/assessments/{assessment_id}"
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "ASSESSMENT_PROVENANCE_MISSING"
+    assert response.json()["details"]["field"] == "advisory"
+
+
+@pytest.mark.parametrize(
+    "field,wrong_value",
+    [
+        ("assessment_id", "fa_other_lookup"),
+        ("tenant_id", "tenant-other"),
+        ("commitment_id", "com_other_lookup"),
+    ],
+)
+def test_assessment_lookup_rejects_mismatched_reader_identity(
+    api_client: TestClient,
+    field: str,
+    wrong_value: str,
+) -> None:
+    commitment = _create_confirmed_commitment(api_client)
+    assessment = _assessment_for_lookup(commitment, "fa_requested_lookup")
+    mismatched = assessment.model_copy(update={field: wrong_value})
+    reader = RecordingAssessmentHistoryReader(result=mismatched)
+    api_client.app.dependency_overrides[get_assessment_history] = lambda: reader
+
+    response = api_client.get(
+        f"/v1/commitments/{commitment['commitment_id']}/assessments/fa_requested_lookup"
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "ASSESSMENT_PROVENANCE_MISMATCH"
+    assert field in response.json()["details"]["mismatched_fields"]
+
+
+def test_assessment_list_get_remains_list_reader_operation(api_client: TestClient) -> None:
+    commitment = _create_confirmed_commitment(api_client)
+    assessment = _assessment_for_lookup(commitment, "fa_list_lookup")
+    reader = RecordingAssessmentHistoryReader(listed=[assessment])
+    api_client.app.dependency_overrides[get_assessment_history] = lambda: reader
+
+    response = api_client.get(
+        f"/v1/commitments/{commitment['commitment_id']}/assessments"
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == [assessment.model_dump(mode="json")]
+    assert reader.list_calls == [(commitment["tenant_id"], commitment["commitment_id"])]
+    assert reader.get_calls == []
 
 
 def _evaluation_payload() -> dict:

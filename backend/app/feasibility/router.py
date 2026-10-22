@@ -289,6 +289,48 @@ def list_assessments(
     return history.list_for_commitment(db, context, commitment_id)
 
 
+@feasibility_read_router.get(
+    "/v1/commitments/{commitment_id}/assessments/{assessment_id}",
+    response_model=FeasibilityAssessment,
+)
+def get_assessment(
+    commitment_id: str,
+    assessment_id: str,
+    db: Db,
+    context: Context,
+    history: AssessmentHistoryDependency,
+) -> FeasibilityAssessment:
+    """Return one exact persisted authoritative assessment without recalculation."""
+
+    commitment_service.get(db, context, commitment_id)
+    if history is None:
+        raise _blocked(
+            "P2_ASSESSMENT_HISTORY_NOT_CONFIGURED",
+            "P5 has not approved durable assessment-history storage",
+            correlation_id=context.correlation_id,
+        )
+
+    assessment = history.get_assessment(db, context, commitment_id, assessment_id)
+    mismatched_fields = [
+        field
+        for field, expected, actual in (
+            ("assessment_id", assessment_id, assessment.assessment_id),
+            ("tenant_id", context.tenant_id, assessment.tenant_id),
+            ("commitment_id", commitment_id, assessment.commitment_id),
+        )
+        if actual != expected
+    ]
+    if mismatched_fields:
+        raise DomainError(
+            "ASSESSMENT_PROVENANCE_MISMATCH",
+            "Assessment history reader returned a result outside the exact lookup scope",
+            status_code=409,
+            details={"mismatched_fields": mismatched_fields},
+            correlation_id=context.correlation_id,
+        )
+    return assessment
+
+
 @feasibility_supplier_event_router.post(
     "/v1/operations/events/supplier-delay", response_model=ImpactAssessment
 )
