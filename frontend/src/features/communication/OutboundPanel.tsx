@@ -5,6 +5,8 @@ import { formatKLTimestamp } from "../../shared/date";
 import { communicationKeys, getOutboundHistory, getSendEligibility, sendMessage } from "./api";
 import { errorText } from "./presentation";
 import type { MessageDraftView } from "./types";
+import { ApiErrorReference, P4ErrorPanel } from "./P4Feedback";
+import { useInlineConfirmationFocus } from "./useInlineConfirmationFocus";
 
 export function OutboundPanel({ communicationId, draft, auth, now }: {
   communicationId: string; draft?: MessageDraftView; auth: RequestAuthHeaders; now: number;
@@ -24,6 +26,7 @@ export function OutboundPanel({ communicationId, draft, auth, now }: {
   const canSend = !!draft && eligibility.isSuccess && !eligibility.isFetching && eligibility.data.can_send &&
     !!eligibility.data.expires_at && Date.parse(eligibility.data.expires_at) > now && Date.parse(draft.expires_at) > now &&
     history.isSuccess && !history.isFetching && !history.data.some(row => row.draft_id === draft.draft_id);
+  const focus = useInlineConfirmationFocus(confirming && canSend);
   const mutation = useMutation({ retry: false,
     mutationFn: async () => {
       if (!draft || !canSend) throw new Error("Sending eligibility must be checked again");
@@ -41,27 +44,29 @@ export function OutboundPanel({ communicationId, draft, auth, now }: {
     }, onSettled: () => { busy.current = false; },
   });
   const submit = () => { if (busy.current || mutation.isPending || !canSend) return; busy.current = true; mutation.mutate(); };
-  return <section className="cc-section cc-outbound" aria-label="Mock sending">
+  return <section ref={focus.regionRef} tabIndex={-1} className="cc-section cc-outbound" aria-label="Mock sending">
     <h4>Mock Sending</h4><p className="muted text-sm">Local simulation only. Sending does not mean delivered, accepted or fulfilled.</p>
     {!draft && <p>Load a current draft to check sending eligibility.</p>}
     {draft && eligibility.isFetching && <p role="status">Checking sending eligibility…</p>}
     {draft && !canSend && !eligibility.isFetching && <p className="cc-error">Sending blocked: current backend authorization and verified contact are required.
       {eligibility.isSuccess && eligibility.data.blocked_reason && <span> ({eligibility.data.blocked_reason})</span>}</p>}
-    {eligibility.isError && <p role="alert">{errorText(eligibility.error, "send")}</p>}
-    {draft && <button className="btn btn-primary" disabled={!canSend || mutation.isPending} onClick={() => setConfirming(true)}>Send Message</button>}
-    {confirming && canSend && <fieldset className="cc-review-confirm"><legend>Confirm mock send</legend>
+    {eligibility.isError && <P4ErrorPanel error={eligibility.error} message={errorText(eligibility.error, "send")} retry={() => { void eligibility.refetch(); }} />}
+    {draft && <button ref={focus.triggerRef} className="btn btn-primary" disabled={!canSend || mutation.isPending} onClick={() => setConfirming(true)}>Send Message</button>}
+    {confirming && canSend && <fieldset className="cc-review-confirm" onKeyDown={event => {
+      if (event.key === "Escape" && !mutation.isPending) { event.preventDefault(); setConfirming(false); }
+    }}><legend>Confirm mock send</legend>
       <p>Send this exact approved draft via {draft?.channel}? This only uses a local Mock Provider.</p>
-      <button className="btn btn-primary" disabled={mutation.isPending} onClick={submit}>Confirm Send Message</button>
+      <button ref={focus.confirmRef} className="btn btn-primary" disabled={mutation.isPending} onClick={submit}>Confirm Send Message</button>
       <button className="btn btn-secondary" disabled={mutation.isPending} onClick={() => setConfirming(false)}>Cancel send</button>
     </fieldset>}
     {mutation.isPending && <p role="status">Sending mock message…</p>}
-    {mutation.isError && <p role="alert">{errorText(mutation.error, "send")} Check sending history before retrying.</p>}
+    {mutation.isError && <div role="alert" className="cc-error"><p>{errorText(mutation.error, "send")} Check sending history before retrying.</p><ApiErrorReference error={mutation.error} /></div>}
     {mutation.data?.status === "DELIVERY_UNKNOWN" && <p role="alert">Sending outcome is unknown. Do not resend; manual reconciliation is required.</p>}
     <h5>Sending History</h5>
     <button className="btn btn-secondary" disabled={history.isFetching} onClick={() => {
       void history.refetch(); if (draft) void eligibility.refetch(); }}>Refresh sending history</button>
     {history.isFetching ? <p role="status">Loading sending history…</p> : history.isError ?
-      <p role="alert">{errorText(history.error, "send")}</p> : history.data?.length ?
+      <P4ErrorPanel error={history.error} message={errorText(history.error, "send")} retry={() => { void history.refetch(); }} /> : history.data?.length ?
       <ul className="cc-outbound-history">{history.data.map(row => <li key={row.outbound_id}>
         <strong>{row.channel} · {row.status === "QUEUED" ? "Sending" : row.status}</strong>
         {row.status === "SENT" && <p role="status">Mock message sent successfully.</p>}

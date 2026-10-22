@@ -5,6 +5,8 @@ import { formatKLTimestamp } from "../../shared/date";
 import { communicationKeys, getDraftReview, submitDraftReview } from "./api";
 import { ErrorNotice, errorText } from "./presentation";
 import type { DraftReviewCommand, MessageDraftView } from "./types";
+import { ApiErrorReference } from "./P4Feedback";
+import { useInlineConfirmationFocus } from "./useInlineConfirmationFocus";
 
 export function ManagerReview({ draft, auth, now }: { draft: MessageDraftView; auth: RequestAuthHeaders; now: number }) {
   const client = useQueryClient();
@@ -44,6 +46,7 @@ export function ManagerReview({ draft, auth, now }: { draft: MessageDraftView; a
   const current = review.isSuccess && !review.isFetching && !expired ? review.data : undefined;
   const canApprove = current?.review_state === "PENDING" && current.allowed_actions.includes("APPROVE_DRAFT");
   const canReject = current?.review_state === "PENDING" && current.allowed_actions.includes("REJECT_DRAFT");
+  const focus = useInlineConfirmationFocus(confirming && !!canApprove);
   const submit = (action: "approve" | "reject") => {
     if (busy.current || mutation.isPending || (action === "approve" ? !canApprove : !canReject)) return;
     if (action === "reject" && (!reason.trim() || reason.length > 1000)) return;
@@ -53,7 +56,7 @@ export function ManagerReview({ draft, auth, now }: { draft: MessageDraftView; a
     mutation.mutate({ action, command: { request_key: keys.current.get(signature)!, expected_content_hash: draft.content_hash,
       ...(action === "reject" ? { reason: reason.trim() } : {}) } });
   };
-  return <section className="cc-section cc-review" aria-label="Manager Review">
+  return <section ref={focus.regionRef} tabIndex={-1} className="cc-section cc-review" aria-label="Manager Review">
     <h4>Manager Review</h4>
     <p className="muted text-sm">Review this exact message. Message approval is separate from recovery proposal approval and does not send anything.</p>
     {review.isFetching && <p role="status">Checking manager review…</p>}
@@ -66,10 +69,12 @@ export function ManagerReview({ draft, auth, now }: { draft: MessageDraftView; a
       {current.review_state === "INVALIDATED" && <p className="cc-error">This review is invalidated. It cannot authorize a send. {current.invalidation_code}</p>}
       {current.review_state === "PENDING" && !canApprove && !canReject && <p className="muted">Read-only: no manager review permission was granted for this draft.</p>}
       {(canApprove || canReject) && <div className="cc-review-controls">
-        {canApprove && !confirming && <button className="btn btn-primary" disabled={mutation.isPending} onClick={() => setConfirming(true)}>Approve Draft</button>}
-        {canApprove && confirming && <fieldset className="cc-review-confirm"><legend>Confirm draft approval</legend>
+        {canApprove && !confirming && <button ref={focus.triggerRef} className="btn btn-primary" disabled={mutation.isPending} onClick={() => setConfirming(true)}>Approve Draft</button>}
+        {canApprove && confirming && <fieldset className="cc-review-confirm" onKeyDown={event => {
+          if (event.key === "Escape" && !mutation.isPending) { event.preventDefault(); setConfirming(false); }
+        }}><legend>Confirm draft approval</legend>
           <p>Approve draft {draft.draft_id} for {draft.recipient_identity_id} on {draft.channel}? This does not send the message.</p>
-          <div className="cc-actions"><button className="btn btn-primary" disabled={mutation.isPending} onClick={() => submit("approve")}>Confirm Approve Draft</button>
+          <div className="cc-actions"><button ref={focus.confirmRef} className="btn btn-primary" disabled={mutation.isPending} onClick={() => submit("approve")}>Confirm Approve Draft</button>
             <button className="btn btn-secondary" disabled={mutation.isPending} onClick={() => setConfirming(false)}>Cancel approval</button></div>
         </fieldset>}
         {canReject && <form className="cc-review-reject" onSubmit={event => { event.preventDefault(); submit("reject"); }}>
@@ -93,6 +98,7 @@ export function ManagerReview({ draft, auth, now }: { draft: MessageDraftView; a
     </>}
     {mutation.isPending && <p role="status">Saving draft review…</p>}
     {mutation.isError && <div className="cc-error" role="alert"><p>{errorText(mutation.error, "review")}</p>
+      <ApiErrorReference error={mutation.error} />
       <p className="muted text-sm">No sending action was requested. Recheck the review before retrying.</p></div>}
   </section>;
 }

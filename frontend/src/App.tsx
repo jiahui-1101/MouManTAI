@@ -6,16 +6,17 @@ import { AppShell } from "./layout/AppShell";
 import { FeaturePlaceholder } from "./pages/FeaturePlaceholder";
 import { OverviewPage } from "./features/overview/OverviewPage";
 import { ActivityPage } from "./features/activity/ActivityPage";
+import { CommunicationCenterPage } from "./features/communication/CommunicationCenterPage";
 import { ConfirmationWorkspacePage } from "./features/communication/ConfirmationWorkspacePage";
 import { FollowUpQueuePage } from "./features/communication/FollowUpQueuePage";
 import { DurableInbox } from "./features/context/DurableInbox";
 import { OrderContextDetail } from "./features/context/OrderContextDetail";
-import { CommunicationCenterPage } from "./features/communication/CommunicationCenterPage";
 import { AuthProvider, useAuth } from "./shared/auth";
 import { apiRequest, authHeaders } from "./shared/api";
 import { createP2PublicApiSource } from "./features/feasibility/apiSource";
 import { CommitmentFeasibilityPage } from "./features/feasibility/CommitmentFeasibilityPage";
 import { ImpactDetailPage } from "./features/feasibility/ImpactDetailPage";
+import { RecoveryCaseRoutePage } from "./features/recovery/RecoveryCaseRoutePage";
 import { RecoveryPage } from "./features/recovery/RecoveryPage";
 
 export function CommitmentFeasibilityRoute() {
@@ -87,7 +88,8 @@ export function App({ queryClient, initialTenantId, initialActorId }: AppProps =
               <Route path="/orders/:id" element={<OrderContextDetail />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
-              <Route path="/recovery/:id" element={<RecoveryPage />} />
+              <Route path="/recovery/:id/plans" element={<RecoveryPage />} />
+              <Route path="/recovery/:id" element={<RecoveryCaseRoutePage />} />
               <Route path="/communications" element={<CommunicationCenterPage />} />
               <Route path="/confirmations/:id" element={<ConfirmationWorkspacePage />} />
               <Route path="/communications/follow-ups" element={<FollowUpQueuePage />}/>

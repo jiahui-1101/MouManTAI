@@ -2,6 +2,7 @@ import { ApiError } from "../../shared/api";
 import { StatusBadge } from "../../shared/StatusBadge";
 import type { ConfirmationState } from "../../shared/types";
 import type { ConfirmationView, ResponseIntent } from "./confirmationTypes";
+import { P4ErrorPanel } from "./P4Feedback";
 
 const labels: Record<ConfirmationState, string> = {
   AWAITING_RESPONSE: "Awaiting response", ACCEPTED: "Acceptance recorded", REJECTED: "Rejection recorded",
@@ -14,8 +15,11 @@ export const responseLabels: Record<ResponseIntent, string> = {
 };
 export function ConfirmationBadge({ value }: { value: ConfirmationView }) {
   const revoked = value.revoked_at !== null || value.blocked_reasons.includes("CONFIRMATION_REVOKED");
+  const tone = revoked || value.state === "EXPIRED" || value.state === "REJECTED" ? "danger" :
+    ["SUPERSEDED", "CLARIFICATION_REQUIRED", "UNRESOLVED"].includes(value.state) ? "warning" :
+      value.state === "ACCEPTED" ? "evidence" : "neutral";
   return <StatusBadge state={revoked ? "REVOKED" : value.state} label={revoked ? "Revoked" : labels[value.state]}
-    className="cw-badge" />;
+    className={`cw-badge p4-confirmation-${tone}`} />;
 }
 export function currentnessText(value: ConfirmationView) {
   if (value.state === "SUPERSEDED") return "Superseded — reported by backend";
@@ -35,12 +39,13 @@ export function confirmationErrorText(error: unknown) {
   if (error.code === "CONFIRMATION_DISPOSABLE_SCOPE_REQUIRED") return "Confirmation access requires the configured disposable synthetic environment. Contact the integration owner.";
   if (error.code === "RESPONSE_SCOPE_MISMATCH") return "The response does not match this tenant or confirmation. No record is displayed.";
   if (error.code === "UNSUPPORTED_RESPONSE") return "The confirmation response could not be validated. No record is displayed.";
-  if (/STALE|SUPERSEDED|PROPOSAL_CHANGED|VERSION_MISMATCH|TERMS_MISMATCH/.test(error.code)) {
+  if (/STALE|SUPERSEDED|PROPOSAL_CHANGED|VERSION_MISMATCH|TERMS_MISMATCH|PROPOSAL_ID_MISMATCH/.test(error.code)) {
     return "The backend reports changed or stale proposal information. Review the exact proposal version before continuing.";
   }
   if (error.code === "CONFIRMATION_REVOKED") return "This confirmation was revoked. No customer acceptance action is available.";
   if (error.code === "CONFIRMATION_EXPIRED") return "This confirmation expired. Review a current approved proposal with the integration owner.";
   if (error.status === 401) return "Your session is not authorized. Sign in again.";
+  if (error.status === 400) return "The confirmation request was rejected. Check the selected record and retry.";
   if (error.status === 403) return "You do not have permission to view this confirmation.";
   if (error.status === 404) return "Confirmation not found, or the confirmation route is unavailable. Check the ID and retry.";
   if (error.status === 409) return "Confirmation information conflicts with the requested record. Refresh to check the backend result.";
@@ -48,9 +53,5 @@ export function confirmationErrorText(error: unknown) {
   return "Confirmation service is unavailable. Please retry.";
 }
 export function ConfirmationError({ error, retry, busy = false }: { error: unknown; retry: () => void; busy?: boolean }) {
-  return <div className="cc-error" role="alert"><p>{confirmationErrorText(error)}</p>
-    {error instanceof ApiError && <p className="text-sm">Reference: <code>{error.code}</code>
-      {error.correlationId && <> · Correlation: <code>{error.correlationId}</code></>}</p>}
-    <button className="btn btn-secondary" disabled={busy} onClick={retry}>Retry</button>
-  </div>;
+  return <P4ErrorPanel error={error} message={confirmationErrorText(error)} retry={retry} busy={busy} />;
 }

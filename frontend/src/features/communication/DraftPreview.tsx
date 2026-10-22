@@ -5,9 +5,9 @@ import { channelText, languages } from "./presentation";
 export function DraftPreview({ draft, onReload }: { draft: MessageDraftView; onReload: () => void }) {
   return <article className="cc-preview" aria-label="Message draft preview">
     <div className="cc-row"><h4>Message preview</h4><span className="cc-draft-note">Draft Only — Not Sent</span></div>
-    <p className="muted text-sm">{languages[draft.language]} · {channelText(draft.channel)} · Template v{draft.template_version} · Proposal v{draft.reference.proposal_version}</p>
+    <p className="muted text-sm">{languages[draft.language]} · {channelText(draft.channel)} · Template v{draft.template_version} · Proposal <code>{draft.reference.proposal_id}</code> · v{draft.reference.proposal_version}</p>
     {draft.subject && <p className="cc-subject"><strong>Subject:</strong> {draft.subject}</p>}
-    <pre className="cc-message">{draft.body}</pre>
+    <pre className="cc-message" tabIndex={0} aria-label="Draft message body">{draft.body}</pre>
     <dl className="cc-facts">
       <div><dt>Draft ID</dt><dd>{draft.draft_id}</dd></div>
       <div><dt>Order reference</dt><dd>{draft.order_id}</dd></div>
