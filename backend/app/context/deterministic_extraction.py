@@ -36,18 +36,23 @@ PROVISIONAL_PRODUCTS = tuple(
 )
 
 UNIT_NORMALIZATION: dict[str, str] = {
-    # pieces family
+    # pieces family (EN, ZH, MS)
     "pc": "pcs",
     "pcs": "pcs",
     "piece": "pcs",
     "pieces": "pcs",
     "个": "pcs",
     "件": "pcs",
-    # box family
+    "biji": "pcs",
+    "buah": "pcs",
+    "bungkus": "pcs",
+    "paket": "pcs",
+    # box family (EN, ZH, MS)
     "box": "box",
     "boxes": "box",
     "盒": "box",
     "箱": "box",
+    "kotak": "box",
     # kg family
     "kg": "kg",
     "kilogram": "kg",
@@ -77,14 +82,18 @@ UNSAFE_ASSOCIATION_RE = re.compile(
 AMBIGUOUS_DELIVERY_RE = re.compile(
     r"\b(?:next\s+(?:friday|monday|tuesday|wednesday|thursday|saturday|sunday|week|month)|"
     r"this\s+(?:friday|monday|tuesday|wednesday|thursday|saturday|sunday|weekend)|"
-    r"asap|as\s+soon\s+as\s+possible|soon|same\s+as\s+last\s+time|esok)\b|"
+    r"asap|as\s+soon\s+as\s+possible|soon|same\s+as\s+last\s+time)\b|"
     r"(?:下周[一二三四五六日七]?|下个星期[一二三四五六天]?|这周末|下个月|尽快|马上|越快越好|老样子|照旧)",
     re.IGNORECASE
 )
 
-# Relative dates
-REL_DATE_EN_RE = re.compile(r"\b(?P<rel>today|tomorrow|tmr|tmrw|2moro)\b", re.IGNORECASE)
+# Relative dates (EN, ZH, MS)
+REL_DATE_EN_RE = re.compile(r"\b(?P<rel>today|tomorrow|tmr|tmrw|2moro|day\s+after\s+tomorrow)\b", re.IGNORECASE)
+REL_DAYS_EN_RE = re.compile(r"\b(?:in\s+)?(?P<days>\d+)\s+days?\s*(?:later|from\s+now)?\b", re.IGNORECASE)
 REL_DATE_ZH_RE = re.compile(r"(?P<rel>今天|明天|大后天|后天)")
+REL_DAYS_ZH_RE = re.compile(r"(?<!\d)(?P<days>\d+)\s*天[之以]?后")
+REL_DATE_MS_RE = re.compile(r"\b(?P<rel>hari\s+ini|esok|besok|lusa|tulat|tulats)\b", re.IGNORECASE)
+REL_DAYS_MS_RE = re.compile(r"\b(?:dalam\s+(?P<days1>\d+)\s+hari|(?P<days2>\d+)\s+hari\s+lagi)\b", re.IGNORECASE)
 
 # ISO Date: YYYY-MM-DD
 ISO_DATE_RE = re.compile(r"\b(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})\b")
@@ -116,7 +125,7 @@ NUMERIC_DATE_RE = re.compile(r"(?<![A-Za-z0-9])[0-9]{1,2}[/-][0-9]{1,2}(?:[/-][0
 
 # Time patterns
 TIME_12H_RE = re.compile(
-    r"(?<![A-Za-z0-9_:])(?P<hour>[0-9]+)(?::(?P<minute>[0-9]+))?"
+    r"(?<![A-Za-z0-9_:])(?P<hour>[0-9]+)(?:[:.](?P<minute>[0-9]+))?"
     r"(?P<extra>(?::[0-9]+)*)\s*(?P<meridiem>am|pm)(?P<suffix>[A-Za-z0-9_]*)(?![A-Za-z0-9_:])",
     re.IGNORECASE
 )
@@ -128,24 +137,34 @@ TIME_ZH_RE = re.compile(
     r"(?<![0-9])(?:(?P<meridiem>下午|晚上|上午|早上|中午|傍晚)\s*)?"
     r"(?P<hour>[0-9]+)\s*(?:点|时)(?:(?P<minute>[0-9]+)分?|(?P<half>半))?(?P<extra>[0-9]+秒)?"
 )
+TIME_MS_RE = re.compile(
+    r"\b(?:pukul|jam)\s+(?P<hour>[0-9]+)(?:[:.](?P<minute>[0-9]+))?"
+    r"(?:\s*(?P<meridiem>pagi|tengah\s+hari|petang|malam))?\b",
+    re.IGNORECASE
+)
 
 # These semantics cannot be represented by EXACT/DEADLINE/DATE_ONLY. Keep
 # the original expression unresolved rather than silently dropping a modifier.
 UNSUPPORTED_TIME_SEMANTICS_RE = re.compile(
     r"\b(?:after|not\s+before|earlier\s+than|around|about|between|from|maybe|possibly|at\s+least|not\s+at|"
-    r"not\s+by|UTC|GMT|EST|EDT|CST|CDT|MST|MDT|PST|PDT|BST|CET|CEST|HKT|SGT|MYT|JST|AEST|AEDT)\b|"
+    r"not\s+by|mungkin|belum\s+pasti|tengok\s+dulu|selepas|UTC|GMT|EST|EDT|CST|CDT|MST|MDT|PST|PDT|BST|CET|CEST|HKT|SGT|MYT|JST|AEST|AEDT)\b|"
     r"(?<![A-Za-z0-9])[+-][0-9]{2}:?[0-9]{2}(?![0-9])|"
     r"\b[A-Za-z_]+/[A-Za-z_]+\b|之后|以后|过后|大约|左右|不早于|不要|不是|再定|待定|(?<=点)后",
     re.IGNORECASE,
 )
 
-# Deadline indicators
+# Deadline indicators (EN, ZH, MS)
 DEADLINE_PRE_RE = re.compile(
-    r"\b(?:before|by|no\s+later\s+than|prior\s+to|until)\b|(?:最晚|不迟于)",
+    r"\b(?:before|by|no\s+later\s+than|prior\s+to|until|"
+    r"sebelum|selewat-lewatnya|paling\s+lambat|tak\s+lewat\s+dari)\b|"
+    r"(?:最晚|不迟于)",
     re.IGNORECASE
 )
 DEADLINE_POST_RE = re.compile(r"^(?:之前|前)")
-EXACT_INDICATOR_RE = re.compile(r"\b(?:at|on|for|precisely)\b|在|于", re.IGNORECASE)
+EXACT_INDICATOR_RE = re.compile(
+    r"\b(?:at|on|for|precisely|pada|tepat\s+pada)\b|在|于",
+    re.IGNORECASE
+)
 
 DELIVERY_CONFLICT_CONNECTOR_RE = re.compile(
     r"\b(?:or|and|或者|和)\b|[/或]",
@@ -217,7 +236,12 @@ def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate
             tz_required.append((m.start(), m.end()))
         else:
             rel = m.group("rel").lower()
-            d = local_date + timedelta(days=1) if rel in ("tomorrow", "tmr", "tmrw", "2moro") else local_date
+            if rel in ("tomorrow", "tmr", "tmrw", "2moro"):
+                d = local_date + timedelta(days=1)
+            elif rel == "day after tomorrow":
+                d = local_date + timedelta(days=2)
+            else:
+                d = local_date
             valid.append(ParsedDate(d, m.start(), m.end(), m.group()))
 
     for m in REL_DATE_ZH_RE.finditer(text):
@@ -227,6 +251,35 @@ def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate
             rel = m.group("rel")
             delta = 3 if rel == "大后天" else 2 if rel == "后天" else 1 if rel == "明天" else 0
             valid.append(ParsedDate(local_date + timedelta(days=delta), m.start(), m.end(), m.group()))
+
+    for m in REL_DATE_MS_RE.finditer(text):
+        if local_date is None:
+            tz_required.append((m.start(), m.end()))
+        else:
+            rel = m.group("rel").lower()
+            delta = 3 if rel in ("tulat", "tulats") else 2 if rel == "lusa" else 1 if rel in ("esok", "besok") else 0
+            valid.append(ParsedDate(local_date + timedelta(days=delta), m.start(), m.end(), m.group()))
+
+    for m in REL_DAYS_EN_RE.finditer(text):
+        if local_date is None:
+            tz_required.append((m.start(), m.end()))
+        else:
+            days = int(m.group("days"))
+            valid.append(ParsedDate(local_date + timedelta(days=days), m.start(), m.end(), m.group()))
+
+    for m in REL_DAYS_ZH_RE.finditer(text):
+        if local_date is None:
+            tz_required.append((m.start(), m.end()))
+        else:
+            days = int(m.group("days"))
+            valid.append(ParsedDate(local_date + timedelta(days=days), m.start(), m.end(), m.group()))
+
+    for m in REL_DAYS_MS_RE.finditer(text):
+        if local_date is None:
+            tz_required.append((m.start(), m.end()))
+        else:
+            days = int(m.group("days1") or m.group("days2"))
+            valid.append(ParsedDate(local_date + timedelta(days=days), m.start(), m.end(), m.group()))
 
     # 2. ISO Date
     for m in ISO_DATE_RE.finditer(text):
@@ -284,7 +337,7 @@ def _find_all_times(text: str) -> tuple[list[ParsedTime], list[tuple[int, int]]]
     times: list[ParsedTime] = []
     invalid = []
     occupied = []
-    for pattern in (TIME_12H_RE, TIME_ZH_RE, TIME_24H_RE):
+    for pattern in (TIME_12H_RE, TIME_ZH_RE, TIME_MS_RE, TIME_24H_RE):
         for m in pattern.finditer(text):
             if any(m.start() < end and start < m.end() for start, end in occupied):
                 continue
@@ -299,14 +352,19 @@ def _find_all_times(text: str) -> tuple[list[ParsedTime], list[tuple[int, int]]]
             hr = int(hour)
             mn = 30 if groups.get("half") else int(minute) if minute else 0
             bad_hour = not (1 <= hr <= 12) if mer else not (0 <= hr <= 23)
-            ambiguous = pattern is TIME_ZH_RE and ((not mer and 1 <= hr <= 12)
-                or (mer == "中午" and hr != 12) or (mer in ("晚上", "早上") and hr == 12))
+            ambiguous = (pattern is TIME_ZH_RE and ((not mer and 1 <= hr <= 12)
+                or (mer == "中午" and hr != 12) or (mer in ("晚上", "早上") and hr == 12))) or (
+                pattern is TIME_MS_RE and not mer and 1 <= hr <= 12
+            )
             if bad_hour or not 0 <= mn <= 59 or ambiguous:
                 invalid.append(m.span())
                 continue
-            if mer in ("pm", "下午", "晚上", "傍晚") and hr < 12:
+            if mer in ("pm", "下午", "晚上", "傍晚", "petang", "malam") and hr < 12:
                 hr += 12
-            elif mer in ("am", "上午", "早上") and hr == 12:
+            elif mer in ("tengah hari", "tengahhari"):
+                if hr < 12:
+                    hr += 12
+            elif mer in ("am", "上午", "早上", "pagi") and hr == 12:
                 hr = 0
             times.append(ParsedTime(hr, mn, m.start(), m.end(), m.group()))
     times.sort(key=lambda x: x.start)
@@ -385,7 +443,13 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     ambig_match = AMBIGUOUS_DELIVERY_RE.search(text)
     dates_found, invalid_calendar_spans, tz_required_spans, yearless_spans = _find_all_dates(text, local_date)
     times_found, invalid_time_spans = _find_all_times(text)
-    unsupported_semantics = UNSUPPORTED_TIME_SEMANTICS_RE.search(text) if dates_found or times_found else None
+    unsupported_semantics = None
+    if dates_found or times_found:
+        for m_unsupp in UNSUPPORTED_TIME_SEMANTICS_RE.finditer(text):
+            if any(d.start <= m_unsupp.start() and m_unsupp.end() <= d.end for d in dates_found):
+                continue
+            unsupported_semantics = m_unsupp
+            break
     # Exclude every recognized temporal token from quantity candidates, even
     # when delivery is invalid/unresolved. Do not steal dates as order counts.
     delivery_spans.extend([(d.start, d.end) for d in dates_found]
@@ -499,8 +563,8 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
                 span_start = pre_start + m_exact.start()
 
         # Leading connector word (on, by, before, at)
-        lead_slice = text[max(0, span_start - 8):span_start]
-        m_lead = re.search(r"\b(?:on|by|before|at)\s+$", lead_slice, re.IGNORECASE)
+        lead_slice = text[max(0, span_start - 12):span_start]
+        m_lead = re.search(r"\b(?:on|by|before|at|pada|sebelum|untuk)\s+$", lead_slice, re.IGNORECASE)
         if m_lead:
             span_start = span_start - (len(lead_slice) - m_lead.start())
 
