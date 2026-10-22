@@ -408,7 +408,7 @@ def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate
         adjacent_date = None
         for d in valid:
             if (0 <= d.start - m.end() <= 3 and text[m.end():d.start].strip() in ("", ",", "(", ")")) or \
-               (0 <= m.start - d.end <= 3 and text[d.end():m.start].strip() in ("", ",", "(", ")")):
+               (0 <= m.start() - d.end <= 3 and text[d.end:m.start()].strip() in ("", ",", "(", ")")):
                 adjacent_date = d
                 break
         name = (m.group("name_en") or m.group("name_ms") or m.group("name_zh") or "").lower()
@@ -514,6 +514,52 @@ def _resolve_complex_temporal_semantics(text: str, dates_found: list[ParsedDate]
 
     if len(dates_found) == 1:
         d = dates_found[0]
+        # Check if single-date delivery is an explicit rescheduling / postponement request
+        pre_d_slice = text[max(0, d.start - 50):d.start].lower()
+        m_single_resched = re.search(r'\b(?:reschedul\w*|postpon\w*|delay(?:\s+the)?\s+delivery|change(?:\s+the)?\s+delivery|move(?:\s+the)?\s+delivery|moving(?:\s+the)?\s+delivery|tunda|ubah\s+tarikh|tukar\s+tarikh|改期|更改送货|推迟)\b', pre_d_slice)
+        if m_single_resched and not APPROXIMATE_MODIFIER_RE.search(text[d.start:min(len(text), d.end + 25)]):
+            assoc_t = times_found[0] if times_found else None
+            qual = "DATE_ONLY"
+            target_iso = None
+            dl_quote = ""
+            full_s = min(m_single_resched.start() + max(0, d.start - 50), d.start)
+            full_e = d.end
+            if assoc_t:
+                full_e = max(d.end, assoc_t.end)
+                time_gap = text[d.end:assoc_t.start] if assoc_t.start >= d.end else text[assoc_t.end:d.start]
+                m_dl = DEADLINE_PRE_RE.search(time_gap) or DEADLINE_POST_RE.search(text[assoc_t.end:assoc_t.end + 15])
+                if m_dl:
+                    qual = "DEADLINE"
+                    dl_quote = f"{m_dl.group().strip()} {assoc_t.raw}"
+                else:
+                    qual = "EXACT"
+                if tz:
+                    wall_dt = datetime.combine(d.date_val, time(assoc_t.hour, assoc_t.minute))
+                    target_dt, _ = _unique_local_instant(wall_dt, tz)
+                    if target_dt:
+                        target_iso = target_dt.isoformat()
+            meta = {
+                "rescheduling": "true",
+                "temporal_role": "requested_new_delivery",
+                "requested_delivery_date": d.date_val.isoformat(),
+                "requested_delivery_quote": d.raw,
+                "qualifier": qual,
+                "extraction_correctness": "CONFIRMED_PARSED",
+                "business_authorization": "REQUIRES_HUMAN_REVIEW",
+                "reason": f"Rescheduled delivery to {d.raw}{(' ' + dl_quote) if dl_quote else ''}; manual review required",
+            }
+            if qual == "DEADLINE":
+                meta["upper_bound_deadline"] = target_iso or ""
+                meta["deadline_time"] = f"{assoc_t.hour:02d}:{assoc_t.minute:02d}:00" if assoc_t else ""
+                meta["deadline_quote"] = dl_quote
+            return {
+                "value": target_iso or d.date_val.isoformat(),
+                "qualifier": qual,
+                "target_span": (d.start, assoc_t.end if assoc_t else d.end),
+                "full_span": (full_s, full_e),
+                "metadata": meta,
+            }
+
         if times_found:
             t = times_found[0]
             win_start = min(d.start, t.start)
@@ -640,7 +686,7 @@ def _resolve_complex_temporal_semantics(text: str, dates_found: list[ParsedDate]
     is_instead_of = bool(re.search(r'\b(?:instead\s+of|rather\s+than|daripada|而不是)\b', between))
 
     # 2. Negation / Correction: not on <d1>, but on <d2>
-    is_negation = bool(re.search(r'\b(?:not\s+on|not|bukan\s+pada|bukan|tidak\s+pada|不是在|不是|不要在)\b', pre_d1)) and bool(re.search(r'\b(?:but|on|deliver|hantar|改在|要在|而是)\b', between))
+    is_negation = bool(re.search(r"\b(?:not\s+on|not|bukan\s+pada|bukan|tidak\s+pada|don't\s+deliver\s+on|do\s+not\s+deliver\s+on|jangan\s+hantar\s+pada|jangan\s+pada|cancel|batalkan|不是在|不是|不要在)\b", pre_d1)) and bool(re.search(r"\b(?:but|on|deliver|hantar|send|hantar\s+pada|改在|要在|而是|instead)\b", between))
 
     # 3. Date Range: between <d1> and <d2>
     is_range = bool(re.search(r'\b(?:between|antara|在)\b', pre_d1)) and bool(re.search(r'\b(?:and|dan|到|至|与)\b', between))
@@ -722,6 +768,8 @@ def _resolve_complex_temporal_semantics(text: str, dates_found: list[ParsedDate]
             "requested_delivery_date": target_date.date_val.isoformat(),
             "requested_delivery_quote": target_date.raw,
             "qualifier": qualifier,
+            "extraction_correctness": "CONFIRMED_PARSED",
+            "business_authorization": "REQUIRES_HUMAN_REVIEW",
             "reason": f"{'Rescheduled' if mode == 'rescheduling' else 'Corrected'} delivery from {orig_date.raw} to {target_date.raw}{(' ' + deadline_quote) if deadline_quote else ''}; manual review required",
         }
         if qualifier == "DEADLINE":

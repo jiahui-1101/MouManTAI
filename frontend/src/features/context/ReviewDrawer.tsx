@@ -250,7 +250,22 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
             </div>
             <p>{catalogState === 'ready' ? `Approved SKU/unit pairs: ${catalog.map(p => `${p.sku} / ${p.unit}`).join(', ') || 'none configured'}` : `Approved catalog ${catalogState}; product mapping cannot be verified.`}</p>
             <datalist id="p1-approved-skus">{[...new Set(catalog.map(p => p.sku))].map(sku => <option key={sku} value={sku} />)}</datalist>
-            {!!context.conflicts?.length && <label><input type="checkbox" checked={conflictsReviewed} onChange={e => setConflictsReviewed(e.target.checked)} />I reviewed and resolved all listed conflicts</label>}
+            {!!context.conflicts?.length && (
+              <div className="p1-drawer-conflicts" style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '10px 12px', marginBottom: '14px' }}>
+                <h5 style={{ margin: '0 0 6px 0', color: '#991b1b', fontSize: '12px', fontWeight: 700 }}>
+                  Pending Authorization & Policy Constraints ({context.conflicts.length})
+                </h5>
+                <ul style={{ margin: 0, paddingLeft: '18px', color: '#b91c1c', fontSize: '11px', lineHeight: '1.4' }}>
+                  {context.conflicts.map((conf, idx) => (
+                    <li key={idx} style={{ marginBottom: '3px' }}>{conf}</li>
+                  ))}
+                </ul>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '11px', color: '#7f1d1d', fontWeight: 600, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={conflictsReviewed} onChange={e => setConflictsReviewed(e.target.checked)} />
+                  I reviewed and resolved all listed conflicts
+                </label>
+              </div>
+            )}
 
             {items.map((it, idx) => (
               <div
@@ -340,9 +355,19 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
                   disabled={submitting}
                 />
                 <span className="p1-form-hint">ISO 8601 with explicit timezone offset</span>
-                {evidenceDelivery && !deliveryAt.includes('T') && (
+                {evidenceDelivery && (
                   <span className="p1-form-hint" style={{ color: '#0369a1', display: 'block', marginTop: '4px' }}>
-                    Extracted date: <strong>{evidenceDelivery}</strong> (DATE_ONLY). Enter full ISO timestamp with offset (e.g. {evidenceDelivery}T15:00:00+08:00) to confirm delivery.
+                    Extracted date/time: <strong>{evidenceDelivery}</strong> {evidenceQualifier ? `(${evidenceQualifier})` : ''}
+                    {!deliveryAt.includes('T') && !deliveryAt.endsWith('Z') && (
+                      <span style={{ display: 'block', marginTop: '2px' }}>
+                        Enter full ISO timestamp with offset (e.g. {evidenceDelivery.split('T')[0]}T15:00:00+08:00) to confirm delivery.
+                      </span>
+                    )}
+                    {Boolean((context.field_evidence?.requested_delivery_at?.[0]?.normalization_metadata as Record<string, string> | undefined)?.reason) && (
+                      <span style={{ display: 'block', color: '#475569', marginTop: '2px' }}>
+                        Reason: {String((context.field_evidence?.requested_delivery_at?.[0]?.normalization_metadata as Record<string, string>).reason)}
+                      </span>
+                    )}
                   </span>
                 )}
               </div>

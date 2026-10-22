@@ -6,7 +6,7 @@ Enforces:
    - quantity
    - unit
    - requested_delivery_at
-   (plus order_id preserved for purchase order association reference).
+   (Order reference PO/ORD is context envelope metadata for message association, never a 5th canonical field).
 2. Exactly ONE authoritative result per logical field per item.
 3. No duplicate RULE and MODEL rows for identical or conflicting proposals.
 4. Genuinely absent fields remain MISSING (never fabricated or forced to VALID/UNRESOLVED).
@@ -26,7 +26,6 @@ ALLOWED_CANONICAL_FIELD_NAMES = {
     "quantity",
     "unit",
     "requested_delivery_at",
-    "order_id",
 }
 
 
@@ -39,7 +38,6 @@ def reconcile_canonical_fields(
     raw_text: str = "",
 ) -> tuple[list[ExtractedField], int]:
     """Reconcile deterministic rule observations and AI model proposals into
-
     canonical, deduplicated fields.
 
     Returns:
@@ -64,20 +62,7 @@ def reconcile_canonical_fields(
                 tenant_catalog_skus.add(p.sku)
                 tenant_catalog_units.setdefault(p.sku, set()).add(p.unit)
 
-    # 2. Reconcile order reference (order_id)
-    order_fields = [f for f in valid_rule_fields if f.field_name == "order_id"]
-    model_order_candidates = [c for c in valid_model_candidates if c.field_name == "order_id"]
-    canonical_order: ExtractedField | None = None
-
-    if order_fields:
-        canonical_order = order_fields[0]
-    elif model_order_candidates:
-        candidate = model_order_candidates[0]
-        if candidate.value and candidate.evidence:
-            canonical_order = candidate
-            accepted_model_count += 1
-
-    # 3. Reconcile delivery (requested_delivery_at) - exactly 1 canonical field
+    # 2. Reconcile delivery (requested_delivery_at) - exactly 1 canonical field
     delivery_fields = [f for f in valid_rule_fields if f.field_name == "requested_delivery_at"]
     model_delivery_candidates = [c for c in valid_model_candidates if c.field_name == "requested_delivery_at"]
     canonical_delivery: ExtractedField | None = None
@@ -138,10 +123,12 @@ def reconcile_canonical_fields(
         if f.field_name in ("sku", "quantity", "unit"):
             gid = f.metadata.get("group_id") or "g1"
             groups.setdefault(gid, {})
-            # If already present in this group, only overwrite if current is MISSING/UNRESOLVED and new is VALID
-            if f.field_name not in groups[gid] or (
-                groups[gid][f.field_name].validation_status != "VALID" and f.validation_status == "VALID"
-            ):
+            current = groups[gid].get(f.field_name)
+            if current is None:
+                groups[gid][f.field_name] = f
+            elif current.value is None and f.value is not None:
+                groups[gid][f.field_name] = f
+            elif current.validation_status != "VALID" and f.validation_status == "VALID":
                 groups[gid][f.field_name] = f
 
     if not groups:
@@ -285,10 +272,8 @@ def reconcile_canonical_fields(
 
         canonical_items.extend([final_sku, final_qty, final_unit])
 
-    # Assemble final canonical list
+    # Assemble final canonical list (strictly 4 canonical fields: delivery + items)
     reconciled: list[ExtractedField] = []
-    if canonical_order is not None:
-        reconciled.append(canonical_order)
     if canonical_delivery is not None:
         reconciled.append(canonical_delivery)
     reconciled.extend(canonical_items)

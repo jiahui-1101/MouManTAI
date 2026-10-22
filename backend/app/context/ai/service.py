@@ -518,8 +518,8 @@ class ModelProposalService:
 
         elif observation.field == "delivery":
             # Guard against model proposing the superseded moved-from date in a rescheduling clause
-            preceding = message.raw.text[max(0, observation.start - 25):observation.start].lower()
-            is_superseded_date = bool(re.search(r'\b(?:from|dari|not\s+on|instead\s+of|bukan|daripada|sebelum ini)\s*$', preceding)) or bool(re.search(r'\s*(?:从)\s*$', preceding))
+            preceding = message.raw.text[max(0, observation.start - 35):observation.start].lower()
+            is_superseded_date = bool(re.search(r"\b(?:from|dari|not\s+on|not|instead\s+of|bukan|daripada|sebelum\s+ini|cancel|batalkan|don't\s+deliver\s+on|do\s+not\s+deliver\s+on|jangan\s+hantar\s+pada)\s*$", preceding)) or bool(re.search(r"\s*(?:从|不是|取消|不要在)\s*$", preceding))
             if is_non_order or PAST_DATE_PATTERNS.search(quote):
                 status, reason = "INVALID", "Time expression mentioned in non-order inquiry or past context"
                 supported = False

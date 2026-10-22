@@ -31,8 +31,8 @@ from app.context.core_publisher import CoreContextPublisher
 from app.context.reconciliation import reconcile_canonical_fields
 
 
-def make_test_message(text: str, tenant_id: str = "synthetic_tenant_a", tz: str = "Asia/Kuala_Lumpur") -> StoredMessage:
-    rx = datetime(2026, 10, 20, 10, 0, 0, tzinfo=ZoneInfo(tz))
+def make_test_message(text: str, tenant_id: str = "synthetic_tenant_a", tz: str = "Asia/Kuala_Lumpur", msg_time: datetime | None = None) -> StoredMessage:
+    rx = msg_time or datetime(2026, 10, 20, 10, 0, 0, tzinfo=ZoneInfo(tz))
     raw = RawMessageEnvelope(
         tenant_id=tenant_id,
         channel="WHATSAPP",
@@ -288,11 +288,14 @@ def test_case_a_rescheduling_exact_four_fields_and_deduplication(pg_engine):
     """Regression Case A: Delivery rescheduling with deadline and written confirmation.
 
     Verifies:
-    1. Only allowed canonical fields (sku, quantity, unit, requested_delivery_at + order_id).
-    2. Exactly 1 result per logical field (no duplicates).
-    3. special_instructions is NOT an ExtractedField.
-    4. Delivery deadline preserved as DEADLINE, never normalized to EXACT.
-    5. Approval constraint preserved in context conflicts.
+    1. Strictly ONLY the 4 canonical fields: sku, quantity, unit, requested_delivery_at.
+    2. order_id is associated at the context level, NEVER a 5th canonical extracted field.
+    3. Exactly 1 authoritative result per logical field (no duplicate rows).
+    4. special_instructions is captured as context constraint, NOT an ExtractedField.
+    5. Delivery deadline preserved as DEADLINE, never normalized to EXACT.
+    6. Extraction correctness vs Business authorization:
+       - Extraction correctly parses target date 2026-10-27T15:00:00+08:00 (DEADLINE)
+       - Business authorization flags CONFLICT requiring human approval.
     """
     text = (
         "Regarding PO-DEMO-2026-1042, due to unexpected campus holiday scheduling, "
@@ -308,18 +311,17 @@ def test_case_a_rescheduling_exact_four_fields_and_deduplication(pg_engine):
     fields = proc_res.attempt.fields
 
     field_names = [f.field_name for f in fields]
-    # Exactly one of each canonical field
-    assert field_names.count("order_id") == 1
+    # Strictly the 4 canonical fields
+    assert len(fields) == 4
     assert field_names.count("requested_delivery_at") == 1
     assert field_names.count("sku") == 1
     assert field_names.count("quantity") == 1
     assert field_names.count("unit") == 1
-    # special_instructions must NOT be an ExtractedField
+    # order_id and special_instructions must NOT be canonical ExtractedFields
+    assert "order_id" not in field_names
     assert "special_instructions" not in field_names
-    assert len(fields) == 5
 
     f_map = {f.field_name: f for f in fields}
-    assert f_map["order_id"].value == "PO-DEMO-2026-1042"
     assert f_map["sku"].value == "BURGER"
     assert f_map["sku"].validation_status == "VALID"
     assert f_map["quantity"].value == "100"
@@ -334,11 +336,17 @@ def test_case_a_rescheduling_exact_four_fields_and_deduplication(pg_engine):
     assert del_f.metadata["rescheduling"] == "true"
     assert del_f.metadata["original_delivery_date"] == "2026-10-26"
     assert del_f.metadata["requested_delivery_date"] == "2026-10-27"
+    assert del_f.metadata["extraction_correctness"] == "CONFIRMED_PARSED"
+    assert del_f.metadata["business_authorization"] == "REQUIRES_HUMAN_REVIEW"
 
     # Context verification
     ctx_service = ContextService(repo)
     ctx = ctx_service.create_or_update_from_message("synthetic_tenant_a", msg_id)
+    # Sender is unverified (+60123456789); unverified senders cannot auto-bind orders without human link verification
+    assert ctx.order_id is None
     assert ctx.status == "CONFLICT"
+    assert ctx.requested_delivery_at == datetime.fromisoformat("2026-10-27T15:00:00+08:00")
+    assert ctx.delivery_qualifier == "DEADLINE"
     assert any("Rescheduled delivery: moving from 2026-10-26 to 2026-10-27" in c for c in ctx.conflicts)
     assert any("Approval constraint: manual written confirmation is required" in c for c in ctx.conflicts)
 
@@ -997,3 +1005,44 @@ def test_l2_delivery_rescheduling_accepts_target_date_as_deadline():
     assert cand.qualifier == "DEADLINE"
     assert cand.evidence[0].quote == "27 October 2026 before 3:00 PM"
 
+
+
+def test_single_date_rescheduling_request_marks_unresolved_with_correct_parsed_date():
+    """'reschedule delivery to 27 October 2026 before 3:00 PM' extracts new date correctly while flagging review."""
+    text = "Regarding PO-DEMO-2026-1042, please reschedule delivery to 27 October 2026 before 3:00 PM. Quantity 50 pcs burgers."
+    msg = make_test_message(text)
+    res = extract_explicit_fields(msg, catalog=PROVISIONAL_CATALOG)
+    fields = {f.field_name: f for f in res.fields}
+
+    del_f = fields["requested_delivery_at"]
+    assert del_f.validation_status == "UNRESOLVED"
+    assert del_f.qualifier == "DEADLINE"
+    assert del_f.value == "2026-10-27T15:00:00+08:00"
+    assert del_f.metadata["rescheduling"] == "true"
+    assert del_f.metadata["extraction_correctness"] == "CONFIRMED_PARSED"
+    assert del_f.metadata["business_authorization"] == "REQUIRES_HUMAN_REVIEW"
+
+
+def test_negation_dont_deliver_on_friday_send_monday_instead(pg_engine):
+    """'don't deliver on Friday, send on Monday before 10am instead' corrects delivery to Monday DEADLINE."""
+    # Message dated Thursday 2026-10-22. Friday = 2026-10-23, Monday = 2026-10-26.
+    text = "Need to update order for 30 boxes burgers, don't deliver on Friday, send on Monday before 10am instead."
+    msg = make_test_message(text, msg_time=datetime(2026, 10, 22, 9, 0, tzinfo=ZoneInfo("Asia/Kuala_Lumpur")))
+    repo = PostgresMessageRepository(pg_engine, catalog=PROVISIONAL_CATALOG)
+    ingested = repo.ingest(msg.raw, now=msg.raw.received_at)
+    proc_res = repo.process("synthetic_tenant_a", ingested.message.message_id)
+
+    fields = proc_res.attempt.fields
+    assert len(fields) == 4
+    f_map = {f.field_name: f for f in fields}
+    assert f_map["sku"].value == "BURGER"
+    assert f_map["quantity"].value == "30"
+    assert f_map["unit"].value == "box"
+
+    del_f = f_map["requested_delivery_at"]
+    assert del_f.validation_status == "UNRESOLVED"
+    assert del_f.qualifier == "DEADLINE"
+    assert del_f.metadata["correction"] == "true"
+    assert del_f.metadata["original_delivery_date"] == "2026-10-23"
+    assert del_f.metadata["requested_delivery_date"] == "2026-10-26"
+    assert del_f.value == "2026-10-26T10:00:00+08:00"
