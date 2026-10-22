@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import Field
 from sqlalchemy import select
@@ -52,6 +52,8 @@ class DurableCommunicationHandoff:
         plan = db.get(RecoveryPlanRecord, (context.tenant_id, plan_id, command.expected_plan_version))
         if plan is None:
             raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Recovery plan was not found", status_code=404)
+        if plan.status != "PENDING_APPROVAL":
+            raise DomainError("PLAN_VERSION_NOT_ACTIVE", "This plan version is no longer actionable", status_code=409)
         commitment = db.scalar(select(CommitmentRecord).where(
             CommitmentRecord.tenant_id == context.tenant_id,
             CommitmentRecord.commitment_id == plan.commitment_id,
@@ -117,7 +119,8 @@ class DurableCommunicationHandoff:
             typed.feasibility_status, typed.evaluation.solver_status, plan.snapshot_id,
         ) or result.status not in {"FEASIBLE", "CONDITIONAL"}:
             raise DomainError("PLAN_REVALIDATION_FAILED", "P2 result changed", status_code=409)
-        proposal_id = plan_id
+        proposal_id = typed.proposal_id or plan_id
+        proposal_version = typed.proposal_version or plan.plan_version
         if db.get(CommitmentProposalRecord, (context.tenant_id, proposal_id)) is not None:
             raise DomainError("PROPOSAL_ID_CONFLICT", "Proposal identity is already in use", status_code=409)
         trusted = RequestContext(context.tenant_id, manager_id, "MANAGER", context.correlation_id,
@@ -126,7 +129,7 @@ class DurableCommunicationHandoff:
             offered = CommitmentService().create_proposal(
                 db, trusted, plan.commitment_id,
                 ProposalCreateRequest(
-                    proposal_id=proposal_id, proposal_version=plan.plan_version,
+                    proposal_id=proposal_id, proposal_version=proposal_version,
                     expected_commitment_version=plan.core_commitment_version,
                     revised_terms=revised, reason=f"Approved recovery plan {plan_id} v{plan.plan_version}",
                     evidence_refs=[approval.audit_id, plan.assessment_id, plan.snapshot_id],
@@ -140,7 +143,7 @@ class DurableCommunicationHandoff:
                 correlation_id=context.correlation_id, causation_id=approval.approval_id,
                 payload={"commitment_id": plan.commitment_id, "plan_id": plan_id,
                          "plan_version": plan.plan_version, "proposal_id": proposal_id,
-                         "proposal_version": plan.plan_version, "snapshot_id": plan.snapshot_id,
+                         "proposal_version": proposal_version, "snapshot_id": plan.snapshot_id,
                          "snapshot_version": plan.snapshot_version, "approval_id": approval.approval_id,
                          "approval_evidence_ref": approval.audit_id,
                          "approved_terms": revised.model_dump(mode="json")},
@@ -150,7 +153,7 @@ class DurableCommunicationHandoff:
                 event_type=event.event_type, commitment_id=plan.commitment_id,
                 commitment_version=event.commitment_version,
                 correlation_id=event.correlation_id, causation_id=event.causation_id,
-                occurred_at=datetime.now(timezone.utc), payload=event.payload,
+                occurred_at=datetime.now(UTC), payload=event.payload,
                 attempts=0, status="PENDING",
             ))
             db.commit()
@@ -160,7 +163,7 @@ class DurableCommunicationHandoff:
         return CommunicationHandoffView(
             tenant_id=context.tenant_id, commitment_id=plan.commitment_id,
             plan_id=plan_id, plan_version=plan.plan_version,
-            proposal_id=proposal_id, proposal_version=plan.plan_version,
+            proposal_id=proposal_id, proposal_version=proposal_version,
             approval_id=approval.approval_id, source_event_id=event.event_id,
             commitment_version=offered.commitment.commitment_version,
             approved_terms=revised,

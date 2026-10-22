@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKeyConstraint, Index, Integer, JSON, String, select
+from sqlalchemy import JSON, DateTime, ForeignKeyConstraint, Index, Integer, String, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
-from app.core.schemas import ApprovalState, FeasibilityState, ExecutionState
+from app.core.schemas import (
+    AgreementState,
+    ApprovalState,
+    CommitmentTerms,
+    ExecutionState,
+    FeasibilityState,
+)
 from app.core.service import CommitmentService
 from app.db.base import Base
 from app.feasibility.persisted_sources import read_snapshot
@@ -19,8 +25,14 @@ from app.feasibility.production import ProposedChanges
 from app.feasibility.service import evaluate
 
 from .models import (
-    BusinessPreferences, PlanEvaluation, RecoveryCaseStatus, RecoveryPlanVersion,
-    RecoveryStrategy, RiskLevel, SolverReadiness, ValidationSource,
+    BusinessPreferences,
+    PlanEvaluation,
+    RecoveryCaseStatus,
+    RecoveryPlanVersion,
+    RecoveryStrategy,
+    RiskLevel,
+    SolverReadiness,
+    ValidationSource,
 )
 from .persistence import RecoveryCaseRecord, SqlAlchemyRecoveryRepository
 from .ranking import RankingCandidate, rank_candidates
@@ -104,7 +116,14 @@ class DurablePlanService:
         ).order_by(RecoveryPlanRecord.plan_id, RecoveryPlanRecord.plan_version.desc())).all()
         latest: dict[str, RecoveryPlanVersion] = {}
         for row in rows:
-            latest.setdefault(row.plan_id, RecoveryPlanVersion.model_validate(row.payload))
+            plan = RecoveryPlanVersion.model_validate(row.payload)
+            if row.status in {"NEEDS_REPLAN", "SUPERSEDED"}:
+                plan = plan.model_copy(update={
+                    "approval_state": ApprovalState.INVALIDATED,
+                    "execution_state": ExecutionState.NEEDS_REPLAN,
+                    "recommended": False,
+                })
+            latest.setdefault(row.plan_id, plan)
         return list(latest.values())
 
     def get_plan(self, db: Session, context: RequestContext, plan_id: str) -> RecoveryPlanVersion:
@@ -114,7 +133,191 @@ class DurablePlanService:
         ).order_by(RecoveryPlanRecord.plan_version.desc()).limit(1))
         if row is None:
             raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Recovery plan was not found", status_code=404)
-        return RecoveryPlanVersion.model_validate(row.payload)
+        plan = RecoveryPlanVersion.model_validate(row.payload)
+        if row.status in {"NEEDS_REPLAN", "SUPERSEDED"}:
+            plan = plan.model_copy(update={
+                "approval_state": ApprovalState.INVALIDATED,
+                "execution_state": ExecutionState.NEEDS_REPLAN,
+                "recommended": False,
+            })
+        return plan
+
+    def apply_counteroffer(
+        self,
+        db: Session,
+        *,
+        tenant_id: str,
+        commitment,
+        case_record: RecoveryCaseRecord,
+        case,
+        prior_plan_record: RecoveryPlanRecord,
+        prior_plan: RecoveryPlanVersion,
+        proposal,
+        counteroffer: dict[str, str],
+        response_event,
+    ):
+        """Persist a P2-checked successor plan without accepting the offer in Core."""
+        from app.feasibility.persisted_sources import read_snapshot
+        from app.feasibility.production import ProposedChanges
+        from app.feasibility.service import evaluate
+
+        now = response_event.occurred_at
+        if proposal.revised_terms is None:
+            raise DomainError("P4_PROPOSAL_TERMS_MISSING", "Linked proposal terms are unavailable", status_code=409)
+        original_terms = CommitmentTerms.model_validate(proposal.revised_terms)
+        revised_data = original_terms.model_dump(mode="json")
+        if "quantity" in counteroffer:
+            revised_data["quantity"] = counteroffer["quantity"]
+        if "deadline" in counteroffer:
+            revised_data["deadline"] = counteroffer["deadline"]
+        if "special_instructions" in counteroffer:
+            revised_data["special_instructions"] = counteroffer["special_instructions"]
+        revised_terms = CommitmentTerms.model_validate(revised_data)
+
+        if revised_terms.special_instructions != commitment.terms.special_instructions:
+            # P2's current canonical candidate contract cannot evaluate instruction
+            # semantics. Preserve the exact P4 response and force a manual replan.
+            prior_plan_record.status = "NEEDS_REPLAN"
+            case.status = RecoveryCaseStatus.NEEDS_REPLAN
+            case.plans = [
+                item.model_copy(update={
+                    "approval_state": ApprovalState.INVALIDATED,
+                    "execution_state": ExecutionState.NEEDS_REPLAN,
+                    "recommended": False,
+                }) if item.plan_id == prior_plan.plan_id and item.plan_version == prior_plan.plan_version else item
+                for item in case.plans
+            ]
+            return prior_plan_record, case, prior_plan, "REPLAN_REQUIRED"
+
+        snapshot = read_snapshot(db, tenant_id)
+        if (snapshot.operational.snapshot_id, snapshot.operational.snapshot_version) != (
+            prior_plan.snapshot_id, prior_plan.snapshot_version,
+        ):
+            raise DomainError("SNAPSHOT_DRIFT_CONFLICT", "Counteroffer source snapshot advanced", status_code=409)
+        if commitment.commitment_version != prior_plan.core_commitment_version:
+            raise DomainError("COMMITMENT_VERSION_CONFLICT", "Counteroffer plan is stale", status_code=409)
+        source = next((row for row in snapshot.operational.confirmed_commitments
+                       if row.commitment_id == commitment.commitment_id), None)
+        if source is None or source.commitment_version != prior_plan.evaluation.commitment_version:
+            raise DomainError("P2_COMMITMENT_BINDING_MISMATCH", "P2 source commitment changed", status_code=409)
+
+        proposed = ProposedChanges(
+            tenant_id=tenant_id,
+            commitment_id=commitment.commitment_id,
+            expected_commitment_version=source.commitment_version,
+            expected_snapshot_version=snapshot.operational.snapshot_version,
+            quantity=revised_terms.quantity,
+            deadline=revised_terms.deadline,
+            evidence_refs=tuple(dict.fromkeys([
+                *prior_plan.evidence_refs,
+                *response_event.payload["evidence_refs"],
+                f"counteroffer:{response_event.event_id}",
+            ])),
+        )
+        historical = commitment.model_copy(update={
+            "commitment_version": source.commitment_version,
+            "agreement_state": AgreementState.CONFIRMED,
+        })
+        result = evaluate(snapshot, proposed, historical)
+        latest_version = db.scalar(select(RecoveryPlanRecord.plan_version).where(
+            RecoveryPlanRecord.tenant_id == tenant_id,
+            RecoveryPlanRecord.plan_id == prior_plan.plan_id,
+        ).order_by(RecoveryPlanRecord.plan_version.desc()).limit(1))
+        if latest_version is None:
+            raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Current Recovery plan version is unavailable", status_code=404)
+        next_version = latest_version + 1
+        next_proposal_id = f"{proposal.proposal_id}__counteroffer_v{next_version}"
+
+        constraints = [f"{item.code}:{item.resource_id}" for item in result.constraints]
+        constraints.append("CUSTOMER_COUNTEROFFER_REQUIRES_FRESH_APPROVAL")
+        if revised_terms.quantity != commitment.terms.quantity or revised_terms.deadline != commitment.terms.deadline:
+            constraints.append("CUSTOMER_ACCEPTANCE_REQUIRED_FOR_TERMS_CHANGE")
+        evaluation = prior_plan.evaluation.model_copy(update={
+            "evaluation_id": f"eval_{prior_plan.plan_id}_v{next_version}",
+            "plan_version": next_version,
+            "feasibility_status": result.status,
+            "validation_source": ValidationSource.REAL_P2_VALIDATED,
+            "readiness": _status_readiness(result.status),
+            "solver_status": result.solver_status.value,
+            "constraints": constraints,
+            "hard_constraint_reasons": [
+                f"{item.code}:{item.resource_id}" for item in result.constraints
+                if item.severity == "HARD"
+            ],
+            "affected_commitment_ids": list(prior_plan.evaluation.affected_commitment_ids),
+            "evidence_refs": list(dict.fromkeys([
+                *prior_plan.evaluation.evidence_refs,
+                *result.evidence_refs,
+                *response_event.payload["evidence_refs"],
+            ])),
+            "assumptions": [*result.assumptions, "Counteroffer is not accepted Core state"],
+            "evaluated_at": now,
+        })
+        actions = [action.model_dump(mode="json") for action in prior_plan.actions]
+        for action in actions:
+            action["action_id"] = f"{prior_plan.plan_id}_v{next_version}_{action['type'].lower()}"
+            action["idempotency_key"] = f"{prior_plan.plan_id}_v{next_version}_{action['type'].lower()}"
+            if "proposal" in action["parameters"]:
+                action["parameters"]["proposal"] = proposed.model_dump(mode="json")
+            if action["type"] == "CREATE_DELIVERY_CHANGE_PROPOSAL":
+                action["parameters"] = {
+                    "partial_quantity": str(revised_terms.quantity),
+                    "new_deadline": revised_terms.deadline.isoformat() if revised_terms.deadline else None,
+                    "proposal": proposed.model_dump(mode="json"),
+                }
+                action["preconditions"] = [
+                    "Current Core and P2 versions", "Fresh Durable Manager Approval",
+                    "Separate customer acceptance before revised terms take effect",
+                ]
+        feasible_for_review = result.status in {FeasibilityState.FEASIBLE, FeasibilityState.CONDITIONAL}
+        data = prior_plan.model_dump(mode="python")
+        data.update({
+            "plan_version": next_version,
+            "proposal_id": next_proposal_id,
+            "proposal_version": next_version,
+            "feasibility_status": result.status,
+            "actions": actions,
+            "approval_state": ApprovalState.PENDING,
+            "execution_state": ExecutionState.NOT_STARTED if feasible_for_review else ExecutionState.NEEDS_REPLAN,
+            "constraints": constraints,
+            "risks": constraints,
+            "evidence_refs": evaluation.evidence_refs,
+            "assumptions": evaluation.assumptions,
+            "recommended": False,
+            "recommendation_label": None,
+            "recommendation_qualification": "P2 evaluated customer counteroffer; fresh manager approval required",
+            "recommendation_reason": None,
+            "rank": None,
+            "ranking_score": None,
+            "score_breakdown": None,
+            "ranking_exclusion_reasons": [],
+            "evaluation": evaluation,
+        })
+        new_plan = RecoveryPlanVersion.model_validate(data)
+        prior_plan_record.status = "SUPERSEDED" if feasible_for_review else "NEEDS_REPLAN"
+        db.add(RecoveryPlanRecord(
+            tenant_id=tenant_id,
+            plan_id=prior_plan.plan_id,
+            plan_version=next_version,
+            case_id=case_record.case_id,
+            commitment_id=commitment.commitment_id,
+            assessment_id=prior_plan_record.assessment_id,
+            snapshot_id=snapshot.operational.snapshot_id,
+            snapshot_version=snapshot.operational.snapshot_version,
+            core_commitment_version=commitment.commitment_version,
+            evaluated_commitment_version=source.commitment_version,
+            payload=new_plan.model_dump(mode="json"),
+            status="PENDING_APPROVAL" if feasible_for_review else "NEEDS_REPLAN",
+            created_at=now,
+        ))
+        case.plans = [
+            item for item in case.plans
+            if not (item.plan_id == prior_plan.plan_id and item.plan_version == prior_plan.plan_version)
+        ] + [new_plan]
+        case.status = RecoveryCaseStatus.OPTIONS_READY if feasible_for_review else RecoveryCaseStatus.NEEDS_REPLAN
+        case.commitment_version = commitment.commitment_version
+        case.updated_at = now
+        return prior_plan_record, case, new_plan, "REPLANNED" if feasible_for_review else "REPLAN_REQUIRED"
 
     def generate(
         self, db: Session, context: RequestContext, commitment_id: str,
@@ -126,8 +329,15 @@ class DurablePlanService:
             raise DomainError("COMMITMENT_VERSION_CONFLICT", "Commitment version is stale", status_code=409)
         if assessment_id is not None and assessment.assessment_id != assessment_id:
             raise DomainError("ASSESSMENT_NOT_FOUND", "Assessment identity does not match", status_code=404)
-        if (commitment.agreement_state.value, commitment.risk_state.value,
-            commitment.feasibility_state.value) != ("CONFIRMED", "AT_RISK", "INFEASIBLE"):
+        rejected_offer_replan = (
+            case.status == RecoveryCaseStatus.NEEDS_REPLAN
+            and any(item.intent == "REJECT" for item in case.customer_response_events)
+            and commitment.agreement_state.value == "OFFERED"
+        )
+        confirmed_at_risk = commitment.agreement_state.value == "CONFIRMED"
+        if not (confirmed_at_risk or rejected_offer_replan) or (
+            commitment.risk_state.value, commitment.feasibility_state.value
+        ) != ("AT_RISK", "INFEASIBLE"):
             raise DomainError("RECOVERY_COMMITMENT_NOT_ELIGIBLE", "Commitment is not at risk", status_code=409)
         source = next((row for row in snapshot.operational.confirmed_commitments
                        if row.commitment_id == commitment_id), None)
@@ -143,21 +353,36 @@ class DurablePlanService:
             raise DomainError("P2_COMMITMENT_BINDING_MISMATCH", "Core terms differ from source", status_code=409)
         evaluated_commitment = commitment.model_copy(update={
             "commitment_version": assessment.commitment_version,
+            "agreement_state": AgreementState.CONFIRMED,
         })
         policy = preferences or BusinessPreferences()
         existing = self.list(db, context, commitment_id)
+        existing_rows = db.scalars(select(RecoveryPlanRecord).where(
+            RecoveryPlanRecord.tenant_id == context.tenant_id,
+            RecoveryPlanRecord.case_id == case.case_id,
+        ).order_by(RecoveryPlanRecord.plan_id, RecoveryPlanRecord.plan_version.desc())).all()
+        latest_rows: dict[str, RecoveryPlanRecord] = {}
+        for row in existing_rows:
+            latest_rows.setdefault(row.plan_id, row)
+        replan_ids = {
+            plan_id for plan_id, row in latest_rows.items()
+            if row.status == "NEEDS_REPLAN"
+        }
         if existing:
-            if all(row.snapshot_version == snapshot.operational.snapshot_version
+            if case.status == RecoveryCaseStatus.NEEDS_REPLAN and replan_ids:
+                pass
+            elif all(row.snapshot_version == snapshot.operational.snapshot_version
                    and row.based_on_assessment_id == assessment.assessment_id
                    and row.evaluation.commitment_version == assessment.commitment_version
                    for row in existing):
                 return existing
-            raise DomainError("RECOVERY_PLAN_SUPERSESSION_REQUIRED", "Existing plans need explicit invalidation", status_code=409)
+            else:
+                raise DomainError("RECOVERY_PLAN_SUPERSESSION_REQUIRED", "Existing plans need explicit invalidation", status_code=409)
 
         # Alternative supply is only a review candidate: P2 has no verified
         # substitution input, so evaluating the unchanged source cannot invent it.
         deadline = commitment.terms.deadline + timedelta(days=1)
-        partial = max(Decimal("1"), commitment.terms.quantity / Decimal("2"))
+        partial = max(Decimal(1), commitment.terms.quantity / Decimal(2))
         proposals = (
             ("alternative_supply", RecoveryStrategy.ALTERNATIVE_SUPPLY, None,
              Decimal("80.00"), 0, False, Decimal(5)),
@@ -170,7 +395,15 @@ class DurablePlanService:
                  evidence_refs=(f"assessment:{assessment.assessment_id}",),
              ), Decimal("0.00"), 1440, True, Decimal(0)),
         )
-        now = datetime.now(timezone.utc)
+        if replan_ids:
+            names_to_replan = {
+                name for name in ("alternative_supply", "revised_schedule")
+                if f"{case.case_id}_{name}" in replan_ids
+            }
+            proposals = tuple(item for item in proposals if item[0] in names_to_replan)
+            if not proposals:
+                raise DomainError("RECOVERY_PLAN_SUPERSESSION_REQUIRED", "Invalidated plan identity is unsupported", status_code=409)
+        now = datetime.now(UTC)
         candidates = []
         for name, strategy, proposal, cost, delay, confirmation, uncertainty in proposals:
             result = evaluate(snapshot, proposal, evaluated_commitment)
@@ -192,6 +425,8 @@ class DurablePlanService:
         plans = []
         for name, strategy, result, proposal, cost, delay, confirmation, uncertainty in candidates:
             plan_id = f"{case.case_id}_{name}"
+            plan_version = latest_rows[plan_id].plan_version + 1 if plan_id in replan_ids else 1
+            proposal_id = plan_id if plan_version == 1 else f"{plan_id}__v{plan_version}"
             decision = ranking[plan_id]
             action_type = "CREATE_INTERNAL_REVIEW_TASK"
             action_params = {"strategy": strategy.value, "proposal": proposal.model_dump(mode="json") if proposal else None}
@@ -201,8 +436,8 @@ class DurablePlanService:
             if confirmation:
                 constraints.append("CUSTOMER_ACCEPTANCE_REQUIRED_FOR_TERMS_CHANGE")
             evaluation = PlanEvaluation(
-                evaluation_id=f"eval_{plan_id}_v1", tenant_id=context.tenant_id,
-                commitment_id=commitment_id, plan_id=plan_id, plan_version=1,
+                evaluation_id=f"eval_{plan_id}_v{plan_version}", tenant_id=context.tenant_id,
+                commitment_id=commitment_id, plan_id=plan_id, plan_version=plan_version,
                 commitment_version=assessment.commitment_version,
                 snapshot_version=snapshot.operational.snapshot_version,
                 feasibility_status=result.status, validation_source=ValidationSource.REAL_P2_VALIDATED,
@@ -215,15 +450,15 @@ class DurablePlanService:
                 evaluated_at=now,
             )
             actions = [{
-                "action_id": f"{plan_id}_task", "type": action_type,
-                "requires_approval": True, "idempotency_key": f"{plan_id}_v1_task",
+                "action_id": f"{plan_id}_v{plan_version}_task", "type": action_type,
+                "requires_approval": True, "idempotency_key": f"{plan_id}_v{plan_version}_task",
                 "parameters": action_params,
                 "preconditions": ["Current Core and P2 versions", "Durable Manager Approval"],
             }]
             if confirmation and proposal is not None:
                 actions.append({
-                    "action_id": f"{plan_id}_proposal", "type": "CREATE_DELIVERY_CHANGE_PROPOSAL",
-                    "requires_approval": True, "idempotency_key": f"{plan_id}_v1_proposal",
+                    "action_id": f"{plan_id}_v{plan_version}_proposal", "type": "CREATE_DELIVERY_CHANGE_PROPOSAL",
+                    "requires_approval": True, "idempotency_key": f"{plan_id}_v{plan_version}_proposal",
                     "parameters": {"partial_quantity": str(proposal.quantity),
                                    "new_deadline": proposal.deadline.isoformat()},
                     "preconditions": ["Current Core and P2 versions", "Durable Manager Approval",
@@ -231,7 +466,9 @@ class DurablePlanService:
                 })
             plan = RecoveryPlanVersion(
                 tenant_id=context.tenant_id, recovery_case_id=case.case_id,
-                plan_id=plan_id, plan_version=1, commitment_id=commitment_id,
+                plan_id=plan_id, plan_version=plan_version,
+                proposal_id=proposal_id, proposal_version=plan_version,
+                commitment_id=commitment_id,
                 based_on_assessment_id=assessment.assessment_id,
                 snapshot_id=snapshot.operational.snapshot_id,
                 core_commitment_version=commitment.commitment_version,
@@ -255,7 +492,7 @@ class DurablePlanService:
                 recommendation_reason=decision.recommendation_reason, evaluation=evaluation,
             )
             db.add(RecoveryPlanRecord(
-                tenant_id=context.tenant_id, plan_id=plan_id, plan_version=1,
+                tenant_id=context.tenant_id, plan_id=plan_id, plan_version=plan_version,
                 case_id=case.case_id, commitment_id=commitment_id,
                 assessment_id=assessment.assessment_id, snapshot_id=snapshot.operational.snapshot_id,
                 snapshot_version=snapshot.operational.snapshot_version,
@@ -273,7 +510,7 @@ class DurablePlanService:
             "source": "P2_PERSISTED_OPERATIONAL_SOURCE",
             "evidence_refs": list(assessment.evidence_refs),
         }
-        case.plans = plans
+        case.plans = [item for item in existing if item.plan_id not in replan_ids] + plans
         case.preferences = policy
         case.status = RecoveryCaseStatus.OPTIONS_READY if any(item.rank for item in plans) else RecoveryCaseStatus.NO_SAFE_PLAN
         case.case_version += 1

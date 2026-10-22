@@ -118,6 +118,27 @@ function LoadedCase({ caseView }: { caseView: RecoveryCaseView }) {
         <TriggerHistory triggers={caseView.trigger_events ?? []} />
       </section>
 
+      <section className="recovery-case-panel" aria-label="Customer response history">
+        <h2>Customer response history</h2>
+        {caseView.customer_response_events?.length ? (
+          <ol className="recovery-case-trigger-list">
+            {caseView.customer_response_events.map((response) => (
+              <li key={response.event_id}>
+                <strong>{response.intent.replaceAll("_", " ")} · {response.outcome.replaceAll("_", " ")}</strong>
+                <span>Proposal {response.proposal_id} · v{response.proposal_version}</span>
+                <span>Confirmation {response.confirmation_id} · event {response.event_id}</span>
+                {response.proposed_terms && Object.keys(response.proposed_terms).length > 0 && (
+                  <span>Proposed terms: {Object.entries(response.proposed_terms)
+                    .map(([name, value]) => `${name.replaceAll("_", " ")}: ${value}`).join(" · ")}</span>
+                )}
+                <span>Evidence: {response.evidence_refs.join(", ")}</span>
+                <time dateTime={response.received_at}>{new Date(response.received_at).toLocaleString()}</time>
+              </li>
+            ))}
+          </ol>
+        ) : <p className="recovery-case-muted">No persisted rejection or counteroffer evidence was returned.</p>}
+      </section>
+
       <section className="recovery-case-panel" aria-label="Recovery source evidence">
         <h2>Source evidence</h2>
         {evidence.length ? (

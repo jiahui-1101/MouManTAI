@@ -147,6 +147,20 @@ class RecoveryResolutionReference(ContractModel):
     occurred_at: OffsetAwareDatetime
 
 
+class CustomerResponseEvidence(ContractModel):
+    """Reference-bound P4 response retained in the P3 Recovery Case history."""
+
+    event_id: str = Field(min_length=1)
+    confirmation_id: str = Field(min_length=1)
+    proposal_id: str = Field(min_length=1)
+    proposal_version: int = Field(ge=1)
+    intent: Literal["REJECT", "COUNTEROFFER"]
+    outcome: Literal["REPLAN_REQUIRED", "REPLANNED", "STALE_IGNORED"]
+    proposed_terms: dict[str, str] | None = None
+    evidence_refs: list[str] = Field(min_length=1)
+    received_at: OffsetAwareDatetime
+
+
 class BusinessPreferences(ContractModel):
     """Owner policy weights; score units are cost/100 MYR and delay/24 hours."""
 
@@ -227,6 +241,8 @@ class RecoveryPlanVersion(ContractModel):
     recovery_case_id: str = Field(min_length=1)
     plan_id: str = Field(min_length=1)
     plan_version: int = Field(ge=1)
+    proposal_id: str | None = None
+    proposal_version: int | None = Field(default=None, ge=1)
     commitment_id: str = Field(min_length=1)
     based_on_assessment_id: str = Field(min_length=1)
     snapshot_id: str | None = None
@@ -414,6 +430,7 @@ class RecoveryCase(ContractModel):
     options: list[RecoveryOption] = Field(default_factory=list)
     plans: list[RecoveryPlanVersion] = Field(default_factory=list)
     approval_decisions: list[ApprovalDecision] = Field(default_factory=list)
+    customer_response_events: list[CustomerResponseEvidence] = Field(default_factory=list)
     customer_confirmation_evidence_refs: list[str] = Field(default_factory=list)
     fulfilment_evidence_refs: list[str] = Field(default_factory=list)
     evidence_refs: list[str] = Field(default_factory=list)
