@@ -1,4 +1,4 @@
-"""P4-owned durable persistence, registered by Alembic migrations 0008 and 0009."""
+"""P4-owned durable persistence; explicit Alembic migrations own schema upgrades."""
 
 from datetime import datetime
 from typing import Any
@@ -190,6 +190,7 @@ class OutboundMessageRecord(Base):
             ["communication_draft_reviews.tenant_id", "communication_draft_reviews.communication_id",
              "communication_draft_reviews.draft_id", "communication_draft_reviews.review_id"], name="fk_outbound_exact_review"),
         UniqueConstraint("tenant_id", "draft_id", name="uq_outbound_one_draft"),
+        UniqueConstraint("tenant_id", "outbound_id", "communication_id", "draft_id", "approved_review_id", name="uq_outbound_confirmation_binding"),
         UniqueConstraint("tenant_id", "request_key", name="uq_outbound_request_key"),
         UniqueConstraint("channel", "provider_reference", name="uq_outbound_provider_reference"),
         CheckConstraint("status IN ('QUEUED','SENT','FAILED','DELIVERY_UNKNOWN')", name="ck_outbound_status"),
@@ -214,4 +215,79 @@ class SendAttemptRecord(Base):
             ["communication_outbound_messages.tenant_id", "communication_outbound_messages.outbound_id"], name="fk_attempt_outbound"),
         CheckConstraint("attempt_number = 1", name="ck_attempt_one_submission"),
         CheckConstraint("status IN ('QUEUED','SENT','FAILED','DELIVERY_UNKNOWN')", name="ck_attempt_status"),
+    )
+
+
+class ConfirmationSessionRecord(Base):
+    __tablename__ = "communication_confirmation_sessions"
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    confirmation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    outbound_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    communication_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    draft_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    approved_review_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    customer_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    recipient_identity_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    token_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    binding: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "outbound_id", "communication_id", "draft_id", "approved_review_id"],
+            ["communication_outbound_messages.tenant_id", "communication_outbound_messages.outbound_id",
+             "communication_outbound_messages.communication_id", "communication_outbound_messages.draft_id",
+             "communication_outbound_messages.approved_review_id"], name="fk_confirmation_exact_outbound"),
+        UniqueConstraint("tenant_id", "outbound_id", name="uq_confirmation_one_outbound"),
+        UniqueConstraint("token_digest", name="uq_confirmation_token_digest"),
+        CheckConstraint("channel IN ('MOCK_EMAIL','MOCK_WHATSAPP','MOCK_TELEGRAM')", name="ck_confirmation_mock_channel"),
+        CheckConstraint("expires_at > created_at", name="ck_confirmation_expiry"),
+        CheckConstraint("(state IN ('ACCEPTED','REJECTED','COUNTEROFFER_RECEIVED') AND consumed_at IS NOT NULL) OR (state IN ('AWAITING_RESPONSE','CLARIFICATION_REQUIRED','UNRESOLVED') AND consumed_at IS NULL)", name="ck_confirmation_consumption"),
+        Index("ix_confirmation_tenant_request", "tenant_id", "communication_id"),
+    )
+
+
+class ConfirmationAttemptRecord(Base):
+    __tablename__ = "communication_confirmation_attempts"
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    attempt_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    confirmation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    inbound_message_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider_message_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    proof_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    evidence_refs: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "confirmation_id"],
+            ["communication_confirmation_sessions.tenant_id", "communication_confirmation_sessions.confirmation_id"], name="fk_confirmation_attempt_session"),
+        UniqueConstraint("tenant_id", "channel", "provider_message_id", name="uq_confirmation_provider_message"),
+        UniqueConstraint("tenant_id", "inbound_message_id", name="uq_confirmation_inbound_message"),
+        UniqueConstraint("tenant_id", "confirmation_id", "attempt_id", name="uq_confirmation_attempt_binding"),
+        Index("ix_confirmation_attempt_history", "tenant_id", "confirmation_id", "received_at"),
+    )
+
+
+class ConfirmationDecisionRecord(Base):
+    __tablename__ = "communication_confirmation_decisions"
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    decision_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    confirmation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    attempt_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    terminal_confirmation_id: Mapped[str | None] = mapped_column(String(128))
+    intent: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(String(128), nullable=False)
+    proposed_changes: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "confirmation_id", "attempt_id"],
+            ["communication_confirmation_attempts.tenant_id", "communication_confirmation_attempts.confirmation_id", "communication_confirmation_attempts.attempt_id"], name="fk_confirmation_decision_attempt"),
+        UniqueConstraint("tenant_id", "attempt_id", name="uq_confirmation_attempt_decision"),
+        UniqueConstraint("tenant_id", "terminal_confirmation_id", name="uq_confirmation_terminal_decision"),
+        CheckConstraint("(intent IN ('ACCEPT','REJECT','COUNTEROFFER') AND terminal_confirmation_id IS NOT NULL AND terminal_confirmation_id = confirmation_id) OR (intent IN ('CLARIFICATION','UNKNOWN') AND terminal_confirmation_id IS NULL)", name="ck_confirmation_terminal_binding"),
     )

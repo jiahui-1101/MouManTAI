@@ -11,14 +11,14 @@ from app.communication.router import (
     router, get_request_authority, get_draft_authority,
 )
 from app.communication.authority_adapters import RuntimeDraftAuthority, RuntimeRequestAuthority
-from app.communication.tests.test_requests import db, authority, service, create, HEADERS  # noqa: F401
+from app.communication.tests.test_requests import db, authority, service, create, HEADERS
 from app.core.dependencies import get_db
 from app.core.router import router as core_router
 from app.main import app
 
 
 @pytest.fixture
-def main_client(db):  # noqa: F811 - pytest fixture imported for collection
+def main_client(db):
     previous = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = lambda: db
     try:
@@ -48,6 +48,12 @@ def test_main_registers_every_existing_p4_route_once_without_extra_prefix():
         ("GET", "/v1/communications/runtime-capabilities"),
         ("GET", "/v1/communications/recipient-preferences"),
         ("POST", "/v1/communications/recipient-preferences"),
+        ("GET", "/v1/confirmations"),
+        ("POST", "/v1/confirmations"),
+        ("GET", "/v1/confirmations/{confirmation_id}"),
+        ("GET", "/v1/confirmations/{confirmation_id}/attempts"),
+        ("POST", "/v1/confirmations/{confirmation_id}/respond"),
+        ("POST", "/v1/confirmations/{confirmation_id}/revoke"),
         ("GET", "/v1/communications/{communication_id}/outbound"),
         ("GET", "/v1/communications/{communication_id}/drafts/{draft_id}/send-eligibility"),
         ("POST", "/v1/communications/{communication_id}/drafts/{draft_id}/send"),
@@ -87,7 +93,7 @@ def test_summary_dispatches_to_static_endpoint_not_communication_id(main_client)
 
 def test_registered_openapi_exposes_existing_draft_retrieval_once():
     schema = app.openapi()
-    for route in router.routes:
+    for route in exposed_routes(router.routes):
         assert route.path in schema["paths"]
         for method in route.methods:
             assert method.lower() in schema["paths"][route.path]
@@ -119,7 +125,7 @@ def test_registration_does_not_configure_fake_authority(main_client):
     assert response.json()["code"] == "COMMUNICATION_AUTHORITY_UNAVAILABLE"
 
 
-def test_registered_prepare_still_fails_closed_with_real_default_provider(main_client, service):  # noqa: F811
+def test_registered_prepare_still_fails_closed_with_real_default_provider(main_client, service):
     # Arrange a persisted request via the existing test-only fixture, without
     # installing that fixture as a production dependency/authority provider.
     request = create(service)
