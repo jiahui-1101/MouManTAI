@@ -422,8 +422,8 @@ class CommitmentService:
         )
 
         record.agreement_state = AgreementState.OFFERED.value
-        if request.revised_terms is not None:
-            record.terms = request.revised_terms.model_dump(mode="json")
+        # D-015: Offering a proposal preserves existing accepted Commitment terms;
+        # revised_terms are stored on the CommitmentProposalRecord and only applied upon customer ACCEPT.
         record.commitment_version += 1
         record.updated_at = _now()
         record.evidence_refs = list(dict.fromkeys([*record.evidence_refs, *request.evidence_refs]))
