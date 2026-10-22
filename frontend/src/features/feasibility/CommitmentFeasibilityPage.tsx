@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import type { FeasibilityView, P2DataSource } from "./models";
 import { assessmentCaution, errorText, validateFeasibility, validateRecalculation } from "./data";
@@ -28,7 +28,7 @@ function FeasibilityContent({ initial, source, reload }: { initial: FeasibilityV
     const timer = window.setInterval(() => setDisplayTime(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     epoch.current += 1;
     setView(initial); setError(undefined); setPending(false); setReceived(false); submitting.current = false;
     return () => { epoch.current += 1; };
@@ -65,7 +65,7 @@ function FeasibilityContent({ initial, source, reload }: { initial: FeasibilityV
         <div><dt>Commitment ID</dt><dd>{c.commitment_id}</dd></div><div><dt>Order ID</dt><dd>{c.order_id}</dd></div><div><dt>Customer ID</dt><dd>{c.customer_id}</dd></div>
         <div><dt>Agreement</dt><dd>{c.agreement_state}</dd></div><div><dt>Risk</dt><dd>{c.risk_state}</dd></div>
         <div><dt>{c.agreement_state === "CONFIRMED" ? "Confirmed terms" : "Recorded terms (not confirmed)"}</dt><dd>{c.terms.quantity} {c.terms.unit} · {c.terms.sku}</dd></div>
-        <div><dt>Customer deadline</dt><dd><time dateTime={c.terms.deadline}>{c.terms.deadline}</time></dd></div>
+        <div><dt>Customer deadline</dt><dd><time dateTime={c.terms.deadline ?? undefined}>{c.terms.deadline ?? "Not provided"}</time></dd></div>
         <div><dt>Special instructions</dt><dd>{c.terms.special_instructions ?? "None recorded"}</dd></div>
       </dl><p>Core evidence</p><Evidence refs={c.evidence_refs} />
     </section>

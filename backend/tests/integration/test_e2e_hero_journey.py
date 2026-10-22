@@ -1,7 +1,7 @@
 """Backend E2E Hero Journey Test (UI-04, E2E-01, E2E-02, E2E-03, E2E-12).
 
-Proves the complete single-commitment_id ('com_001') Hero Journey on real SQLite DB:
-Trigger -> Data -> Decision -> Human Approval -> Outcome + Audit.
+Exercises a synthetic single-commitment journey on SQLite. The execute route
+uses an explicit test-only approval authority; this is not durable approval proof.
 
 Lifecycle Version Progression on com_001:
 1. Ingestion: REQUESTED (v1)
@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -51,10 +50,10 @@ def _headers(actor: str = "user_owner_01", tenant: str = "tenant_demo_01") -> di
 def test_e2e_hero_journey_full_single_commitment_lifecycle(
     client: TestClient,
     session: Session,
+    synthetic_execution_authority,
 ) -> None:
-    """Execute the complete end-to-end Hero Journey on a single commitment_id ('com_001')."""
+    """Exercise the synthetic journey with a test-only execute authority."""
     tenant = "tenant_demo_01"
-    owner_headers = _headers("user_owner_01", tenant)
     manager_headers = _headers("user_manager_01", tenant)
     staff_headers = _headers("user_staff_01", tenant)
 

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,11 +22,8 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import RequestContext
 from app.core.integration import CoreIntegrationFacade
 from app.core.models import (
-    AuditEventRecord,
-    CommitmentProposalRecord,
     CommitmentRecord,
     ResourceReservationRecord,
-    ResourceStockRecord,
 )
 from app.core.reservations import (
     get_available_stock,
@@ -42,16 +38,7 @@ from app.core.schemas import (
     CommitmentCreateRequest,
     CommitmentTerms,
     CustomerIdentityStatus,
-    FeasibilityAssessment,
-    FeasibilityState,
     FulfilmentState,
-    PlannedAction,
-    ProposalConfirmRequest,
-    ProposalCreateRequest,
-    RecoveryExecuteRequest,
-    RecoveryPlan,
-    RecoveryState,
-    RiskState,
 )
 
 
@@ -79,10 +66,13 @@ def _ctx(actor: str = "user_manager_01", role: str = "MANAGER", tenant: str = "t
 # =============================================================================
 # E2E-04: Stale Approval / Stock Changed (Snapshot Drift)
 # =============================================================================
-def test_e2e_04_stale_approval_stock_changed(client: TestClient, session: Session) -> None:
+def test_e2e_04_stale_approval_stock_changed(
+    client: TestClient, session: Session, synthetic_execution_authority
+) -> None:
     """Manager approves plan pinned to snapshot 142; stock changes to 143 before execution.
 
-    Execution must be blocked (409 Conflict), no unauthorized stock mutation occurs,
+    Under the explicit synthetic authority, execution must be blocked (409 Conflict),
+    no unauthorized stock mutation occurs,
     and commitment moves to RECOVERY_REQUIRED.
     """
     tenant = "tenant_demo_01"

@@ -1653,10 +1653,24 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Changed by PR #19: `backend/app/communication/tests/test_migration_persistence.py`, `backend/app/communication/tests/test_route_integration.py`, and prior IN_REVIEW TEAM_LOG entry. No P4 production logic or migration changed. Main's sole Alembic head remains `0010_p4_recipient_preferences`.
 - Actual post-merge Main validation at `5bd4041`: `python -m pytest app/communication/tests -q -p no:cacheprovider --basetemp=.pytest-basetemp-pr19-merged --tb=short` passed (exit 0; PostgreSQL cases skipped without URL). The four formerly failing checks were rerun with `P4_TEST_DATABASE_URL` pointing to the authorized disposable local PostgreSQL 16 database `p4_test_final_reconcile`: six selected parametrized tests passed, including PostgreSQL migrated-schema comparison and downgrade/re-upgrade in fresh UUID schemas. `python -m alembic heads` returned only `0010_p4_recipient_preferences`; `git diff --check` passed. The disposable PostgreSQL container was stopped afterward. No full application E2E or concurrency validation is claimed from this run.
 - Coordination: PR #22 contains this consolidated record on a docs-only review branch and still requires P5 approval before merge. Draft PR #16 and #10 remain unmerged. Remaining integration blockers include P2 evaluator/currentness and provenance, Recovery schema reconciliation, production P3 subscriber activation, trusted Manager and P4 customer authority, and positive customer acceptance E2E.
-## 2026-10-23 — Repository-wide review follow-up after PR #30 merge (IN_REVIEW)
+## 2026-10-23 — Repository-wide review follow-up after PR #30 merge (HISTORICAL SNAPSHOT)
 
 - The original PR #22 historical record for merged PRs #18, #20 and #19 is preserved. PR #29 had already merged externally as cfc26d7bbd480e3095c1512448a7ef150ca04a49.
 - PR #28 merged normally as afbc6b23fe70c8e6f934ef29e64e3520f5d979ac after P5 approval and three successful checks. PR #30 merged normally as 951618b53d870596c7b2e2daa8a76e02debc65b9 after current P4/P5 approvals and three successful checks. Current Main is 951618b53d870596c7b2e2daa8a76e02debc65b9.
 - PR #16 is open and Draft at b9eed0b5e510fd7c5cd1b2d6e3e2f8cd55b6462e, synced with current Main. CI is rerunning; fresh P2/P4/P5 approvals are requested. Its read-only /recovery/:id route is preserved, with the planning workspace on /recovery/:id/plans. Production subscribers and live side effects remain disabled.
 - PR #10 remains conflicted and superseded by PR #16. PR #22 remains a docs-only Draft and requires P4/P5 review on this updated log plus successful CI before any merge.
+- No production Recovery subscriber, outbound communication, or real execution was enabled.
+
+## 2026-10-23 — PR #16 Current Main Reconciliation after PR #30 (MERGED)
+
+- Starting Main was 951618b53d870596c7b2e2daa8a76e02debc65b9. PR #16 head b9eed0b5e510fd7c5cd1b2d6e3e2f8cd55b6462e reconciled the route split: /recovery/:id remains the read-only case view and the planning workspace is /recovery/:id/plans. The PR includes the Recovery API integration and durable case reader.
+- P2 meishuet16, P4 Sheng554, and P5 Gan0117 approved the exact PR #16 head. All three current-head GitHub checks succeeded, the review decision was APPROVED, and no unresolved review threads remained.
+- PR #16 was marked ready for review and merged through GitHub's normal merge mechanism at 2026-10-22 16:32:51 UTC. Actual merge commit and current Main: 2547a47e954619ba82f63eabb3c2ac33c94dea59.
+- GitHub now reports PR #10 merged with commit c4f6a62741f1da48f6b8ac1ef77618034340893b, which is an ancestor of the PR #16 merge. It was not merged as a separate pull request in this execution.
+- Production subscribers, untrusted production actions, and real side effects remain disabled. The 503 execution safety gate remains in place.
+
+## 2026-10-23 — PR #22 post-merge log reconciliation (DRAFT)
+
+- The earlier PR #30 follow-up below records the state before PR #16 merged. This update preserves that history and records the current merge state.
+- PR #22 is a docs-only draft. Its prior P4/P5 approvals were on head 6141cebda09ce900c9c9b5307fdce58a59fb7789. This reconciliation changes the PR head, so fresh P4/P5 approval and successful CI on the updated head are required before merge.
 - No production Recovery subscriber, outbound communication, or real execution was enabled.

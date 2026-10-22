@@ -16,12 +16,19 @@ classes, and still reject the absent Core approval producer contract.
 """
 
 from typing import NoReturn
+from datetime import datetime, timezone
+import os
+
+from sqlalchemy import select
 
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
 from app.core.schemas import CommitmentTerms
+from app.core.manager_approval import ManagerApprovalRecord, trusted_isolated_manager
+from app.core.models import OutboxEventRecord
+from app.recovery.durable_plans import RecoveryPlanRecord
 from .schemas import (
     DraftReviewDecision, RecoveryCommunicationReference, RequestAuthorization,
     ReviewAction, ReviewAuthorization,
@@ -52,6 +59,64 @@ class RuntimeRequestAuthority:
                           reference: RecoveryCommunicationReference,
                           terms: CommitmentTerms) -> RequestAuthorization | None:
         self.check_availability()
+
+
+class IsolatedRecoveryRequestAuthority:
+    """Server-keyed synthetic P3 approval reader for P4 intake only.
+
+    It deliberately supplies no recipient/channel grant; P4 persists a BLOCKED
+    request until independent verified P1 identity and consent are available.
+    """
+
+    def __init__(self, key: str | None) -> None:
+        self.key = key
+
+    def check_availability(self) -> None:
+        if os.getenv("MOUMANTAI_ISOLATED_E2E") != "1":
+            RuntimeRequestAuthority().check_availability()
+
+    def authorize_request(self, db: Session, context: RequestContext,
+                          reference: RecoveryCommunicationReference,
+                          terms: CommitmentTerms) -> RequestAuthorization | None:
+        trusted_isolated_manager(context, self.key)
+        source = db.get(OutboxEventRecord, reference.source_event_id)
+        if source is None or source.tenant_id != context.tenant_id or source.event_type != "recovery.communication_requested":
+            raise DomainError("COMMUNICATION_SOURCE_UNVERIFIED", "Exact P3 source event is required", status_code=409)
+        plan = db.get(RecoveryPlanRecord, (context.tenant_id, reference.plan_id, reference.plan_version))
+        if plan is None or plan.commitment_id != reference.commitment_id:
+            raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Exact approved plan is required", status_code=409)
+        approval_id = source.payload.get("approval_id")
+        decisions = db.scalars(select(ManagerApprovalRecord).where(
+            ManagerApprovalRecord.tenant_id == context.tenant_id,
+            ManagerApprovalRecord.plan_id == plan.plan_id,
+            ManagerApprovalRecord.plan_version == plan.plan_version,
+        ).order_by(ManagerApprovalRecord.decided_at, ManagerApprovalRecord.approval_id)).all()
+        if not decisions or decisions[-1].decision != "APPROVED" or decisions[-1].approval_id != approval_id:
+            raise DomainError("APPROVAL_NOT_ACTIVE", "Current Manager approval is absent or revoked", status_code=409)
+        approval = decisions[-1]
+        expires = approval.expires_at
+        if expires is None:
+            raise DomainError("APPROVAL_EXPIRED", "Manager approval has no expiry", status_code=409)
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires <= datetime.now(timezone.utc):
+            raise DomainError("APPROVAL_EXPIRED", "Manager approval expired", status_code=409)
+        if (approval.commitment_id, approval.snapshot_id, approval.snapshot_version,
+            approval.commitment_version) != (
+            plan.commitment_id, plan.snapshot_id, plan.snapshot_version,
+            plan.core_commitment_version,
+        ) or "CREATE_DELIVERY_CHANGE_PROPOSAL" not in approval.action_scope:
+            raise DomainError("APPROVAL_SCOPE_CONFLICT", "Approval does not cover this proposal", status_code=409)
+        if (approval.approved_terms != terms.model_dump(mode="json")
+            or source.causation_id != approval.approval_id
+            or source.payload.get("approval_evidence_ref") != approval.audit_id
+            or source.payload.get("approved_terms") != approval.approved_terms):
+            raise DomainError("APPROVED_TERMS_MISMATCH", "Source terms or evidence differ", status_code=409)
+        return RequestAuthorization(
+            reference=reference, approved_terms=terms,
+            approval_evidence_refs=[approval.audit_id], approval_expires_at=expires,
+            proposal_expires_at=expires,
+        )
 
 
 class RuntimeDraftAuthority:
