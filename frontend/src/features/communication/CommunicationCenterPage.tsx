@@ -3,9 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../shared/auth";
 import type { RequestAuthHeaders } from "../../shared/api";
 import { formatKLTimestamp } from "../../shared/date";
-import { communicationKeys, getCommunication, listCommunications } from "./api";
+import { communicationKeys, getCommunication, getCommunicationSummary, listCommunications } from "./api";
 import { communicationLabel, channelText, DisplayBadge, ErrorNotice } from "./presentation";
 import { CommunicationDetails } from "./CommunicationDetails";
+import { RecipientPreferences } from "./RecipientPreferences";
 import type { MessageDraftView } from "./types";
 import "./communication.css";
 
@@ -30,6 +31,9 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
     return () => window.clearInterval(timer); }, []);
   const list = useQuery({ queryKey: communicationKeys.list(auth),
     queryFn: ({ signal }) => listCommunications(auth, signal), retry: false, staleTime: 0 });
+  const summary = useQuery({ queryKey: communicationKeys.summary(auth),
+    queryFn: ({ signal }) => getCommunicationSummary(auth, signal), retry: false,
+    staleTime: 0, refetchOnMount: "always", refetchOnWindowFocus: true });
   const detail = useQuery({ queryKey: communicationKeys.detail(auth, selected),
     queryFn: ({ signal }) => getCommunication(selected, auth, signal), enabled: !!selected,
     retry: false, staleTime: 0, refetchOnMount: "always" });
@@ -43,7 +47,8 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
   }, []);
   const requests = list.data ?? [];
   const isDrafted = (id: string) => !!verified[id] && Date.parse(verified[id]!.expires_at) > now;
-  const label = (request: typeof requests[number]) => (attention[request.communication_id] ||
+  const label = (request: typeof requests[number]) => request.outbound_status === "SENT" ? "Sent" :
+    request.outbound_status === "QUEUED" ? "Sending" : request.outbound_status ? "Blocked" : (attention[request.communication_id] ||
     (verified[request.communication_id] && !isDrafted(request.communication_id))) ? "Blocked" :
     communicationLabel(request.request_status, request.message_status, isDrafted(request.communication_id));
   const visible = requests.filter(request => {
@@ -61,12 +66,22 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
         <p className="muted">Review revised promises and prepare customer message drafts.</p></div>
       <button className="btn btn-secondary" onClick={refresh} disabled={list.isFetching}>Refresh</button>
     </header>
-    <div className="cc-metrics" aria-label="Communication summary">
-      <Metric title="Total" count={list.isSuccess && !list.isFetching ? requests.length : null} />
-      <Metric title="Drafted" count={list.isSuccess && !list.isFetching ? requests.filter(r => label(r) === "Drafted").length : null} />
-      <Metric title="Needs Attention" count={list.isSuccess && !list.isFetching ? requests.filter(r => label(r) === "Blocked").length : null} />
-    </div>
-    <p className="muted text-sm">Drafted counts drafts verified in this session. Existing drafts are not automatically discovered.</p>
+    <RecipientPreferences auth={auth} />
+    <section aria-label="Dashboard statistics">
+      <div className="cc-metrics" aria-label="Communication summary" aria-busy={summary.isFetching}>
+        <Metric title="Total" count={summary.isSuccess && !summary.isFetching ? summary.data.total : null} />
+        <Metric title="Drafted" count={summary.isSuccess && !summary.isFetching ? summary.data.drafted : null} />
+        <Metric title="Sent" count={summary.isSuccess && !summary.isFetching ? summary.data.sent : null} />
+        <Metric title="Needs Attention" count={summary.isSuccess && !summary.isFetching && !summary.data.unavailable_reasons.needs_attention ? summary.data.needs_attention : null} />
+      </div>
+      {summary.isFetching ? <p className="muted text-sm" role="status">Loading dashboard statistics…</p> : summary.isError ?
+        <ErrorNotice error={summary.error} resource="summary" onRetry={() => { void summary.refetch(); }} /> : summary.data ? <>
+          <p className="muted text-sm">All requests in this workspace · Checked {formatKLTimestamp(summary.data.checked_at)}</p>
+          {summary.data.drafted === null && <p className="muted text-sm">Drafted — Not available: current drafts could not be reliably verified.</p>}
+          {summary.data.sent === null && <p className="muted text-sm">Sent — Not available: verified sending records are not connected.</p>}
+          {summary.data.unavailable_reasons.needs_attention && <p className="muted text-sm">Needs Attention — Not available: sending failures could not be reliably counted.</p>}
+        </> : null}
+    </section>
     {list.isFetching ? <p role="status" className="cc-state">Loading communication requests…</p> : list.isError ?
       <ErrorNotice error={list.error} resource="list" onRetry={refresh} /> : <>
       <form className="cc-filters" onSubmit={event => event.preventDefault()} aria-label="Request filters">

@@ -1,7 +1,7 @@
 """Comprehensive migration tests for 0007_recovery_case_constraints_alignment (ADR-017, Task T-P3H1).
 
 Verifies:
-1. Exactly one Alembic head (0007_recovery_case_constraints_alignment).
+1. Exactly one Alembic head with a valid history containing revision 0007.
 2. Upgrade 0006 -> 0007 preserves seeded case and trigger rows with zero data loss.
 3. Negative RESTRICT test: DELETE FROM recovery_cases with dependent triggers raises IntegrityError.
 4. Negative RESTRICT test: DELETE FROM commitments with dependent triggers raises IntegrityError.
@@ -43,7 +43,7 @@ def _get_alembic_config(db_url: str) -> Config:
 
 
 def test_alembic_has_exactly_one_head() -> None:
-    """Assert Alembic history has exactly one single head revision: 0007_recovery_case_constraints_alignment."""
+    """Keep 0007 in valid ancestry while permitting later feature migrations."""
     cfg = Config(ALEMBIC_INI)
     cfg.set_main_option("script_location", MIGRATIONS_DIR)
     from alembic.script import ScriptDirectory
@@ -51,7 +51,21 @@ def test_alembic_has_exactly_one_head() -> None:
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
     assert len(heads) == 1, f"Expected exactly 1 Alembic head, found: {heads}"
-    assert heads[0] == "0007_recovery_case_constraints_alignment"
+    required = "0007_recovery_case_constraints_alignment"
+    assert script.get_revision(required) is not None, f"Required migration {required} is missing"
+    # Alembic resolves the complete graph here and rejects missing parents/cycles.
+    history = list(script.walk_revisions(base="base", head=heads[0]))
+    revisions = {revision.revision for revision in history}
+    assert len(revisions) == len(history), "Migration history contains duplicate revisions"
+    assert required in revisions, f"{required} must be the head or an ancestor of {heads[0]}"
+    assert any(revision.down_revision is None for revision in history), "Migration history has no base"
+    for revision in history:
+        parents = revision.down_revision
+        if parents is None:
+            continue
+        if isinstance(parents, str):
+            parents = (parents,)
+        assert set(parents) <= revisions, f"Unresolved parent(s) for migration {revision.revision}"
 
 
 def test_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:

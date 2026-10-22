@@ -507,7 +507,8 @@ def test_p4_metadata_compiles_for_postgresql_without_creating_any_table():
 
 
 def test_default_router_has_no_guessed_creation_policy(db):
-    assert get_request_authority() is None
+    from app.communication.authority_adapters import RuntimeRequestAuthority
+    assert isinstance(get_request_authority(), RuntimeRequestAuthority)
     from app.core.dependencies import get_db
     app = FastAPI()
     app.include_router(router)
