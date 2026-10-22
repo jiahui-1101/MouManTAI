@@ -20,11 +20,11 @@ if ($ColabUrl -ne "") {
         Set-Content -Path $envFile -Value $content -Encoding utf8
     } else {
         Set-Content -Path $envFile -Value @"
-P1_AI_ENABLED=true
+P1_AI_ENABLED=false
 P1_AI_ENDPOINT_MODE=direct
 P1_AI_ENDPOINT_URL=$ColabUrl
-P1_AI_API_KEY=p1-colab-secret
-P1_DATABASE_URL=postgresql+psycopg://p1_local:d7ff8ea1c01a68bd3c5107338b375d1259a4693f2d7716c0@127.0.0.1:55432/monmantai_p1
+P1_AI_API_KEY=
+P1_DATABASE_URL=REPLACE_WITH_PRIVATE_P1_DATABASE_URL
 PYTHONPATH=backend
 "@ -Encoding utf8
     }
@@ -34,11 +34,11 @@ PYTHONPATH=backend
 if (-not (Test-Path $envFile)) {
     Write-Host "[P1 Launcher] Initializing default .env file..." -ForegroundColor Yellow
     Set-Content -Path $envFile -Value @"
-P1_AI_ENABLED=true
+P1_AI_ENABLED=false
 P1_AI_ENDPOINT_MODE=direct
-P1_AI_ENDPOINT_URL=http://127.0.0.1:8000/dev/p1/infer
-P1_AI_API_KEY=p1-colab-secret
-P1_DATABASE_URL=postgresql+psycopg://p1_local:d7ff8ea1c01a68bd3c5107338b375d1259a4693f2d7716c0@127.0.0.1:55432/monmantai_p1
+P1_AI_ENDPOINT_URL=
+P1_AI_API_KEY=
+P1_DATABASE_URL=REPLACE_WITH_PRIVATE_P1_DATABASE_URL
 PYTHONPATH=backend
 "@ -Encoding utf8
 }
@@ -56,13 +56,21 @@ Get-Content $envFile | ForEach-Object {
 
 # Ensure database URL and pythonpath exist
 if (-not [System.Environment]::GetEnvironmentVariable("P1_DATABASE_URL", "Process")) {
-    [System.Environment]::SetEnvironmentVariable("P1_DATABASE_URL", "postgresql+psycopg://p1_local:d7ff8ea1c01a68bd3c5107338b375d1259a4693f2d7716c0@127.0.0.1:55432/monmantai_p1", "Process")
+    [System.Environment]::SetEnvironmentVariable("P1_DATABASE_URL", "REPLACE_WITH_PRIVATE_P1_DATABASE_URL", "Process")
 }
 if (-not [System.Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")) {
     [System.Environment]::SetEnvironmentVariable("PYTHONPATH", "backend", "Process")
 }
 
 $activeUrl = [System.Environment]::GetEnvironmentVariable("P1_AI_ENDPOINT_URL", "Process")
+if ($env:P1_DATABASE_URL -eq 'REPLACE_WITH_PRIVATE_P1_DATABASE_URL') {
+    throw 'Configure P1_DATABASE_URL privately before starting.'
+}
+if ($activeUrl -match '/dev/p1/infer/?$') {
+    $env:P1_AI_ENABLED = 'false'
+    $activeUrl = ''
+    Write-Host '[P1] Retired simulated endpoint disabled. Deterministic rules only.'
+}
 
 # Test if remote Colab endpoint is alive; if offline, auto-switch to built-in local engine
 $usingColab = $false
@@ -70,18 +78,15 @@ if ($activeUrl -and $activeUrl.StartsWith("https://")) {
     try {
         $healthUrl = $activeUrl.Replace("/infer", "/health")
         $resp = Invoke-RestMethod -Uri $healthUrl -Method Get -TimeoutSec 3 -ErrorAction Stop
-        if ($resp.status -eq "ready") {
+        if ($resp.status -in @("ready", "reachable")) {
             $usingColab = $true
             Write-Host "[P1 Launcher] Remote Colab GPU is ONLINE ($($resp.device))!" -ForegroundColor Green
         }
     } catch {
-        Write-Host "[P1 Launcher] Colab URL unreachable or offline. Auto-switching to Built-in Local AI Engine!" -ForegroundColor Yellow
-        $activeUrl = "http://127.0.0.1:8000/dev/p1/infer"
-        [System.Environment]::SetEnvironmentVariable("P1_AI_ENDPOINT_URL", $activeUrl, "Process")
+        Write-Host "[P1 Launcher] Endpoint unavailable. Deterministic rules remain available; no simulated model fallback." -ForegroundColor Yellow
     }
 } elseif (-not $activeUrl) {
-    $activeUrl = "http://127.0.0.1:8000/dev/p1/infer"
-    [System.Environment]::SetEnvironmentVariable("P1_AI_ENDPOINT_URL", $activeUrl, "Process")
+    [System.Environment]::SetEnvironmentVariable("P1_AI_ENABLED", "false", "Process")
 }
 
 Write-Host "==========================================================" -ForegroundColor Green
@@ -90,9 +95,9 @@ Write-Host "  P1_AI_ENABLED:       $([System.Environment]::GetEnvironmentVariabl
 Write-Host "  P1_AI_ENDPOINT_MODE: $([System.Environment]::GetEnvironmentVariable('P1_AI_ENDPOINT_MODE', 'Process'))" -ForegroundColor White
 Write-Host "  P1_AI_ENDPOINT_URL:  $activeUrl" -ForegroundColor White
 if ($usingColab) {
-    Write-Host "  AI Engine:           Google Colab (Cloud Tesla T4 / A100 GPU)" -ForegroundColor Cyan
+    Write-Host "  AI Engine:           Remote reachable; device requires per-inference telemetry" -ForegroundColor Cyan
 } else {
-    Write-Host "  AI Engine:           Built-in Local GPU/AI Pipeline" -ForegroundColor Cyan
+    Write-Host "  AI Engine:           Optional endpoint; no successful inference implied" -ForegroundColor Cyan
 }
 Write-Host "==========================================================" -ForegroundColor Green
 

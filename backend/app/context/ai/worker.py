@@ -121,8 +121,9 @@ class ModelRuntime:
                 from transformers import AutoTokenizer, AutoModelForCausalLM
                 model_id, revision = MODEL_CONFIG[engine]
                 tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision, cache_dir=str(self.cache), trust_remote_code=False)
+                dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
                 model = AutoModelForCausalLM.from_pretrained(model_id, revision=revision, cache_dir=str(self.cache),
-                    torch_dtype=torch.bfloat16, device_map="cuda", low_cpu_mem_usage=True,
+                    torch_dtype=dtype, device_map="cuda", low_cpu_mem_usage=True,
                     attn_implementation="sdpa", trust_remote_code=False).eval()
             self.loaded[engine] = (model, tokenizer)
             return model, tokenizer, time.perf_counter() - start
@@ -133,6 +134,8 @@ class ModelRuntime:
         import torch
         model_id, revision = MODEL_CONFIG[request.engine]
         model, tokenizer, load_seconds = self._load(request.engine)
+        if next(model.parameters()).device.type != "cuda":
+            raise RuntimeError("Model parameters must be on CUDA; CPU fallback is disabled")
         torch.manual_seed(42)
         torch.cuda.reset_peak_memory_stats()
         input_tokens = output_tokens = 0

@@ -10,6 +10,13 @@ from app.context.dev_database import create_p1_engine
 from app.context.postgres_repository import P1Base
 
 
+@pytest.fixture(autouse=True)
+def offline_models_by_default(monkeypatch):
+    # dev_app may load a user's live .env during collection. Unit/PG tests must
+    # never spend GPU quota unless an explicit live smoke test opts in.
+    monkeypatch.setenv("P1_AI_ENABLED", "false")
+
+
 @pytest.fixture
 def pg_engine():
     url = os.environ.get("P1_TEST_DATABASE_URL")

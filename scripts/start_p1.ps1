@@ -11,7 +11,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
 
 $env:PYTHONPATH = "backend"
-$env:P1_DATABASE_URL = "postgresql+psycopg://p1_local:d7ff8ea1c01a68bd3c5107338b375d1259a4693f2d7716c0@127.0.0.1:55432/monmantai_p1"
+if (-not $env:P1_DATABASE_URL) { throw 'Configure private P1_DATABASE_URL first' }
 
 if ($AiEndpointUrl -ne "") {
     $env:P1_AI_ENABLED = "true"
