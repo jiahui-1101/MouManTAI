@@ -11,14 +11,15 @@ from app.communication.router import (
     router, get_request_authority, get_draft_authority,
 )
 from app.communication.authority_adapters import RuntimeDraftAuthority, RuntimeRequestAuthority
-from app.communication.tests.test_requests import db, authority, service, create, HEADERS
+# Pytest resolves these imported fixtures by name in this module.
+from app.communication.tests.test_requests import db, authority, service, create, HEADERS  # noqa: F401
 from app.core.dependencies import get_db
 from app.core.router import router as core_router
 from app.main import app
 
 
 @pytest.fixture
-def main_client(db):
+def main_client(db):  # noqa: F811
     previous = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = lambda: db
     try:
@@ -119,7 +120,7 @@ def test_registration_does_not_configure_fake_authority(main_client):
     assert response.json()["code"] == "COMMUNICATION_AUTHORITY_UNAVAILABLE"
 
 
-def test_registered_prepare_still_fails_closed_with_real_default_provider(main_client, service):
+def test_registered_prepare_still_fails_closed_with_real_default_provider(main_client, service):  # noqa: F811
     # Arrange a persisted request via the existing test-only fixture, without
     # installing that fixture as a production dependency/authority provider.
     request = create(service)
