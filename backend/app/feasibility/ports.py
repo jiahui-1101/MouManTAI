@@ -75,6 +75,15 @@ class AssessmentWriter(Protocol):
 class AssessmentHistoryReader(Protocol):
     """Read append-only versioned assessment history; never infer current risk."""
 
+    def get_assessment(
+        self,
+        db: Session,
+        context: RequestContext,
+        commitment_id: str,
+        assessment_id: str,
+    ) -> FeasibilityAssessment:
+        """Return this exact authoritative assessment or fail closed if unavailable/invalid."""
+
     def list_for_commitment(
         self,
         db: Session,

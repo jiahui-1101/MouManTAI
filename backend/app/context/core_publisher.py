@@ -13,8 +13,10 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext
 from app.core.integration import CoreIntegrationFacade
+from app.core.models import CommitmentRecord
 from app.core.schemas import (
     BusinessContext,
+    AgreementState,
     Commitment,
     ContextStatus,
     CustomerIdentityStatus,
@@ -62,7 +64,7 @@ class CoreContextPublisher:
             for idx, item in enumerate(context.requested_items):
                 try:
                     qty = Decimal(item.quantity)
-                    if qty <= 0:
+                    if not qty.is_finite() or qty <= 0:
                         reasons.append(f"Item #{idx + 1} quantity '{item.quantity}' is not positive")
                 except Exception:
                     reasons.append(f"Item #{idx + 1} quantity '{item.quantity}' is not a valid decimal")
@@ -70,27 +72,27 @@ class CoreContextPublisher:
             reasons.append(f"Unresolved conflicts: {', '.join(context.conflicts)}")
         if context.missing_fields:
             reasons.append(f"Missing mandatory fields: {', '.join(context.missing_fields)}")
+        if context.requested_delivery_at is None or context.requested_delivery_at.tzinfo is None:
+            reasons.append("An explicit offset-aware delivery deadline is required")
+        if context.delivery_qualifier != "DEADLINE":
+            reasons.append("DATE_ONLY/EXACT/unknown delivery semantics require P5/P2 mapping; no automatic deadline conversion")
+        if len(context.requested_items) != 1:
+            reasons.append("Core single-item mapping requires exactly one reviewed item")
+        if not context.source_message_ids:
+            reasons.append("Original source message references are required")
+        if not context.field_evidence or any(not (ev.get("evidence_id") or ev.get("evidence_ref"))
+                for values in context.field_evidence.values() for ev in values if isinstance(ev, dict)):
+            reasons.append("Stable source evidence references are required; cannot fabricate evidence")
 
         return (len(reasons) == 0, reasons)
 
     def to_business_context(self, context: OrderContextRecord) -> BusinessContext:
         """Map P1 OrderContextRecord to canonical Core BusinessContext."""
+        eligible, reasons = self.check_eligibility(context)
+        if not eligible:
+            raise IneligibleContextError("Context is ineligible for Core mapping", reasons)
         delivery_at = context.requested_delivery_at
         special_instructions = context.special_instructions
-
-        if delivery_at is not None:
-            if delivery_at.tzinfo is None:
-                delivery_at = delivery_at.replace(tzinfo=timezone.utc)
-            # If qualifier is DATE_ONLY, bound to operating close (17:00:00 local/UTC) if time is midnight
-            if context.delivery_qualifier == "DATE_ONLY":
-                if delivery_at.time() == time(0, 0):
-                    delivery_at = delivery_at.replace(hour=17, minute=0, second=0)
-                tag = "[DATE_ONLY]"
-                if special_instructions:
-                    if tag not in special_instructions:
-                        special_instructions = f"{tag} {special_instructions}"
-                else:
-                    special_instructions = tag
 
         core_items = [
             CoreRequestedItem(
@@ -108,16 +110,11 @@ class CoreContextPublisher:
             for item in ev_list:
                 if isinstance(item, dict):
                     ref = item.get("evidence_ref") or item.get("evidence_id")
-                    if not ref:
-                        quote = str(item.get("quote", ""))[:16]
-                        ref = f"ev_p1_{context.context_id}_{field}_{abs(hash(quote)) % 10000}"
                     refs.append(ref)
                 elif isinstance(item, str):
                     refs.append(item)
             if refs:
                 mapped_evidence[field] = refs
-        if not mapped_evidence:
-            mapped_evidence = {"context": [f"ev_p1_ctx_{context.context_id}"]}
 
         identity_map = {
             "LINK_VERIFIED": CustomerIdentityStatus.LINK_VERIFIED,
@@ -137,11 +134,7 @@ class CoreContextPublisher:
         }
         status = status_map.get(context.status, ContextStatus.UNRESOLVED)
 
-        source_message_ids = (
-            list(context.source_message_ids)
-            if context.source_message_ids
-            else [f"msg_{context.context_id}"]
-        )
+        source_message_ids = list(context.source_message_ids)
 
         return BusinessContext(
             tenant_id=context.tenant_id,
@@ -170,6 +163,8 @@ class CoreContextPublisher:
         enforce_eligibility: bool = True,
     ) -> Commitment:
         """Publish an OrderContextRecord to Core using CoreIntegrationFacade."""
+        if request_context.tenant_id != order_context.tenant_id:
+            raise IneligibleContextError("Tenant mismatch before publication", ["Request and context tenant must match"])
         if enforce_eligibility:
             is_eligible, reasons = self.check_eligibility(order_context)
             if not is_eligible:
@@ -178,23 +173,43 @@ class CoreContextPublisher:
                     reasons=reasons,
                 )
 
-        business_context = self.to_business_context(order_context)
-        commitment = self.facade.handle_context_updated(session, request_context, business_context)
-
-        # Update P1 record with commitment link within the session
-        from app.context.postgres_repository import OrderContext
+        # Re-read and lock the current persisted context. A stale frontend read
+        # must not publish older reviewed values or overwrite a newer version.
+        from app.context.postgres_repository import OrderContext, order_context_record
+        from app.context.repository import ContextNotFound, StaleContextVersion
 
         row = session.scalar(
             select(OrderContext).where(
                 OrderContext.tenant_id == order_context.tenant_id,
                 OrderContext.context_id == order_context.context_id,
-            )
+            ).with_for_update()
         )
+        if row is None:
+            raise ContextNotFound("Persisted context not found")
+        if row.context_version != order_context.context_version:
+            raise StaleContextVersion("Context changed before publication; refresh and review")
+        order_context = order_context_record(row)
+        business_context = self.to_business_context(order_context)
+        if row.core_commitment_id and row.published_to_core_at and row.updated_at <= row.published_to_core_at:
+            return self.facade.service.get(session, request_context, row.core_commitment_id)
+
+        effective_order_id = business_context.order_id or f"ord_{business_context.context_id}"
+        existing = session.scalar(select(CommitmentRecord).where(
+            CommitmentRecord.tenant_id == request_context.tenant_id,
+            CommitmentRecord.order_id == effective_order_id,
+        ).with_for_update())
+        if existing is not None and existing.customer_id != business_context.customer_id:
+            raise IneligibleContextError("Existing order customer mismatch", ["Context cannot reassign an existing Core customer"])
+        if existing is not None and existing.agreement_state != AgreementState.REQUESTED.value:
+            raise IneligibleContextError("P5 amendment integration required; existing agreed/proposed terms preserved",
+                ["Current Core context facade cannot safely amend non-REQUESTED commitments; use the P5 proposal workflow"])
+        # D-032 permits caller-owned transactions. Context pointer, aggregate,
+        # audit and outbox now succeed or roll back together.
+        commitment = self.facade.handle_context_updated(session, request_context, business_context, commit=False)
         now = datetime.now(timezone.utc)
-        if row is not None:
-            row.core_commitment_id = commitment.commitment_id
-            row.published_to_core_at = now
-            session.commit()
+        row.core_commitment_id = commitment.commitment_id
+        row.published_to_core_at = now
+        session.commit()
 
         order_context.core_commitment_id = commitment.commitment_id
         order_context.published_to_core_at = now

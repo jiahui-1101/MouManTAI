@@ -32,4 +32,8 @@ Thumbs.db
 *.sqlite3
 *.db
 *.log
+!docs/evidence/*.log
 .local/
+output/
+tmp/
+

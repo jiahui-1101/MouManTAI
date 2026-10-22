@@ -24,10 +24,10 @@ def make_valid_context(tenant_id: str, context_id: str, order_id: str = "ORD-TES
         context_version=1,
         requested_items=[RequestedItem(sku="SKU_BREAD_01", quantity="100", unit="pcs")],
         requested_delivery_at=now,
-        delivery_qualifier="EXACT",
+        delivery_qualifier="DEADLINE",
         special_instructions="Deliver to front door",
         source_message_ids=["msg_001"],
-        field_evidence={"sku": [{"quote": "SKU_BREAD_01", "start": 0, "end": 12, "method": "RULE"}]},
+        field_evidence={"sku": [{"evidence_id": "ev_msg_001_sku", "quote": "SKU_BREAD_01", "start": 0, "end": 12, "method": "RULE"}]},
         missing_fields=[],
         conflicts=[],
         created_at=now,
@@ -80,14 +80,10 @@ def test_to_business_context_date_only_normalization():
     ctx.delivery_qualifier = "DATE_ONLY"
     ctx.special_instructions = "Handle with care"
 
-    b_ctx = publisher.to_business_context(ctx)
-    assert b_ctx.requested_delivery_at is not None
-    # Hour normalized to 17:00 operating cutoff
-    assert b_ctx.requested_delivery_at.hour == 17
-    assert "[DATE_ONLY]" in (b_ctx.special_instructions or "")
-    assert "Handle with care" in (b_ctx.special_instructions or "")
-    assert b_ctx.customer_identity_status == CustomerIdentityStatus.LINK_VERIFIED
-    assert b_ctx.status == ContextStatus.INFORMATION_READY
+    with pytest.raises(IneligibleContextError):
+        publisher.to_business_context(ctx)
+    assert ctx.requested_delivery_at.hour == 0
+    assert ctx.special_instructions == "Handle with care"
 
 
 def test_publish_to_core_ineligible_raises_error():
@@ -193,32 +189,10 @@ def test_publish_confirmed_commitment_amendment_becomes_proposal(pg_engine):
         causation_id=ctx_id_2,
     )
 
+    from app.core.models import CommitmentRecord
     with Session(pg_engine) as session:
-        updated_com = publisher.publish_to_core(session, req_context_2, saved_2)
-        if updated_com.agreement_state != AgreementState.OFFERED:
-            pytest.skip("P5 Task T5.2 (Core handle_context_updated proposal amendment) pending merge")
-
-        # Invariant: Agreement state is OFFERED (proposal created)
-        assert updated_com.agreement_state == AgreementState.OFFERED
-
-        # Verify proposal record created in DB
-        proposals = session.scalars(
-            select(CommitmentProposalRecord).where(
-                CommitmentProposalRecord.tenant_id == tenant_id,
-                CommitmentProposalRecord.commitment_id == com_1.commitment_id,
-            )
-        ).all()
-        assert len(proposals) >= 1
-        active_prop = next(p for p in proposals if p.status == "ACTIVE")
-        assert active_prop.revised_terms is not None
-        assert str(active_prop.revised_terms["quantity"]) == "150"
-
-        # Verify outbox event emitted for proposal
-        outbox_events = session.scalars(
-            select(OutboxEventRecord).where(
-                OutboxEventRecord.tenant_id == tenant_id,
-                OutboxEventRecord.commitment_id == com_1.commitment_id,
-                OutboxEventRecord.event_type == CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value,
-            )
-        ).all()
-        assert len(outbox_events) >= 1
+        with pytest.raises(IneligibleContextError, match="P5 amendment integration required"):
+            publisher.publish_to_core(session, req_context_2, saved_2)
+        record = session.get(CommitmentRecord, (tenant_id, com_1.commitment_id))
+        assert record.agreement_state == AgreementState.CONFIRMED.value
+        assert Decimal(record.terms["quantity"]) == Decimal("100")

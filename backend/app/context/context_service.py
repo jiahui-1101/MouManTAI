@@ -32,6 +32,12 @@ class ContextService:
         message = self.repo.get(tenant_id, message_id)
         if message is None:
             raise MessageNotFound(f"Message {message_id} not found")
+        existing_lookup = getattr(self.repo, 'get_order_context_by_message', None)
+        existing_for_message = existing_lookup(tenant_id, message_id) if existing_lookup else None
+        if existing_for_message:
+            # Reprocessing changes extraction history, never the reviewed
+            # context automatically. Explicit review is the versioned edit path.
+            return existing_for_message
 
         # 1. Retrieve latest extraction attempt
         try:
@@ -55,15 +61,20 @@ class ContextService:
         # 3. Parse fields from extraction attempt
         extracted_sku: str | None = None
         extracted_qty: str | None = None
-        extracted_unit: str = "pcs"
+        extracted_unit: str | None = None
         extracted_delivery_at: datetime | None = None
         extracted_qualifier: str | None = None
         field_evidence: dict[str, list[dict[str, Any]]] = {}
+        uncertain_terms = sorted({f.field_name for f in attempt.fields
+            if f.validation_status in {'INVALID', 'UNRESOLVED', 'CONFLICT'}
+            and f.field_name in {'sku', 'quantity', 'unit', 'requested_delivery_at'}
+            and any(ev.method == 'RULE' for ev in f.evidence)})
 
         for f in attempt.fields:
             if f.validation_status != "VALID":
                 continue
-            ev_list = [ev.model_dump(mode="json") for ev in f.evidence]
+            ev_list = [{**ev.model_dump(mode="json"), "normalized_value": f.value,
+                        "qualifier": f.qualifier, "normalization_metadata": f.metadata} for ev in f.evidence]
             if f.field_name in ("sku", "product") and f.value:
                 extracted_sku = f.value
                 field_evidence["sku"] = ev_list
@@ -78,8 +89,9 @@ class ContextService:
                     if "T" in f.value:
                         extracted_delivery_at = datetime.fromisoformat(f.value)
                     else:
-                        # Date only: treat as date with UTC midnight for storage
-                        extracted_delivery_at = datetime.fromisoformat(f"{f.value}T00:00:00+00:00")
+                        # Preserve date in JSON evidence; the datetime contract
+                        # cannot express date-only. No fabricated midnight.
+                        extracted_delivery_at = None
                 except Exception:
                     extracted_delivery_at = None
                 field_evidence["requested_delivery_at"] = ev_list
@@ -91,15 +103,13 @@ class ContextService:
                     extracted_qualifier = f.qualifier
 
         new_items: list[RequestedItem] = []
-        if extracted_sku and extracted_qty:
+        if extracted_sku and extracted_qty and extracted_unit:
             new_items.append(RequestedItem(sku=extracted_sku, quantity=extracted_qty, unit=extracted_unit))
 
         # 4. Determine order reference to bind or find existing context
         target_order_id: str | None = None
         if assoc.verified_order:
             target_order_id = assoc.verified_order.order_id
-        elif len(assoc.candidates) == 1 and assoc.candidates[0].order_ref:
-            target_order_id = assoc.candidates[0].order_ref.order_id
 
         existing_context: OrderContextRecord | None = None
         if target_order_id:
@@ -109,7 +119,13 @@ class ContextService:
 
         # 5. Merge into existing context or create new
         if existing_context is not None:
+            # Reopening/reprocessing a linked message must not rewrite a human
+            # review or create another version of the identical source merge.
+            if message_id in existing_context.source_message_ids:
+                return existing_context
             conflicts = list(existing_context.conflicts)
+            for name in uncertain_terms:
+                conflicts.append(f"Incoming {name} from message {message_id} requires review; existing value preserved")
             # Detect item conflicts
             if new_items and existing_context.requested_items:
                 ex_it = existing_context.requested_items[0]
@@ -179,6 +195,8 @@ class ContextService:
                 last_reviewed_by=existing_context.last_reviewed_by,
                 last_reviewed_role=existing_context.last_reviewed_role,
                 last_reviewed_at=existing_context.last_reviewed_at,
+                core_commitment_id=existing_context.core_commitment_id,
+                published_to_core_at=existing_context.published_to_core_at,
                 created_at=existing_context.created_at,
                 updated_at=now,
             )

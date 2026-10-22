@@ -7,12 +7,21 @@ from pydantic import Field
 from .schemas import ExtractedField, Identifier, P1Model, ProcessingStatus, RawMessageEnvelope, Timestamp
 
 
+SyntheticProvider = Literal[
+    "SYNTHETIC_WHATSAPP",
+    "SYNTHETIC_EMAIL",
+    "SYNTHETIC_TELEGRAM",
+    "SYNTHETIC_UNKNOWN",
+]
+
+
 class StoredMessage(P1Model):
     message_id: Identifier
     raw: RawMessageEnvelope
-    synthetic_provider: Literal["SYNTHETIC_WHATSAPP"]
+    synthetic_provider: SyntheticProvider
     content_sha256: str
     processing_status: ProcessingStatus
+    extractor_version: Identifier | None = None
     ingested_at: Timestamp
     updated_at: Timestamp
 

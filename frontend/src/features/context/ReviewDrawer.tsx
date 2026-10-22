@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ContextReviewRequest, OrderContextRecord, RequestedItem } from './types';
 import { operationalApi } from './operationalApi';
 
@@ -12,19 +13,29 @@ export interface ReviewDrawerProps {
 export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDrawerProps) {
   if (!isOpen) return null;
 
-  const currentItem = context.requested_items?.[0] || { sku: 'BURGER', quantity: '1', unit: 'pcs' };
+  const currentItem = context.requested_items?.[0] || { sku: '', quantity: '', unit: '' };
 
   const [sku, setSku] = useState(currentItem.sku);
   const [quantity, setQuantity] = useState(currentItem.quantity);
   const [unit, setUnit] = useState(currentItem.unit);
   const [deliveryAt, setDeliveryAt] = useState(
-    context.requested_delivery_at ? new Date(context.requested_delivery_at).toISOString().slice(0, 16) : ''
+    context.requested_delivery_at || ''
   );
-  const [qualifier, setQualifier] = useState(context.delivery_qualifier || 'EXACT');
+  const [qualifier, setQualifier] = useState(context.delivery_qualifier || '');
   const [specialInstructions, setSpecialInstructions] = useState(context.special_instructions || '');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const handleSubmit = async (action: 'ACCEPT_EXTRACTION' | 'EDIT_FIELD' | 'REQUEST_MORE_INFO' | 'MARK_UNRESOLVED') => {
     setSubmitting(true);
@@ -34,9 +45,15 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
       const fieldEdits: Record<string, unknown> = {};
 
       if (action === 'EDIT_FIELD') {
+        if (!sku.trim() || !unit.trim() || !/^[0-9]+(?:\.[0-9]+)?$/.test(quantity.trim()) || Number(quantity) <= 0) {
+          throw new Error('Enter an explicit SKU, positive quantity and unit. Missing fields are not defaulted.');
+        }
         fieldEdits.requested_items = items;
         fieldEdits.delivery_qualifier = qualifier;
         if (deliveryAt) {
+          if (!/(Z|[+-][0-9]{2}:[0-9]{2})$/.test(deliveryAt) || Number.isNaN(Date.parse(deliveryAt))) {
+            throw new Error('Enter an ISO timestamp with explicit UTC offset, for example 2026-10-23T15:00:00+08:00.');
+          }
           fieldEdits.requested_delivery_at = new Date(deliveryAt).toISOString();
         }
         if (specialInstructions) {
@@ -70,17 +87,36 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
     }
   };
 
-  return (
-    <div className="p1-drawer-backdrop" role="dialog" aria-modal="true" aria-labelledby="review-drawer-title">
-      <div className="p1-drawer-panel">
+  const drawerContent = (
+    <>
+      <div
+        className="p1-review-backdrop"
+        onClick={onClose}
+        aria-hidden="true"
+        role="presentation"
+      />
+      <aside
+        className="p1-drawer-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="review-drawer-title"
+        data-testid="review-drawer"
+      >
         <div className="p1-drawer-header">
-          <div>
-            <h3 id="review-drawer-title">Context Review & Amendments</h3>
-            <span className="p1-dim-badge">v{context.context_version}</span>
-            <span className={`p1-badge p1-badge-${context.status.toLowerCase()}`}>{context.status}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <h3 id="review-drawer-title" style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+              Context Review & Amendments
+            </h3>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <span className="p1-dim-badge">v{context.context_version}</span>
+              <span className={`status-badge status-${context.status.toLowerCase()}`}>{context.status}</span>
+            </div>
           </div>
           <button type="button" className="p1-btn-subtle" onClick={onClose} aria-label="Close drawer">
-            ✕
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
           </button>
         </div>
 
@@ -124,6 +160,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                   onChange={e => setUnit(e.target.value)}
                   disabled={submitting}
                 >
+                  <option value="">Missing / unknown</option>
                   <option value="pcs">pcs</option>
                   <option value="box">box</option>
                   <option value="kg">kg</option>
@@ -136,10 +173,10 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
             <h4>Requested Delivery</h4>
             <div className="p1-form-row">
               <div className="p1-form-group">
-                <label htmlFor="p1-input-delivery">Date & Time</label>
+                <label htmlFor="p1-input-delivery">Date & Time (ISO with UTC offset)</label>
                 <input
                   id="p1-input-delivery"
-                  type="datetime-local"
+                  type="text"
                   value={deliveryAt}
                   onChange={e => setDeliveryAt(e.target.value)}
                   disabled={submitting}
@@ -154,9 +191,9 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                   onChange={e => setQualifier(e.target.value)}
                   disabled={submitting}
                 >
+                  <option value="">Unresolved</option>
                   <option value="EXACT">EXACT</option>
-                  <option value="BEFORE">BEFORE / DEADLINE</option>
-                  <option value="AFTER">AFTER</option>
+                  <option value="DEADLINE">DEADLINE</option>
                   <option value="DATE_ONLY">DATE_ONLY</option>
                 </select>
               </div>
@@ -192,40 +229,47 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
         </div>
 
         <div className="p1-drawer-footer">
-          <button
-            type="button"
-            className="p1-btn p1-btn-primary"
-            disabled={submitting}
-            onClick={() => handleSubmit('EDIT_FIELD')}
-          >
-            ✏ Apply Field Edits
-          </button>
-          <button
-            type="button"
-            className="p1-btn p1-btn-success"
-            disabled={submitting}
-            onClick={() => handleSubmit('ACCEPT_EXTRACTION')}
-          >
-            ✓ Accept Extraction
-          </button>
-          <button
-            type="button"
-            className="p1-btn p1-btn-warning"
-            disabled={submitting}
-            onClick={() => handleSubmit('REQUEST_MORE_INFO')}
-          >
-            ❓ Request More Info
-          </button>
-          <button
-            type="button"
-            className="p1-btn p1-btn-danger"
-            disabled={submitting}
-            onClick={() => handleSubmit('MARK_UNRESOLVED')}
-          >
-            ⚠ Mark Unresolved
-          </button>
+          <div className="p1-drawer-footer-row">
+            <button
+              type="button"
+              className="p1-btn p1-btn-primary"
+              disabled={submitting}
+              onClick={() => handleSubmit('EDIT_FIELD')}
+            >
+              Apply Field Edits
+            </button>
+            <button
+              type="button"
+              className="p1-btn p1-btn-secondary"
+              disabled={submitting}
+              onClick={() => handleSubmit('ACCEPT_EXTRACTION')}
+            >
+              Accept Extraction
+            </button>
+          </div>
+          <div className="p1-drawer-footer-row">
+            <button
+              type="button"
+              className="p1-btn p1-btn-subtle-amber"
+              disabled={submitting}
+              onClick={() => handleSubmit('REQUEST_MORE_INFO')}
+            >
+              Request More Info
+            </button>
+            <button
+              type="button"
+              className="p1-btn p1-btn-subtle-red"
+              disabled={submitting}
+              onClick={() => handleSubmit('MARK_UNRESOLVED')}
+            >
+              Mark Unresolved
+            </button>
+          </div>
         </div>
-      </div>
-    </div>
+      </aside>
+    </>
   );
+
+  return typeof document !== 'undefined' ? createPortal(drawerContent, document.body) : drawerContent;
 }
+

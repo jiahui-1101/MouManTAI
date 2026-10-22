@@ -35,7 +35,7 @@ def test_context_end_to_end_lifecycle(api_client):
         "sender_alias": "Burger King Procurement",
         "received_at": datetime.now(timezone.utc).isoformat(),
         "business_timezone": "Asia/Kuala_Lumpur",
-        "text": "Please send 50 burgers tomorrow before 3pm for ORD-1001",
+        "text": "Please send 50 pcs burgers tomorrow before 3pm for ORD-1001",
         "attachments": [],
     }
     resp = api_client.post("/v1/messages/ingest", json=envelope)
@@ -74,7 +74,7 @@ def test_context_end_to_end_lifecycle(api_client):
         "sender_alias": "Burger King Procurement",
         "received_at": datetime.now(timezone.utc).isoformat(),
         "business_timezone": "Asia/Kuala_Lumpur",
-        "text": "Please change ORD-1001 to 100 burgers",
+        "text": "Please change ORD-1001 to 100 pcs burgers",
         "attachments": [],
     }
     resp = api_client.post("/v1/messages/ingest", json=envelope_2)
@@ -160,7 +160,7 @@ def test_context_patch_and_review_actions(api_client):
         "sender_alias": "Burger King Procurement",
         "received_at": datetime.now(timezone.utc).isoformat(),
         "business_timezone": "Asia/Kuala_Lumpur",
-        "text": "Please send 30 burgers tomorrow for ORD-1002",
+        "text": "Please send 30 pcs burgers tomorrow before 3pm for ORD-1002",
         "attachments": [],
     }
     resp = api_client.post("/v1/messages/ingest", json=envelope)
@@ -176,7 +176,7 @@ def test_context_patch_and_review_actions(api_client):
     patch_req = {
         "expected_context_version": 1,
         "special_instructions": "Handle with care",
-        "delivery_qualifier": "BEFORE",
+        "delivery_qualifier": "DEADLINE",
         "reason": "Customer added delivery instructions",
     }
     resp = api_client.patch(
@@ -188,7 +188,7 @@ def test_context_patch_and_review_actions(api_client):
     patched = resp.json()
     assert patched["context_version"] == 2
     assert patched["special_instructions"] == "Handle with care"
-    assert patched["delivery_qualifier"] == "BEFORE"
+    assert patched["delivery_qualifier"] == "DEADLINE"
 
     # Stale PATCH returns 409
     resp = api_client.patch(f"/v1/contexts/{ctx_id}", json=patch_req)
@@ -262,4 +262,80 @@ def test_context_api_tenant_isolation(pg_engine):
         json={"expected_context_version": 1, "action": "ACCEPT_EXTRACTION"},
     )
     assert resp.status_code == 404
+
+
+def test_publish_context_to_core_ineligible(api_client):
+    envelope = {
+        "tenant_id": "synthetic_tenant_a",
+        "channel": "WHATSAPP",
+        "provider_message_id": f"msg_pub_inelig_{uuid4().hex[:8]}",
+        "sender_identity_id": "+60199999999",  # unverified sender
+        "sender_alias": "Unknown Sender",
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "business_timezone": "Asia/Kuala_Lumpur",
+        "text": "Hello I might want some items later",
+        "attachments": [],
+    }
+    resp = api_client.post("/v1/messages/ingest", json=envelope)
+    assert resp.status_code == 201
+    msg_id = resp.json()["message"]["message_id"]
+
+    ctx = api_client.post(f"/v1/contexts/from-message/{msg_id}").json()
+    ctx_id = ctx["context_id"]
+
+    # Calling publish on unverified / incomplete context returns 422
+    pub_resp = api_client.post(f"/v1/contexts/{ctx_id}/publish")
+    assert pub_resp.status_code == 422
+    detail = pub_resp.json()["detail"]
+    assert "ineligible for Core publication" in detail["message"]
+    assert len(detail["reasons"]) > 0
+
+
+def test_publish_context_to_core_success(api_client):
+    envelope = {
+        "tenant_id": "synthetic_tenant_a",
+        "channel": "WHATSAPP",
+        "provider_message_id": f"msg_pub_succ_{uuid4().hex[:8]}",
+        "sender_identity_id": "+60123456789",  # cust_bk verified
+        "sender_alias": "Burger King Procurement",
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "business_timezone": "Asia/Kuala_Lumpur",
+        "text": "Please send 50 pcs burgers tomorrow before 3pm for ORD-1001",
+        "attachments": [],
+    }
+    resp = api_client.post("/v1/messages/ingest", json=envelope)
+    assert resp.status_code == 201
+    msg_id = resp.json()["message"]["message_id"]
+
+    ctx = api_client.post(f"/v1/contexts/from-message/{msg_id}").json()
+    ctx_id = ctx["context_id"]
+    assert ctx["status"] == "INFORMATION_READY"
+    assert ctx["customer_identity_status"] == "LINK_VERIFIED"
+
+    # Publish to Core
+    pub_resp = api_client.post(
+        f"/v1/contexts/{ctx_id}/publish",
+        headers={"X-Actor-ID": "user_manager_01", "X-Actor-Role": "MANAGER"},
+    )
+    assert pub_resp.status_code == 200
+    published_ctx = pub_resp.json()
+    assert published_ctx["core_commitment_id"] is not None
+    assert published_ctx["core_commitment_id"].startswith("com_")
+    assert published_ctx["published_to_core_at"] is not None
+
+
+def test_publish_rejects_unknown_actor_even_with_owner_role_header(api_client):
+    envelope = {
+        'tenant_id': 'synthetic_tenant_a', 'channel': 'WHATSAPP',
+        'provider_message_id': f'audit_publish_actor_{uuid4().hex}',
+        'sender_identity_id': '+60123456789', 'sender_alias': 'Synthetic buyer',
+        'received_at': datetime.now(timezone.utc).isoformat(), 'business_timezone': 'Asia/Kuala_Lumpur',
+        'text': '50 pcs burgers tomorrow before 3pm for ORD-1001',
+    }
+    message = api_client.post('/v1/messages/ingest', json=envelope).json()['message']
+    context = api_client.post(f"/v1/contexts/from-message/{message['message_id']}").json()
+    response = api_client.post(f"/v1/contexts/{context['context_id']}/publish",
+        headers={'X-Actor-ID': 'unknown-caller', 'X-Actor-Role': 'OWNER'})
+    assert response.status_code == 403
+
 

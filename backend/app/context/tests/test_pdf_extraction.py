@@ -53,7 +53,7 @@ def test_pdf_machine_readable_order_extraction():
 
     att = AttachmentRecord(
         attachment_id="att_pdf_01",
-        tenant_id="tenant_pdf_test",
+        tenant_id="synthetic_tenant_a",
         evidence_ref="ev_att_pdf_01",
         filename="order_po.pdf",
         media_type="application/pdf",
@@ -109,7 +109,7 @@ def test_pdf_payment_notice_flagging():
 
     att = AttachmentRecord(
         attachment_id="att_bank_slip",
-        tenant_id="tenant_pdf_test",
+        tenant_id="synthetic_tenant_a",
         evidence_ref="ev_att_bank_slip",
         filename="bank_slip.pdf",
         media_type="application/pdf",
@@ -140,7 +140,7 @@ def test_pdf_page_count_bounding():
 
     att = AttachmentRecord(
         attachment_id="att_long_pdf",
-        tenant_id="tenant_pdf_test",
+        tenant_id="synthetic_tenant_a",
         evidence_ref="ev_att_long_pdf",
         filename="long_catalog.pdf",
         media_type="application/pdf",
@@ -168,7 +168,7 @@ def test_pdf_scanned_or_empty_detection():
 
     att = AttachmentRecord(
         attachment_id="att_blank_pdf",
-        tenant_id="tenant_pdf_test",
+        tenant_id="synthetic_tenant_a",
         evidence_ref="ev_att_blank_pdf",
         filename="scanned.pdf",
         media_type="application/pdf",
@@ -229,3 +229,42 @@ def test_pdf_extraction_api_and_persistence(shared_repo):
     app.dependency_overrides[development_context] = lambda: other_tenant
     stranger_res = client.get(f"/v1/attachments/{ev_ref}/extraction")
     assert stranger_res.status_code == 404
+
+
+def test_scanned_purchase_order_pdf_ocr_fallback():
+    pdf_path = os.path.join("output", "pdf", "promiseflow_p1_synthetic_scanned_purchase_order.pdf")
+    if not os.path.exists(pdf_path):
+        pytest.skip(f"Scanned fixture {pdf_path} not found")
+
+    with open(pdf_path, "rb") as f:
+        pdf_bytes = f.read()
+
+    att = AttachmentRecord(
+        attachment_id="att_scanned_po_01",
+        tenant_id="synthetic_tenant_a",
+        evidence_ref="ev_att_scanned_po_01",
+        filename="promiseflow_p1_synthetic_scanned_purchase_order.pdf",
+        media_type="application/pdf",
+        size_bytes=len(pdf_bytes),
+        content_sha256="0" * 64,
+    )
+
+    result = extract_pdf_document(att, pdf_bytes)
+
+    assert result.status == "SUCCESS"
+    assert "ocr" in result.diagnostic.lower() or "image-only" in result.diagnostic.lower()
+    assert len(result.evidence_items) > 0
+    assert any(ev.method == "OCR" for ev in result.evidence_items)
+
+    field_map = {f["field_name"]: f.get("value") for f in result.extracted_fields}
+    assert "order_id" in field_map
+    assert "PO-DEMO-2026-1042" in field_map["order_id"]
+    assert "requested_delivery_at" in field_map
+    assert field_map["requested_delivery_at"] == "2026-10-26"
+
+    item_fields = [f for f in result.extracted_fields if f.get("field_name") == "item"]
+    assert len(item_fields) >= 1
+    assert item_fields[0]["sku"] == "BURGER"
+    assert item_fields[0]["quantity"] == 100
+
+    assert "rescheduling_clause" in field_map

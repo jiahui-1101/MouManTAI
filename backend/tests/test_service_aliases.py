@@ -1,6 +1,7 @@
 """Unit tests for Section 4 alias methods and policy authorization (A7, R43, R55)."""
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import pytest
 from sqlalchemy.orm import Session
 
@@ -11,6 +12,7 @@ from app.core.schemas import (
     AgreementState,
     CommitmentCreateRequest,
     CommitmentTerms,
+    CommitmentTransitionRequest,
     ConstraintReason,
     FeasibilityAssessment,
     FeasibilityState,
@@ -158,3 +160,155 @@ def test_section_4_alias_methods(session: Session) -> None:
         ),
     )
     assert ful_trans.commitment.fulfilment_state.value == "FULFILLED"
+
+
+def test_d015_proposal_terms_safety(session: Session) -> None:
+    """Verifies D-015 proposal terms invariants:
+    1. Offering a proposal preserves existing accepted Commitment terms.
+    2. Rejecting a proposal preserves existing terms.
+    3. Explicit customer acceptance applies revised terms with correct version updates.
+    """
+    service = CommitmentService()
+    ctx = RequestContext(
+        tenant_id="tenant_d015_test",
+        actor_id="user_manager_01",
+        actor_role="MANAGER",
+        correlation_id="corr_d015_test",
+    )
+
+    # 1. Create and confirm original commitment
+    orig_terms = CommitmentTerms(
+        sku="BURGER_ORIGINAL",
+        quantity="100",
+        unit="pcs",
+        deadline=_now() + timedelta(days=3),
+    )
+    com = service.request(
+        session,
+        ctx,
+        CommitmentCreateRequest(
+            order_id="ord_d015_001",
+            customer_id="cust_d015_001",
+            terms=orig_terms,
+            evidence_refs=["ev_d015_init"],
+        ),
+    )
+    service.transition(
+        session,
+        ctx,
+        com.commitment_id,
+        CommitmentTransitionRequest(
+            dimension="agreement",
+            target_state="OFFERED",
+            expected_commitment_version=1,
+            reason="Initial offer",
+        ),
+    )
+    conf_trans = service.transition(
+        session,
+        ctx,
+        com.commitment_id,
+        CommitmentTransitionRequest(
+            dimension="agreement",
+            target_state="CONFIRMED",
+            expected_commitment_version=2,
+            evidence_refs=["ev_d015_signed_init"],
+            reason="Initial confirmation",
+        ),
+    )
+    assert conf_trans.commitment.agreement_state == AgreementState.CONFIRMED
+    assert conf_trans.commitment.terms.sku == "BURGER_ORIGINAL"
+    assert conf_trans.commitment.terms.quantity == Decimal("100")
+
+    # 2. Offer proposal with revised terms (quantity 80)
+    revised_terms_v1 = CommitmentTerms(
+        sku="BURGER_REVISED_V1",
+        quantity="80",
+        unit="pcs",
+        deadline=_now() + timedelta(days=4),
+    )
+    offer_trans = service.create_proposal(
+        session,
+        ctx,
+        com.commitment_id,
+        ProposalCreateRequest(
+            proposal_id="prop_d015_01",
+            proposal_version=1,
+            expected_commitment_version=3,
+            revised_terms=revised_terms_v1,
+            evidence_refs=["ev_plan_v1"],
+            reason="Offer reduced quantity",
+        ),
+    )
+    assert offer_trans.commitment.agreement_state == AgreementState.OFFERED
+    # Invariant: offering proposal MUST NOT overwrite accepted commitment terms
+    assert offer_trans.commitment.terms.sku == "BURGER_ORIGINAL"
+    assert offer_trans.commitment.terms.quantity == Decimal("100")
+
+    refreshed_offered = service.get(session, ctx, com.commitment_id)
+    assert refreshed_offered.terms.sku == "BURGER_ORIGINAL"
+    assert refreshed_offered.terms.quantity == Decimal("100")
+
+    # 3. Customer rejects proposal
+    rej_trans = service.confirm_proposal(
+        session,
+        ctx,
+        com.commitment_id,
+        ProposalConfirmRequest(
+            proposal_id="prop_d015_01",
+            proposal_version=1,
+            expected_commitment_version=4,
+            decision="REJECT",
+            evidence_refs=["ev_customer_reject_note"],
+            reason="Customer declined revised terms",
+        ),
+    )
+    assert rej_trans.commitment.agreement_state == AgreementState.REJECTED
+    # Invariant: rejecting proposal preserves original terms
+    assert rej_trans.commitment.terms.sku == "BURGER_ORIGINAL"
+    assert rej_trans.commitment.terms.quantity == Decimal("100")
+
+    # 4. Offer second proposal (quantity 95)
+    revised_terms_v2 = CommitmentTerms(
+        sku="BURGER_REVISED_V2",
+        quantity="95",
+        unit="pcs",
+        deadline=_now() + timedelta(days=5),
+    )
+    offer_trans_2 = service.create_proposal(
+        session,
+        ctx,
+        com.commitment_id,
+        ProposalCreateRequest(
+            proposal_id="prop_d015_02",
+            proposal_version=2,
+            expected_commitment_version=5,
+            revised_terms=revised_terms_v2,
+            evidence_refs=["ev_plan_v2"],
+            reason="Offer second revision",
+        ),
+    )
+    assert offer_trans_2.commitment.agreement_state == AgreementState.OFFERED
+    assert offer_trans_2.commitment.terms.sku == "BURGER_ORIGINAL"
+    assert offer_trans_2.commitment.terms.quantity == Decimal("100")
+
+    # 5. Customer explicitly accepts second proposal
+    accept_trans = service.confirm_proposal(
+        session,
+        ctx,
+        com.commitment_id,
+        ProposalConfirmRequest(
+            proposal_id="prop_d015_02",
+            proposal_version=2,
+            expected_commitment_version=6,
+            decision="ACCEPT",
+            evidence_refs=["ev_customer_signed_amendment"],
+            reason="Customer signed amendment",
+        ),
+    )
+    assert accept_trans.commitment.agreement_state == AgreementState.CONFIRMED
+    # Invariant: explicit customer acceptance applies revised terms
+    assert accept_trans.commitment.terms.sku == "BURGER_REVISED_V2"
+    assert accept_trans.commitment.terms.quantity == Decimal("95")
+    assert accept_trans.commitment.commitment_version == 7
+

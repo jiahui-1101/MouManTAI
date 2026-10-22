@@ -16,20 +16,27 @@ class UnsupportedSyntheticChannel(Exception):
     pass
 
 
-class SyntheticWhatsAppAdapter:
-    """Declared mock adapter; no provider signature or real WhatsApp connection."""
+SUPPORTED_SYNTHETIC_CHANNELS = {"WHATSAPP", "EMAIL", "TELEGRAM", "UNKNOWN"}
+
+
+class SyntheticMultiChannelAdapter:
+    """Declared mock adapter for multi-channel synthetic inputs (WhatsApp, Email, Telegram)."""
 
     def accept(self, envelope: RawMessageEnvelope) -> RawMessageEnvelope:
-        if envelope.channel != "WHATSAPP":
-            raise UnsupportedSyntheticChannel("Only the synthetic WhatsApp-shaped adapter is implemented")
+        if envelope.channel not in SUPPORTED_SYNTHETIC_CHANNELS:
+            raise UnsupportedSyntheticChannel(f"Channel {envelope.channel} is not implemented")
         return envelope
+
+
+# Backwards compatibility alias for existing test references
+SyntheticWhatsAppAdapter = SyntheticMultiChannelAdapter
 
 
 class IngestionService:
     def __init__(self, repository: MessageRepository, clock: Callable[[], datetime] | None = None):
         self.repository = repository
         self.clock = clock or (lambda: datetime.now(timezone.utc))
-        self.adapter = SyntheticWhatsAppAdapter()
+        self.adapter = SyntheticMultiChannelAdapter()
 
     def ingest(self, envelope: RawMessageEnvelope, effective_tenant: str) -> IngestResponse:
         if envelope.tenant_id != effective_tenant:

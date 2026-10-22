@@ -50,7 +50,7 @@ def test_image_ocr_order_extraction():
 
     att = AttachmentRecord(
         attachment_id="att_img_01",
-        tenant_id="tenant_ocr_test",
+        tenant_id="synthetic_tenant_a",
         evidence_ref="ev_att_img_01",
         filename="order_scan.png",
         media_type="image/png",

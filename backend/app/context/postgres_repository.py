@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import CheckConstraint, DateTime, Index, LargeBinary, String, Text, UniqueConstraint, desc, func, or_, select
@@ -46,6 +47,21 @@ from .repository import (
 from .schemas import Channel, ExtractedField, ProcessingStatus, RawMessageEnvelope
 
 
+def _to_json_compatible(val: Any) -> Any:
+    """Recursively convert datetime and pydantic models to JSON-safe primitives for JSONB columns."""
+    if val is None or isinstance(val, (int, float, str, bool)):
+        return val
+    if isinstance(val, (datetime, date)):
+        return val.isoformat()
+    if isinstance(val, list):
+        return [_to_json_compatible(item) for item in val]
+    if isinstance(val, dict):
+        return {k: _to_json_compatible(v) for k, v in val.items()}
+    if hasattr(val, "model_dump"):
+        return val.model_dump(mode="json")
+    return str(val)
+
+
 class P1Base(DeclarativeBase):
     pass
 
@@ -76,7 +92,13 @@ class InboundMessage(P1Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "channel", "provider_message_id", name="uq_p1_delivery"),
         CheckConstraint("processing_status IN ('RECEIVED', 'PROCESSING', 'PROCESSED', 'PROCESSING_FAILED')", name="ck_p1_processing"),
-        CheckConstraint("channel = 'WHATSAPP' AND synthetic_provider = 'SYNTHETIC_WHATSAPP'", name="ck_p1_synthetic_provider"),
+        CheckConstraint(
+            "(channel = 'WHATSAPP' AND synthetic_provider = 'SYNTHETIC_WHATSAPP') OR "
+            "(channel = 'EMAIL' AND synthetic_provider = 'SYNTHETIC_EMAIL') OR "
+            "(channel = 'TELEGRAM' AND synthetic_provider = 'SYNTHETIC_TELEGRAM') OR "
+            "(channel = 'UNKNOWN' AND synthetic_provider = 'SYNTHETIC_UNKNOWN')",
+            name="ck_p1_synthetic_provider",
+        ),
         Index("ix_p1_inbox", "tenant_id", "ingested_at", "message_id"),
         {"schema": "p1_dev"},
     )
@@ -229,10 +251,11 @@ def fingerprint(envelope: RawMessageEnvelope) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def stored(row: InboundMessage) -> StoredMessage:
+def stored(row: InboundMessage, extractor_version: str | None = None) -> StoredMessage:
     return StoredMessage(message_id=row.message_id, raw=RawMessageEnvelope(**row.raw),
                          synthetic_provider=row.synthetic_provider, content_sha256=row.content_sha256,
-                         processing_status=row.processing_status, ingested_at=row.ingested_at, updated_at=row.updated_at)
+                         processing_status=row.processing_status, extractor_version=extractor_version,
+                         ingested_at=row.ingested_at, updated_at=row.updated_at)
 
 
 def attempt_record(row: ExtractionAttempt) -> ExtractionAttemptRecord:
@@ -331,8 +354,16 @@ def context_review_record(row: ContextReview) -> ContextReviewRecord:
 
 
 class PostgresMessageRepository:
-    def __init__(self, engine: Engine):
+    def __init__(self, engine: Engine, *, proposal_service=None):
         self.engine = engine
+        self._proposal_service = proposal_service
+
+    @property
+    def proposal_service(self):
+        if self._proposal_service is None:
+            from .extraction import prepare_model_proposal_service
+            self._proposal_service = prepare_model_proposal_service()
+        return self._proposal_service
 
     def ingest(self, envelope: RawMessageEnvelope, now: datetime) -> IngestResponse:
         digest = fingerprint(envelope)
@@ -340,7 +371,7 @@ class PostgresMessageRepository:
             with Session(self.engine) as session, session.begin():
                 statement = insert(InboundMessage).values(
                     message_id=str(uuid4()), tenant_id=envelope.tenant_id, channel=envelope.channel,
-                    provider_message_id=envelope.provider_message_id, synthetic_provider="SYNTHETIC_WHATSAPP",
+                    provider_message_id=envelope.provider_message_id, synthetic_provider=f"SYNTHETIC_{envelope.channel}",
                     raw=envelope.model_dump(mode="json"), immutable_fingerprint=digest,
                     content_sha256=hashlib.sha256(envelope.text.encode("utf-8")).hexdigest(),
                     processing_status="RECEIVED", ingested_at=now, updated_at=now,
@@ -365,7 +396,15 @@ class PostgresMessageRepository:
         try:
             with Session(self.engine) as session:
                 row = session.scalar(select(InboundMessage).where(InboundMessage.tenant_id == tenant_id, InboundMessage.message_id == message_id))
-                return stored(row) if row else None
+                if not row:
+                    return None
+                ext_ver = session.scalar(
+                    select(ExtractionAttempt.extractor_version)
+                    .where(ExtractionAttempt.tenant_id == tenant_id, ExtractionAttempt.message_id == message_id, ExtractionAttempt.status == "PROCESSED")
+                    .order_by(ExtractionAttempt.started_at.desc())
+                    .limit(1)
+                )
+                return stored(row, extractor_version=ext_ver)
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
 
@@ -389,7 +428,19 @@ class PostgresMessageRepository:
                     total = session.scalar(select(func.count()).select_from(InboundMessage).where(*filters))
                     rows = session.scalars(select(InboundMessage).where(*filters).order_by(
                         InboundMessage.ingested_at.desc(), InboundMessage.message_id.desc()).limit(limit).offset(offset)).all()
-                    return MessagePage(items=[stored(row) for row in rows], total=total, limit=limit, offset=offset)
+                    versions = {}
+                    if rows:
+                        msg_ids = [r.message_id for r in rows]
+                        attempts = session.execute(
+                            select(ExtractionAttempt.message_id, ExtractionAttempt.extractor_version)
+                            .where(ExtractionAttempt.tenant_id == tenant_id, ExtractionAttempt.message_id.in_(msg_ids), ExtractionAttempt.status == "PROCESSED")
+                            .order_by(ExtractionAttempt.started_at.desc())
+                        ).all()
+                        for m_id, ext_ver in attempts:
+                            if m_id not in versions:
+                                versions[m_id] = ext_ver
+
+                    return MessagePage(items=[stored(row, extractor_version=versions.get(row.message_id)) for row in rows], total=total, limit=limit, offset=offset)
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
 
@@ -397,7 +448,8 @@ class PostgresMessageRepository:
         """P1-02 discovery boundary only; no claim, processing, worker or automatic retry."""
         return self.list(tenant_id, processing_status="RECEIVED", limit=limit).items
 
-    def process(self, tenant_id: str, message_id: str, *, reprocess: bool = False, now: datetime | None = None) -> ProcessResponse:
+    def process(self, tenant_id: str, message_id: str, *, reprocess: bool = False, now: datetime | None = None,
+                operation_id: str | None = None) -> ProcessResponse:
         current_time = now or datetime.now(timezone.utc)
         extractor_version = VERSION
         try:
@@ -411,19 +463,30 @@ class PostgresMessageRepository:
                 if row is None:
                     raise MessageNotFound(f"Message {message_id} not found")
 
+                if operation_id:
+                    previous = session.scalars(select(ExtractionAttempt).where(
+                        ExtractionAttempt.tenant_id == tenant_id, ExtractionAttempt.message_id == message_id,
+                    ).order_by(desc(ExtractionAttempt.started_at))).all()
+                    for prior in previous:
+                        try:
+                            if json.loads(prior.diagnostic or "{}").get("operation_id") == operation_id:
+                                return ProcessResponse(message=stored(row, prior.extractor_version),
+                                    attempt=attempt_record(prior), reprocessed=reprocess)
+                        except (ValueError, TypeError):
+                            continue  # Legacy unstructured diagnostic; never rewrite it.
+
                 if not reprocess:
                     existing_attempt = session.scalar(
                         select(ExtractionAttempt).where(
                             ExtractionAttempt.tenant_id == tenant_id,
                             ExtractionAttempt.message_id == message_id,
-                            ExtractionAttempt.extractor_version == extractor_version,
                             ExtractionAttempt.input_content_sha256 == row.content_sha256,
                             ExtractionAttempt.status == "PROCESSED",
                         ).order_by(desc(ExtractionAttempt.started_at)).limit(1)
                     )
                     if existing_attempt is not None:
                         return ProcessResponse(
-                            message=stored(row),
+                            message=stored(row, existing_attempt.extractor_version),
                             attempt=attempt_record(existing_attempt),
                             reprocessed=False,
                         )
@@ -447,7 +510,6 @@ class PostgresMessageRepository:
                 session.flush()
 
                 stored_msg = stored(row)
-                completed_time = datetime.now(timezone.utc)
                 try:
                     result = extract_explicit_fields(stored_msg, catalog=PROVISIONAL_PRODUCTS)
                     raw_text = stored_msg.raw.text
@@ -462,12 +524,77 @@ class PostgresMessageRepository:
                                 raise ValueError(
                                     f"Evidence quote mismatch: expected {ev.quote!r}, got {actual_quote!r}"
                                 )
+                    active_fields = list(result.fields)
+                    actual_extractor_version = extractor_version
+                    diagnostics_dict = {"trigger": "explicit_reprocess" if reprocess else "process",
+                                        "configured": False, "accepted_model_fields": 0}
+                    if operation_id:
+                        diagnostics_dict["operation_id"] = operation_id
+                    if stored_msg.raw.received_at > stored_msg.ingested_at:
+                        diagnostics_dict["source_clock_anomaly"] = "receipt_after_persistence"
+
+                    svc = self.proposal_service
+                    if svc and getattr(svc, "enabled", False):
+                        diagnostics_dict["configured"] = True
+                        try:
+                            import asyncio
+                            import concurrent.futures
+
+                            def _run_async(coro):
+                                try:
+                                    asyncio.get_running_loop()
+                                except RuntimeError:
+                                    return asyncio.run(coro)
+                                else:
+                                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                                        return pool.submit(asyncio.run, coro).result()
+
+                            proposal_res = _run_async(
+                                svc.extract_stored(stored_msg, catalog=PROVISIONAL_PRODUCTS)
+                            )
+                            if getattr(proposal_res, "outcomes", None):
+                                diagnostics_dict["model_outcomes"] = proposal_res.outcomes
+                            diagnostics_dict["runtime_reported"] = getattr(proposal_res, "telemetry", {})
+
+                            candidates = getattr(proposal_res, "candidates", [])
+                            if candidates:
+                                actual_extractor_version = "p1-ai-pipeline-v2"
+                                for c in candidates:
+                                    for ev in c.evidence:
+                                        if ev.start < 0 or ev.end > len(raw_text) or ev.start >= ev.end or raw_text[ev.start:ev.end] != ev.quote:
+                                            raise ValueError(f"Model evidence span [{ev.start}:{ev.end}] invalid")
+                                active_fields.extend(candidates)
+                            elif getattr(proposal_res, "outcomes", None) and any(
+                                v in ("unavailable", "timeout", "busy", "endpoint_http_error", "transport_or_schema_error")
+                                for v in proposal_res.outcomes.values()
+                            ):
+                                diagnostics_dict["fallback"] = "rules_only"
+                        except Exception as model_exc:
+                            diagnostics_dict["model_error"] = "proposal_processing_failed"
+                            diagnostics_dict["fallback"] = "rules_only"
+
                     attempt.status = "PROCESSED"
-                    attempt.fields = [f.model_dump(mode="json") for f in result.fields]
+                    attempt.extractor_version = actual_extractor_version
+                    attempt.fields = [f.model_dump(mode="json") for f in active_fields]
+                    # Preserve valid JSON in the existing bounded column. Never
+                    # truncate JSON mid-string or discard primary outcome state.
+                    diagnostic = json.dumps(diagnostics_dict, separators=(",", ":"))
+                    if len(diagnostic) > 1000:
+                        for telemetry in diagnostics_dict.get("runtime_reported", {}).values():
+                            for key in ("dtype", "peak_gpu_bytes", "load_seconds"):
+                                telemetry.pop(key, None)
+                        diagnostic = json.dumps(diagnostics_dict, separators=(",", ":"))
+                    if len(diagnostic) > 1000:
+                        diagnostics_dict["runtime_reported"] = {k: {"attempted": v.get("attempted", False),
+                            "succeeded": v.get("succeeded", False)} for k, v in diagnostics_dict.get("runtime_reported", {}).items()}
+                        diagnostic = json.dumps(diagnostics_dict, separators=(",", ":"))
+                    attempt.diagnostic = diagnostic
+                    completed_time = datetime.now(timezone.utc)
                     attempt.completed_at = completed_time
                     row.processing_status = "PROCESSED"
                     row.updated_at = completed_time
                 except Exception as exc:
+                    completed_time = datetime.now(timezone.utc)
                     attempt.status = "PROCESSING_FAILED"
                     attempt.diagnostic = str(exc)[:1000]
                     attempt.completed_at = completed_time
@@ -476,7 +603,7 @@ class PostgresMessageRepository:
 
                 session.flush()
                 return ProcessResponse(
-                    message=stored(row),
+                    message=stored(row, extractor_version=attempt.extractor_version),
                     attempt=attempt_record(attempt),
                     reprocessed=reprocess,
                 )
@@ -777,6 +904,17 @@ class PostgresMessageRepository:
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
 
+    def get_order_context_by_message(self, tenant_id: str, message_id: str) -> OrderContextRecord | None:
+        try:
+            with Session(self.engine) as session:
+                rows = session.scalars(select(OrderContext).where(OrderContext.tenant_id == tenant_id,
+                    OrderContext.source_message_ids.contains([message_id])).limit(2)).all()
+                if len(rows) > 1:
+                    raise ProcessingConflict("Multiple historical contexts reference this message; select a context explicitly")
+                return order_context_record(rows[0]) if rows else None
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Context lookup temporarily unavailable") from None
+
     def update_order_context(
         self,
         tenant_id: str,
@@ -867,11 +1005,23 @@ class PostgresMessageRepository:
                             old_val = getattr(row, field_name)
                             if field_name == "requested_items" and isinstance(new_val, list):
                                 norm_new = [it if isinstance(it, dict) else it.model_dump(mode="json") for it in new_val]
-                                field_changes[field_name] = {"old": old_val, "new": norm_new}
+                                field_changes[field_name] = {
+                                    "old": _to_json_compatible(old_val),
+                                    "new": _to_json_compatible(norm_new),
+                                }
                                 setattr(row, field_name, norm_new)
                             else:
-                                field_changes[field_name] = {"old": old_val, "new": new_val}
-                                setattr(row, field_name, new_val)
+                                model_val = new_val
+                                if field_name == "requested_delivery_at" and isinstance(new_val, str):
+                                    try:
+                                        model_val = datetime.fromisoformat(new_val)
+                                    except Exception:
+                                        model_val = new_val
+                                field_changes[field_name] = {
+                                    "old": _to_json_compatible(old_val),
+                                    "new": _to_json_compatible(new_val),
+                                }
+                                setattr(row, field_name, model_val)
 
                 if request.action == "ACCEPT_EXTRACTION":
                     # Mark READY if no conflicts, no missing fields, and requested_items present
@@ -908,6 +1058,13 @@ class PostgresMessageRepository:
                     created_at=now,
                 )
                 session.add(review_entry)
+                if field_changes:
+                    evidence = dict(row.field_evidence or {})
+                    for field_name in field_changes:
+                        evidence[field_name] = [{"evidence_ref": review_entry.review_id,
+                            "method": "HUMAN", "actor_id": actor_id,
+                            "context_version": after_ver, "normalized_value": field_changes[field_name]["new"]}]
+                    row.field_evidence = evidence
 
                 version_entry = OrderContextVersion(
                     version_id=str(uuid4()),

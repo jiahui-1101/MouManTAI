@@ -31,7 +31,10 @@ from .ports import (
 from .service import EvaluationResult, evaluate
 
 
-router = APIRouter(tags=["feasibility"])
+feasibility_read_router = APIRouter(tags=["feasibility"])
+feasibility_assessment_router = APIRouter(tags=["feasibility"])
+feasibility_supplier_event_router = APIRouter(tags=["feasibility"])
+feasibility_internal_router = APIRouter(tags=["feasibility"])
 Db = Annotated[Session, Depends(get_db)]
 Context = Annotated[RequestContext, Depends(get_request_context)]
 InternalContext = Annotated[RequestContext | None, Depends(get_internal_request_context)]
@@ -105,7 +108,9 @@ def _require_tenant(context: RequestContext, *tenant_ids: str) -> None:
         )
 
 
-@router.post("/internal/feasibility/evaluate", response_model=EvaluationResult)
+@feasibility_internal_router.post(
+    "/internal/feasibility/evaluate", response_model=EvaluationResult
+)
 def evaluate_feasibility(
     request: FeasibilityEvaluateRequest,
     context: InternalContext,
@@ -176,7 +181,9 @@ def evaluate_feasibility(
         ) from exc
 
 
-@router.post("/v1/commitments/{commitment_id}/assess", response_model=FeasibilityAssessment)
+@feasibility_assessment_router.post(
+    "/v1/commitments/{commitment_id}/assess", response_model=FeasibilityAssessment
+)
 def assess_commitment(
     commitment_id: str,
     request: AssessCommitmentRequest,
@@ -262,7 +269,7 @@ def assess_commitment(
     )
 
 
-@router.get(
+@feasibility_read_router.get(
     "/v1/commitments/{commitment_id}/assessments",
     response_model=list[FeasibilityAssessment],
 )
@@ -282,7 +289,51 @@ def list_assessments(
     return history.list_for_commitment(db, context, commitment_id)
 
 
-@router.post("/v1/operations/events/supplier-delay", response_model=ImpactAssessment)
+@feasibility_read_router.get(
+    "/v1/commitments/{commitment_id}/assessments/{assessment_id}",
+    response_model=FeasibilityAssessment,
+)
+def get_assessment(
+    commitment_id: str,
+    assessment_id: str,
+    db: Db,
+    context: Context,
+    history: AssessmentHistoryDependency,
+) -> FeasibilityAssessment:
+    """Return one exact persisted authoritative assessment without recalculation."""
+
+    commitment_service.get(db, context, commitment_id)
+    if history is None:
+        raise _blocked(
+            "P2_ASSESSMENT_HISTORY_NOT_CONFIGURED",
+            "P5 has not approved durable assessment-history storage",
+            correlation_id=context.correlation_id,
+        )
+
+    assessment = history.get_assessment(db, context, commitment_id, assessment_id)
+    mismatched_fields = [
+        field
+        for field, expected, actual in (
+            ("assessment_id", assessment_id, assessment.assessment_id),
+            ("tenant_id", context.tenant_id, assessment.tenant_id),
+            ("commitment_id", commitment_id, assessment.commitment_id),
+        )
+        if actual != expected
+    ]
+    if mismatched_fields:
+        raise DomainError(
+            "ASSESSMENT_PROVENANCE_MISMATCH",
+            "Assessment history reader returned a result outside the exact lookup scope",
+            status_code=409,
+            details={"mismatched_fields": mismatched_fields},
+            correlation_id=context.correlation_id,
+        )
+    return assessment
+
+
+@feasibility_supplier_event_router.post(
+    "/v1/operations/events/supplier-delay", response_model=ImpactAssessment
+)
 def process_supplier_delay(
     request: SupplierDelayRequest,
     db: Db,
@@ -305,7 +356,7 @@ def process_supplier_delay(
     return processor.process(db, context, request)
 
 
-@router.get("/v1/impacts/{impact_id}", response_model=ImpactAssessment)
+@feasibility_read_router.get("/v1/impacts/{impact_id}", response_model=ImpactAssessment)
 def get_impact(
     impact_id: str,
     db: Db,
@@ -319,3 +370,11 @@ def get_impact(
             correlation_id=context.correlation_id,
         )
     return reader.get(db, context, impact_id)
+
+
+# Preserve the existing combined import used by isolated P2 callers and tests.
+router = APIRouter()
+router.include_router(feasibility_read_router)
+router.include_router(feasibility_assessment_router)
+router.include_router(feasibility_supplier_event_router)
+router.include_router(feasibility_internal_router)

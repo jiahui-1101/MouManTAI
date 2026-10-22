@@ -204,10 +204,34 @@ function fakeApi(): OperationalApi {
     }),
     listContextVersions: vi.fn().mockResolvedValue([]),
     listContextReviews: vi.fn().mockResolvedValue([]),
+    publishContext: vi.fn().mockResolvedValue({
+      context_id: 'ctx_1',
+      tenant_id: 'server_tenant',
+      order_id: 'ORD-1001',
+      customer_id: 'cust_bk',
+      customer_identity_status: 'LINK_VERIFIED',
+      status: 'INFORMATION_READY',
+      requested_items: [{ sku: 'BURGER', quantity: '100', unit: 'pcs' }],
+      requested_delivery_at: timestamp,
+      delivery_qualifier: 'EXACT',
+      special_instructions: null,
+      missing_fields: [],
+      conflicts: [],
+      source_message_ids: ['stored_message_1'],
+      field_evidence: {},
+      context_version: 2,
+      last_reviewed_by: 'staff_01',
+      last_reviewed_role: 'STAFF',
+      core_commitment_id: 'com_test_123',
+      published_to_core_at: timestamp,
+      created_at: timestamp,
+      updated_at: timestamp,
+    }),
     uploadAttachment: vi.fn(),
     extractAttachment: vi.fn(),
     getAttachmentExtraction: vi.fn(),
     getAttachmentMetadata: vi.fn(),
+    getAttachmentPageCount: vi.fn().mockResolvedValue({ total_pages: 1, media_type: 'application/pdf' }),
   };
 }
 
@@ -236,7 +260,7 @@ describe('durable synthetic Inbox', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Synthetic buyer' }));
     const detail = screen.getByRole('region', { name: 'Persisted message details' });
     expect(await within(detail).findByText('synthetic_platform_sender')).toBeInTheDocument();
-    expect(within(detail).getByText(/Awaiting processing. Extraction is not implemented/)).toBeInTheDocument();
+    expect(within(detail).getByText(/Awaiting processing. No extraction attempt has completed/)).toBeInTheDocument();
     expect(within(detail).queryByText('LINK_VERIFIED')).not.toBeInTheDocument();
     expect(within(detail).getByText('RECEIVED')).toBeInTheDocument();
     expect(api.detail).toHaveBeenCalledWith('stored_message_1');
@@ -278,7 +302,7 @@ describe('durable synthetic Inbox', () => {
     const providerId = (screen.getByLabelText('Provider message ID') as HTMLInputElement).value;
     fireEvent.click(screen.getByRole('button', { name: 'Save synthetic message' }));
     await screen.findByRole('button', { name: 'Retry same submission' });
-    fireEvent.click(screen.getByRole('button', { name: '↻ Refresh' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
     expect(screen.getByLabelText('Provider message ID')).toHaveValue(providerId);
     fireEvent.click(screen.getByRole('button', { name: 'Retry same submission' }));
@@ -345,9 +369,29 @@ describe('durable synthetic Inbox', () => {
     fireEvent.click(processBtn);
 
     await waitFor(() => expect(api.process).toHaveBeenCalledWith('stored_message_1', false));
-    expect(await within(detail).findByText(/RULE \(p1-deterministic-v3\)/)).toBeInTheDocument();
+    expect(await within(detail).findByText(/Pipeline version: p1-deterministic-v3/)).toBeInTheDocument();
     expect(within(detail).getByText('BURGER')).toBeInTheDocument();
     expect(within(detail).getAllByText('100').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('shows every original evidence span for an unresolved quantity', async () => {
+    const api = fakeApi();
+    vi.mocked(api.list).mockResolvedValue(page([message]));
+    const result = await api.process(message.message_id, false);
+    result.attempt.fields = [{
+      field_name: 'quantity', value: null, validation_status: 'UNRESOLVED',
+      qualifier: null, metadata: { reason: 'Conflicting quantities' },
+      evidence: [
+        { evidence_id: 'first', message_id: message.message_id, quote: '40', start: 0, end: 2, method: 'RULE', method_version: 'p1-deterministic-v4' },
+        { evidence_id: 'second', message_id: message.message_id, quote: '50', start: 6, end: 8, method: 'RULE', method_version: 'p1-deterministic-v4' },
+      ],
+    }];
+    vi.mocked(api.getExtraction).mockResolvedValue(result.attempt);
+    render(<DurableInbox api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Synthetic buyer' }));
+    const detail = screen.getByRole('region', { name: 'Persisted message details' });
+    expect(await within(detail).findByText('"40" [0:2] · "50" [6:8]')).toBeInTheDocument();
+    expect(within(detail).getByText('UNRESOLVED')).toBeInTheDocument();
   });
 
   it('renders association candidates and allows manual confirmation', async () => {
@@ -365,7 +409,7 @@ describe('durable synthetic Inbox', () => {
     expect(within(detail).getByText('Burger King (cust_bk)')).toBeInTheDocument();
 
     // Confirm link
-    fireEvent.click(within(detail).getByRole('button', { name: '✓ Confirm link' }));
+    fireEvent.click(within(detail).getByRole('button', { name: 'Confirm link' }));
     await waitFor(() => {
       expect(api.decideAssociation).toHaveBeenCalledWith(
         'stored_message_1',
@@ -378,6 +422,152 @@ describe('durable synthetic Inbox', () => {
       );
     });
     expect(await within(detail).findByText('LINK_VERIFIED (v2)')).toBeInTheDocument();
+  });
+
+  it('displays AI-ASSISTED badge and MODEL method in fields table when model candidates are present', async () => {
+    const api = fakeApi();
+    vi.mocked(api.list).mockResolvedValue(page([message]));
+    vi.mocked(api.detail).mockResolvedValue(message);
+    vi.mocked(api.getExtraction).mockResolvedValue({
+      attempt_id: 'att_ai_1',
+      tenant_id: 'server_tenant',
+      message_id: 'stored_message_1',
+      extractor_version: 'p1-ai-pipeline-v1',
+      input_content_sha256: 'a'.repeat(64),
+      status: 'PROCESSED',
+      fields: [
+        {
+          field_name: 'sku',
+          value: 'BURGER',
+          validation_status: 'VALID',
+          qualifier: null,
+          metadata: {},
+          evidence: [{ evidence_id: 'ev_1', message_id: 'stored_message_1', quote: 'burgers', start: 11, end: 18, method: 'RULE', method_version: 'p1-deterministic-v3' }],
+        },
+        {
+          field_name: 'unit',
+          value: 'pcs',
+          validation_status: 'UNRESOLVED',
+          qualifier: null,
+          metadata: { reason: 'Model suggested unit', group_id: 'g1' },
+          evidence: [{ evidence_id: 'ev_model_1', message_id: 'stored_message_1', quote: 'pcs', start: 0, end: 3, method: 'MODEL', method_version: 'Qwen2.5-7B-Instruct@main' }],
+        },
+      ],
+      started_at: timestamp,
+      completed_at: timestamp,
+    });
+
+    render(<DurableInbox api={api} />);
+    expect(await screen.findByText('1 persisted messages')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Synthetic buyer' }));
+    const detail = screen.getByRole('region', { name: 'Persisted message details' });
+
+    expect(await within(detail).findByText(/RULES · NO ACCEPTED MODEL FIELDS/)).toBeInTheDocument();
+    expect(within(detail).getByText('MODEL')).toBeInTheDocument();
+    expect(within(detail).getByText('RULE')).toBeInTheDocument();
+    expect(within(detail).getByText(/GPU unverified/)).toBeInTheDocument();
+  });
+
+  it('displays RULE (FALLBACK) badge when diagnostic indicates fallback to rules', async () => {
+    const api = fakeApi();
+    vi.mocked(api.list).mockResolvedValue(page([message]));
+    vi.mocked(api.detail).mockResolvedValue(message);
+    vi.mocked(api.getExtraction).mockResolvedValue({
+      attempt_id: 'att_fallback_1',
+      tenant_id: 'server_tenant',
+      message_id: 'stored_message_1',
+      extractor_version: 'p1-deterministic-v3',
+      input_content_sha256: 'a'.repeat(64),
+      status: 'PROCESSED',
+      diagnostic: '{"fallback": "rules_only", "model_outcomes": {"qwen": "unavailable"}}',
+      fields: [
+        {
+          field_name: 'sku',
+          value: 'BURGER',
+          validation_status: 'VALID',
+          qualifier: null,
+          metadata: {},
+          evidence: [{ evidence_id: 'ev_1', message_id: 'stored_message_1', quote: 'burgers', start: 11, end: 18, method: 'RULE', method_version: 'p1-deterministic-v3' }],
+        },
+      ],
+      started_at: timestamp,
+      completed_at: timestamp,
+    });
+
+    render(<DurableInbox api={api} />);
+    expect(await screen.findByText('1 persisted messages')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Synthetic buyer' }));
+    const detail = screen.getByRole('region', { name: 'Persisted message details' });
+
+    expect(await within(detail).findByText(/RULE \(FALLBACK\)/)).toBeInTheDocument();
+    expect(within(detail).getByText(/deterministic results preserved/)).toBeInTheDocument();
+  });
+
+  it('opens review drawer side-by-side with original message panel and shifts message panel to the left', async () => {
+    const api = fakeApi();
+    const processedMessage = { ...message, processing_status: 'PROCESSED' as const };
+    vi.mocked(api.list).mockResolvedValue(page([processedMessage]));
+    vi.mocked(api.detail).mockResolvedValue(processedMessage);
+    vi.mocked(api.createContextFromMessage).mockResolvedValue({
+      context_id: 'ctx_sidebyside_1',
+      tenant_id: 'server_tenant',
+      order_id: null,
+      customer_id: null,
+      customer_identity_status: 'UNVERIFIED',
+      status: 'INFORMATION_PARTIAL',
+      requested_items: [{ sku: 'BURGER', quantity: '50', unit: 'pcs' }],
+      requested_delivery_at: null,
+      delivery_qualifier: null,
+      special_instructions: null,
+      missing_fields: [],
+      conflicts: [],
+      source_message_ids: ['stored_message_1'],
+      field_evidence: {},
+      context_version: 1,
+      last_reviewed_by: null,
+      last_reviewed_role: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    render(<DurableInbox api={api} />);
+    expect(await screen.findByText('1 persisted messages')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Synthetic buyer' }));
+    const detail = screen.getByRole('region', { name: 'Persisted message details' });
+    expect(detail).toBeInTheDocument();
+    expect(detail).not.toHaveClass('p1-detail-shifted');
+
+    // Click Review & Amend
+    const reviewBtn = await within(detail).findByRole('button', { name: 'Review & Amend' });
+    fireEvent.click(reviewBtn);
+
+    // Both panels are now open side by side!
+    await waitFor(() => {
+      expect(detail).toHaveClass('p1-detail-shifted');
+      expect(screen.getByRole('dialog', { name: 'Context Review & Amendments' })).toBeInTheDocument();
+    });
+
+    // Original message is still visible and interactive
+    expect(within(detail).getByText('PERSISTED SOURCE · SYNTHETIC')).toBeInTheDocument();
+    expect(within(detail).getByText('Original message')).toBeInTheDocument();
+
+    // Review drawer has the form fields on the right
+    expect(screen.getByDisplayValue('BURGER')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('50')).toBeInTheDocument();
+
+    // Close review drawer via its close button
+    const closeReviewBtn = screen.getByRole('button', { name: 'Close drawer' });
+    fireEvent.click(closeReviewBtn);
+
+    // Review drawer is closed, but original message panel remains open and returns to unshifted state
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Context Review & Amendments' })).not.toBeInTheDocument();
+      expect(detail).not.toHaveClass('p1-detail-shifted');
+    });
+    expect(detail).toBeInTheDocument();
   });
 });
 

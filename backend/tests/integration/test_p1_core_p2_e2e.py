@@ -102,10 +102,10 @@ def make_test_context(
         context_version=1,
         requested_items=[RequestedItem(sku=sku, quantity=quantity, unit="pcs")],
         requested_delivery_at=now + timedelta(days=2),
-        delivery_qualifier="EXACT",
+        delivery_qualifier="DEADLINE",
         special_instructions="Deliver to front bay",
         source_message_ids=[f"msg_{context_id}"],
-        field_evidence={"sku": [{"quote": sku, "start": 0, "end": len(sku), "method": "RULE"}]},
+        field_evidence={"sku": [{"evidence_id": "ev_synthetic_terms_fixture", "quote": sku, "start": 0, "end": len(sku), "method": "RULE"}]},
         missing_fields=missing_fields or [],
         conflicts=conflicts or [],
         created_at=now,
@@ -135,14 +135,14 @@ def test_scenario_1_new_request_through_p1_to_core_and_p2(pg_engine):
         causation_id=ctx_id,
     )
 
-    # Publish to Core
+    # Publish to Core (REQUESTED)
     with Session(pg_engine) as session:
         commitment = publisher.publish_to_core(session, req_context, saved)
         assert commitment.commitment_id.startswith("com_")
         assert commitment.agreement_state == AgreementState.REQUESTED
         assert commitment.feasibility_state == FeasibilityState.NOT_ASSESSED
 
-    # Dispatch outbox event to P2 consumer
+    # Dispatch outbox event to P2 consumer: unconfirmed request fails closed (advisory, NOT assessed in Core)
     dispatcher = OutboxDispatcher()
     register_p2_subscribers(dispatcher)
 
@@ -150,17 +150,43 @@ def test_scenario_1_new_request_through_p1_to_core_and_p2(pg_engine):
         batch_result = dispatcher.process_outbox_batch(session, batch_size=200)
         assert batch_result.processed_count >= 1
 
-    # Verify P2 feasibility assessment was written back to Core commitment
+    # Invariant (P2 Review §1 / AGENTS.md): Unconfirmed request must NOT have authoritative feasibility assessed in Core
     with Session(pg_engine) as session:
         record = session.get(CommitmentRecord, (tenant_id, commitment.commitment_id))
         assert record is not None
-        assert record.feasibility_state in (
-            FeasibilityState.FEASIBLE.value,
-            FeasibilityState.CONDITIONAL.value,
-            FeasibilityState.INFEASIBLE.value,
-            FeasibilityState.UNKNOWN.value,
+        assert record.feasibility_state == FeasibilityState.NOT_ASSESSED.value
+
+    # Confirm commitment: once genuinely CONFIRMED, authoritative operational evaluation is authorized
+    with Session(pg_engine) as session:
+        row = session.get(CommitmentRecord, (tenant_id, commitment.commitment_id))
+        assert row is not None
+        row.agreement_state = AgreementState.CONFIRMED.value
+        session.commit()
+
+        # Dispatch evaluation event for confirmed commitment
+        ev = DomainEvent(
+            event_id=f"evt_conf_eval_{uuid4().hex[:8]}",
+            schema_version=1,
+            event_type=CoreEventType.COMMITMENT_CONTEXT_READY.value,
+            tenant_id=tenant_id,
+            commitment_id=commitment.commitment_id,
+            commitment_version=row.commitment_version,
+            correlation_id="corr_01",
+            causation_id="cause_conf",
+            occurred_at=datetime.now(timezone.utc),
+            payload={"commitment_id": commitment.commitment_id},
         )
-        assert record.feasibility_state != FeasibilityState.NOT_ASSESSED.value
+        consumer = P2FeasibilityConsumer()
+        res = consumer.handle_context_ready(session, ev)
+        assert res is not None
+        assert res.status == FeasibilityState.FEASIBLE
+        session.commit()
+
+    # Verify P2 operational assessment was written back to Core commitment as strictly FEASIBLE
+    with Session(pg_engine) as session:
+        record = session.get(CommitmentRecord, (tenant_id, commitment.commitment_id))
+        assert record is not None
+        assert record.feasibility_state == FeasibilityState.FEASIBLE.value
 
         # Verify timeline audit event exists
         audits = session.scalars(
@@ -221,6 +247,30 @@ def test_scenario_2_reviewed_correction_and_updated_context(pg_engine):
         com_2 = publisher.publish_to_core(session, req_context_2, reviewed)
         assert com_2.commitment_version == com_1.commitment_version + 1
         assert com_2.terms.quantity == Decimal("120")
+        # Synthetic test setup AFTER the requested draft correction. This direct
+        # state assignment is not proof of the Core customer-confirmation flow.
+        row = session.get(CommitmentRecord, (tenant_id, com_2.commitment_id))
+        row.agreement_state = AgreementState.CONFIRMED.value
+        session.commit()
+
+
+    # Dispatch ALL pending outbox events to P2 consumer (both v1 and v2)
+    dispatcher = OutboxDispatcher()
+    register_p2_subscribers(dispatcher)
+
+    with Session(pg_engine) as session:
+        batch_result = dispatcher.process_outbox_batch(session, batch_size=200)
+        assert batch_result.processed_count >= 1
+
+    # Verify P2 assessed the 120 pcs update as INFEASIBLE (100 pcs inventory < 120 pcs demand)
+    with Session(pg_engine) as session:
+        record = session.get(CommitmentRecord, (tenant_id, com_2.commitment_id))
+        assert record is not None
+        # The latest feasibility state should reflect the 120 pcs evaluation
+        assert record.feasibility_state == FeasibilityState.INFEASIBLE.value, (
+            f"Expected INFEASIBLE for 120 pcs demand against 100 pcs inventory, "
+            f"got {record.feasibility_state}"
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -313,31 +363,13 @@ def test_scenario_4_confirmed_term_change_becomes_proposal(pg_engine):
     )
 
     with Session(pg_engine) as session:
-        amended_com = publisher.publish_to_core(session, req_context_2, saved_2)
-        if amended_com.agreement_state != AgreementState.OFFERED:
-            pytest.skip("P5 Task T5.2 (Core handle_context_updated proposal amendment) pending merge")
-        # Agreement state transitions to OFFERED (proposal created)
-        assert amended_com.agreement_state == AgreementState.OFFERED
-
-        # Verify proposal record is persisted with status ACTIVE
-        proposals = session.scalars(
-            select(CommitmentProposalRecord).where(
-                CommitmentProposalRecord.tenant_id == tenant_id,
-                CommitmentProposalRecord.commitment_id == com_1.commitment_id,
-            )
-        ).all()
-        assert len(proposals) >= 1
-        active = next(p for p in proposals if p.status == "ACTIVE")
-        assert active.revised_terms is not None
-        assert str(active.revised_terms["quantity"]) == "200"
-
-    # Dispatch proposal outbox event to P2 proposal evaluator
-    dispatcher = OutboxDispatcher()
-    register_p2_subscribers(dispatcher)
-
-    with Session(pg_engine) as session:
-        batch_result = dispatcher.process_outbox_batch(session, batch_size=200)
-        assert batch_result.processed_count >= 1
+        with pytest.raises(IneligibleContextError, match="P5 amendment integration required"):
+            publisher.publish_to_core(session, req_context_2, saved_2)
+        record = session.get(CommitmentRecord, (tenant_id, com_1.commitment_id))
+        assert record.agreement_state == AgreementState.CONFIRMED.value
+        assert Decimal(record.terms["quantity"]) == Decimal("100")
+    # Successful amendment/proposal dispatch remains a P5 integration blocker;
+    # this regression proves no confirmed terms were overwritten before it.
 
 
 # -----------------------------------------------------------------------------
@@ -432,7 +464,10 @@ def test_scenario_6_old_version_cannot_replace_newer_state(pg_engine):
         causation_id=ctx_id,
     )
     with Session(pg_engine) as session:
-        com = publisher.publish_to_core(session, req_context, saved)
+        with pytest.raises(StaleContextVersion):
+            publisher.publish_to_core(session, req_context, saved)
+        current = repo.get_order_context(tenant_id, ctx_id)
+        com = publisher.publish_to_core(session, req_context, current)
         # Advance commitment version to 2
         row = session.get(CommitmentRecord, (tenant_id, com.commitment_id))
         assert row is not None

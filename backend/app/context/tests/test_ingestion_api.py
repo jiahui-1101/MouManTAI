@@ -43,13 +43,32 @@ def test_ingest_list_detail_and_duplicate_responses(api):
 
 
 @pytest.mark.parametrize("changes", [{"received_at": "2026-10-20T10:00:00"}, {"channel": "SMS"},
-    {"channel": "EMAIL"}, {"adapter_mode": "LIVE"}, {"text": ""}, {"text": " "},
+    {"channel": "FAX"}, {"adapter_mode": "LIVE"}, {"text": ""}, {"text": " "},
     {"text": "NUL\u0000not valid"}, {"actor_role": "admin"}])
 def test_invalid_and_unimplemented_inputs_do_not_persist(api, changes):
     client, repo = api
     response = client.post("/v1/messages/ingest", json=envelope().model_dump(mode="json") | changes)
     assert response.status_code == 422
     assert repo.list("tenant_a").total == 0
+
+
+@pytest.mark.parametrize("channel,expected_provider", [
+    ("WHATSAPP", "SYNTHETIC_WHATSAPP"),
+    ("EMAIL", "SYNTHETIC_EMAIL"),
+    ("TELEGRAM", "SYNTHETIC_TELEGRAM"),
+])
+def test_multi_channel_ingestion_supported(api, channel, expected_provider):
+    client, repo = api
+    payload = envelope(channel=channel, provider_message_id=f"prov_{channel.lower()}").model_dump(mode="json")
+    response = client.post("/v1/messages/ingest", json=payload)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["message"]["raw"]["channel"] == channel
+    assert data["message"]["synthetic_provider"] == expected_provider
+    assert not data["duplicate"]
+    stored_msg = client.get(f"/v1/messages/{data['message']['message_id']}").json()
+    assert stored_msg["raw"]["channel"] == channel
+    assert stored_msg["synthetic_provider"] == expected_provider
 
 
 def test_effective_tenant_is_not_client_controlled(api):

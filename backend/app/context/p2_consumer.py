@@ -94,16 +94,22 @@ class P2FeasibilityConsumer:
         # Build canonical Commitment model
         commitment = _to_commitment(record)
 
-        # For feasibility evaluation in P2, a confirmed operational baseline target is required.
-        eval_commitment = commitment
+        # Invariant 1 (AGENTS.md / P2 Review §1): REQUESTED != CONFIRMED.
+        # Pure P2 evaluate() requires a genuinely CONFIRMED operational target.
+        # For unconfirmed commitments (e.g. REQUESTED), authoritative assessment
+        # must NOT be written to Core. We fail-closed until D-026 candidate evaluation
+        # contract is finalized, and never synthetically elevate agreement_state.
         if commitment.agreement_state != "CONFIRMED":
-            # For pre-confirmation feasibility evaluation, evaluate against candidate terms
-            eval_dict = commitment.model_dump()
-            eval_dict["agreement_state"] = "CONFIRMED"
-            eval_commitment = Commitment.model_validate(eval_dict)
+            logger.info(
+                "Skipping authoritative feasibility assessment for non-CONFIRMED commitment %s (state=%s); "
+                "pre-commitment candidate evaluation is fail-closed pending D-026 contract",
+                commitment.commitment_id,
+                commitment.agreement_state,
+            )
+            return None
 
-        snapshot = resolve_snapshot_for_commitment(eval_commitment)
-        result = evaluate(snapshot, None, eval_commitment)
+        snapshot = resolve_snapshot_for_commitment(commitment)
+        result = evaluate(snapshot, None, commitment)
 
         assessment = FeasibilityAssessment(
             assessment_id=result.assessment_id,
@@ -114,7 +120,7 @@ class P2FeasibilityConsumer:
             status=result.status,
             solver_status=result.solver_status,
             constraints=list(result.constraints),
-            affected_commitment_ids=[result.commitment_id],
+            affected_commitment_ids=[],  # P2 invariant: impact membership only populated when verified impact assessment supports it
             evidence_refs=list(result.evidence_refs),
             assumptions=list(result.assumptions),
             assessed_at=result.assessed_at,
@@ -134,7 +140,14 @@ class P2FeasibilityConsumer:
         return result
 
     def handle_proposal_offered(self, session: Session, event: DomainEvent) -> EvaluationResult | None:
-        """Process commitment.proposal_offered event: evaluate what-if proposal changes."""
+        """Process commitment.proposal_offered event: evaluate what-if proposal changes.
+
+        Under D-024 and P2 Review §2, hypothetical evaluations of proposed revised terms
+        must remain bound to their proposal identity/version for proposal review.
+        They MUST NOT replace the existing operational feasibility state of the confirmed
+        commitment or drive Core risk transitions (e.g., an infeasible proposal must not
+        make a feasible confirmed commitment AT_RISK).
+        """
         if OutboxDispatcher.is_stale_event(session, event):
             logger.info("Skipping stale proposal_offered event %s", event.event_id)
             return None
@@ -158,14 +171,15 @@ class P2FeasibilityConsumer:
             return None
 
         commitment = _to_commitment(record)
-
-        eval_commitment = commitment
         if commitment.agreement_state != "CONFIRMED":
-            eval_dict = commitment.model_dump()
-            eval_dict["agreement_state"] = "CONFIRMED"
-            eval_commitment = Commitment.model_validate(eval_dict)
+            logger.info(
+                "Skipping hypothetical proposal evaluation for non-CONFIRMED commitment %s (state=%s)",
+                commitment.commitment_id,
+                commitment.agreement_state,
+            )
+            return None
 
-        snapshot = resolve_snapshot_for_commitment(eval_commitment)
+        snapshot = resolve_snapshot_for_commitment(commitment)
 
         revised_deadline = (
             datetime.fromisoformat(revised["deadline"]) if "deadline" in revised else None
@@ -183,33 +197,22 @@ class P2FeasibilityConsumer:
             evidence_refs=evidence_refs,
         )
 
-        result = evaluate(snapshot, proposed_changes, eval_commitment)
+        result = evaluate(snapshot, proposed_changes, commitment)
 
-        assessment = FeasibilityAssessment(
-            assessment_id=result.assessment_id,
-            tenant_id=result.tenant_id,
-            commitment_id=result.commitment_id,
-            commitment_version=record.commitment_version,
-            snapshot_version=result.snapshot_version,
-            status=result.status,
-            solver_status=result.solver_status,
-            constraints=list(result.constraints),
-            affected_commitment_ids=[result.commitment_id],
-            evidence_refs=list(result.evidence_refs),
-            assumptions=list(result.assumptions),
-            assessed_at=result.assessed_at,
-        )
+        # Invariant (P2 Review §2 / D-024): Hypothetical proposal evaluations MUST NOT
+        # mutate the parent commitment's feasibility_state or trigger Core risk transitions.
+        # Instead, record the evaluation result ID on the proposal record for review.
+        if proposal is not None:
+            proposal.evidence_refs = list(
+                dict.fromkeys([*(proposal.evidence_refs or []), result.assessment_id])
+            )
+            session.commit()
 
-        service_context = RequestContext(
-            tenant_id=event.tenant_id,
-            actor_id="service_p2_feasibility",
-            actor_role="SERVICE",
-            correlation_id=event.correlation_id,
-            causation_id=event.event_id,
-        )
-
-        self.facade.handle_feasibility_assessment(
-            session, service_context, record.commitment_id, assessment
+        logger.info(
+            "Hypothetical evaluation for proposal %s completed with status=%s; parent commitment %s feasibility preserved",
+            getattr(proposal, "proposal_id", "unknown"),
+            result.status.value,
+            commitment.commitment_id,
         )
         return result
 

@@ -7,6 +7,8 @@ import { FeaturePlaceholder } from "./pages/FeaturePlaceholder";
 import { OverviewPage } from "./features/overview/OverviewPage";
 import { ActivityPage } from "./features/activity/ActivityPage";
 import { CommunicationCenterPage } from "./features/communication/CommunicationCenterPage";
+import { DurableInbox } from "./features/context/DurableInbox";
+import { OrderContextDetail } from "./features/context/OrderContextDetail";
 import { AuthProvider, useAuth } from "./shared/auth";
 import { apiRequest, authHeaders } from "./shared/api";
 import { createP2PublicApiSource } from "./features/feasibility/apiSource";
@@ -78,8 +80,8 @@ export function App({ queryClient, initialTenantId, initialActorId }: AppProps =
               <Route path="/" element={<OverviewPage />} />
               <Route path="/overview" element={<OverviewPage />} />
               <Route path="/activity" element={<ActivityPage />} />
-              <Route path="/inbox" element={<FeaturePlaceholder owner="P1 · Context" title="Smart inbox" />} />
-              <Route path="/orders/:id" element={<FeaturePlaceholder owner="P1 · Context" title="Order context" />} />
+              <Route path="/inbox" element={<DurableInbox />} />
+              <Route path="/orders/:id" element={<OrderContextDetail />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
               <Route path="/recovery/:id" element={<FeaturePlaceholder owner="P3 · Recovery" title="Recovery case" />} />

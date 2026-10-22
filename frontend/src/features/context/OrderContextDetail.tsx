@@ -12,9 +12,10 @@ export interface OrderContextDetailProps {
   orderId?: string;
   contextId?: string;
   onClose?: () => void;
+  onContextUpdated?: (updated: OrderContextRecord) => void;
 }
 
-export function OrderContextDetail({ orderId: propOrderId, contextId: propContextId, onClose }: OrderContextDetailProps) {
+export function OrderContextDetail({ orderId: propOrderId, contextId: propContextId, onClose, onContextUpdated }: OrderContextDetailProps) {
   const params = useParams<{ id: string }>();
   const effectiveOrderId = propOrderId || params.id;
   const effectiveContextId = propContextId;
@@ -26,6 +27,9 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
   const [error, setError] = useState<string | null>(null);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishSuccess, setPublishSuccess] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -55,6 +59,27 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePublishToCore = async () => {
+    if (!context) return;
+    setIsPublishing(true);
+    setPublishError(null);
+    setPublishSuccess(null);
+    try {
+      const updated = await operationalApi.publishContext(context.context_id);
+      setContext(updated);
+      setPublishSuccess(`Successfully published to Core commitment ${updated.core_commitment_id}`);
+      onContextUpdated?.(updated);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setPublishError(err.message);
+      } else {
+        setPublishError('Failed to publish context to Core');
+      }
+    } finally {
+      setIsPublishing(false);
     }
   };
 
@@ -94,36 +119,74 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
             <span className={`p1-identity-badge p1-identity-${context.customer_identity_status.toLowerCase()}`}>
               {context.customer_identity_status}
             </span>
+            {context.core_commitment_id && (
+              <span
+                className="p1-badge p1-badge-ready"
+                title={context.published_to_core_at ? `Published to Core at ${new Date(context.published_to_core_at).toLocaleString()}` : 'Published to Core'}
+              >
+                Core: {context.core_commitment_id}
+              </span>
+            )}
           </div>
         </div>
 
         <div className="p1-context-actions">
           <button
             type="button"
+            className={`p1-btn ${context.core_commitment_id ? 'p1-btn-outline' : 'p1-btn-success'}`}
+            disabled={isPublishing}
+            onClick={handlePublishToCore}
+          >
+            {isPublishing
+              ? 'Publishing to Core...'
+              : context.core_commitment_id
+                ? 'Re-publish to Core'
+                : 'Publish to Core'}
+          </button>
+          <button
+            type="button"
             className="p1-btn p1-btn-primary"
             onClick={() => setIsReviewOpen(true)}
           >
-            ✏ Review & Amend
+            Review & Amend
           </button>
           <button
             type="button"
             className="p1-btn p1-btn-outline"
             onClick={() => setShowHistory(!showHistory)}
           >
-            {showHistory ? 'Hide History' : '📜 Version History'}
+            {showHistory ? 'Hide History' : 'Version History'}
           </button>
           {onClose && (
             <button type="button" className="p1-btn-subtle" onClick={onClose} aria-label="Close">
-              ✕
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
             </button>
           )}
         </div>
       </header>
 
+      {/* Publish Alerts */}
+      {publishError && (
+        <div className="p1-conflict-box" role="alert">
+          <h4>Publish to Core Ineligible / Failed</h4>
+          <p>{publishError}</p>
+        </div>
+      )}
+
+      {publishSuccess && (
+        <div className="p1-missing-box" role="status" style={{ borderLeftColor: '#10b981', background: '#ecfdf5', color: '#065f46' }}>
+          <h4 style={{ color: '#065f46' }}>Published to Core</h4>
+          <p>{publishSuccess}</p>
+        </div>
+      )}
+
       {/* Critical Conflicts Banner */}
       {(context.conflicts?.length ?? 0) > 0 && (
         <div className="p1-conflict-box" role="alert">
-          <h4>⚠ Security / Term Conflicts Detected</h4>
+          <h4>Security / Term Conflicts Detected</h4>
           <ul>
             {(context.conflicts ?? []).map((conf, idx) => (
               <li key={idx}>{conf}</li>
@@ -220,7 +283,11 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
         <div className="p1-message-tags">
           {(context.source_message_ids ?? []).map((mid, idx) => (
             <span key={idx} className="p1-message-badge">
-              ✉ {mid}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginRight: '5px', verticalAlign: '-1px' }}>
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                <polyline points="22,6 12,13 2,6"></polyline>
+              </svg>
+              {mid}
             </span>
           ))}
         </div>
@@ -278,7 +345,12 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
         context={context}
         isOpen={isReviewOpen}
         onClose={() => setIsReviewOpen(false)}
-        onUpdated={updated => setContext(updated)}
+        onUpdated={updated => {
+          setContext(updated);
+          setPublishError(null);
+          setPublishSuccess(null);
+          onContextUpdated?.(updated);
+        }}
       />
     </div>
   );

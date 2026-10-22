@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { AttachmentRecord, DocumentExtractionResult, DocumentEvidence } from './types';
 import { operationalApi, type OperationalApi } from './operationalApi';
 
@@ -32,6 +33,10 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [extracting, setExtracting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [rotation, setRotation] = useState<number>(0);
+  const [zoom, setZoom] = useState<number>(1);
 
   useEffect(() => {
     let active = true;
@@ -43,9 +48,20 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
         if (active) setRecord(metadata);
         try {
           const ext = await api.getAttachmentExtraction(evidenceRef);
-          if (active) setExtraction(ext);
+          if (active) {
+            setExtraction(ext);
+            if (ext.page_count) setTotalPages(ext.page_count);
+          }
         } catch {
           // If no extraction yet, leave null
+        }
+        if (api.getAttachmentPageCount) {
+          try {
+            const countInfo = await api.getAttachmentPageCount(evidenceRef);
+            if (active && countInfo.total_pages) setTotalPages(countInfo.total_pages);
+          } catch {
+            // Fallback to default
+          }
         }
       } catch (err: unknown) {
         if (active) setError(err instanceof Error ? err.message : 'Failed to load attachment');
@@ -65,6 +81,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
     try {
       const res = await api.extractAttachment(evidenceRef);
       setExtraction(res);
+      if (res.page_count) setTotalPages(res.page_count);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Document extraction failed');
     } finally {
@@ -73,13 +90,14 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
   };
 
   const contentUrl = `/v1/attachments/${encodeURIComponent(evidenceRef)}/content`;
+  const renderedPageUrl = `/v1/attachments/${encodeURIComponent(evidenceRef)}/pages/${currentPage}?rotate=${rotation}&dpi=150`;
 
-  return (
+  const modalContent = (
     <div className="attachment-viewer-backdrop" data-testid="attachment-viewer-modal" role="dialog" aria-modal="true">
       <div className="attachment-viewer-card">
         <header className="attachment-viewer-header">
           <div>
-            <h3>📄 {record?.filename ?? 'Attachment Inspection'}</h3>
+            <h3>{record?.filename ?? 'Attachment Inspection'}</h3>
             <span className="attachment-evidence-ref">Ref: {evidenceRef}</span>
           </div>
           <div className="attachment-header-actions">
@@ -87,13 +105,22 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
               href={contentUrl}
               target="_blank"
               rel="noreferrer"
-              className="attachment-download-link"
+              className="p1-btn-download"
               download={record?.filename}
             >
-              ⬇️ Download Original
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginRight: '6px' }}>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              Download Original
             </a>
-            <button className="button button-secondary" onClick={onClose} aria-label="Close attachment viewer">
-              ✕ Close
+            <button className="p1-btn-close" onClick={onClose} aria-label="Close attachment viewer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginRight: '6px' }}>
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              Close
             </button>
           </div>
         </header>
@@ -110,20 +137,108 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
         )}
 
         <div className="attachment-viewer-body">
-          {/* Left panel: Preview */}
+          {/* Left panel: Document Viewer with Custom Controls */}
           <div className="attachment-preview-pane">
-            <h4>Document Preview</h4>
-            {record?.media_type.startsWith('image/') ? (
-              <div className="attachment-image-container">
-                <img src={contentUrl} alt={record.filename} className="attachment-preview-img" />
+            <div className="preview-toolbar">
+              <div className="toolbar-group">
+                <button
+                  type="button"
+                  className="toolbar-btn"
+                  title="Previous page"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  aria-label="Previous page"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
+                <span className="page-counter">
+                  Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+                </span>
+                <button
+                  type="button"
+                  className="toolbar-btn"
+                  title="Next page"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  aria-label="Next page"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </button>
               </div>
-            ) : record?.media_type === 'application/pdf' ? (
-              <div className="attachment-pdf-container">
-                <iframe src={contentUrl} title="PDF Preview" className="attachment-preview-frame" />
+
+              <div className="toolbar-group">
+                <button
+                  type="button"
+                  className="toolbar-btn"
+                  title="Zoom Out"
+                  disabled={zoom <= 0.6}
+                  onClick={() => setZoom(z => Math.max(0.6, Math.round((z - 0.15) * 100) / 100))}
+                  aria-label="Zoom out"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+                <button
+                  type="button"
+                  className="toolbar-btn-text"
+                  title="Reset Zoom"
+                  onClick={() => setZoom(1)}
+                  aria-label="Reset zoom"
+                >
+                  {Math.round(zoom * 100)}%
+                </button>
+                <button
+                  type="button"
+                  className="toolbar-btn"
+                  title="Zoom In"
+                  disabled={zoom >= 2.5}
+                  onClick={() => setZoom(z => Math.min(2.5, Math.round((z + 0.15) * 100) / 100))}
+                  aria-label="Zoom in"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+
+                <div className="toolbar-divider" />
+
+                <button
+                  type="button"
+                  className="toolbar-btn"
+                  title="Rotate 90° clockwise"
+                  onClick={() => setRotation(r => (r + 90) % 360)}
+                  aria-label="Rotate 90 degrees"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                  <span style={{ fontSize: '11px', marginLeft: '4px' }}>Rotate</span>
+                </button>
               </div>
-            ) : (
-              <div className="unsupported-preview">Preview not supported for this media type.</div>
-            )}
+            </div>
+
+            <div className="preview-canvas-viewport">
+              <div
+                className="preview-canvas-wrapper"
+                style={{
+                  transform: `scale(${zoom})`,
+                  transformOrigin: 'top center',
+                  transition: 'transform 0.15s ease-out',
+                }}
+              >
+                {record?.media_type === 'application/pdf' ? (
+                  <img
+                    src={renderedPageUrl}
+                    alt={`Rendered page ${currentPage}`}
+                    className="attachment-rendered-page"
+                  />
+                ) : record?.media_type.startsWith('image/') ? (
+                  <img
+                    src={contentUrl}
+                    alt={record.filename}
+                    className="attachment-rendered-page"
+                    style={{ transform: `rotate(${rotation}deg)` }}
+                  />
+                ) : (
+                  <div className="unsupported-preview">Preview not supported for this media type.</div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Right panel: OCR & Document Extraction */}
@@ -131,19 +246,48 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
             <div className="extraction-pane-header">
               <h4>Traceable Extraction & OCR</h4>
               <button
-                className="button button-primary"
+                className="p1-btn-extract"
                 onClick={handleExtract}
                 disabled={extracting}
                 data-testid="extract-btn"
               >
-                {extracting ? '⏳ Extracting...' : '🔍 Run Extraction / OCR'}
+                {extracting ? (
+                  <>
+                    <span className="spinner" style={{ display: 'inline-block', width: '13px', height: '13px', border: '2px solid #ffffff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', marginRight: '6px' }}></span>
+                    Extracting...
+                  </>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                      <line x1="16" y1="13" x2="8" y2="13"></line>
+                      <line x1="16" y1="17" x2="8" y2="17"></line>
+                      <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    Run Extraction / OCR
+                  </>
+                )}
               </button>
             </div>
+
+            {extracting && (
+              <div className="extracting-progress-banner" style={{ padding: '10px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', fontSize: '12px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="spinner" style={{ display: 'inline-block', width: '13px', height: '13px', border: '2px solid #3b82f6', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></span>
+                <span>Executing PaddleOCR on CPU (first-time model load takes ~60-80s; subsequent runs are fast)...</span>
+              </div>
+            )}
 
             {/* UNVERIFIED PAYMENT EVIDENCE ALERT */}
             {extraction?.is_payment_notice && (
               <div className="unverified-payment-banner" data-testid="unverified-payment-alert">
-                <div className="alert-icon">⚠️</div>
+                <div className="alert-icon">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                  </svg>
+                </div>
                 <div className="alert-body">
                   <strong>UNVERIFIED EVIDENCE: Payment Screenshot / Bank Slip</strong>
                   <p>
@@ -197,7 +341,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
                                 </blockquote>
                               )}
                               {field.disclaimer && (
-                                <div className="field-disclaimer">⚠️ {field.disclaimer}</div>
+                                <div className="field-disclaimer">{field.disclaimer}</div>
                               )}
                             </li>
                           );
@@ -253,4 +397,7 @@ export const AttachmentViewer: React.FC<AttachmentViewerProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };
+
