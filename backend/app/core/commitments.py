@@ -277,7 +277,7 @@ def get_overview(db: Session, context: RequestContext) -> OverviewResponse:
                 {
                     k: v
                     for k, v in c.terms.items()
-                    if k in {"sku", "quantity", "unit", "deadline", "special_instructions"}
+                    if k in {"sku", "quantity", "unit", "deadline", "items", "special_instructions"}
                 }
                 if isinstance(c.terms, dict)
                 else c.terms

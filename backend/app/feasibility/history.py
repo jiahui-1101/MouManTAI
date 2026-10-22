@@ -33,7 +33,8 @@ def to_core_assessment(result: EvaluationResult, *, impact: ImpactAssessment | N
                 or impact.after_snapshot_version != result.snapshot_version
                 or row is None or row.after_assessment != result):
             raise ValueError('assessment/impact binding mismatch')
-        affected = list(impact.confirmed_impacted_commitment_ids)
+        affected = [commitment_id for commitment_id in impact.confirmed_impacted_commitment_ids
+                    if commitment_id != result.commitment_id]
     fields = ('assessment_id', 'tenant_id', 'commitment_id', 'commitment_version', 'snapshot_version',
               'status', 'constraints', 'evidence_refs', 'solver_status', 'assumptions', 'assessed_at')
     data = result.model_dump(include=set(fields))

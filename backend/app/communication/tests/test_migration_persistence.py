@@ -44,12 +44,14 @@ from app.db.base import Base
 from app.main import app
 
 BACKEND = Path(__file__).resolve().parents[3]
-HEAD = "0009_p4_outbound_messaging"
+HEAD = "0011_p4_confirmations"
 PREVIOUS = "0007_recovery_case_constraints_alignment"
 TABLES = {
     "communication_requests", "communication_request_sources",
     "communication_drafts", "communication_draft_reviews",
     "communication_outbound_messages", "communication_send_attempts",
+    "communication_recipient_preferences", "communication_recipient_preference_changes",
+    "communication_confirmation_sessions", "communication_confirmation_attempts", "communication_confirmation_decisions",
 }
 
 
@@ -103,9 +105,9 @@ def migrated(request, tmp_path, monkeypatch):
 def test_single_head_and_real_parent():
     scripts = ScriptDirectory.from_config(config())
     assert scripts.get_heads() == [HEAD]
-    assert scripts.get_revision(HEAD).down_revision == "0008_p4_communication"
+    assert scripts.get_revision(HEAD).down_revision == "0010_p4_recipient_preferences"
     assert len(HEAD) <= 32
-    assert len(list(scripts.walk_revisions())) == 9
+    assert len(list(scripts.walk_revisions())) == 11
 
 
 def test_postgresql_offline_ddl_and_fresh_metadata_registration(monkeypatch):
@@ -130,7 +132,7 @@ def test_postgresql_offline_ddl_and_fresh_metadata_registration(monkeypatch):
     stream = StringIO()
     with redirect_stdout(stream):
         command.downgrade(config(), f"{HEAD}:{PREVIOUS}", sql=True)
-    assert stream.getvalue().count("DROP TABLE communication_") == 6
+    assert stream.getvalue().count("DROP TABLE communication_") == len(TABLES)
     assert "DROP TABLE commitments" not in stream.getvalue()
 
 

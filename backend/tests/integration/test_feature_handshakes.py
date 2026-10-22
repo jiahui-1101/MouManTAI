@@ -24,7 +24,6 @@ from app.core.errors import DomainError
 from app.core.events import CoreEventType, OutboxStatus, validate_event_payload
 from app.core.integration import CoreIntegrationFacade
 from app.core.models import (
-    AuditEventRecord,
     CommitmentProposalRecord,
     CommitmentRecord,
     OutboxEventRecord,
@@ -48,7 +47,6 @@ from app.core.schemas import (
     RecordFulfilmentRequest,
     RecoveryExecuteRequest,
     RecoveryPlan,
-    RecoveryStartRequest,
     RecoveryState,
     RequestedItem,
     RiskState,
@@ -1356,7 +1354,21 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
 
     # 1. Downstream failure: atomic rollback of Case + Trigger + ProcessedEventRecord
     res_fail = dispatcher.process_outbox_batch(session)
-    assert res_fail.failed_count == 1
+    # The older confirmed event also lacks its mandatory P2 completion and
+    # must stay visible for reconciliation; the P3 failure is independent.
+    assert res_fail.failed_count == 2
+    stale_confirmed = session.scalar(select(OutboxEventRecord).where(
+        OutboxEventRecord.tenant_id == context.tenant_id,
+        OutboxEventRecord.event_type == CoreEventType.COMMITMENT_CONFIRMED.value,
+        OutboxEventRecord.last_error == "STALE_MANDATORY_SUBSCRIBER_INCOMPLETE",
+    ))
+    assert stale_confirmed is not None
+    assert stale_confirmed.status == OutboxStatus.FAILED.value
+    assert session.scalar(select(ProcessedEventRecord).where(
+        ProcessedEventRecord.tenant_id == context.tenant_id,
+        ProcessedEventRecord.event_id == stale_confirmed.event_id,
+        ProcessedEventRecord.consumer_name == "p2_confirmed_evaluator",
+    )) is None
 
     # Verify ProcessedEventRecord was NOT committed
     proc_fail = session.scalar(

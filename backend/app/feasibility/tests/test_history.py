@@ -1,6 +1,7 @@
 import pytest
 
 from app.feasibility.history import AssessmentRecord, SyntheticHistoryRepository, to_core_assessment
+from app.feasibility.impact import ImpactClassification
 from app.feasibility.pipeline_fixtures import build_pipeline_example
 from app.feasibility.supplier_pipeline import recalculate_supplier_delay
 from app.feasibility.service import evaluate
@@ -44,15 +45,112 @@ def test_mapping_preserves_exact_result_and_actual_impact_set():
     result = evaluate(inputs.after, None, inputs.after_commitments[0])
     assessment = to_core_assessment(result)
     assert assessment.affected_commitment_ids == []
+    assert assessment.assessment_id == result.assessment_id
     assert assessment.status == result.status
     assert assessment.solver_status == result.solver_status
     assert assessment.constraints == list(result.constraints)
     assert assessment.evidence_refs == list(result.evidence_refs)
+    assert assessment.assumptions == list(result.assumptions)
+    assert assessment.assessed_at == result.assessed_at
     impact = recalculate_supplier_delay(inputs, tenant_id=result.tenant_id)
-    assert to_core_assessment(result, impact=impact).affected_commitment_ids == ['com-001']
+    assert impact.confirmed_impacted_commitment_ids == ('com-001',)
+    assert to_core_assessment(result, impact=impact).affected_commitment_ids == []
     bad = impact.model_copy(update={'after_snapshot_version': 99})
     with pytest.raises(ValueError, match='binding'):
         to_core_assessment(result, impact=bad)
+
+
+def test_mapping_preserves_other_confirmed_impacts_in_original_order():
+    inputs = build_pipeline_example(two_affected=True)
+    result = evaluate(inputs.after, None, inputs.after_commitments[0])
+    impact = recalculate_supplier_delay(inputs, tenant_id=result.tenant_id)
+    assert impact.confirmed_impacted_commitment_ids == ('com-001', 'com-002')
+
+    # This mapping-only synthetic extension exercises ordered filtering of
+    # multiple confirmed downstream IDs; it is not calculation or source evidence.
+    source = next(row for row in impact.impacts if row.commitment_id == 'com-002')
+    extra_rows = []
+    for commitment_id in ('com-003', 'com-004'):
+        row_data = source.model_dump(exclude_computed_fields=True)
+        row_data['commitment_id'] = commitment_id
+        row_data['event_intents'] = ()
+        for field in ('before_assessment', 'after_assessment'):
+            if row_data[field] is not None:
+                row_data[field]['commitment_id'] = commitment_id
+                row_data[field]['assessment_id'] += '-' + commitment_id
+        extra_rows.append(type(source).model_validate(row_data))
+    impact = impact.model_copy(update={
+        'candidate_commitment_ids': (*impact.candidate_commitment_ids, 'com-003', 'com-004'),
+        'impacts': (*impact.impacts, *extra_rows),
+    })
+    result_before = result.model_dump_json(exclude_computed_fields=True)
+    impact_before = impact.model_dump_json(exclude_computed_fields=True)
+
+    assessment = to_core_assessment(result, impact=impact)
+
+    assert assessment.affected_commitment_ids == ['com-002', 'com-003', 'com-004']
+    assert result.model_dump_json(exclude_computed_fields=True) == result_before
+    assert impact.model_dump_json(exclude_computed_fields=True) == impact_before
+
+
+@pytest.mark.parametrize('mode, excluded_classification', [
+    ('complete', ImpactClassification.VERIFIED_UNAFFECTED),
+    ('missing_supplier', ImpactClassification.UNKNOWN),
+    ('preexisting', ImpactClassification.PRE_EXISTING_UNCHANGED),
+])
+def test_mapping_excludes_unconfirmed_and_candidate_commitments(mode, excluded_classification):
+    inputs = build_pipeline_example(mode=mode)
+    result = evaluate(inputs.after, None, inputs.after_commitments[0])
+    impact = recalculate_supplier_delay(inputs, tenant_id=result.tenant_id)
+    excluded_ids = {row.commitment_id for row in impact.impacts
+                    if row.classification is excluded_classification}
+
+    assessment = to_core_assessment(result, impact=impact)
+
+    assert excluded_ids
+    assert not (excluded_ids & set(assessment.affected_commitment_ids))
+    unconfirmed_candidate_ids = (set(impact.candidate_commitment_ids)
+                                 - set(impact.confirmed_impacted_commitment_ids))
+    assert not (unconfirmed_candidate_ids & set(assessment.affected_commitment_ids))
+
+
+@pytest.mark.parametrize(('field', 'value'), [
+    ('tenant_id', 'foreign-tenant'),
+    ('after_snapshot_id', 'wrong-after-snapshot'),
+    ('after_snapshot_version', 99),
+])
+def test_mapping_rejects_impact_identity_binding_mismatches(field, value):
+    inputs = build_pipeline_example()
+    result = evaluate(inputs.after, None, inputs.after_commitments[0])
+    impact = recalculate_supplier_delay(inputs, tenant_id=result.tenant_id)
+    invalid = impact.model_copy(update={field: value})
+
+    with pytest.raises(ValueError, match='binding'):
+        to_core_assessment(result, impact=invalid)
+
+
+def test_mapping_rejects_non_exact_after_assessment_binding():
+    inputs = build_pipeline_example(two_affected=True)
+    result = evaluate(inputs.after, None, inputs.after_commitments[0])
+    other_result = evaluate(inputs.after, None, inputs.after_commitments[1])
+    impact = recalculate_supplier_delay(inputs, tenant_id=result.tenant_id)
+    invalid_rows = tuple(row.model_copy(update={'after_assessment': other_result})
+                         if row.commitment_id == result.commitment_id else row
+                         for row in impact.impacts)
+    invalid = impact.model_copy(update={'impacts': invalid_rows})
+
+    with pytest.raises(ValueError, match='binding'):
+        to_core_assessment(result, impact=invalid)
+
+
+def test_mapping_rejects_result_without_matching_impact_commitment():
+    inputs = build_pipeline_example()
+    result = evaluate(inputs.after, None, inputs.after_commitments[0])
+    impact = recalculate_supplier_delay(inputs, tenant_id=result.tenant_id)
+    wrong_commitment = result.model_copy(update={'commitment_id': 'com-other'})
+
+    with pytest.raises(ValueError, match='binding'):
+        to_core_assessment(wrong_commitment, impact=impact)
 
 
 def test_impact_replay_records_one_set_of_intents_and_rejects_changed_cause():
