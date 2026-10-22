@@ -333,4 +333,37 @@ describe("P3 recovery page", () => {
     expect(await screen.findByText(/Verified internal review task: task_1/)).toBeInTheDocument();
     expect(screen.queryByText(/commitment fulfilled/i)).not.toBeInTheDocument();
   });
+
+  it("requests a revised-terms handoff and shows pending verification after reloading", async () => {
+    const caseData = { ...recoveryCase(), storage_mode: "DURABLE_DATABASE" as const };
+    const revised = plan({ option_id: "revised_schedule", core_commitment_version: 3,
+      snapshot_id: "snap_142", strategy: "RESCHEDULE_PARTIAL_FULFILMENT" });
+    const approved = { approval_id: "approval_1", decision: "APPROVED", expires_at: "2099-01-01T00:00:00Z" };
+    const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      const path = url.toString();
+      if (path.endsWith("/plans")) return response({ tenant_id: caseData.tenant_id,
+        commitment_id: caseData.commitment_id, case_id: caseData.case_id, plans: [revised] });
+      if (path.endsWith("/approvals")) return response([approved]);
+      if (path.endsWith("/actions")) return response([]);
+      if (path.endsWith("/request-communication") && init?.method === "POST")
+        return response({ proposal_id: "plan_a", proposal_version: 1,
+          source_event_id: "evt_p4_1", commitment_version: 4, status: "COMMUNICATION_REQUESTED" });
+      if (path.endsWith("/v1/communications/requests") && init?.method === "POST")
+        return response({ request_status: "BLOCKED", blocking_reasons: ["VERIFIED_RECIPIENT_REQUIRED"] });
+      return response(caseData);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderPage("/recovery/com_001", "user_manager_01");
+    fireEvent.click(await screen.findByTestId("select-plan_a"));
+    const button = screen.getByRole("button", { name: "Request customer communication" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) =>
+      url.toString().endsWith("/request-communication") && init?.method === "POST")).toBe(true));
+    expect(await screen.findByText(/VERIFIED_RECIPIENT_REQUIRED/)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url, init]) =>
+      url.toString().endsWith("/v1/communications/requests") && init?.method === "POST")).toBe(true);
+    expect(screen.getByRole("link", { name: "View Communication Center" })).toHaveAttribute("href", "/communications");
+  });
 });

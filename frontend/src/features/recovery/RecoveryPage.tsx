@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import { ApiError } from "../../shared/api";
 import { useAuth } from "../../shared/auth";
-import { decideRecoveryPlan, executeRecoveryTask, generateRecoveryPlans, getActionHistory, getApprovalHistory, getRecoveryCaseOrTrigger, getRecoveryPlans } from "./api";
+import { decideRecoveryPlan, executeRecoveryTask, generateRecoveryPlans, getActionHistory, getApprovalHistory, getRecoveryCaseOrTrigger, getRecoveryPlans, requestRecoveryCommunication } from "./api";
 import type { ApprovalDecision, DurableActionView, RecoveryCase, RecoveryPlanVersion } from "./types";
 import { SyntheticRecoveryDemo } from "./SyntheticRecoveryDemo";
 import "./recovery.css";
@@ -397,6 +397,11 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
     mutationFn: ({ plan, version }: { plan: RecoveryPlanVersion; version: number }) => executeRecoveryTask(plan, version, authHeaders),
     onSuccess: refreshWorkflow,
   });
+  const handoffMutation = useMutation({
+    mutationFn: ({ plan, version }: { plan: RecoveryPlanVersion; version: number }) =>
+      requestRecoveryCommunication(plan, version, authHeaders),
+    onSuccess: refreshWorkflow,
+  });
 
   useEffect(() => {
     if (selectedPlanId && !plans.some((plan) => plan.plan_id === selectedPlanId)) setSelectedPlanId(null);
@@ -552,6 +557,20 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
           if (window.confirm("Create a synthetic internal review task for this approved plan? Customer terms will not change.")) executeMutation.mutate({ plan: selectedPlan, version: caseData.commitment_version });
         }}>{executeMutation.isPending ? "Creating and verifying task…" : "Create internal review task"}</button>
         {executeMutation.isError && <p className="recovery-inline-error" role="alert">{errorMessage(executeMutation.error)} <button type="button" className="btn btn-outline btn-sm" onClick={() => executeMutation.reset()}>Dismiss</button></p>}
+        {selectedPlan.option_id === "revised_schedule" && <div className="recovery-option-meta">
+          <button type="button" className="btn btn-outline btn-sm"
+            disabled={actorRole !== "MANAGER" || handoffMutation.isPending || approvalsQuery.data?.at(-1)?.decision !== "APPROVED" ||
+              selectedPlan.snapshot_version !== snapshot.snapshot_version ||
+              !((selectedPlan.core_commitment_version ?? selectedPlan.evaluation.commitment_version) === caseData.commitment_version ||
+                (caseData.commitment.agreement_state === "OFFERED" &&
+                  (selectedPlan.core_commitment_version ?? selectedPlan.evaluation.commitment_version) + 1 === caseData.commitment_version))}
+            onClick={() => {
+              if (window.confirm("Offer the approved revised terms to the communication workflow? Customer acceptance remains pending."))
+                handoffMutation.mutate({ plan: selectedPlan, version: caseData.commitment_version });
+            }}>{handoffMutation.isPending ? "Requesting communication…" : caseData.commitment.agreement_state === "OFFERED" ? "Resume communication request" : "Request customer communication"}</button>
+          {handoffMutation.isSuccess && <p role="status">Proposal {handoffMutation.data.proposal_id} v{handoffMutation.data.proposal_version} offered. Communication request {handoffMutation.data.source_event_id}: {handoffMutation.data.p4_request_status}. {handoffMutation.data.blocking_reasons.join(", ") || "Awaiting verified customer response"}. <Link to="/communications">View Communication Center</Link>.</p>}
+          {handoffMutation.isError && <p className="recovery-inline-error" role="alert">{errorMessage(handoffMutation.error)} <button type="button" className="btn btn-outline btn-sm" onClick={() => handoffMutation.reset()}>Dismiss</button></p>}
+        </div>}
         <h3>Action history</h3>
         {(actionsQuery.data ?? []).map((action: DurableActionView) => <p key={action.execution_id}>{action.status} · attempts {action.attempts} · task {action.task_id ?? "none"} · receipt {action.receipt_ref ?? "none"}{action.last_error ? ` · ${action.last_error}` : ""}</p>)}
       </section>}

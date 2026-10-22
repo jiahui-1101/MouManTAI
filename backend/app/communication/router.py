@@ -2,7 +2,8 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
+import os
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext, get_db, get_request_context
@@ -14,13 +15,17 @@ from .schemas import (
 from .drafting import DraftAuthority, MessageDraftService
 from .service import CommunicationRequestService, RequestAuthority
 from .review import DraftReviewService, ReviewAuthority
-from .authority_adapters import RuntimeDraftAuthority, RuntimeRequestAuthority, RuntimeReviewAuthority
+from .authority_adapters import (
+    IsolatedRecoveryRequestAuthority, RuntimeDraftAuthority, RuntimeRequestAuthority, RuntimeReviewAuthority,
+)
 
 
 router = APIRouter(prefix="/v1/communications", tags=["communications"])
 
 
-def get_request_authority() -> RequestAuthority:
+def get_request_authority(x_isolated_e2e_key: str | None = Header(default=None)) -> RequestAuthority:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
+        return IsolatedRecoveryRequestAuthority(x_isolated_e2e_key)
     return RuntimeRequestAuthority()
 
 

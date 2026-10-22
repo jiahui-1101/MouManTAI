@@ -81,3 +81,29 @@ export function executeRecoveryTask(plan: RecoveryPlanVersion, commitmentVersion
 export function getActionHistory(planId: string, auth: RequestAuthHeaders): Promise<DurableActionView[]> {
   return recoveryRequest(`/v1/recovery/plans/${planId}/actions`, { headers: authHeaders(auth) });
 }
+
+export interface CommunicationHandoffView {
+  proposal_id: string;
+  proposal_version: number;
+  source_event_id: string;
+  commitment_version: number;
+  status: string;
+  p4_request_status: string;
+  blocking_reasons: string[];
+}
+
+export async function requestRecoveryCommunication(plan: RecoveryPlanVersion, commitmentVersion: number,
+  auth: RequestAuthHeaders): Promise<CommunicationHandoffView> {
+  const handoff = await recoveryRequest<Omit<CommunicationHandoffView, "p4_request_status" | "blocking_reasons">>(
+    `/v1/recovery/plans/${plan.plan_id}/request-communication`, {
+    method: "POST", headers: authHeaders(auth),
+    body: JSON.stringify({ expected_plan_version: plan.plan_version,
+      expected_commitment_version: commitmentVersion, expected_snapshot_version: plan.snapshot_version }),
+  });
+  const request = await recoveryRequest<{ request_status: string; blocking_reasons: string[] }>(
+    "/v1/communications/requests", {
+      method: "POST", headers: authHeaders(auth),
+      body: JSON.stringify({ source_event_id: handoff.source_event_id }),
+    });
+  return { ...handoff, p4_request_status: request.request_status, blocking_reasons: request.blocking_reasons };
+}

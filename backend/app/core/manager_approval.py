@@ -15,11 +15,12 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
-from app.core.models import AuditEventRecord, CommitmentRecord
+from app.core.models import AuditEventRecord, CommitmentProposalRecord, CommitmentRecord
 from app.db.base import Base
 from app.feasibility.api_dependencies import require_isolated_e2e_key
 from app.feasibility.persisted_sources import read_snapshot
 from app.recovery.durable_plans import RecoveryPlanRecord
+from app.core.schemas import CommitmentTerms
 
 
 class ManagerApprovalRecord(Base):
@@ -100,8 +101,24 @@ class ManagerApprovalService:
         ).with_for_update())
         if commitment is None:
             raise DomainError("COMMITMENT_NOT_FOUND", "Commitment was not found", status_code=404)
+        history = db.scalars(select(ManagerApprovalRecord).where(
+            ManagerApprovalRecord.tenant_id == context.tenant_id,
+            ManagerApprovalRecord.plan_id == plan_id,
+            ManagerApprovalRecord.plan_version == expected_plan_version,
+        ).order_by(ManagerApprovalRecord.decided_at.desc())).all()
+        latest = history[0] if history else None
+        offered_revoke = False
+        if decision == "REVOKED" and latest is not None and latest.decision == "APPROVED":
+            offered = db.get(CommitmentProposalRecord, (context.tenant_id, plan_id))
+            offered_revoke = bool(
+                offered is not None and offered.commitment_id == plan.commitment_id
+                and offered.proposal_version == plan.plan_version and offered.status == "ACTIVE"
+                and offered.revised_terms == latest.approved_terms
+                and commitment.agreement_state == "OFFERED"
+                and expected_commitment_version == commitment.commitment_version
+            )
         snapshot = read_snapshot(db, context.tenant_id)
-        if (plan.core_commitment_version, commitment.commitment_version,
+        if not offered_revoke and (plan.core_commitment_version, commitment.commitment_version,
             expected_commitment_version) != (commitment.commitment_version,) * 3:
             raise DomainError("COMMITMENT_VERSION_CONFLICT", "Approval plan is stale", status_code=409)
         if (plan.snapshot_id, plan.snapshot_version, expected_snapshot_version) != (
@@ -117,12 +134,6 @@ class ManagerApprovalService:
             or typed.evaluation.validation_source != "REAL_P2_VALIDATED"
         ):
             raise DomainError("PLAN_NOT_APPROVABLE", "P2 has not validated this plan for review", status_code=409)
-        history = db.scalars(select(ManagerApprovalRecord).where(
-            ManagerApprovalRecord.tenant_id == context.tenant_id,
-            ManagerApprovalRecord.plan_id == plan_id,
-            ManagerApprovalRecord.plan_version == expected_plan_version,
-        ).order_by(ManagerApprovalRecord.decided_at.desc())).all()
-        latest = history[0] if history else None
         if decision == "REVOKED" and (latest is None or latest.decision != "APPROVED"):
             raise DomainError("APPROVAL_NOT_ACTIVE", "There is no active approval to revoke", status_code=409)
         if decision == "APPROVED" and latest is not None and latest.decision == "APPROVED":
@@ -130,7 +141,16 @@ class ManagerApprovalService:
         now = datetime.now(timezone.utc)
         approval_id = f"appr_{uuid4().hex[:16]}"
         audit_id = f"aud_{uuid4().hex[:16]}"
-        scope = ["CREATE_INTERNAL_REVIEW_TASK"] if decision == "APPROVED" else []
+        scope = [action.type for action in typed.actions] if decision == "APPROVED" else []
+        approved_terms = dict(commitment.terms)
+        if decision == "APPROVED" and typed.customer_confirmation_required:
+            proposal_action = next((action for action in typed.actions
+                                    if action.type == "CREATE_DELIVERY_CHANGE_PROPOSAL"), None)
+            if proposal_action is None:
+                raise DomainError("PROPOSAL_TERMS_MISSING", "Revised terms are missing", status_code=409)
+            approved_terms.update({"quantity": proposal_action.parameters["partial_quantity"],
+                                   "deadline": proposal_action.parameters["new_deadline"]})
+            approved_terms = CommitmentTerms.model_validate(approved_terms).model_dump(mode="json")
         row = ManagerApprovalRecord(
             tenant_id=context.tenant_id, approval_id=approval_id, idempotency_key=idempotency_key,
             commitment_id=plan.commitment_id, case_id=plan.case_id,
@@ -138,7 +158,7 @@ class ManagerApprovalService:
             proposal_id=plan_id, proposal_version=expected_plan_version,
             snapshot_id=plan.snapshot_id, snapshot_version=plan.snapshot_version,
             commitment_version=plan.core_commitment_version, decision=decision,
-            action_scope=scope, approved_terms=dict(commitment.terms),
+            action_scope=scope, approved_terms=approved_terms,
             approved_amount=typed.estimated_extra_cost, actor_id=actor_id, actor_role="MANAGER",
             reason=reason, decided_at=now,
             expires_at=now + timedelta(hours=1) if decision == "APPROVED" else None,

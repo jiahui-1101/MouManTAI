@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import RequestContext, get_db, get_request_context
 from app.core.dependencies import RequestContext as CoreRequestContext
 from app.core.errors import DomainError
+from app.core.service import CommitmentService
 from app.feasibility.api_dependencies import require_isolated_e2e_key
 
 from .integrations import (
@@ -38,6 +39,9 @@ from .durable_plans import DurablePlanService
 from .persistence import SqlAlchemyRecoveryRepository
 from app.core.manager_approval import ManagerApprovalRecord, ManagerApprovalService, trusted_isolated_manager
 from .durable_actions import DurableActionService, RecoveryActionExecutionRecord
+from .durable_communication import (
+    CommunicationHandoffView, DurableCommunicationHandoff, RequestCommunicationInput,
+)
 
 router = APIRouter(prefix="/v1/recovery", tags=["recovery"])
 Context = Annotated[RequestContext, Depends(get_request_context)]
@@ -156,7 +160,9 @@ def get_recovery_case(commitment_id: str, context: Context, db: Db) -> RecoveryC
                 details={"recovery_case_id": case.case_id,
                          "trigger_case_path": f"/v1/recovery/cases/{commitment_id}/trigger"},
             )
-        return case
+        current = CommitmentService().get(db, context, commitment_id)
+        return case.model_copy(update={"commitment": current,
+                                       "commitment_version": current.commitment_version})
     planner, requested_id = _planner_for_commitment(commitment_id)
     case = planner.get_case(context.tenant_id, requested_id, db=db, request_context=context)
     if case.status == RecoveryCaseStatus.COMPLETED:
@@ -399,3 +405,17 @@ def get_recovery_action_history(plan_id: str, actor: ApprovalActor, db: Db) -> l
         correlation_id=actor.correlation_id, causation_id=actor.causation_id,
     )
     return [_action_response(row) for row in DurableActionService().history(db, context, plan_id)]
+
+
+@router.post("/plans/{plan_id}/request-communication", response_model=CommunicationHandoffView)
+def request_recovery_communication(
+    plan_id: str, request: RequestCommunicationInput, actor: ApprovalActor, db: Db,
+    x_isolated_e2e_key: str | None = Header(default=None),
+) -> CommunicationHandoffView:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") != "1":
+        raise DomainError("COMMUNICATION_AUTHORITY_UNAVAILABLE", "Proposal handoff authority is unavailable", status_code=503)
+    context = CoreRequestContext(
+        tenant_id=actor.tenant_id, actor_id=actor.actor_id, actor_role=actor.actor_role,
+        correlation_id=actor.correlation_id, causation_id=actor.causation_id,
+    )
+    return DurableCommunicationHandoff().request(db, context, x_isolated_e2e_key, plan_id, request)

@@ -8,6 +8,20 @@ export default defineConfig({
     proxy: {
       "/dev/p1": "http://127.0.0.1:8000",
       "/v1/messages": "http://127.0.0.1:8000",
+      "/v1/communications": {
+        target: "http://127.0.0.1:8000",
+        configure(proxy) {
+          proxy.on("proxyReq", (request, incoming) => {
+            const key = process.env.MOUMANTAI_ISOLATED_E2E_KEY;
+            if (process.env.MOUMANTAI_ISOLATED_E2E === "1" && key && incoming.method === "POST" &&
+              incoming.url?.startsWith("/v1/communications/requests")) {
+              request.setHeader("X-Isolated-E2E-Key", key);
+              const managerId = process.env.MOUMANTAI_ISOLATED_E2E_MANAGER_ID;
+              if (managerId) request.setHeader("X-Actor-ID", managerId);
+            }
+          });
+        },
+      },
       "/v1/recovery": {
         target: "http://127.0.0.1:8000",
         configure(proxy) {

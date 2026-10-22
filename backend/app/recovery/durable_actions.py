@@ -163,6 +163,16 @@ class DurableActionService:
         actual_constraints = {f"{item.code}:{item.resource_id}" for item in result.constraints}
         if not actual_constraints.issubset(set(typed.evaluation.constraints)) or not set(result.evidence_refs).issubset(set(typed.evaluation.evidence_refs)):
             raise DomainError("PLAN_REVALIDATION_FAILED", "P2 evidence or constraints changed", status_code=409)
+        # The locked Commitment row serializes competing executions on PostgreSQL.
+        # A new key must never create a second task for the same plan version.
+        already_succeeded = db.scalar(select(RecoveryActionExecutionRecord).where(
+            RecoveryActionExecutionRecord.tenant_id == context.tenant_id,
+            RecoveryActionExecutionRecord.plan_id == plan_id,
+            RecoveryActionExecutionRecord.plan_version == expected_plan_version,
+            RecoveryActionExecutionRecord.status == "SUCCEEDED",
+        ).limit(1))
+        if already_succeeded is not None:
+            raise DomainError("ACTION_ALREADY_EXECUTED", "Plan version already has a verified internal task", status_code=409)
         now = datetime.now(timezone.utc)
         execution = previous or RecoveryActionExecutionRecord(
             tenant_id=context.tenant_id, execution_id=f"act_{uuid4().hex[:16]}",

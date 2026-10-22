@@ -36,6 +36,11 @@ from app.feasibility.production_fixtures import build_production_example
 from app.feasibility.pipeline_fixtures import build_pipeline_example
 from app.recovery.persistence import RecoveryCaseRecord, RecoveryCaseTriggerRecord
 from app.recovery.durable_plans import DurablePlanService, RecoveryPlanRecord
+from app.recovery.durable_communication import DurableCommunicationHandoff, RequestCommunicationInput
+from app.communication.service import CommunicationRequestService
+from app.communication.authority_adapters import IsolatedRecoveryRequestAuthority
+from app.communication.schemas import CreateCommunicationRequest
+from app.core.models import CommitmentProposalRecord
 from app.worker import configure_isolated_subscribers
 
 
@@ -387,6 +392,68 @@ def test_live_recovery_http_decision_and_verified_task(
     assert actions.status_code == 200 and len(actions.json()) == 1
 
 
+def test_approved_revised_plan_creates_exact_core_proposal_and_p4_source(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E_MANAGER_ID", "user_manager_01")
+    manager = RequestContext(manager.tenant_id, "user_manager_01", "MANAGER", manager.correlation_id)
+    approval = ManagerApprovalService().decide(
+        session, manager, key, plan.plan_id, decision="APPROVED",
+        expected_plan_version=1, expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="approval-p4-handoff", reason="Approve revised delivery proposal",
+    )
+    assert "CREATE_DELIVERY_CHANGE_PROPOSAL" in approval.action_scope
+    original = dict(session.get(CommitmentRecord, (manager.tenant_id, plan.commitment_id)).terms)
+    command = RequestCommunicationInput(
+        expected_plan_version=1, expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+    )
+    service = DurableCommunicationHandoff()
+    with pytest.raises(DomainError) as error:
+        service.request(session, manager, key, plan.recovery_case_id + "_alternative_supply", command)
+    assert error.value.code == "PROPOSAL_NOT_ALLOWED"
+    first = service.request(session, manager, key, plan.plan_id, command)
+    assert service.request(session, manager, key, plan.plan_id, command).source_event_id == first.source_event_id
+    core = session.get(CommitmentRecord, (manager.tenant_id, plan.commitment_id))
+    assert core.commitment_version == 3 and core.agreement_state == "OFFERED"
+    assert core.terms == original
+    proposal = session.get(CommitmentProposalRecord, (manager.tenant_id, first.proposal_id))
+    assert proposal is not None and proposal.status == "ACTIVE"
+    assert proposal.revised_terms == approval.approved_terms == first.approved_terms.model_dump(mode="json")
+    event = session.get(OutboxEventRecord, first.source_event_id)
+    assert event is not None and event.causation_id == approval.approval_id
+    assert event.payload["approval_evidence_ref"] == approval.audit_id
+    assert event.payload["snapshot_id"] == plan.snapshot_id
+    p4_context = RequestContext(manager.tenant_id, "user_manager_01", "MANAGER", "corr_p4_read")
+    basis = CommunicationRequestService(session).read_current_basis(
+        p4_context, CreateCommunicationRequest(source_event_id=first.source_event_id),
+        datetime.now(timezone.utc),
+    )
+    assert basis.reference.plan_id == plan.plan_id
+    assert basis.reference.proposal_version == plan.plan_version
+    assert basis.terms == first.approved_terms
+    p4 = CommunicationRequestService(session, IsolatedRecoveryRequestAuthority(key))
+    request = CreateCommunicationRequest(source_event_id=first.source_event_id)
+    intake = p4.create(manager, request)
+    assert intake.request_status == "BLOCKED"
+    assert "VERIFIED_RECIPIENT_REQUIRED" in intake.blocking_reasons
+    revoked = ManagerApprovalService().decide(
+        session, manager, key, plan.plan_id, decision="REVOKED",
+        expected_plan_version=1, expected_commitment_version=3,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="revoke-p4-handoff", reason="Withdraw proposed terms",
+    )
+    assert revoked.decision == "REVOKED"
+    with pytest.raises(DomainError) as error:
+        service.request(session, manager, key, plan.plan_id, command)
+    assert error.value.code == "APPROVAL_NOT_ACTIVE"
+    with pytest.raises(DomainError) as error:
+        p4.create(manager, request)
+    assert error.value.code == "APPROVAL_NOT_ACTIVE"
+
+
 def test_durable_manager_approval_idempotency_restart_and_revocation(
     session: Session, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -469,6 +536,9 @@ def test_approved_internal_task_creates_verified_business_record_once(
     assert task is not None and task.status == "OPEN"
     assert task.payload["customer_acceptance_required_for_terms_change"] is True
     assert service.execute(session, manager, key, plan.plan_id, **kwargs).execution_id == first.execution_id
+    with pytest.raises(DomainError) as error:
+        service.execute(session, manager, key, plan.plan_id, **{**kwargs, "idempotency_key": "task-second-key"})
+    assert error.value.code == "ACTION_ALREADY_EXECUTED"
     assert session.query(InternalRecoveryTaskRecord).count() == 1
     assert session.query(RecoveryActionExecutionRecord).count() == 1
     with Session(session.bind) as restarted:

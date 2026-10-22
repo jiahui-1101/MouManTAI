@@ -213,6 +213,21 @@ class DurablePlanService:
                 assumptions=[*result.assumptions, "Internal task does not change accepted customer terms"],
                 evaluated_at=now,
             )
+            actions = [{
+                "action_id": f"{plan_id}_task", "type": action_type,
+                "requires_approval": True, "idempotency_key": f"{plan_id}_v1_task",
+                "parameters": action_params,
+                "preconditions": ["Current Core and P2 versions", "Durable Manager Approval"],
+            }]
+            if confirmation and proposal is not None:
+                actions.append({
+                    "action_id": f"{plan_id}_proposal", "type": "CREATE_DELIVERY_CHANGE_PROPOSAL",
+                    "requires_approval": True, "idempotency_key": f"{plan_id}_v1_proposal",
+                    "parameters": {"partial_quantity": str(proposal.quantity),
+                                   "new_deadline": proposal.deadline.isoformat()},
+                    "preconditions": ["Current Core and P2 versions", "Durable Manager Approval",
+                                      "Separate customer acceptance before revised terms take effect"],
+                })
             plan = RecoveryPlanVersion(
                 tenant_id=context.tenant_id, recovery_case_id=case.case_id,
                 plan_id=plan_id, plan_version=1, commitment_id=commitment_id,
@@ -222,12 +237,7 @@ class DurablePlanService:
                 snapshot_version=snapshot.operational.snapshot_version,
                 feasibility_status=result.status, estimated_extra_cost=cost, currency="MYR",
                 estimated_delay_minutes=delay, risks=constraints,
-                actions=[{
-                    "action_id": f"{plan_id}_task", "type": action_type,
-                    "requires_approval": True, "idempotency_key": f"{plan_id}_v1_task",
-                    "parameters": action_params,
-                    "preconditions": ["Current Core and P2 versions", "Durable Manager Approval"],
-                }],
+                actions=actions,
                 approval_state=ApprovalState.PENDING, execution_state=ExecutionState.NOT_STARTED,
                 option_id=name, strategy=strategy,
                 risk_level=RiskLevel.HIGH if uncertainty else RiskLevel.MEDIUM,

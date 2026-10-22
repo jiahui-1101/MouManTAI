@@ -537,6 +537,23 @@ class CommitmentService:
                 },
             )
 
+        # P3-created customer-term proposals require P4's verified response
+        # boundary. Demo actor headers and client identity claims cannot supply it.
+        p3_sources = db.scalars(select(OutboxEventRecord).where(
+            OutboxEventRecord.tenant_id == context.tenant_id,
+            OutboxEventRecord.commitment_id == commitment_id,
+            OutboxEventRecord.event_type == CoreEventType.RECOVERY_COMMUNICATION_REQUESTED.value,
+        )).all()
+        if any(source.payload.get("approval_id") and
+               (source.payload.get("proposal_id"), source.payload.get("proposal_version")) == (
+                   request.proposal_id, request.proposal_version,
+               ) for source in p3_sources):
+            raise DomainError(
+                "P4_CONFIRMATION_AUTHORITY_UNAVAILABLE",
+                "Verified P4 customer response is required for this recovery proposal",
+                status_code=503,
+            )
+
         # Check customer identity link
         if request.customer_identity_status == CustomerIdentityStatus.UNVERIFIED or (
             isinstance(record.terms, dict)
