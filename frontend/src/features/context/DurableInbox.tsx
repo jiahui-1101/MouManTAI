@@ -350,8 +350,8 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                         <td><strong>{f.field_name}</strong></td>
                         <td>{f.value ?? <span className="p1-muted">—</span>}</td>
                         <td>
-                          <span className={`p1-badge ${method === 'MODEL' ? 'p1-gpu-badge' : method === 'HUMAN' ? 'p1-ready' : 'p1-blue'}`}>
-                            {method === 'MODEL' ? '⚡ MODEL (GPU)' : method}
+                          <span className={`p1-badge ${method === 'MODEL' ? 'p1-gpu-badge' : method === 'HUMAN' ? 'p1-ready' : 'p1-blue'}`} title={method === 'MODEL' ? 'GPU Accelerated Model' : undefined}>
+                            {method}
                           </span>
                         </td>
                         <td><span className={`p1-badge ${f.validation_status === 'VALID' ? 'p1-ready' : f.validation_status === 'CONFLICT' ? 'p1-critical' : 'p1-attention'}`}>{f.validation_status}</span></td>
@@ -389,7 +389,12 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
               <span className="p1-pending-icon">⏳</span>
               <div>
                 <strong>Awaiting Extraction</strong>
-                <p>This message has not been processed yet. Click the button below to trigger extraction using the connected GPU/AI pipeline.</p>
+                <p className="p1-notice" style={{ margin: '6px 0 8px' }}>
+                  Awaiting processing. Extraction is not implemented yet; no extracted fields or evidence are available.
+                </p>
+                <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>
+                  Click below to trigger extraction using the connected GPU/AI pipeline.
+                </p>
               </div>
             </div>
             <button
