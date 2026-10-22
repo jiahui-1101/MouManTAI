@@ -1127,3 +1127,50 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - Frontend Vitest: `218 passed, 5 skipped (live smoke), 0 failed` (`npm test -- --run`).
   - Frontend production build: Passed (`cmd /c npm run build`, 0 errors).
 - **Pending Acknowledgements**: P3 (for rebase of PR #10 onto `0007_recovery_case_constraints_alignment`).
+
+### 2026-10-22 — Task H-IMPLEMENT: Teammate Handoff Triage, Core Invariant Implementations & PostgreSQL Evidence (P5 / ADR-018 / D-035)
+- **Status**: Complete, Verified & Delivered by Person 5 (Shared Core, Contracts, Shell, Outbox & Integration Coordinator).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `ADR-018` (Decisions `D-032`, `D-017` ext, `D-033`, `D-035`)
+  - **Owner**: P5 (Shared Core, DB & Integration)
+  - **Impact**:
+    1. **Caller-Owned Transaction Semantics (D-032)**:
+       - `CommitmentService.assess()` and consumer callpaths support `commit: bool = False` (flush only; caller commits).
+       - Outbox dispatcher owns transaction commits and rollbacks atomically with `ProcessedEventRecord`.
+       - Downstream consumer failure rolls back aggregate, outbox, audit, and processed events atomically.
+    2. **D-017 Required-Subscriber Policy Extended**:
+       - `OutboxDispatcher` enforces named subscriber `p2_confirmed_evaluator` on `commitment.confirmed` and `p3.recovery_trigger.v1` on `commitment.at_risk` without wildcards.
+       - Unregistered or failing subscribers retain events in `PENDING`/`FAILED`; never prematurely published.
+    3. **Advisory Feasibility Append-Only Isolation (D-033)**:
+       - Advisory assessments write exclusively to `AuditEventRecord` (`advisory=True`, `event_type="commitment.advisory_feasibility_assessed"`).
+       - Never mutates aggregate or `revised_terms`; readers and idempotency guards exclude advisory records.
+    4. **Contract Relaxation for `affected_commitment_ids`**:
+       - `FeasibilityAssessment.affected_commitment_ids` defaults to empty list `[]` (`min_length=0`), representing downstream impact set only.
+    5. **Adapter Placement & Boundary Discipline (D-013, D-035)**:
+       - Concrete feasibility adapters live in P5-owned `backend/app/core/feasibility_adapters.py`.
+       - Public Core router preserves D-013 invariant: `POST /v1/commitments/{id}/assess` returns HTTP 404 (`test_public_core_assess_route_is_absent`).
+       - Internal evaluation requires server-validated `SERVICE`/`SYSTEM` role; spoofing via `X-Actor-ID` fails closed.
+    6. **Alembic Migration Ownership & Alignment**:
+       - Migration 0006/0007 scope verified: strictly `recovery_cases` and `recovery_case_triggers` constraint alignments (`ON DELETE RESTRICT`).
+       - P4 owns implementation of migration `0008_communication_tables.py` branching directly from `0007`. P5 will not build duplicate P4 tables.
+    7. **ADR-018: Lightweight SME Schema Acceptance**:
+       - Denormalized schema for tenants/users/roles/customers/orders/commitment_versions/commitment_evidence is formally accepted under AGENTS §5 & §13.
+       - Generic ERP bloat rejected to maintain lean, responsive SME footprint.
+    8. **PostgreSQL Dual-Boundary Handshake Verification (W8)**:
+       - Executed against PostgreSQL on port 5433 (`TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5433/moumantai_test"`).
+       - 19 passed in 2.79s. Engine dialect verified as `postgresql` (`test_feature_handshakes.py:L1181-L1183`).
+       - Full test output logged to `docs/evidence/postgres_handshake_20261022.log`.
+    9. **Teammate Handoff Replies Delivered**:
+       - Generated and verified `reply_P1.md`, `reply_P2.md`, `reply_P3.md`, `reply_P4.md` addressing all items by ID with required greetings and sign-offs.
+- **Validation Test Evidence**:
+  - Full backend pytest suite: `331 passed, 8 skipped, 6 warnings` (`pytest backend/tests backend/app/feasibility/tests -q`).
+  - PostgreSQL handshake suite: `19 passed, 0 failed` (`pytest backend/tests/integration/test_feature_handshakes.py -v`).
+  - Single Alembic head: `0007_recovery_case_constraints_alignment (head)`.
+  - Frontend Vitest suite: `218 passed, 5 skipped (live smoke), 0 failed` (`cmd /c npm test -- --run`).
+  - Frontend typecheck: Passed (`tsc --noEmit`, 0 errors).
+  - Frontend production build: Passed (`tsc -b && vite build` in 926ms, 0 errors).
+- **Pending Acknowledgements**:
+  - P1: Rebase `feat/p1-context-intelligence` on latest `main` (`5cf5cae5`, Alembic head `0007`).
+  - P2: Acknowledge Core adapter placement and D-013 public assess route guard.
+  - P3: Restart PR #10 merge against updated `main` (`5cf5cae5`) and rerun affected regressions.
+  - P4: Implement migration `0008_communication_tables.py` branching from `0007`.
