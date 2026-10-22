@@ -31,7 +31,7 @@ from app.feasibility.production import EvaluationSnapshot
 from app.feasibility.production_fixtures import build_production_example
 from app.feasibility.pipeline_fixtures import build_pipeline_example
 from app.recovery.persistence import RecoveryCaseRecord, RecoveryCaseTriggerRecord
-from app.recovery.trigger_persistence import PersistedCoreAssessmentLookup, SessionScopedRecoveryTriggerAdapter
+from app.worker import configure_isolated_subscribers
 
 
 def _seed(session: Session):
@@ -235,15 +235,16 @@ def test_isolated_mutation_requires_server_owned_key(monkeypatch: pytest.MonkeyP
     require_isolated_e2e_key("synthetic-private-key-with-at-least-32-chars")
 
 
-def test_persisted_supplier_event_reaches_p3_through_isolated_dispatcher(session: Session) -> None:
+def test_persisted_supplier_event_reaches_p3_through_isolated_dispatcher(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     inputs, context = _seed_delay(session)
     impact = PersistedSupplierDelayProcessor().process(session, context, inputs.request)
     expected = next(row.after_assessment for row in impact.impacts if row.commitment_id == "com-001")
     dispatcher = OutboxDispatcher()
-    adapter = SessionScopedRecoveryTriggerAdapter(
-        authoritative_assessment_lookup=PersistedCoreAssessmentLookup(),
-    )
-    dispatcher.register_subscriber("commitment.at_risk", "p3.recovery_trigger.v1", adapter.persist)
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E", "1")
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E_KEY", "synthetic-private-key-with-at-least-32-chars")
+    configure_isolated_subscribers(dispatcher)
     result = dispatcher.process_outbox_batch(session)
     assert result.failed_count == 0
     risk = session.query(OutboxEventRecord).filter_by(event_type="commitment.at_risk").one()
@@ -259,6 +260,18 @@ def test_persisted_supplier_event_reaches_p3_through_isolated_dispatcher(session
     )) is not None
     assert dispatcher.process_outbox_batch(session).processed_count == 0
     assert session.query(RecoveryCaseTriggerRecord).count() == 1
+
+
+def test_worker_binding_is_closed_without_isolated_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    dispatcher = OutboxDispatcher()
+    monkeypatch.delenv("MOUMANTAI_ISOLATED_E2E", raising=False)
+    configure_isolated_subscribers(dispatcher)
+    assert dispatcher.get_subscribers("commitment.at_risk") == []
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E", "1")
+    monkeypatch.delenv("MOUMANTAI_ISOLATED_E2E_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="server-owned mutation key"):
+        configure_isolated_subscribers(dispatcher)
+    assert dispatcher.get_subscribers("commitment.at_risk") == []
 
 
 def test_sqlite_alembic_0009_has_source_constraints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
