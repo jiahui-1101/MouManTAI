@@ -8,6 +8,9 @@ COPY backend/migrations ./migrations
 COPY backend/alembic.ini ./alembic.ini
 COPY contracts ./contracts
 COPY scripts ./scripts
+RUN ln -s /app/contracts /contracts
+
+ENV PYTHONPATH=/app
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

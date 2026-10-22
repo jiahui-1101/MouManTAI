@@ -30,27 +30,36 @@ def upgrade() -> None:
     dialect = bind.dialect.name
 
     if dialect == "postgresql":
+        from sqlalchemy import inspect
+
         # Ensure alembic_version can store revisions > 32 characters
         op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)")
 
-        # 1. Drop trigger-to-case FK from recovery_case_triggers
-        op.drop_constraint(
-            "fk_recovery_case_triggers_case_tenant_commitment",
-            "recovery_case_triggers",
-            type_="foreignkey",
-        )
-        # 2. Drop old singular unique constraint from recovery_cases
-        op.drop_constraint(
-            "uq_recovery_case_tenant_case_commitment",
-            "recovery_cases",
-            type_="unique",
-        )
-        # 3. Create new plural unique constraint on recovery_cases
-        op.create_unique_constraint(
-            "uq_recovery_cases_tenant_case_commitment",
-            "recovery_cases",
-            ["tenant_id", "case_id", "commitment_id"],
-        )
+        inspector = inspect(bind)
+        fk_constraints = {fk["name"] for fk in inspector.get_foreign_keys("recovery_case_triggers")}
+        unique_constraints = {uc["name"] for uc in inspector.get_unique_constraints("recovery_cases")}
+
+        # 1. Drop trigger-to-case FK from recovery_case_triggers if present
+        if "fk_recovery_case_triggers_case_tenant_commitment" in fk_constraints:
+            op.drop_constraint(
+                "fk_recovery_case_triggers_case_tenant_commitment",
+                "recovery_case_triggers",
+                type_="foreignkey",
+            )
+        # 2. Drop old singular unique constraint from recovery_cases if present
+        if "uq_recovery_case_tenant_case_commitment" in unique_constraints:
+            op.drop_constraint(
+                "uq_recovery_case_tenant_case_commitment",
+                "recovery_cases",
+                type_="unique",
+            )
+        # 3. Create new plural unique constraint on recovery_cases if not already present
+        if "uq_recovery_cases_tenant_case_commitment" not in unique_constraints:
+            op.create_unique_constraint(
+                "uq_recovery_cases_tenant_case_commitment",
+                "recovery_cases",
+                ["tenant_id", "case_id", "commitment_id"],
+            )
         # 4. Re-create trigger-to-case FK with ON DELETE RESTRICT
         op.create_foreign_key(
             "fk_recovery_case_triggers_case_tenant_commitment",
