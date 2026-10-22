@@ -50,7 +50,7 @@ export function reasonText(code: string) {
   return "This request needs review before drafting can continue.";
 }
 
-export function errorText(error: unknown, resource: "list" | "detail" | "draft" | "summary" | "review") {
+export function errorText(error: unknown, resource: "list" | "detail" | "draft" | "summary" | "review" | "send") {
   if (!(error instanceof ApiError)) return "Cannot reach the server. Check your connection and try again.";
   if (reasons[error.code] || /STALE|SUPERSEDED|VERSION|EXPIRED|REVOKED/.test(error.code)) return reasonText(error.code);
   if (error.status === 401) return "Your session is not authorized. Sign in again.";

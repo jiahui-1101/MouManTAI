@@ -33,6 +33,7 @@ export function ManagerReview({ draft, auth, now }: { draft: MessageDraftView; a
       setConfirming(false); setSavedAction(variables.action);
       await client.invalidateQueries({ queryKey: communicationKeys.review(auth, draft) });
       void client.invalidateQueries({ queryKey: communicationKeys.summary(auth) });
+      void client.invalidateQueries({ queryKey: communicationKeys.eligibility(auth, draft) });
     },
     onError: () => { if (active.current) {
       setSavedAction("");

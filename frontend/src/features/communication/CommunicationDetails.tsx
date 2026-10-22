@@ -6,6 +6,7 @@ import { communicationKeys, getDraft, prepareDraft } from "./api";
 import { channelText, communicationLabel, DisplayBadge, ErrorNotice, errorText, languages, reasonText } from "./presentation";
 import { DraftPreview } from "./DraftPreview";
 import { ManagerReview } from "./ManagerReview";
+import { OutboundPanel } from "./OutboundPanel";
 import type { CommunicationRequestView, DraftLanguage, MessageDraftView } from "./types";
 
 interface Props {
@@ -80,7 +81,8 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
   };
   const blocked = request.request_status === "BLOCKED";
   const failed = draft.isError || expired || prepare.isError;
-  const label = failed ? "Blocked" : communicationLabel(request.request_status, request.message_status, !!validDraft);
+  const label = request.outbound_status === "SENT" ? "Sent" : request.outbound_status === "QUEUED" ? "Sending" :
+    request.outbound_status || failed ? "Blocked" : communicationLabel(request.request_status, request.message_status, !!validDraft);
   const terms = request.proposed_terms;
   return <>
     <div className="cc-row"><div><p className="eyebrow">Request details</p><h3>{request.reference.commitment_id}</h3></div><DisplayBadge label={label} /></div>
@@ -152,6 +154,8 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
         <ManagerReview key={`${validDraft.draft_id}:${validDraft.content_hash}:${validDraft.validation_hash}`} draft={validDraft} auth={auth} now={now} />
       </>}
     </section>
+    <OutboundPanel key={`${auth.tenantId}:${auth.actorId}:${id}:${validDraft?.draft_id ?? ""}:${validDraft?.content_hash ?? ""}`}
+      communicationId={id} draft={validDraft} auth={auth} now={now} />
   </>;
 }
 

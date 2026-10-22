@@ -46,7 +46,8 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
   }, []);
   const requests = list.data ?? [];
   const isDrafted = (id: string) => !!verified[id] && Date.parse(verified[id]!.expires_at) > now;
-  const label = (request: typeof requests[number]) => (attention[request.communication_id] ||
+  const label = (request: typeof requests[number]) => request.outbound_status === "SENT" ? "Sent" :
+    request.outbound_status === "QUEUED" ? "Sending" : request.outbound_status ? "Blocked" : (attention[request.communication_id] ||
     (verified[request.communication_id] && !isDrafted(request.communication_id))) ? "Blocked" :
     communicationLabel(request.request_status, request.message_status, isDrafted(request.communication_id));
   const visible = requests.filter(request => {
@@ -69,13 +70,14 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
         <Metric title="Total" count={summary.isSuccess && !summary.isFetching ? summary.data.total : null} />
         <Metric title="Drafted" count={summary.isSuccess && !summary.isFetching ? summary.data.drafted : null} />
         <Metric title="Sent" count={summary.isSuccess && !summary.isFetching ? summary.data.sent : null} />
-        <Metric title="Needs Attention" count={summary.isSuccess && !summary.isFetching ? summary.data.needs_attention : null} />
+        <Metric title="Needs Attention" count={summary.isSuccess && !summary.isFetching && !summary.data.unavailable_reasons.needs_attention ? summary.data.needs_attention : null} />
       </div>
       {summary.isFetching ? <p className="muted text-sm" role="status">Loading dashboard statistics…</p> : summary.isError ?
         <ErrorNotice error={summary.error} resource="summary" onRetry={() => { void summary.refetch(); }} /> : summary.data ? <>
           <p className="muted text-sm">All requests in this workspace · Checked {formatKLTimestamp(summary.data.checked_at)}</p>
           {summary.data.drafted === null && <p className="muted text-sm">Drafted — Not available: current drafts could not be reliably verified.</p>}
           {summary.data.sent === null && <p className="muted text-sm">Sent — Not available: verified sending records are not connected.</p>}
+          {summary.data.unavailable_reasons.needs_attention && <p className="muted text-sm">Needs Attention — Not available: sending failures could not be reliably counted.</p>}
         </> : null}
     </section>
     {list.isFetching ? <p role="status" className="cc-state">Loading communication requests…</p> : list.isError ?
