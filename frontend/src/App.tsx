@@ -11,6 +11,7 @@ import { apiRequest, authHeaders } from "./shared/api";
 import { createP2PublicApiSource } from "./features/feasibility/apiSource";
 import { CommitmentFeasibilityPage } from "./features/feasibility/CommitmentFeasibilityPage";
 import { ImpactDetailPage } from "./features/feasibility/ImpactDetailPage";
+import { RecoveryPage } from "./features/recovery/RecoveryPage";
 
 export function CommitmentFeasibilityRoute() {
   const { authHeaders: auth } = useAuth();
@@ -81,7 +82,7 @@ export function App({ queryClient, initialTenantId, initialActorId }: AppProps =
               <Route path="/orders/:id" element={<FeaturePlaceholder owner="P1 · Context" title="Order context" />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
-              <Route path="/recovery/:id" element={<FeaturePlaceholder owner="P3 · Recovery" title="Recovery case" />} />
+              <Route path="/recovery/:id" element={<RecoveryPage />} />
               <Route path="/communications" element={<FeaturePlaceholder owner="P4 · Communication" title="Communication center" />} />
               <Route path="/confirmations/:id" element={<FeaturePlaceholder owner="P4 · Communication" title="Confirmation workspace" />} />
               <Route path="*" element={<FeaturePlaceholder owner="Shared shell" title="Page not found" />} />

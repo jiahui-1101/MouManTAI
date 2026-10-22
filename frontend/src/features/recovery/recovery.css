@@ -1,0 +1,41 @@
+.recovery-page { display: flex; flex-direction: column; gap: 1.25rem; }
+.recovery-loading { padding: 3rem; text-align: center; color: #94a3b8; }
+.recovery-incident-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.recovery-panel, .recovery-detail-card { padding: 1.25rem; background: rgba(15, 23, 42, 0.7); border: 1px solid #1e293b; border-radius: 0.85rem; }
+.section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.85rem; }
+.section-header h2 { margin: 0; color: #f8fafc; font-size: 1.1rem; }
+.recovery-facts { display: grid; gap: 0.65rem; margin: 1rem 0 0; }
+.recovery-facts div { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: 0.75rem; align-items: start; }
+.recovery-facts dt { color: #64748b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.recovery-facts dd { margin: 0; color: #e2e8f0; font-size: 0.84rem; }
+.recovery-constraint-list, .recovery-detail-grid ul { margin: 1rem 0 0; padding-left: 1.15rem; color: #fbbf24; font-size: 0.82rem; line-height: 1.6; }
+.recovery-options-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.recovery-option-card { display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem; border: 1px solid #334155; border-radius: 0.75rem; background: #0f172a; }
+.recovery-option-card.selected { border-color: #38bdf8; box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25); }
+.recovery-option-header { display: flex; justify-content: space-between; gap: 0.75rem; }
+.recovery-option-kicker { margin: 0 0 0.3rem; color: #fb923c; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.recovery-option-card h3 { margin: 0; color: #f8fafc; font-size: 1.05rem; }
+.recovery-option-label { margin: 0; color: #cbd5e1; font-size: 0.84rem; }
+.recovery-status-pill, .recovery-status-badge, .recovery-recommended { display: inline-flex; align-items: center; width: fit-content; border-radius: 999px; padding: 0.25rem 0.55rem; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.recovery-status-pill { border: 1px solid #334155; color: #cbd5e1; }
+.status-feasible { border-color: #0f766e; color: #5eead4; background: rgba(15, 118, 110, 0.15); }
+.status-conditional { border-color: #92400e; color: #fbbf24; background: rgba(146, 64, 14, 0.15); }
+.status-infeasible, .status-unknown { border-color: #991b1b; color: #fca5a5; background: rgba(153, 27, 27, 0.15); }
+.recovery-recommended { color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.1); }
+.recovery-metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.65rem; }
+.recovery-metric-grid div { padding: 0.6rem; border-radius: 0.55rem; background: rgba(2, 6, 23, 0.6); }
+.recovery-metric-grid span { display: block; color: #64748b; font-size: 0.7rem; text-transform: uppercase; }
+.recovery-metric-grid strong { display: block; margin-top: 0.25rem; color: #f8fafc; font-size: 0.88rem; }
+.recovery-option-meta { display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; color: #94a3b8; font-size: 0.72rem; }
+.recovery-stale { color: #fbbf24; font-weight: 800; }
+.recovery-evidence-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.recovery-evidence-chip { border: 1px solid #334155; border-radius: 0.3rem; padding: 0.15rem 0.35rem; color: #cbd5e1; font-family: monospace; font-size: 0.7rem; }
+.recovery-detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.recovery-detail-grid h3 { margin: 0; color: #cbd5e1; font-size: 0.82rem; }
+.recovery-execution-gate, .recovery-audit-note { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.8rem 1rem; border-left: 3px solid #f59e0b; border-radius: 0 0.55rem 0.55rem 0; background: rgba(245, 158, 11, 0.08); color: #fde68a; font-size: 0.8rem; line-height: 1.5; }
+.recovery-execution-gate span, .recovery-audit-note span { color: #cbd5e1; }
+.recovery-inline-error { color: #fca5a5; }
+.recovery-error { max-width: 640px; margin: 3rem auto; padding: 2rem; border: 1px solid #ef4444; border-radius: 0.85rem; background: rgba(239, 68, 68, 0.08); text-align: center; }
+.recovery-error h2 { color: #f8fafc; }
+.recovery-status-badge { margin-bottom: 0.75rem; color: #fca5a5; background: rgba(239, 68, 68, 0.2); }
+@media (max-width: 860px) { .recovery-incident-grid, .recovery-options-grid, .recovery-detail-grid { grid-template-columns: 1fr; } }
