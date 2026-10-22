@@ -10,6 +10,7 @@ import { FollowUpResponse } from "./FollowUpResponse";
 import { attentionLabels, classifyFollowUp, defaultQueueFilters, followUpCounts, visibleFollowUps, type QueueFilters } from "./followUp";
 import "./communication.css";
 import "./follow-up.css";
+import { P4ErrorPanel, P4Loading } from "./P4Feedback";
 
 export function FollowUpQueuePage() {
   const { authHeaders } = useAuth();
@@ -42,7 +43,10 @@ function QueueSession({ auth }: { auth: RequestAuthHeaders }) {
     <p className="muted text-sm">Last refreshed: {records ? `${formatKLTimestamp(new Date(query.dataUpdatedAt).toISOString())} · browser receipt time` : "Unavailable"}</p>
     <div className="fu-notice" role="note"><strong>P4 Evidence Only · Synthetic Only</strong>
       <p>Attention labels are browser display hints, not backend lifecycle states. No reminder dispatch, escalation workflow or customer acceptance is performed here.</p>
-      <p className="text-sm">Expiring Soon: an awaiting, unrestricted confirmation expires within the next 24 hours. For non-terminal records, a timestamp at or before the browser clock means Expired — Needs Review. Time hints refresh every minute. Backend state remains separate.</p>
+      <details className="p4-helper"><summary>How attention labels work</summary>
+        <p className="text-sm">Expiring Soon: an awaiting, unrestricted confirmation expires within the next 24 hours. For non-terminal records, a timestamp at or before the browser clock means Expired — Needs Review. Time hints refresh every minute. Backend state remains separate.</p>
+        <p className="text-sm">Terminal means no pending response for this consumed challenge. Replanning, business follow-up and fulfilment may still be required. Reminder and escalation execution status: unavailable in this API.</p>
+      </details>
     </div>
     <div className="fu-metrics" aria-label="Loaded confirmation statistics" aria-busy={query.isFetching}>
       <Metric label="Total Confirmations" value={counts?.total} />
@@ -52,8 +56,7 @@ function QueueSession({ auth }: { auth: RequestAuthHeaders }) {
       <Metric label="Terminal" value={counts?.terminal} />
     </div>
     <p className="muted text-sm">Counts cover loaded records, before filters; they are not system-wide KPIs. Awaiting Response counts the backend state. Needs Attention counts UI exceptions, including Expiring Soon.</p>
-    <p className="muted text-sm">Terminal means no pending response for this consumed challenge. Replanning, business follow-up and fulfilment may still be required. Reminder and escalation execution status: unavailable in this API.</p>
-    {query.isFetching ? <p className="cc-state" role="status">Loading confirmation queue…</p> : query.isError ?
+    {query.isFetching ? <P4Loading>Loading confirmation queue…</P4Loading> : query.isError ?
       <QueueError error={query.error} retry={refresh} /> : records ? <>
         <form className="fu-filters" aria-label="Follow-up filters" onSubmit={event => event.preventDefault()}>
           <label>Search IDs<input type="search" value={filters.search} maxLength={256} placeholder="Confirmation or communication ID"
@@ -116,11 +119,9 @@ function Fact({ label, value }: { label: string; value: string | number }) {
 }
 function QueueError({ error, retry }: { error: unknown; retry: () => void }) {
   if (error instanceof ApiError && (error.status === 400 || error.status === 404)) {
-    return <div className="cc-error" role="alert"><p>{error.status === 400
+    return <P4ErrorPanel error={error} message={error.status === 400
       ? "The confirmation list request was rejected. Refresh or contact the integration owner."
-      : "The confirmation list or its route is unavailable. Check the deployed API and retry."}</p>
-      <p className="text-sm">Reference: <code>{error.code}</code>{error.correlationId && <> · Correlation: <code>{error.correlationId}</code></>}</p>
-      <button className="btn btn-secondary" onClick={retry}>Retry</button></div>;
+      : "The confirmation list or its route is unavailable. Check the deployed API and retry."} retry={retry} />;
   }
   return <ConfirmationError error={error} retry={retry} />;
 }
