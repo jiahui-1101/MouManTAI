@@ -1375,6 +1375,7 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Remaining limitation: local branch must receive real P1 routes through normal team integration for the new route tests to pass; no Git merge performed here. No remote GitHub CI rerun or production E2E claimed.
 - Suggested commit: fix(ci): align migration and integration regression tests. Stop after hotfix; no feature work.
 
+<<<<<<< HEAD
 ### 2026-10-22 — Task T-P2H2: Feasibility Read Router Mount, Session-Aware Resolver & No-Commit Writer (P5 / ADR-019 / D-036)
 - **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
 - **Decision / Impact / Owner**:
@@ -1398,3 +1399,10 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - Frontend Vitest suite: `228 passed, 5 skipped (live smoke), 0 failed` (`npm test -- --run`).
   - Frontend typecheck: Passed (`tsc --noEmit`, 0 errors).
 - **Pending Acknowledgements**: P2 (for implementing `app/feasibility/consumer.py` using `writer.assess(commit=False)` and session-aware resolver).
+
+### 2026-10-22 — Incremental P5 loopback CORS review unit
+
+- **Status:** APPROVED & MERGED into `main` via PR [#18](https://github.com/jiahui-1101/MouManTAI/pull/18).
+- **Cause/fix:** Vite serves `127.0.0.1:5173` while the shared API's default CORS setting allowed only `localhost:5173`, causing browser preflights to fail. The default permits both loopback spellings; an explicitly configured `CORS_ORIGINS` still takes precedence. The new test checks both origins' communication API preflight response and allowed-origin header. No migration, subscriber, identity, or consequential route change.
+- **Evidence:** `python -m pytest tests/test_local_frontend_cors.py tests/test_smoke.py -q -p no:cacheprovider --basetemp=.pytest-basetemp-cors-only --tb=short` → 2 passed. Scoped Ruff F/E4/E7/E9, compileall and `git diff --check` passed.
+
