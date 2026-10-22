@@ -223,11 +223,6 @@ def test_scenario_2_reviewed_correction_and_updated_context(pg_engine):
     with Session(pg_engine) as session:
         com_1 = publisher.publish_to_core(session, req_context, saved)
         assert com_1.terms.quantity == Decimal("100")
-        # Advance to CONFIRMED so operational evaluator assesses updated terms (Invariant 1)
-        row = session.get(CommitmentRecord, (tenant_id, com_1.commitment_id))
-        assert row is not None
-        row.agreement_state = AgreementState.CONFIRMED.value
-        session.commit()
 
     # Operator performs human review edit: quantity corrected to 120
     review_req = ContextReviewRequest(
@@ -252,6 +247,12 @@ def test_scenario_2_reviewed_correction_and_updated_context(pg_engine):
         com_2 = publisher.publish_to_core(session, req_context_2, reviewed)
         assert com_2.commitment_version == com_1.commitment_version + 1
         assert com_2.terms.quantity == Decimal("120")
+        # Synthetic test setup AFTER the requested draft correction. This direct
+        # state assignment is not proof of the Core customer-confirmation flow.
+        row = session.get(CommitmentRecord, (tenant_id, com_2.commitment_id))
+        row.agreement_state = AgreementState.CONFIRMED.value
+        session.commit()
+
 
     # Dispatch ALL pending outbox events to P2 consumer (both v1 and v2)
     dispatcher = OutboxDispatcher()
@@ -362,31 +363,13 @@ def test_scenario_4_confirmed_term_change_becomes_proposal(pg_engine):
     )
 
     with Session(pg_engine) as session:
-        amended_com = publisher.publish_to_core(session, req_context_2, saved_2)
-        if amended_com.agreement_state != AgreementState.OFFERED:
-            pytest.skip("P5 Task T5.2 (Core handle_context_updated proposal amendment) pending merge")
-        # Agreement state transitions to OFFERED (proposal created)
-        assert amended_com.agreement_state == AgreementState.OFFERED
-
-        # Verify proposal record is persisted with status ACTIVE
-        proposals = session.scalars(
-            select(CommitmentProposalRecord).where(
-                CommitmentProposalRecord.tenant_id == tenant_id,
-                CommitmentProposalRecord.commitment_id == com_1.commitment_id,
-            )
-        ).all()
-        assert len(proposals) >= 1
-        active = next(p for p in proposals if p.status == "ACTIVE")
-        assert active.revised_terms is not None
-        assert str(active.revised_terms["quantity"]) == "200"
-
-    # Dispatch proposal outbox event to P2 proposal evaluator
-    dispatcher = OutboxDispatcher()
-    register_p2_subscribers(dispatcher)
-
-    with Session(pg_engine) as session:
-        batch_result = dispatcher.process_outbox_batch(session, batch_size=200)
-        assert batch_result.processed_count >= 1
+        with pytest.raises(IneligibleContextError, match="P5 amendment integration required"):
+            publisher.publish_to_core(session, req_context_2, saved_2)
+        record = session.get(CommitmentRecord, (tenant_id, com_1.commitment_id))
+        assert record.agreement_state == AgreementState.CONFIRMED.value
+        assert Decimal(record.terms["quantity"]) == Decimal("100")
+    # Successful amendment/proposal dispatch remains a P5 integration blocker;
+    # this regression proves no confirmed terms were overwritten before it.
 
 
 # -----------------------------------------------------------------------------
@@ -481,7 +464,10 @@ def test_scenario_6_old_version_cannot_replace_newer_state(pg_engine):
         causation_id=ctx_id,
     )
     with Session(pg_engine) as session:
-        com = publisher.publish_to_core(session, req_context, saved)
+        with pytest.raises(StaleContextVersion):
+            publisher.publish_to_core(session, req_context, saved)
+        current = repo.get_order_context(tenant_id, ctx_id)
+        com = publisher.publish_to_core(session, req_context, current)
         # Advance commitment version to 2
         row = session.get(CommitmentRecord, (tenant_id, com.commitment_id))
         assert row is not None

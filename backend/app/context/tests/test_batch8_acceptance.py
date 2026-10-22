@@ -405,10 +405,11 @@ def test_e2e_06_confirmed_commitment_changes_become_proposals(pg_engine):
     )
 
     with Session(pg_engine) as session:
-        amended_com = publisher.publish_to_core(session, req_context_2, saved_2)
-        if amended_com.agreement_state != AgreementState.OFFERED:
-            pytest.skip("P5 Task T5.2 (Core handle_context_updated proposal amendment) pending merge")
-        assert amended_com.agreement_state == AgreementState.OFFERED
+        with pytest.raises(IneligibleContextError, match="P5 amendment integration required"):
+            publisher.publish_to_core(session, req_context_2, saved_2)
+        record = session.get(CommitmentRecord, (tenant_id, com_1.commitment_id))
+        assert record.agreement_state == AgreementState.CONFIRMED.value
+        assert Decimal(record.terms["quantity"]) == Decimal("100")
 
 
 # =============================================================================

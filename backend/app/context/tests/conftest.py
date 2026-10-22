@@ -26,7 +26,9 @@ def pg_engine():
         pytest.fail("Use an isolated PostgreSQL database ending in _test")
     schema = f"p1_test_{uuid4().hex}"
     base = create_p1_engine(url)
-    engine = base.execution_options(schema_translate_map={"p1_dev": schema})
+    # Shared Core tables used by P1 integration tests must be isolated too;
+    # never leave confirmed fixtures in the user's public schema across runs.
+    engine = base.execution_options(schema_translate_map={"p1_dev": schema, None: schema})
     with engine.begin() as connection:
         connection.execute(CreateSchema(schema))
         from app.db.base import Base

@@ -315,12 +315,27 @@ def test_publish_context_to_core_success(api_client):
     # Publish to Core
     pub_resp = api_client.post(
         f"/v1/contexts/{ctx_id}/publish",
-        headers={"X-Actor-ID": "usr_mgr", "X-Actor-Role": "MANAGER"},
+        headers={"X-Actor-ID": "user_manager_01", "X-Actor-Role": "MANAGER"},
     )
     assert pub_resp.status_code == 200
     published_ctx = pub_resp.json()
     assert published_ctx["core_commitment_id"] is not None
     assert published_ctx["core_commitment_id"].startswith("com_")
     assert published_ctx["published_to_core_at"] is not None
+
+
+def test_publish_rejects_unknown_actor_even_with_owner_role_header(api_client):
+    envelope = {
+        'tenant_id': 'synthetic_tenant_a', 'channel': 'WHATSAPP',
+        'provider_message_id': f'audit_publish_actor_{uuid4().hex}',
+        'sender_identity_id': '+60123456789', 'sender_alias': 'Synthetic buyer',
+        'received_at': datetime.now(timezone.utc).isoformat(), 'business_timezone': 'Asia/Kuala_Lumpur',
+        'text': '50 pcs burgers tomorrow before 3pm for ORD-1001',
+    }
+    message = api_client.post('/v1/messages/ingest', json=envelope).json()['message']
+    context = api_client.post(f"/v1/contexts/from-message/{message['message_id']}").json()
+    response = api_client.post(f"/v1/contexts/{context['context_id']}/publish",
+        headers={'X-Actor-ID': 'unknown-caller', 'X-Actor-Role': 'OWNER'})
+    assert response.status_code == 403
 
 

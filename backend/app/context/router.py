@@ -12,7 +12,7 @@ from .core_publisher import CoreContextPublisher, IneligibleContextError
 from .document_extractor import extract_pdf_document
 from .document_schemas import AttachmentRecord, DocumentExtractionResult
 from .dependencies import development_context, local_repository
-from app.core.dependencies import RequestContext
+from app.core.dependencies import ACTOR_ROLES, RequestContext
 from sqlalchemy.orm import Session
 from .ingestion import IngestionService
 from .ingestion_schemas import (
@@ -32,7 +32,7 @@ from .order_context_schemas import (
     OrderContextRecord,
     OrderContextVersionRecord,
 )
-from .repository import MessageRepository
+from .repository import ContextNotFound, MessageRepository, StaleContextVersion
 from .schemas import Channel, ProcessingStatus, RawMessageEnvelope
 
 router = APIRouter(tags=["P1 synthetic ingestion — provisional"])
@@ -244,6 +244,9 @@ def publish_order_context_to_core(
 
     actor_id = x_actor_id or "user_staff_01"
     actor_role = x_actor_role or "STAFF"
+    actor_role = ACTOR_ROLES.get(actor_id)
+    if actor_role not in {"STAFF", "MANAGER", "OWNER"}:
+        raise HTTPException(status_code=403, detail="Known synthetic human actor required; role headers cannot authorize publication")
     correlation_id = x_correlation_id or f"corr_{uuid4().hex[:12]}"
     req_context = RequestContext(
         tenant_id=tenant.tenant_id,
@@ -270,8 +273,10 @@ def publish_order_context_to_core(
         ) from exc
     except HTTPException:
         raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Core publication failed: {exc}") from exc
+    except (ContextNotFound, StaleContextVersion):
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Core publication unavailable; no success recorded") from None
 
     refetched = repository.get_order_context(tenant.tenant_id, context_id)
     if refetched is None:

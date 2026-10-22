@@ -13,8 +13,10 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext
 from app.core.integration import CoreIntegrationFacade
+from app.core.models import CommitmentRecord
 from app.core.schemas import (
     BusinessContext,
+    AgreementState,
     Commitment,
     ContextStatus,
     CustomerIdentityStatus,
@@ -62,7 +64,7 @@ class CoreContextPublisher:
             for idx, item in enumerate(context.requested_items):
                 try:
                     qty = Decimal(item.quantity)
-                    if qty <= 0:
+                    if not qty.is_finite() or qty <= 0:
                         reasons.append(f"Item #{idx + 1} quantity '{item.quantity}' is not positive")
                 except Exception:
                     reasons.append(f"Item #{idx + 1} quantity '{item.quantity}' is not a valid decimal")
@@ -169,23 +171,40 @@ class CoreContextPublisher:
                     reasons=reasons,
                 )
 
-        business_context = self.to_business_context(order_context)
-        commitment = self.facade.handle_context_updated(session, request_context, business_context)
-
-        # Update P1 record with commitment link within the session
-        from app.context.postgres_repository import OrderContext
+        # Re-read and lock the current persisted context. A stale frontend read
+        # must not publish older reviewed values or overwrite a newer version.
+        from app.context.postgres_repository import OrderContext, order_context_record
+        from app.context.repository import ContextNotFound, StaleContextVersion
 
         row = session.scalar(
             select(OrderContext).where(
                 OrderContext.tenant_id == order_context.tenant_id,
                 OrderContext.context_id == order_context.context_id,
-            )
+            ).with_for_update()
         )
+        if row is None:
+            raise ContextNotFound("Persisted context not found")
+        if row.context_version != order_context.context_version:
+            raise StaleContextVersion("Context changed before publication; refresh and review")
+        order_context = order_context_record(row)
+        business_context = self.to_business_context(order_context)
+        if row.core_commitment_id and row.published_to_core_at and row.updated_at <= row.published_to_core_at:
+            return self.facade.service.get(session, request_context, row.core_commitment_id)
+
+        existing = session.scalar(select(CommitmentRecord).where(
+            CommitmentRecord.tenant_id == request_context.tenant_id,
+            CommitmentRecord.order_id == business_context.order_id,
+        ).with_for_update()) if business_context.order_id else None
+        if existing is not None and existing.agreement_state != AgreementState.REQUESTED.value:
+            raise IneligibleContextError("P5 amendment integration required; existing agreed/proposed terms preserved",
+                ["Current Core context facade cannot safely amend non-REQUESTED commitments; use the P5 proposal workflow"])
+        # D-032 permits caller-owned transactions. Context pointer, aggregate,
+        # audit and outbox now succeed or roll back together.
+        commitment = self.facade.handle_context_updated(session, request_context, business_context, commit=False)
         now = datetime.now(timezone.utc)
-        if row is not None:
-            row.core_commitment_id = commitment.commitment_id
-            row.published_to_core_at = now
-            session.commit()
+        row.core_commitment_id = commitment.commitment_id
+        row.published_to_core_at = now
+        session.commit()
 
         order_context.core_commitment_id = commitment.commitment_id
         order_context.published_to_core_at = now

@@ -189,32 +189,10 @@ def test_publish_confirmed_commitment_amendment_becomes_proposal(pg_engine):
         causation_id=ctx_id_2,
     )
 
+    from app.core.models import CommitmentRecord
     with Session(pg_engine) as session:
-        updated_com = publisher.publish_to_core(session, req_context_2, saved_2)
-        if updated_com.agreement_state != AgreementState.OFFERED:
-            pytest.skip("P5 Task T5.2 (Core handle_context_updated proposal amendment) pending merge")
-
-        # Invariant: Agreement state is OFFERED (proposal created)
-        assert updated_com.agreement_state == AgreementState.OFFERED
-
-        # Verify proposal record created in DB
-        proposals = session.scalars(
-            select(CommitmentProposalRecord).where(
-                CommitmentProposalRecord.tenant_id == tenant_id,
-                CommitmentProposalRecord.commitment_id == com_1.commitment_id,
-            )
-        ).all()
-        assert len(proposals) >= 1
-        active_prop = next(p for p in proposals if p.status == "ACTIVE")
-        assert active_prop.revised_terms is not None
-        assert str(active_prop.revised_terms["quantity"]) == "150"
-
-        # Verify outbox event emitted for proposal
-        outbox_events = session.scalars(
-            select(OutboxEventRecord).where(
-                OutboxEventRecord.tenant_id == tenant_id,
-                OutboxEventRecord.commitment_id == com_1.commitment_id,
-                OutboxEventRecord.event_type == CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value,
-            )
-        ).all()
-        assert len(outbox_events) >= 1
+        with pytest.raises(IneligibleContextError, match="P5 amendment integration required"):
+            publisher.publish_to_core(session, req_context_2, saved_2)
+        record = session.get(CommitmentRecord, (tenant_id, com_1.commitment_id))
+        assert record.agreement_state == AgreementState.CONFIRMED.value
+        assert Decimal(record.terms["quantity"]) == Decimal("100")
