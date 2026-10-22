@@ -770,6 +770,8 @@ class CommitmentService:
         commitment_id: str,
         assessment: FeasibilityAssessment,
         commit: bool = True,
+        *,
+        snapshot_id: str | None = None,
     ) -> Commitment:
         # 1. Caller Authorization Guard: only trusted internal/service principal is permitted (D-013)
         if context.actor_role not in {"SERVICE", "SYSTEM"}:
@@ -835,6 +837,8 @@ class CommitmentService:
             assessment_state = {
                 **_commitment_snapshot(record),
                 "assessment_id": assessment.assessment_id,
+                "assessment_commitment_version": assessment.commitment_version,
+                **({"snapshot_id": snapshot_id} if snapshot_id else {}),
                 "snapshot_version": assessment.snapshot_version,
                 "feasibility_state": assessment.status.value,
                 "constraints": [
@@ -870,7 +874,10 @@ class CommitmentService:
                     payload={
                         "commitment_id": commitment_id,
                         "assessment_id": assessment.assessment_id,
+                        "assessment_commitment_version": assessment.commitment_version,
+                        **({"snapshot_id": snapshot_id} if snapshot_id else {}),
                         "snapshot_version": assessment.snapshot_version,
+                        "evidence_refs": assessment.evidence_refs,
                         "constraints": [c.model_dump(mode="json") for c in assessment.constraints],
                         "affected_commitment_ids": assessment.affected_commitment_ids,
                     },
@@ -911,6 +918,8 @@ class CommitmentService:
             new_state = {
                 **_commitment_snapshot(record),
                 "assessment_id": assessment.assessment_id,
+                "assessment_commitment_version": assessment.commitment_version,
+                **({"snapshot_id": snapshot_id} if snapshot_id else {}),
                 "snapshot_version": assessment.snapshot_version,
                 "feasibility_state": assessment.status.value,
                 "constraints": [
@@ -957,6 +966,8 @@ class CommitmentService:
             new_state = {
                 **_commitment_snapshot(record),
                 "assessment_id": assessment.assessment_id,
+                "assessment_commitment_version": assessment.commitment_version,
+                **({"snapshot_id": snapshot_id} if snapshot_id else {}),
                 "snapshot_version": assessment.snapshot_version,
                 "feasibility_state": assessment.status.value,
                 "constraints": [

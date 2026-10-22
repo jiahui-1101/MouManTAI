@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import pytest
 from sqlalchemy import create_engine, select
@@ -25,7 +25,6 @@ from app.core.models import (
 from app.core.outbox import (
     OutboxDispatcher,
     is_stale_event,
-    process_outbox_batch,
     requeue_dead_letter,
     to_domain_event,
 )
@@ -719,7 +718,7 @@ def test_d017_mandatory_subscriber_policy_for_confirmed_and_at_risk(db_session: 
     assert db_session.get(OutboxEventRecord, "evt_d017_conf").status == OutboxStatus.PUBLISHED.value
     assert db_session.get(OutboxEventRecord, "evt_d017_risk").status == OutboxStatus.PUBLISHED.value
 
-    # 4. Stale event reconciliation: version 1 event when commitment is at version 2
+    # 4. A stale mandatory event cannot be published before its named subscriber completes.
     rec.commitment_version = 2
     stale_event = OutboxEventRecord(
         event_id="evt_d017_stale",
@@ -738,9 +737,31 @@ def test_d017_mandatory_subscriber_policy_for_confirmed_and_at_risk(db_session: 
 
     called_p2 = False
     res_stale = dispatcher.process_outbox_batch(db_session)
-    # Stale event is reconciled via audit without re-evaluating
-    assert res_stale.published_count == 1
-    assert called_p2 is False  # Handler not invoked for stale version
+    assert res_stale.published_count == 0
+    assert res_stale.failed_count == 1
+    assert called_p2 is False
+    stale_record = db_session.get(OutboxEventRecord, "evt_d017_stale")
+    assert stale_record.status == OutboxStatus.FAILED.value
+    assert stale_record.last_error == "STALE_MANDATORY_SUBSCRIBER_INCOMPLETE"
+
+    reconciled: list[str] = []
+
+    def reconcile_without_reapplying_state(session: Session, event: DomainEvent) -> None:
+        reconciled.append(event.event_id)
+
+    stale_domain_event = to_domain_event(stale_event)
+    assert dispatcher.execute_consumer(
+        db_session, stale_domain_event, "p2_confirmed_evaluator", reconcile_without_reapplying_state
+    ) is True
+    assert dispatcher.execute_consumer(
+        db_session, stale_domain_event, "p2_confirmed_evaluator", reconcile_without_reapplying_state
+    ) is False
+    assert reconciled == [stale_event.event_id]
+
+    stale_record.next_retry_at = now - timedelta(seconds=1)
+    db_session.commit()
+    res_reconciled = dispatcher.process_outbox_batch(db_session)
+    assert res_reconciled.published_count == 1
     assert db_session.get(OutboxEventRecord, "evt_d017_stale").status == OutboxStatus.PUBLISHED.value
 
     # Verify explicit supersession audit record was written

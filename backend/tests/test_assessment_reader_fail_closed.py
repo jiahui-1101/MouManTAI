@@ -131,6 +131,7 @@ def test_reader_raises_on_missing_snapshot_metadata(session: Session) -> None:
             "assessment_id": "asm_exact_03",
             "feasibility_state": "INFEASIBLE",
             "commitment_version": 3,
+            "assessment_commitment_version": 2,
             # "snapshot_version" omitted!
             "constraints": [],
             "affected_commitment_ids": [],
@@ -221,6 +222,8 @@ def test_reader_returns_complete_provenance_when_valid(session: Session) -> None
             "assessment_id": "asm_exact_05",
             "feasibility_state": "INFEASIBLE",
             "commitment_version": 4,
+            "assessment_commitment_version": 3,
+            "snapshot_id": "snap_exact_05",
             "snapshot_version": 204,
             "constraints": [{"code": "SHORTAGE", "resource_id": "BURGER_PATTY", "severity": "HARD", "evidence_refs": ["ev_maint_log_05"]}],
             "affected_commitment_ids": ["com_downstream_01"],
@@ -242,7 +245,7 @@ def test_reader_returns_complete_provenance_when_valid(session: Session) -> None
 
     fa = results[0]
     assert fa.assessment_id == "asm_exact_05"
-    assert fa.commitment_version == 4
+    assert fa.commitment_version == 3
     assert fa.snapshot_version == 204
     assert fa.status.value == "INFEASIBLE"
     assert fa.constraints[0].code == "SHORTAGE"
@@ -255,5 +258,38 @@ def test_reader_returns_complete_provenance_when_valid(session: Session) -> None
     # Direct lookup
     fetched = reader.get_assessment(session, ctx, com_id, "asm_exact_05")
     assert fetched.assessment_id == fa.assessment_id
-    assert fetched.commitment_version == 4
+    assert fetched.commitment_version == 3
     assert fetched.snapshot_version == 204
+
+    with pytest.raises(DomainError) as wrong_identity:
+        reader.get_assessment(session, ctx, com_id, "asm_wrong_05")
+    assert wrong_identity.value.code == "ASSESSMENT_NOT_FOUND"
+
+
+def test_reader_rejects_missing_or_inconsistent_evaluated_version() -> None:
+    base = {
+        "assessment_id": "asm_version_check",
+        "commitment_version": 5,
+        "snapshot_version": 7,
+    }
+    with pytest.raises(DomainError) as missing:
+        AuthoritativeAssessmentHistoryReader.validate_provenance_payload(
+            base, commitment_id="com_version_check"
+        )
+    assert missing.value.code == "ASSESSMENT_PROVENANCE_MISSING"
+    assert missing.value.details["field"] == "assessment_commitment_version"
+
+    with pytest.raises(DomainError) as inconsistent:
+        AuthoritativeAssessmentHistoryReader.validate_provenance_payload(
+            {**base, "assessment_commitment_version": 2},
+            commitment_id="com_version_check",
+        )
+    assert inconsistent.value.code == "ASSESSMENT_PROVENANCE_MISSING"
+    assert inconsistent.value.details["field"] == "commitment_version"
+
+    with pytest.raises(DomainError) as missing_snapshot_id:
+        AuthoritativeAssessmentHistoryReader.validate_provenance_payload(
+            {**base, "assessment_commitment_version": 4},
+            commitment_id="com_version_check",
+        )
+    assert missing_snapshot_id.value.details["field"] == "snapshot_id"
