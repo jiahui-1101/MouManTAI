@@ -58,6 +58,11 @@ class AssociationService:
         extracted_order_ids: list[str] = []
         if extracted_fields:
             for f in extracted_fields:
+                # A MODEL quote is an observation, never identity/order-link
+                # authority. Only the literal L0 reference recognizer supplies
+                # this deterministic lookup input (still subject to sender checks).
+                if not f.get("evidence") or any(ev.get("method") != "RULE" for ev in f["evidence"]):
+                    continue
                 if f.get("field_name") == "order_id" and f.get("value"):
                     val = str(f["value"]).strip()
                     if val not in extracted_order_ids:
