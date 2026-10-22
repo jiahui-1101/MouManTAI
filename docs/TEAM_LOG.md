@@ -1247,3 +1247,28 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - P2: Acknowledge Core adapter placement and D-013 public assess route guard.
   - P3: Restart PR #10 merge against updated `main` (`5cf5cae5`) and rerun affected regressions.
   - P4: Implement migration `0008_communication_tables.py` branching from `0007`.
+
+### 2026-10-22 — Task T-P2H2: Feasibility Read Router Mount, Session-Aware Resolver & No-Commit Writer (P5 / ADR-019 / D-036)
+- **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `ADR-019` (Decision `D-036`)
+  - **Owner**: P5 (Shared Core, DB & Integration)
+  - **Impact**:
+    1. **Production Feasibility Read Router Mount**:
+       - Mounted `feasibility_read_router` in `backend/app/main.py`, exposing `GET /v1/commitments/{commitment_id}/assessments` and `GET /v1/impacts/{impact_id}`.
+       - Configured dependency overrides for `get_assessment_history` -> `AuthoritativeAssessmentHistoryReader` and `get_impact_reader` -> `AuthoritativeImpactReader`.
+       - Preserved D-013 route absence invariant: `POST /v1/commitments/{id}/assess` remains unmounted on Core (returns HTTP 404).
+    2. **Transaction-Safe AssessmentWriter Operation**:
+       - `AuthoritativeAssessmentWriter.assess(..., commit=True)` now supports `commit: bool = False` to stage assessments via `CommitmentService.assess(commit=False)` without committing or rolling back the dispatcher's database session.
+       - Preserved original P2 evaluation `result.assessed_at` and records pre-transition `commitment_version` in `AuditEventRecord.new_state`.
+    3. **Session-Aware Evaluation Authority**:
+       - `AuthoritativeEvaluationAuthority.resolve_current()` supports `db: Session | None = None` to query genuine persisted `CommitmentRecord` state from the active transaction.
+- **Validation Test Evidence**:
+  - Full backend pytest suite: `342 passed, 6 warnings` (`pytest backend/tests backend/app/feasibility/tests -q`).
+  - Route absence and duplicate guards: `2 passed in 0.07s` (`test_public_core_assess_route_is_absent` and `test_no_duplicate_http_routes_across_routers`).
+  - Feasibility router tests: `35 passed in 2.92s` (`pytest backend/app/feasibility/tests/test_router.py`).
+  - PostgreSQL handshake suite: `19 passed in 2.68s` (`pytest backend/tests/integration/test_feature_handshakes.py -v`).
+  - Frontend Vitest suite: `228 passed, 5 skipped (live smoke), 0 failed` (`npm test -- --run`).
+  - Frontend typecheck: Passed (`tsc --noEmit`, 0 errors).
+- **Pending Acknowledgements**: P2 (for implementing `app/feasibility/consumer.py` using `writer.assess(commit=False)` and session-aware resolver).
+

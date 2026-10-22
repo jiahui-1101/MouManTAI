@@ -13,7 +13,16 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.errors import DomainError
+from app.core.feasibility_adapters import (
+    AuthoritativeAssessmentHistoryReader,
+    AuthoritativeImpactReader,
+)
 from app.core.router import router as core_router
+from app.feasibility.api_dependencies import (
+    get_assessment_history,
+    get_impact_reader,
+)
+from app.feasibility.router import feasibility_read_router
 
 
 class HealthResponse(BaseModel):
@@ -37,6 +46,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(core_router)
+app.include_router(feasibility_read_router)
+
+app.dependency_overrides[get_assessment_history] = lambda: AuthoritativeAssessmentHistoryReader()
+app.dependency_overrides[get_impact_reader] = lambda: AuthoritativeImpactReader()
 
 
 @app.exception_handler(DomainError)
