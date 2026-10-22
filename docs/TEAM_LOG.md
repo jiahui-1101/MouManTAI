@@ -1346,7 +1346,7 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
        - Denormalized schema for tenants/users/roles/customers/orders/commitment_versions/commitment_evidence is formally accepted under AGENTS §5 & §13.
        - Generic ERP bloat rejected to maintain lean, responsive SME footprint.
     8. **PostgreSQL Dual-Boundary Handshake Verification (W8)**:
-       - Executed against PostgreSQL on port 5433 (`TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5433/moumantai_test"`).
+       - Executed against PostgreSQL on port 5433 (`TEST_DATABASE_URL="postgresql://[credentials redacted]@localhost:5433/moumantai_test"`).
        - 19 passed in 2.79s. Engine dialect verified as `postgresql` (`test_feature_handshakes.py:L1181-L1183`).
        - Full test output logged to `docs/evidence/postgres_handshake_20261022.log`.
     9. **Teammate Handoff Replies Delivered**:
@@ -1623,10 +1623,26 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 
 ## 2026-10-22 — P3 Recovery Route Rehearsal Read Surface (PR #28)
 
-- **Status**: IN_REVIEW. Contributor P3; P5 owner/reviewer `Gan0117` requested for the shared route registration. PR: https://github.com/jiahui-1101/MouManTAI/pull/28.
+- **Status**: MERGED through the normal GitHub PR mechanism. Contributor P3; P5 owner/reviewer Gan0117 approved the exact PR head. PR: https://github.com/jiahui-1101/MouManTAI/pull/28.
 - **Base and coordination**: Main sync `3e77ba1c760710e6d828ab9719d7764bda5d7411` (P5 D-042; initial candidate base `6d24774002edf589224888cdc92641cd978abe7a`); reviewed P3 source `ae0e4db5b0426ed6aec69f9782976405546aa021`; PR #16 remains open and Draft at `f3fbadd6a434cde4dd23b070288e37e531964111` and was not modified.
 - **Scope**: Replace the `/recovery/:id` placeholder with a P3 read-only case view. It requests the canonical case endpoint, follows the trigger-history endpoint only for the explicit `RECOVERY_EVALUATION_INPUTS_PENDING` or `RECOVERY_CASE_COMPLETED` errors, displays persisted identity/version/provenance/evidence, and handles loading, 403, 404, 409 and retry states. `IN_MEMORY_SYNTHETIC` payloads are rejected. No approval or execution controls are exposed.
 - **Files**: `frontend/src/App.tsx` (P5 shared route integration); `frontend/src/features/recovery/RecoveryAppRoute.test.tsx`; `frontend/src/features/recovery/RecoveryCaseRoutePage.tsx`; `frontend/src/features/recovery/RecoveryCaseRoutePage.test.tsx`; `frontend/src/features/recovery/recoveryCaseApi.ts`; `frontend/src/features/recovery/recoveryCaseRoute.css`; `frontend/src/features/recovery/recoveryCaseView.ts`; `docs/TEAM_LOG.md`.
-- **Backend dependency / rehearsal blocker**: Main currently returns `404 NOT_FOUND` for `GET /v1/recovery/cases/{commitment_id}` and does not mount a Recovery API. PR #16 contains the P3 router and durable case reader, but its DB-backed GET path is gated by `MOUMANTAI_ISOLATED_E2E=1`; `backend/app/recovery/trigger_persistence.py` states there is no production subscriber binding or automatic activation. A P5/P3-approved durable reader and authorized event-to-case producer are still required before a real case can load in rehearsal. This PR deliberately adds no backend route, migration, fixture fallback, subscriber registration, or execution behavior.
+- **Accepted backend limitation**: At merge time, Main returned 404 NOT_FOUND for GET /v1/recovery/cases/{commitment_id} because Recovery API integration was still in PR #16. P5 approved this frontend route as a standalone, read-only, fail-closed surface; the 404 was not a blocker. This PR added no backend route, migration, fixture fallback, subscriber registration, or execution behavior.
 - **Validation**: `npm run test -- --run src/features/recovery/RecoveryCaseRoutePage.test.tsx src/features/recovery/RecoveryAppRoute.test.tsx src/features/communication/RouteIntegration.test.tsx` — 23 passed; `npm run typecheck` — passed; `npm run build` — passed (509.62 kB JavaScript chunk-size warning); from `backend/`, `Remove-Item Env:TEST_DATABASE_URL -ErrorAction SilentlyContinue; $env:DATABASE_URL='sqlite+pysqlite:///:memory:'; python -m pytest tests/test_core_api.py -q` — 5 passed. Direct TestClient lookup on Main returned 404. No PostgreSQL test was run; no backend source or migration changed.
-- **Commit / review**: code commits `f6da11a3e93d87125c1f3178bb74dd153cc26ec5` and `6e675eaa48263d854dbe312dfc4e77d5e8e530a6`; PR #28 is open against Main; P5 review requested and pending. No approval, merge, or rehearsal-ready backend claim is made.
+- **Commit / review**: code commits f6da11a3e93d87125c1f3178bb74dd153cc26ec5 and 6e675eaa48263d854dbe312dfc4e77d5e8e530a6; P5 Gan0117 approved head 734d931728e8cabdfaa593d63c833107f5a82068; Frontend, Backend, and Hygiene CI checks succeeded. Normal merge commit afbc6b23fe70c8e6f934ef29e64e3520f5d979ac at 2026-10-22 15:59:39 UTC. No P3 author self-approval was required.
+## 2026-10-23 — P4 Required Proposal Deadline Guard and CI Coverage (MERGED)
+
+- Rechecked the current Main after PR #29 merged as commit eb7e8656442779ee69a0fd54d08031b2c9cdfe25. Its diff contains P4 communication workspace styling/tests and documentation updates, but no backend/app/communication/service.py change; the missing-deadline validation gap remained.
+- Root cause: persisted revised terms allow a nullable deadline, and communication preparation compared None to the current time, producing a raw TypeError.
+- Fix: fail closed with HTTP 422 INVALID_PROPOSAL_TERMS when the deadline is missing, before the time comparison. No schema or migration change.
+- CI now runs backend/tests, backend/app/feasibility/tests, and backend/app/communication/tests. The prior workflow ran only backend/tests and omitted the P2/P4 module suites.
+- Validation on the isolated P4 fix worktree: targeted deadline cases 8 passed; combined backend suites 816 passed, 1 skipped, 0 failed, 96 warnings. The skip is the P1 PostgreSQL E2E gated by P1_DATABASE_URL. P4 PostgreSQL tests used a disposable local database; shared tests used in-memory SQLite.
+- PR #16 carried the identical missing-deadline guard. P4 confirmed the PR #30 implementation and #16 guard match; a merge-tree check found no conflict in backend/app/communication/service.py. Main now includes the guard and expanded CI coverage.
+- Review PR #30: P4 Sheng554 and P5 Gan0117 approved exact head 378acc2c2f640cf0132ce453bbee23649ffbf201. All three GitHub CI checks passed. PR #30 merged normally as 951618b53d870596c7b2e2daa8a76e02debc65b9 at 2026-10-22 16:21:28 UTC.
+## 2026-10-23 — PR #16 Current Main Reconciliation after PR #30 (IN_REVIEW)
+
+- Current Main is 951618b53d870596c7b2e2daa8a76e02debc65b9, including PR #28's standalone read-only Recovery case route and PR #30's required-deadline guard plus expanded P2/P4 backend CI coverage.
+- Reconciled PR #16 from 212ff3a98a677c5afaa138e2112809e2493f5694 with current Main on a separate review worktree. The route split remains: /recovery/:id is the read-only case view, and the planning workspace is /recovery/:id/plans. The deadline guard is identical to Main.
+- P5 Gan0117 approved the prior 212ff3a head; P2 meishuet16 and P4 Sheng554 had not yet approved that head. All approvals are stale after this Main merge. Request fresh P2/P4/P5 approvals on the reconciled head, including explicit P5 acceptance that production subscribers and live side effects remain disabled.
+- Prior-head GitHub CI passed all three checks; the reconciled-head CI is pending. Keep PR #16 Draft and unmerged until fresh owner approval, green CI, and the final current-Main mergeability check.
+- No production subscriber registration, outbound communication, or real recovery execution was enabled.

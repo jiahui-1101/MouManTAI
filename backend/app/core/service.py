@@ -524,29 +524,59 @@ class CommitmentService:
                 CommitmentProposalRecord.commitment_id == commitment_id,
             )
             .order_by(CommitmentProposalRecord.proposal_version.desc())
+            .with_for_update()
         ).first()
 
-        if latest_proposal is not None:
-            if request.proposal_version != latest_proposal.proposal_version:
-                raise DomainError(
-                    "STALE_PROPOSAL_VERSION",
-                    f"Proposal version {request.proposal_version} is stale; latest active version is {latest_proposal.proposal_version}",
-                    status_code=409,
-                    details={
-                        "active_proposal_version": latest_proposal.proposal_version,
-                        "submitted_proposal_version": request.proposal_version,
-                    },
-                )
-            if request.proposal_id and request.proposal_id != latest_proposal.proposal_id:
-                raise DomainError(
-                    "PROPOSAL_ID_MISMATCH",
-                    f"Requested proposal_id '{request.proposal_id}' does not match active proposal '{latest_proposal.proposal_id}'",
-                    status_code=409,
-                    details={
-                        "active_proposal_id": latest_proposal.proposal_id,
-                        "submitted_proposal_id": request.proposal_id,
-                    },
-                )
+        if latest_proposal is None:
+            raise DomainError(
+                "PROPOSAL_NOT_FOUND",
+                "An exact persisted proposal is required to confirm this commitment",
+                status_code=409,
+            )
+        if request.proposal_version != latest_proposal.proposal_version:
+            raise DomainError(
+                "STALE_PROPOSAL_VERSION",
+                f"Proposal version {request.proposal_version} is stale; latest active version is {latest_proposal.proposal_version}",
+                status_code=409,
+                details={
+                    "active_proposal_version": latest_proposal.proposal_version,
+                    "submitted_proposal_version": request.proposal_version,
+                },
+            )
+        if request.proposal_id != latest_proposal.proposal_id:
+            raise DomainError(
+                "PROPOSAL_ID_MISMATCH",
+                f"Requested proposal_id '{request.proposal_id}' does not match active proposal '{latest_proposal.proposal_id}'",
+                status_code=409,
+                details={
+                    "active_proposal_id": latest_proposal.proposal_id,
+                    "submitted_proposal_id": request.proposal_id,
+                },
+            )
+        if latest_proposal.status != "ACTIVE":
+            raise DomainError(
+                "PROPOSAL_NOT_ACTIVE",
+                "Only the current active persisted proposal can be confirmed",
+                status_code=409,
+                details={"proposal_id": latest_proposal.proposal_id, "status": latest_proposal.status},
+            )
+
+        # P3-created customer-term proposals require P4's verified response
+        # boundary. Demo actor headers and client identity claims cannot supply it.
+        p3_sources = db.scalars(select(OutboxEventRecord).where(
+            OutboxEventRecord.tenant_id == context.tenant_id,
+            OutboxEventRecord.commitment_id == commitment_id,
+            OutboxEventRecord.event_type == CoreEventType.RECOVERY_COMMUNICATION_REQUESTED.value,
+        )).all()
+        if any(source.payload.get("approval_id") and
+               (source.payload.get("proposal_id"), source.payload.get("proposal_version")) == (
+                   request.proposal_id, request.proposal_version,
+               ) for source in p3_sources):
+            raise DomainError(
+                "P4_CONFIRMATION_AUTHORITY_UNAVAILABLE",
+                "Verified P4 customer response is required for this recovery proposal",
+                status_code=503,
+            )
 
         # Check customer identity link
         if request.customer_identity_status == CustomerIdentityStatus.UNVERIFIED or (
@@ -570,18 +600,16 @@ class CommitmentService:
         previous_state = _commitment_snapshot(record)
         if request.decision == "ACCEPT":
             record.agreement_state = AgreementState.CONFIRMED.value
-            if latest_proposal is not None and latest_proposal.revised_terms:
+            if latest_proposal.revised_terms:
                 record.terms = latest_proposal.revised_terms
-            if latest_proposal is not None:
-                latest_proposal.status = "ACCEPTED"
-                latest_proposal.updated_at = _now()
+            latest_proposal.status = "ACCEPTED"
+            latest_proposal.updated_at = _now()
             event_type = CoreEventType.COMMITMENT_CONFIRMED.value
         else:
             record.agreement_state = AgreementState.REJECTED.value
             record.recovery_state = RecoveryState.RECOVERY_REQUIRED.value
-            if latest_proposal is not None:
-                latest_proposal.status = "REJECTED"
-                latest_proposal.updated_at = _now()
+            latest_proposal.status = "REJECTED"
+            latest_proposal.updated_at = _now()
             event_type = CoreEventType.COMMITMENT_PROPOSAL_REJECTED.value
 
         record.commitment_version += 1
@@ -602,8 +630,8 @@ class CommitmentService:
             occurred_at=record.updated_at,
             causation_id=causation_id,
         )
-        verified_proposal_id = latest_proposal.proposal_id if latest_proposal is not None else request.proposal_id
-        verified_proposal_version = latest_proposal.proposal_version if latest_proposal is not None else request.proposal_version
+        verified_proposal_id = latest_proposal.proposal_id
+        verified_proposal_version = latest_proposal.proposal_version
 
         event = self._outbox(
             context=context,
@@ -784,6 +812,8 @@ class CommitmentService:
         commitment_id: str,
         assessment: FeasibilityAssessment,
         commit: bool = True,
+        *,
+        snapshot_id: str | None = None,
     ) -> Commitment:
         # 1. Caller Authorization Guard: only trusted internal/service principal is permitted (D-013)
         if context.actor_role not in {"SERVICE", "SYSTEM"}:
@@ -849,6 +879,8 @@ class CommitmentService:
             assessment_state = {
                 **_commitment_snapshot(record),
                 "assessment_id": assessment.assessment_id,
+                "assessment_commitment_version": assessment.commitment_version,
+                **({"snapshot_id": snapshot_id} if snapshot_id else {}),
                 "snapshot_version": assessment.snapshot_version,
                 "feasibility_state": assessment.status.value,
                 "constraints": [
@@ -858,6 +890,8 @@ class CommitmentService:
                 "affected_commitment_ids": assessment.affected_commitment_ids,
                 "evidence_refs": assessment.evidence_refs,
                 "assessed_at": _aware(assessment.assessed_at).isoformat(),
+                "solver_status": assessment.solver_status.value if hasattr(assessment.solver_status, "value") else assessment.solver_status,
+                "assumptions": assessment.assumptions,
             }
             new_state = assessment_state
 
@@ -884,7 +918,10 @@ class CommitmentService:
                     payload={
                         "commitment_id": commitment_id,
                         "assessment_id": assessment.assessment_id,
+                        "assessment_commitment_version": assessment.commitment_version,
+                        **({"snapshot_id": snapshot_id} if snapshot_id else {}),
                         "snapshot_version": assessment.snapshot_version,
+                        "evidence_refs": assessment.evidence_refs,
                         "constraints": [c.model_dump(mode="json") for c in assessment.constraints],
                         "affected_commitment_ids": assessment.affected_commitment_ids,
                     },
@@ -925,6 +962,8 @@ class CommitmentService:
             new_state = {
                 **_commitment_snapshot(record),
                 "assessment_id": assessment.assessment_id,
+                "assessment_commitment_version": assessment.commitment_version,
+                **({"snapshot_id": snapshot_id} if snapshot_id else {}),
                 "snapshot_version": assessment.snapshot_version,
                 "feasibility_state": assessment.status.value,
                 "constraints": [
@@ -934,6 +973,8 @@ class CommitmentService:
                 "affected_commitment_ids": assessment.affected_commitment_ids,
                 "evidence_refs": assessment.evidence_refs,
                 "assessed_at": _aware(assessment.assessed_at).isoformat(),
+                "solver_status": assessment.solver_status.value if hasattr(assessment.solver_status, "value") else assessment.solver_status,
+                "assumptions": assessment.assumptions,
             }
 
             audit = self._audit(
@@ -971,6 +1012,8 @@ class CommitmentService:
             new_state = {
                 **_commitment_snapshot(record),
                 "assessment_id": assessment.assessment_id,
+                "assessment_commitment_version": assessment.commitment_version,
+                **({"snapshot_id": snapshot_id} if snapshot_id else {}),
                 "snapshot_version": assessment.snapshot_version,
                 "feasibility_state": assessment.status.value,
                 "constraints": [
@@ -980,6 +1023,8 @@ class CommitmentService:
                 "affected_commitment_ids": assessment.affected_commitment_ids,
                 "evidence_refs": assessment.evidence_refs,
                 "assessed_at": _aware(assessment.assessed_at).isoformat(),
+                "solver_status": assessment.solver_status.value if hasattr(assessment.solver_status, "value") else assessment.solver_status,
+                "assumptions": assessment.assumptions,
             }
 
             audit = self._audit(

@@ -36,9 +36,9 @@ jobs:
         run: |
           python -m compileall -q backend/app
 
-      - name: Run pytest test suite (unit, concurrency, outbox, E2E)
+      - name: Run backend, feasibility, and communication pytest suites
         run: |
-          pytest -v backend/tests
+          pytest -v backend/tests backend/app/feasibility/tests backend/app/communication/tests
 
   frontend-checks:
     name: Frontend Checks (Typecheck, Vitest, Build)

@@ -44,7 +44,7 @@ from app.db.base import Base
 from app.main import app
 
 BACKEND = Path(__file__).resolve().parents[3]
-HEAD = "0011_p4_confirmations"
+P4_HEAD = "0011_p4_confirmations"
 PREVIOUS = "0007_recovery_case_constraints_alignment"
 TABLES = {
     "communication_requests", "communication_request_sources",
@@ -104,10 +104,14 @@ def migrated(request, tmp_path, monkeypatch):
 
 def test_single_head_and_real_parent():
     scripts = ScriptDirectory.from_config(config())
-    assert scripts.get_heads() == [HEAD]
-    assert scripts.get_revision(HEAD).down_revision == "0010_p4_recipient_preferences"
-    assert len(HEAD) <= 32
-    assert len(list(scripts.walk_revisions())) == 11
+    heads = scripts.get_heads()
+    assert len(heads) == 1
+    assert P4_HEAD in {revision.revision for revision in scripts.iterate_revisions(heads[0], "base")}
+    assert scripts.get_revision(P4_HEAD).down_revision == "0010_p4_recipient_preferences"
+    assert scripts.get_revision("0010_p4_recipient_preferences").down_revision == "0009_p4_outbound_messaging"
+    assert scripts.get_revision("0009_p4_outbound_messaging").down_revision == "0008_p4_communication"
+    assert len(P4_HEAD) <= 32
+    assert len(list(scripts.walk_revisions())) >= 17
 
 
 def test_postgresql_offline_ddl_and_fresh_metadata_registration(monkeypatch):
@@ -131,7 +135,7 @@ def test_postgresql_offline_ddl_and_fresh_metadata_registration(monkeypatch):
     assert "CREATE TABLE commitments" not in result.stdout
     stream = StringIO()
     with redirect_stdout(stream):
-        command.downgrade(config(), f"{HEAD}:{PREVIOUS}", sql=True)
+        command.downgrade(config(), f"{P4_HEAD}:{PREVIOUS}", sql=True)
     assert stream.getvalue().count("DROP TABLE communication_") == len(TABLES)
     assert "DROP TABLE commitments" not in stream.getvalue()
 
@@ -141,7 +145,7 @@ def test_migrated_schema_matches_orm_exactly(migrated):
     inspector = inspect(engine)
     assert TABLES <= set(inspector.get_table_names())
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == HEAD
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == ScriptDirectory.from_config(config()).get_heads()[0]
         differences = compare_metadata(MigrationContext.configure(connection, opts={
             "include_object": lambda obj, name, kind, reflected, compare_to: (
                 name in TABLES if kind == "table" else True
@@ -423,11 +427,13 @@ def test_p4_downgrade_preserves_core_and_recovery_then_reupgrade(migrated):
             status="COMPLETED", case_version=1, commitment_version=11, payload_schema_version=1,
             case_payload={}, resolution_refs=[], created_at=NOW, updated_at=NOW))
     original_tables = set(inspect(engine).get_table_names()) - TABLES
+    base_tables = {name for name in original_tables if name in {"commitments", "recovery_cases", "recovery_triggers"}}
     with engine.connect() as connection:
         before = {name: connection.scalar(text(f'SELECT count(*) FROM "{name}"'))
-                  for name in original_tables if name != "alembic_version"}
+                  for name in base_tables}
     command.downgrade(cfg, PREVIOUS)
-    assert set(inspect(engine).get_table_names()) == original_tables
+    assert TABLES.isdisjoint(inspect(engine).get_table_names())
+    assert base_tables <= set(inspect(engine).get_table_names())
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == PREVIOUS
         for name, count in before.items():
@@ -435,7 +441,7 @@ def test_p4_downgrade_preserves_core_and_recovery_then_reupgrade(migrated):
     command.upgrade(cfg, "head")
     assert TABLES <= set(inspect(engine).get_table_names())
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == HEAD
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == ScriptDirectory.from_config(cfg).get_heads()[0]
         assert connection.scalar(select(func.count()).select_from(recovery)) == 1
         for name in TABLES:
             assert connection.scalar(text(f'SELECT count(*) FROM "{name}"')) == 0

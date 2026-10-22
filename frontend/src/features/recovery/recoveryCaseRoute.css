@@ -27,6 +27,13 @@
   text-transform: uppercase;
 }
 
+.recovery-case-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .75rem;
+}
+
 .recovery-case-status {
   border: 1px solid var(--border, #d0d5dd);
   border-radius: 999px;

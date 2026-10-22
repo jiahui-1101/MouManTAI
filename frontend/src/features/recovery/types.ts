@@ -1,0 +1,292 @@
+import type {
+  ApprovalState,
+  Commitment,
+  DecimalString,
+  ExecutionState,
+  FeasibilityAssessment,
+  FeasibilityState,
+  ISO8601,
+  PlannedAction,
+  RecoveryPlan,
+} from "../../shared/types";
+
+export type RecoveryCaseStatus =
+  | "OPEN"
+  | "AWAITING_EVALUATION_INPUTS"
+  | "OPTIONS_READY"
+  | "NO_SAFE_PLAN"
+  | "NEEDS_REPLAN"
+  | "COMPLETED";
+export type ValidationSource = "REAL_P2_VALIDATED" | "TEST_DOUBLE_VALIDATED";
+export type SolverReadiness = "PENDING_EVALUATION" | "VALIDATED" | "CONDITIONAL" | "INFEASIBLE" | "UNKNOWN";
+export type RecoveryStrategy = "RESCHEDULE_PARTIAL_FULFILMENT" | "ALTERNATIVE_SUPPLY";
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "UNKNOWN";
+
+export interface OperationalSnapshotReference {
+  snapshot_id: string;
+  snapshot_version: number;
+  captured_at: ISO8601;
+  source: string;
+  evidence_refs: string[];
+}
+
+export interface BusinessPreferences {
+  cost_weight: DecimalString;
+  delay_weight: DecimalString;
+  affected_commitments_weight: DecimalString;
+  operational_disruption_weight: DecimalString;
+  supplier_uncertainty_weight: DecimalString;
+  customer_confirmation_weight: DecimalString;
+  max_extra_cost?: DecimalString | null;
+}
+
+export interface PlanScoreBreakdown {
+  additional_cost_myr: DecimalString;
+  delivery_delay_minutes: number;
+  affected_commitment_count: number;
+  operational_disruption_level: DecimalString;
+  supplier_uncertainty_level: DecimalString;
+  customer_confirmation_required: boolean;
+  cost_score: DecimalString;
+  delay_score: DecimalString;
+  affected_commitments_score: DecimalString;
+  operational_disruption_score: DecimalString;
+  supplier_uncertainty_score: DecimalString;
+  customer_confirmation_score: DecimalString;
+  total_score: DecimalString;
+  policy_weights: BusinessPreferences;
+}
+
+export interface PlanEvaluation {
+  evaluation_id: string;
+  tenant_id: string;
+  commitment_id: string;
+  plan_id: string;
+  plan_version: number;
+  commitment_version: number;
+  snapshot_version: number;
+  feasibility_status: FeasibilityState;
+  validation_source: ValidationSource;
+  readiness: SolverReadiness;
+  solver_status: string;
+  constraints: string[];
+  hard_constraint_reasons: string[];
+  affected_commitment_ids: string[];
+  evidence_refs: string[];
+  assumptions: string[];
+  evaluated_at: ISO8601;
+}
+
+export interface RecoveryPlanVersion extends Omit<RecoveryPlan, "execution_state"> {
+  snapshot_id?: string | null;
+  core_commitment_version?: number | null;
+  // P3's response model currently allows any non-empty execution state string.
+  execution_state: string;
+  option_id: string;
+  strategy: RecoveryStrategy;
+  risk_level: RiskLevel;
+  customer_impact: string;
+  affected_commitment_count: number;
+  operational_disruption_level: DecimalString;
+  supplier_uncertainty_level: DecimalString;
+  customer_confirmation_required: boolean;
+  constraints: string[];
+  evidence_refs: string[];
+  assumptions: string[];
+  ranking_score: DecimalString | null;
+  score_breakdown?: PlanScoreBreakdown | null;
+  rank?: number | null;
+  ranking_exclusion_reasons?: string[];
+  recommended: boolean;
+  recommendation_label?: "RECOMMENDED_UNDER_POLICY" | null;
+  recommendation_qualification?: string | null;
+  recommendation_reason?: string | null;
+  evaluation: PlanEvaluation;
+}
+
+export interface RecoveryOption {
+  option_id: string;
+  plan_id: string;
+  strategy: RecoveryStrategy;
+  label: string;
+  estimated_extra_cost: DecimalString;
+  currency: string;
+  estimated_delay_minutes: number;
+  feasibility_status: FeasibilityState;
+  validation_source: ValidationSource;
+  risk_level: RiskLevel;
+  customer_impact: string;
+  affected_commitment_count: number;
+  operational_disruption_level: DecimalString;
+  supplier_uncertainty_level: DecimalString;
+  customer_confirmation_required: boolean;
+  constraints: string[];
+  evidence_refs: string[];
+  assumptions: string[];
+  ranking_score: DecimalString | null;
+  score_breakdown?: PlanScoreBreakdown | null;
+  rank?: number | null;
+  ranking_exclusion_reasons?: string[];
+  recommended: boolean;
+  recommendation_reason?: string | null;
+  recommendation_label?: "RECOMMENDED_UNDER_POLICY" | null;
+  recommendation_qualification?: string | null;
+}
+
+export interface ApprovalDecision {
+  approval_id: string;
+  tenant_id: string;
+  recovery_case_id?: string | null;
+  commitment_id: string;
+  plan_id: string;
+  plan_version: number;
+  snapshot_version: number;
+  actor_id: string;
+  actor_role: string;
+  commitment_version?: number | null;
+  action_scope: string[];
+  decision: "REQUESTED" | "APPROVED" | "REJECTED" | "PENDING" | "REVISION_REQUESTED" | "REVOKED" | "INVALIDATED" | "EXPIRED";
+  approved_cost_limit?: DecimalString | null;
+  reason: string;
+  decided_at?: ISO8601 | null;
+  approved_at?: ISO8601 | null;
+  expires_at?: ISO8601 | null;
+  evidence_refs: string[];
+  audit_refs: string[];
+  idempotency_key?: string | null;
+  correlation_id?: string | null;
+  causation_id?: string | null;
+  persistence_mode: "IN_MEMORY_NON_DURABLE" | "DURABLE_DATABASE";
+}
+
+export interface DurableActionView {
+  execution_id: string;
+  tenant_id: string;
+  commitment_id: string;
+  plan_id: string;
+  plan_version: number;
+  approval_id: string;
+  status: string;
+  attempts: number;
+  task_id: string | null;
+  receipt_ref: string | null;
+  audit_id: string | null;
+  last_error: string | null;
+  created_at: ISO8601;
+  updated_at: ISO8601;
+}
+
+export interface RecoveryTriggerReference {
+  event_id: string;
+  tenant_id: string;
+  commitment_id: string;
+  commitment_version: number;
+  assessment_id: string;
+  assessment_commitment_version?: number | null;
+  source_event_digest?: string | null;
+  assessment_provenance_status: "SOURCE_COMMITMENT_VERSION_MISSING" | "SOURCE_COMMITMENT_VERSION_RECORDED_UNVERIFIED";
+  snapshot_id?: string | null;
+  snapshot_version: number;
+  constraints: FeasibilityAssessment["constraints"];
+  affected_commitment_ids: string[];
+  correlation_id: string;
+  causation_id?: string | null;
+  evidence_refs: string[];
+  occurred_at: ISO8601;
+}
+
+export interface RecoveryResolutionReference {
+  event_id: string;
+  tenant_id: string;
+  commitment_id: string;
+  commitment_version: number;
+  assessment_id?: string | null;
+  correlation_id: string;
+  causation_id?: string | null;
+  occurred_at: ISO8601;
+}
+
+export interface ActionAttempt {
+  attempt_id: string;
+  tenant_id: string;
+  commitment_id: string;
+  action_id: string;
+  idempotency_key: string;
+  state: "NOT_STARTED" | "IN_PROGRESS" | "SUCCEEDED" | "FAILED";
+  started_at?: ISO8601 | null;
+  completed_at?: ISO8601 | null;
+  provider_operation_ref?: string | null;
+  evidence_refs: string[];
+  error_code?: string | null;
+  error_message?: string | null;
+}
+
+export interface ActionExecution {
+  execution_id: string;
+  tenant_id: string;
+  commitment_id: string;
+  plan_id: string;
+  action_id: string;
+  state: "NOT_STARTED" | "BLOCKED" | "IN_PROGRESS" | "SUCCEEDED" | "FAILED" | "NEEDS_REPLAN";
+  idempotency_key: string;
+  attempts: ActionAttempt[];
+  provider_operation_ref?: string | null;
+  evidence_refs: string[];
+}
+
+export interface RecoveryCase {
+  case_id: string;
+  tenant_id: string;
+  commitment_id: string;
+  case_version: number;
+  commitment_version: number;
+  status: RecoveryCaseStatus;
+  commitment: Commitment;
+  trigger_assessment: FeasibilityAssessment | null;
+  operational_snapshot: OperationalSnapshotReference | null;
+  trigger_events?: RecoveryTriggerReference[];
+  resolution_events?: RecoveryResolutionReference[];
+  preferences: BusinessPreferences;
+  options: RecoveryOption[];
+  plans: RecoveryPlanVersion[];
+  approval_decisions: ApprovalDecision[];
+  customer_confirmation_evidence_refs: string[];
+  fulfilment_evidence_refs: string[];
+  evidence_refs: string[];
+  storage_mode: "IN_MEMORY_SYNTHETIC" | "DURABLE_DATABASE";
+  created_at: ISO8601;
+  updated_at: ISO8601;
+}
+
+export interface RecoveryTriggerCaseView {
+  case_id: string;
+  tenant_id: string;
+  commitment_id: string;
+  case_version: number;
+  commitment_version: number;
+  status: RecoveryCaseStatus;
+  evaluation_readiness: "AWAITING_EVALUATION_INPUTS" | "CASE_COMPLETED";
+  missing_evaluation_inputs: string[];
+  trigger_events: RecoveryTriggerReference[];
+  resolution_events: RecoveryResolutionReference[];
+  storage_mode: "IN_MEMORY_SYNTHETIC" | "DURABLE_DATABASE";
+  created_at: ISO8601;
+  updated_at: ISO8601;
+}
+
+export interface GenerateRecoveryRequest {
+  expected_commitment_version: number;
+  assessment_id?: string;
+  preferences?: BusinessPreferences;
+}
+
+export interface RecoveryPlanList {
+  tenant_id: string;
+  commitment_id: string;
+  case_id: string;
+  plans: RecoveryPlanVersion[];
+}
+
+export type SharedExecutionState = ExecutionState;
+export type SharedApprovalState = ApprovalState;
+export type SharedAction = PlannedAction;

@@ -275,6 +275,8 @@ class CommunicationRequestService:
             terms = CommitmentTerms.model_validate(proposal.revised_terms)
         except ValidationError as exc:
             raise DomainError("INVALID_PROPOSAL_TERMS", "Proposal terms are invalid", status_code=422) from exc
+        if terms.deadline is None:
+            _fail("INVALID_PROPOSAL_TERMS", "Proposal delivery deadline is required for communication", 422)
         if terms.deadline <= now:
             _fail("PROPOSED_DEADLINE_PASSED", "Proposal delivery deadline has passed")
         return CurrentCommunicationBasis(
