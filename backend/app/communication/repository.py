@@ -3,8 +3,8 @@
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from .models import CommunicationRequestRecord, CommunicationSourceEventRecord, MessageDraftRecord
-from .schemas import CommunicationRequestView, MessageDraftView, RecoveryCommunicationReference, RequestStatus
+from .models import CommunicationRequestRecord, CommunicationSourceEventRecord, DraftReviewRecord, MessageDraftRecord
+from .schemas import CommunicationRequestView, DraftReviewDecision, MessageDraftView, RecoveryCommunicationReference, RequestStatus
 
 
 class CommunicationRequestRepository:
@@ -86,12 +86,13 @@ class MessageDraftRepository:
             MessageDraftRecord.tenant_id == tenant_id,
         ).order_by(MessageDraftRecord.communication_id, MessageDraftRecord.draft_id)))
 
-    def get(self, tenant_id: str, communication_id: str, draft_id: str) -> MessageDraftRecord | None:
-        return self.db.scalar(select(MessageDraftRecord).where(
+    def get(self, tenant_id: str, communication_id: str, draft_id: str, *, lock=False) -> MessageDraftRecord | None:
+        query = select(MessageDraftRecord).where(
             MessageDraftRecord.tenant_id == tenant_id,
             MessageDraftRecord.communication_id == communication_id,
             MessageDraftRecord.draft_id == draft_id,
-        ))
+        )
+        return self.db.scalar(query.with_for_update() if lock else query)
 
     def by_variant(self, tenant_id: str, communication_id: str, validation_hash: str):
         return self.db.scalar(select(MessageDraftRecord).where(
@@ -111,3 +112,41 @@ class MessageDraftRepository:
     @staticmethod
     def view(record: MessageDraftRecord) -> MessageDraftView:
         return MessageDraftView.model_validate(record.snapshot)
+
+
+class DraftReviewRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get(self, tenant_id: str, communication_id: str, draft_id: str) -> DraftReviewRecord | None:
+        return self.db.scalar(select(DraftReviewRecord).where(
+            DraftReviewRecord.tenant_id == tenant_id,
+            DraftReviewRecord.communication_id == communication_id,
+            DraftReviewRecord.draft_id == draft_id,
+        ).with_for_update())
+
+    def by_key(self, tenant_id: str, request_key: str) -> DraftReviewRecord | None:
+        return self.db.scalar(select(DraftReviewRecord).where(
+            DraftReviewRecord.tenant_id == tenant_id, DraftReviewRecord.request_key == request_key,
+        ))
+
+    def add(self, decision: DraftReviewDecision) -> DraftReviewRecord:
+        row = DraftReviewRecord(
+            tenant_id=decision.tenant_id, review_id=decision.review_id,
+            communication_id=decision.communication_id, draft_id=decision.draft_id,
+            request_key=decision.request_key, snapshot=decision.model_dump(mode="json"),
+            reviewed_at=decision.reviewed_at,
+        )
+        self.db.add(row)
+        self.db.flush()
+        return row
+
+    @staticmethod
+    def view(row: DraftReviewRecord) -> DraftReviewDecision:
+        decision = DraftReviewDecision.model_validate(row.snapshot)
+        if (decision.tenant_id, decision.review_id, decision.communication_id, decision.draft_id, decision.request_key) != (
+            row.tenant_id, row.review_id, row.communication_id, row.draft_id, row.request_key,
+        ):
+            from app.core.errors import DomainError
+            raise DomainError("REVIEW_INTEGRITY_ERROR", "Stored review target is inconsistent", status_code=409)
+        return decision

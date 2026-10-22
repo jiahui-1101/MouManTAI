@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, Field
 
 from app.core.schemas import (
-    CommitmentTerms, CommunicationChannel, ContractModel, MessageStatus, OffsetAwareDatetime,
+    ApprovalState, CommitmentTerms, CommunicationChannel, ContractModel, MessageStatus, OffsetAwareDatetime,
 )
 
 
@@ -137,3 +137,71 @@ class MessageDraftView(ContractModel):
     send_authorized: Literal[False] = False
     expires_at: OffsetAwareDatetime
     created_at: OffsetAwareDatetime
+
+
+ReviewAction = Literal["READ_REVIEW", "APPROVE_DRAFT", "REJECT_DRAFT"]
+ReviewDecisionAction = Literal["APPROVE_DRAFT", "REJECT_DRAFT"]
+
+
+class ApproveDraftRequest(ContractModel):
+    request_key: str = Field(strict=True, min_length=8, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    expected_content_hash: str = Field(strict=True, pattern=r"^[0-9a-f]{64}$")
+
+
+class RejectDraftRequest(ApproveDraftRequest):
+    reason: Annotated[str, Field(strict=True, min_length=1, max_length=1000), AfterValidator(_nonblank)]
+
+
+class ReviewAuthorization(ContractModel):
+    """Server-only P5 policy result, not client claims or a Core approval."""
+
+    tenant_id: ReferenceId
+    actor_id: ReferenceId
+    actor_role: ReferenceId
+    communication_id: ReferenceId
+    draft_id: ReferenceId
+    action: ReviewAction
+    evidence_refs: list[ReferenceId] = Field(min_length=1)
+    expires_at: OffsetAwareDatetime
+    allowed_actions: list[ReviewDecisionAction] = Field(default_factory=list)
+    existing_review_status: Literal["VALID", "REVOKED", "UNKNOWN"] = "UNKNOWN"
+    existing_review_evidence_refs: list[ReferenceId] = Field(default_factory=list)
+
+
+class DraftReviewDecision(ContractModel):
+    review_id: ReferenceId
+    tenant_id: ReferenceId
+    communication_id: ReferenceId
+    draft_id: ReferenceId
+    reference: RecoveryCommunicationReference
+    request_key: str
+    action: ReviewDecisionAction
+    reviewer_id: ReferenceId
+    reviewer_role: ReferenceId
+    reviewed_at: OffsetAwareDatetime
+    expires_at: OffsetAwareDatetime
+    content_hash: str
+    validation_hash: str
+    language: Literal["en", "ms", "zh"]
+    recipient_identity_id: ReferenceId
+    channel: CommunicationChannel
+    core_approval_evidence_refs: list[ReferenceId]
+    authorization_evidence_refs: list[ReferenceId]
+    reason: str | None
+    audit_id: ReferenceId
+    correlation_id: ReferenceId
+
+
+class DraftReviewView(ContractModel):
+    tenant_id: ReferenceId
+    communication_id: ReferenceId
+    draft_id: ReferenceId
+    review_state: ApprovalState
+    effective_approval: bool = False
+    send_authorized: Literal[False] = False
+    allowed_actions: list[ReviewDecisionAction] = Field(default_factory=list)
+    decision: DraftReviewDecision | None = None
+    invalidated_at: OffsetAwareDatetime | None = None
+    invalidation_code: str | None = None
+    invalidation_audit_id: str | None = None
+    checked_at: OffsetAwareDatetime

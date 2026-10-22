@@ -241,16 +241,7 @@ class MessageDraftService:
     ) -> MessageDraftView:
         _require_context(context)
         try:
-            record = self.repository.get(context.tenant_id, communication_id, draft_id)
-            if record is None:
-                _fail("DRAFT_NOT_FOUND", "Draft not found in current tenant/request", 404)
-            try:
-                saved = self.repository.view(record)
-                command = PrepareDraftRequest(language=saved.language, template_key=saved.template_key)
-            except ValidationError as exc:
-                raise DomainError("DRAFT_INTEGRITY_ERROR", "Stored draft is invalid", status_code=409) from exc
-            candidate = self._candidate(context, communication_id, command, self._time(now), "READ_DRAFT")
-            result = self._verified_snapshot(record, candidate)
+            result = self.validate_current(context, communication_id, draft_id, now=self._time(now))
             self.db.rollback()  # Release revalidation locks; retrieval never writes.
             return result
         except SQLAlchemyError as exc:
@@ -261,6 +252,23 @@ class MessageDraftService:
         except Exception:
             self.db.rollback()
             raise
+
+    def validate_current(self, context: RequestContext, communication_id: str, draft_id: str,
+                         *, now: datetime) -> MessageDraftView:
+        """Same checks as GET, inside the caller-owned transaction; no commit/rollback."""
+        _require_context(context)
+        record = self.repository.get(context.tenant_id, communication_id, draft_id, lock=True)
+        if record is None:
+            _fail("DRAFT_NOT_FOUND", "Draft not found in current tenant/request", 404)
+        try:
+            saved = self.repository.view(record)
+            command = PrepareDraftRequest(language=saved.language, template_key=saved.template_key)
+        except ValidationError as exc:
+            raise DomainError("DRAFT_INTEGRITY_ERROR", "Stored draft is invalid", status_code=409) from exc
+        candidate = self._candidate(context, communication_id, command, now, "READ_DRAFT")
+        if saved.expires_at <= now:
+            _fail("DRAFT_EXPIRED", "Saved draft has expired")
+        return self._verified_snapshot(record, candidate)
 
     @staticmethod
     def _time(now: datetime | None) -> datetime:

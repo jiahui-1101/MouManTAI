@@ -14,6 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.errors import DomainError
 from app.core.router import router as core_router
+from app.communication.router import router as communication_router
 
 
 class HealthResponse(BaseModel):
@@ -37,6 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(core_router)
+app.include_router(communication_router)
 
 
 @app.exception_handler(DomainError)

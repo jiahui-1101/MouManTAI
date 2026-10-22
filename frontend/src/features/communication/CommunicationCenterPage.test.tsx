@@ -77,6 +77,10 @@ beforeEach(() => {
       saved[value.draft_id] = value;
       return reply(value);
     }
+    if (parts[4] === "drafts" && parts[6] === "review") return reply({ tenant_id: req.reference.tenant_id,
+      communication_id: req.communication_id, draft_id: decodeURIComponent(parts[5]), review_state: "PENDING",
+      effective_approval: false, send_authorized: false, allowed_actions: [], decision: null,
+      invalidated_at: null, invalidation_code: null, invalidation_audit_id: null, checked_at: "2026-10-22T10:00:00+08:00" });
     if (parts[4] === "drafts") return saved[decodeURIComponent(parts[5])] ? reply(saved[decodeURIComponent(parts[5])]) : failure("DRAFT_NOT_FOUND", 404);
     return reply(req);
   });
@@ -176,6 +180,7 @@ describe("Communication Center", () => {
     expect(preview).toHaveTextContent("Backend text: 10.250 pcs. Please review the proposed terms.");
     expect(preview).toHaveTextContent("Draft Only — Not Sent");
     expect(preview).toHaveTextContent("DRAFT");
+    expect(await screen.findByRole("region", { name: "Manager Review" })).toBeInTheDocument();
     expect(within(preview).queryByRole("button", { name: /send|approve/i })).not.toBeInTheDocument();
     expect(within(listRegion()).getByText("Drafted")).toBeInTheDocument();
   });

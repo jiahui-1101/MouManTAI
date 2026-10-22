@@ -5,6 +5,7 @@ import { formatKLTimestamp } from "../../shared/date";
 import { communicationKeys, getDraft, prepareDraft } from "./api";
 import { channelText, communicationLabel, DisplayBadge, ErrorNotice, errorText, languages, reasonText } from "./presentation";
 import { DraftPreview } from "./DraftPreview";
+import { ManagerReview } from "./ManagerReview";
 import type { CommunicationRequestView, DraftLanguage, MessageDraftView } from "./types";
 
 interface Props {
@@ -146,7 +147,10 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
       {!draftId && <p className="muted">No draft available. Prepare a draft or open one by ID.</p>}
       {draft.isError && !prepare.isPending && <ErrorNotice error={draft.error} resource="draft" onRetry={reload} />}
       {expired && !draft.isFetching && <div role="alert" className="cc-error"><p>This draft has expired. Refresh and review the current proposal before preparing another draft.</p></div>}
-      {validDraft && !prepare.isPending && !prepare.isError && <DraftPreview draft={validDraft} onReload={reload} />}
+      {validDraft && !prepare.isPending && !prepare.isError && <>
+        <DraftPreview draft={validDraft} onReload={reload} />
+        <ManagerReview key={`${validDraft.draft_id}:${validDraft.content_hash}:${validDraft.validation_hash}`} draft={validDraft} auth={auth} now={now} />
+      </>}
     </section>
   </>;
 }

@@ -30,6 +30,16 @@ const reasons: Record<string, string> = {
   PROPOSED_DEADLINE_PASSED: "The proposed delivery deadline has passed. Review the current proposal.",
   APPROVED_TERMS_REQUIRED: "Explicit approved proposal terms are required before drafting.",
   APPROVAL_EVIDENCE_REQUIRED: "Trusted approval evidence is required before drafting.",
+  REVIEW_AUTHORITY_UNAVAILABLE: "Manager review is unavailable until trusted review authorization is connected.",
+  REVIEW_VALIDATION_UNAVAILABLE: "The original reviewer's authorization cannot currently be verified. This approval cannot be used.",
+  REVIEW_STORAGE_UNAVAILABLE: "Review storage is unavailable. Please contact the integration owner.",
+  REVIEW_FORBIDDEN: "You are not authorized to review this draft.",
+  REVIEW_ALREADY_DECIDED: "This exact draft already has a decision. Reload its review history.",
+  REVIEW_INVALIDATED: "This review has been invalidated and cannot be restored by retrying.",
+  REVIEW_CONTENT_CHANGED: "The draft changed after preview. Reload and inspect it before reviewing.",
+  REVIEW_IDEMPOTENCY_CONFLICT: "This review request conflicts with a previously saved operation. Reload the review.",
+  REVIEW_INTEGRITY_ERROR: "The saved review could not be verified. No approval can be used.",
+  REVIEW_REQUEST_BLOCKED: "This request is blocked and cannot be reviewed.",
 };
 
 export function reasonText(code: string) {
@@ -40,12 +50,13 @@ export function reasonText(code: string) {
   return "This request needs review before drafting can continue.";
 }
 
-export function errorText(error: unknown, resource: "list" | "detail" | "draft" | "summary") {
+export function errorText(error: unknown, resource: "list" | "detail" | "draft" | "summary" | "review") {
   if (!(error instanceof ApiError)) return "Cannot reach the server. Check your connection and try again.";
   if (reasons[error.code] || /STALE|SUPERSEDED|VERSION|EXPIRED|REVOKED/.test(error.code)) return reasonText(error.code);
   if (error.status === 401) return "Your session is not authorized. Sign in again.";
   if (error.status === 403) return "You do not have permission for this action.";
   if (error.status === 404 && resource === "summary") return "Dashboard statistics are not available. The summary route may still be awaiting integration.";
+  if (error.status === 404 && resource === "review") return "The draft or its review route is unavailable. Refresh and check the selected draft.";
   if (error.status === 404) return resource === "list"
     ? "Communication service is not available. The route may still be awaiting integration."
     : resource === "draft" ? "Draft not found, or the draft route is unavailable. Check the ID and retry."
@@ -66,7 +77,7 @@ export function DisplayBadge({ label }: { label: string }) {
   return <StatusBadge state={label} label={label} className={`cc-status cc-status-${label.toLowerCase()}`} />;
 }
 export function ErrorNotice({ error, resource, onRetry }: {
-  error: unknown; resource: "list" | "detail" | "draft" | "summary"; onRetry: () => void;
+  error: unknown; resource: "list" | "detail" | "draft" | "summary" | "review"; onRetry: () => void;
 }) {
   return <div className="cc-error" role="alert"><p>{errorText(error, resource)}</p>
     <button className="btn btn-secondary" onClick={onRetry}>Retry</button></div>;
