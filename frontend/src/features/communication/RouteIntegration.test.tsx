@@ -108,6 +108,13 @@ describe("Real App communication route", () => {
     mount(path);
     expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MouManTAI" })).toBeInTheDocument();
+    if (path.startsWith("/confirmations/")) {
+      expect(await screen.findByRole("alert")).toHaveTextContent("Confirmation not found");
+      expect(screen.getByRole("region", { name: "Customer Confirmation Workspace" })).toBeInTheDocument();
+      expect(screen.queryByText(/owner module pending/i)).not.toBeInTheDocument();
+      const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/v1/confirmations/confirmation"));
+      expect(call?.[1]?.headers).toMatchObject({ "X-Tenant-ID": "tenant_route_test", "X-Actor-ID": "user_manager_01" });
+    }
   });
 
   it("mounts Main's real order context route and preserves its unavailable state", async () => {

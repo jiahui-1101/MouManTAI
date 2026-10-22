@@ -7,6 +7,7 @@ import { channelText, communicationLabel, DisplayBadge, ErrorNotice, errorText, 
 import { DraftPreview } from "./DraftPreview";
 import { ManagerReview } from "./ManagerReview";
 import { OutboundPanel } from "./OutboundPanel";
+import { LinkedConfirmations } from "./LinkedConfirmations";
 import type { CommunicationRequestView, DraftLanguage, MessageDraftView } from "./types";
 
 interface Props {
@@ -156,6 +157,7 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
     </section>
     <OutboundPanel key={`${auth.tenantId}:${auth.actorId}:${id}:${validDraft?.draft_id ?? ""}:${validDraft?.content_hash ?? ""}`}
       communicationId={id} draft={validDraft} auth={auth} now={now} />
+    <LinkedConfirmations communicationId={id} auth={auth} />
   </>;
 }
 
