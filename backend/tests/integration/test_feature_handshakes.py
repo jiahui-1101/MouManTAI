@@ -14,10 +14,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
@@ -1428,3 +1429,180 @@ def test_portable_dual_boundary_transaction_rollback_and_assessment_provenance(
     assert consumer_audit.causation_id == event_id
     assert consumer_audit.new_state["assessment_id"] == assessment_id
 
+
+def test_postgresql_concurrency_lock_order_safety(postgresql_test_engine) -> None:
+    """A second PostgreSQL session promotes the source while assessment holds Core's row lock.
+
+    Assessment must detect the no-longer-current persisted snapshot and fail closed.
+    The P2 end-to-end race tests separately exercise both lock acquisition orders.
+    """
+    from app.core.feasibility_adapters import AuthoritativeAssessmentWriter
+    from app.core.models import ResourceStockRecord
+    from app.core.reservations import seed_resource_stock
+    from app.feasibility.api_schemas import AssessCommitmentRequest
+    from app.feasibility.persisted_sources import OperationalSnapshotRecord, stage_snapshot
+    from app.feasibility.production import EvaluationSnapshot
+    from app.feasibility.production_fixtures import build_production_example
+    from app.feasibility.service import evaluate
+
+    assert postgresql_test_engine.dialect.name == "postgresql"
+    SessionLocal = sessionmaker(bind=postgresql_test_engine, autoflush=False, autocommit=False)
+    run_id = uuid4().hex[:12]
+    tenant = f"tenant-p5-lock-order-{run_id}"
+    commitment_id = f"com_drift_{run_id}"
+    resource_id = f"RES_LOCK_{run_id}"
+    context = _ctx(tenant=tenant)
+
+    base_snapshot, base_commitment = build_production_example()
+    data = base_snapshot.model_dump(exclude_computed_fields=True)
+    operational = data["operational"]
+    operational["tenant_id"] = tenant
+    for key in (
+        "sku_catalog",
+        "bom_components",
+        "inventory_lots",
+        "reservations",
+        "incoming_deliveries",
+        "capacity_calendars",
+        "confirmed_commitments",
+        "unit_conversions",
+    ):
+        for row in operational[key]:
+            row["tenant_id"] = tenant
+    for source in operational["sources"]:
+        source["tenant_id"] = tenant
+        source["source_ref"] = f"db://{source['source_id']}"
+        source["evidence_refs"] = [f"ev_{source['source_id']}"]
+    target = next(iter(operational["confirmed_commitments"]))
+    target.update(tenant_id=tenant, commitment_id=commitment_id, commitment_version=1)
+
+    production = data["production"]
+    production["tenant_id"] = tenant
+    for key in ("resources", "processes", "plans", "jobs"):
+        for row in production[key] or ():
+            row["tenant_id"] = tenant
+    for source in production["sources"]:
+        source["tenant_id"] = tenant
+        source["source_ref"] = f"db://{source['source_id']}"
+        source["evidence_refs"] = [f"ev_{source['source_id']}"]
+    for plan in production["plans"]:
+        plan["commitment_id"] = commitment_id
+        plan["commitment_version"] = 1
+    snapshot = EvaluationSnapshot.model_validate(data)
+    commitment = base_commitment.model_copy(
+        update={"tenant_id": tenant, "commitment_id": commitment_id, "commitment_version": 1}
+    )
+
+    setup = SessionLocal()
+    seed_resource_stock(setup, tenant, resource_id, Decimal("100"), "kg", snapshot_version=1)
+    stage_snapshot(setup, snapshot, current=True)
+    setup.add(
+        CommitmentRecord(
+            tenant_id=tenant,
+            commitment_id=commitment_id,
+            order_id=f"ord_{run_id}",
+            customer_id=f"cust_{run_id}",
+            terms=commitment.terms.model_dump(mode="json"),
+            agreement_state=AgreementState.CONFIRMED.value,
+            feasibility_state=FeasibilityState.NOT_ASSESSED.value,
+            risk_state=RiskState.NORMAL.value,
+            recovery_state=RecoveryState.NONE.value,
+            fulfilment_state="NOT_STARTED",
+            commitment_version=1,
+            evidence_refs=["ev_init_001"],
+            updated_at=_now(),
+        )
+    )
+    setup.commit()
+    setup.close()
+
+    # Tx1 locks Core's Commitment and evaluates the persisted version-one source.
+    s1 = SessionLocal()
+    record = s1.scalar(
+        select(CommitmentRecord)
+        .where(
+            CommitmentRecord.tenant_id == tenant,
+            CommitmentRecord.commitment_id == commitment_id,
+        )
+        .with_for_update()
+    )
+    assert record is not None
+    resolved_snapshot, resolved_commitment = snapshot, commitment
+    result = evaluate(resolved_snapshot, None, resolved_commitment)
+
+    # Tx2 changes stock and promotes the persisted operational source to version two.
+    s2 = SessionLocal()
+    stock = s2.scalar(
+        select(ResourceStockRecord)
+        .where(
+            ResourceStockRecord.tenant_id == tenant,
+            ResourceStockRecord.resource_id == resource_id,
+        )
+        .with_for_update()
+    )
+    assert stock is not None
+    stock.snapshot_version = 2
+    stock.total_quantity = Decimal("80")
+
+    old_source = s2.scalar(
+        select(OperationalSnapshotRecord)
+        .where(
+            OperationalSnapshotRecord.tenant_id == tenant,
+            OperationalSnapshotRecord.snapshot_version == snapshot.operational.snapshot_version,
+        )
+        .with_for_update()
+    )
+    assert old_source is not None and old_source.is_current
+    old_source.is_current = False
+
+    next_data = snapshot.model_dump(exclude_computed_fields=True)
+    next_version = snapshot.operational.snapshot_version + 1
+    next_snapshot_id = f"{snapshot.operational.snapshot_id}_{run_id}_v2"
+    next_data["operational"]["snapshot_version"] = next_version
+    next_data["operational"]["snapshot_id"] = next_snapshot_id
+    next_data["current_snapshot_version"] = next_version
+    promoted = EvaluationSnapshot.model_validate(next_data)
+    s2.add(
+        OperationalSnapshotRecord(
+            tenant_id=tenant,
+            snapshot_version=next_version,
+            snapshot_id=next_snapshot_id,
+            payload=promoted.model_dump(mode="json", exclude_computed_fields=True),
+            is_current=True,
+            created_at=_now(),
+        )
+    )
+    s2.commit()
+    s2.close()
+
+    # Tx1 cannot persist an assessment against the stale source after promotion.
+    request = AssessCommitmentRequest(
+        expected_commitment_version=record.commitment_version,
+        expected_snapshot_version=snapshot.operational.snapshot_version,
+    )
+    with pytest.raises(DomainError) as exc_info:
+        AuthoritativeAssessmentWriter().assess(
+            s1,
+            context,
+            resolved_commitment,
+            request,
+            snapshot=resolved_snapshot,
+            result=result,
+            commit=False,
+        )
+    assert exc_info.value.code == "SNAPSHOT_DRIFT_CONFLICT"
+    assert exc_info.value.status_code == 409
+    s1.rollback()
+    s1.close()
+
+    verify = SessionLocal()
+    current_sources = verify.scalars(
+        select(OperationalSnapshotRecord).where(
+            OperationalSnapshotRecord.tenant_id == tenant,
+            OperationalSnapshotRecord.is_current.is_(True),
+        )
+    ).all()
+    assert [(row.snapshot_id, row.snapshot_version) for row in current_sources] == [
+        (next_snapshot_id, next_version)
+    ]
+    verify.close()
