@@ -64,6 +64,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+const processingRequests = new Map<string, Promise<ProcessResponse>>();
+function processMessage(id: string, reprocess = false): Promise<ProcessResponse> {
+  const existing = processingRequests.get(id);
+  if (existing) return existing;
+  const promise = request<ProcessResponse>(`/v1/messages/${encodeURIComponent(id)}/process${reprocess ? '?reprocess=true' : ''}`, {
+    method: 'POST', headers: { 'X-P1-Operation-ID': crypto.randomUUID() },
+  }).finally(() => processingRequests.delete(id));
+  processingRequests.set(id, promise);
+  return promise;
+}
+
 export const operationalApi: OperationalApi = {
   config: () => request('/dev/p1/config'),
   list: ({ channel, search, processing, offset }) => {
@@ -75,8 +86,7 @@ export const operationalApi: OperationalApi = {
   },
   detail: id => request(`/v1/messages/${encodeURIComponent(id)}`),
   ingest: envelope => request('/v1/messages/ingest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(envelope) }),
-  process: (id, reprocess = false) =>
-    request(`/v1/messages/${encodeURIComponent(id)}/process${reprocess ? '?reprocess=true' : ''}`, { method: 'POST' }),
+  process: processMessage,
   getExtraction: id => request(`/v1/messages/${encodeURIComponent(id)}/extraction`),
   listAttempts: id => request(`/v1/messages/${encodeURIComponent(id)}/attempts`),
   getAssociation: id => request(`/v1/messages/${encodeURIComponent(id)}/association`),

@@ -73,7 +73,10 @@ def get_message(message_id: str, tenant: Tenant, repository: Repository) -> Stor
 @router.post("/v1/messages/{message_id}/process", response_model=ProcessResponse,
              responses={**errors, 404: {"model": ApiError}, 409: {"model": ApiError}})
 def process_message(message_id: str, tenant: Tenant, repository: Repository,
-                    reprocess: Annotated[bool, Query()] = False) -> ProcessResponse:
+                    reprocess: Annotated[bool, Query()] = False,
+                    x_p1_operation_id: Annotated[str | None, Header(max_length=64, pattern=r"^[A-Za-z0-9_-]+$")] = None) -> ProcessResponse:
+    if x_p1_operation_id:
+        return repository.process(tenant.tenant_id, message_id, reprocess=reprocess, operation_id=x_p1_operation_id)
     return repository.process(tenant.tenant_id, message_id, reprocess=reprocess)
 
 

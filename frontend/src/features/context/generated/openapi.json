@@ -330,6 +330,24 @@
               "default": false,
               "title": "Reprocess"
             }
+          },
+          {
+            "name": "x-p1-operation-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9_-]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-P1-Operation-Id"
+            }
           }
         ],
         "responses": {
@@ -1519,6 +1537,189 @@
         }
       }
     },
+    "/v1/attachments/{evidence_ref}/page-count": {
+      "get": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Get Attachment Page Count",
+        "operationId": "get_attachment_page_count_v1_attachments__evidence_ref__page_count_get",
+        "parameters": [
+          {
+            "name": "evidence_ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Evidence Ref"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Attachment Page Count V1 Attachments  Evidence Ref  Page Count Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/attachments/{evidence_ref}/pages/{page_number}": {
+      "get": {
+        "tags": [
+          "P1 synthetic ingestion \u2014 provisional"
+        ],
+        "summary": "Get Attachment Page",
+        "operationId": "get_attachment_page_v1_attachments__evidence_ref__pages__page_number__get",
+        "parameters": [
+          {
+            "name": "evidence_ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Evidence Ref"
+            }
+          },
+          {
+            "name": "page_number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Page Number"
+            }
+          },
+          {
+            "name": "rotate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Rotate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/attachments/{evidence_ref}/metadata": {
       "get": {
         "tags": [
@@ -1783,6 +1984,26 @@
                 "schema": {
                   "$ref": "#/components/schemas/InboxPreview"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dev/p1/infer": {
+      "post": {
+        "tags": [
+          "synthetic development only"
+        ],
+        "summary": "Dev Loopback Infer",
+        "description": "Old launcher target: fail explicitly rather than impersonate a model.",
+        "operationId": "dev_loopback_infer_dev_p1_infer_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -2594,6 +2815,13 @@
             },
             "type": "array",
             "title": "Verified Channels"
+          },
+          "verified_contacts": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformIdentity"
+            },
+            "type": "array",
+            "title": "Verified Contacts"
           }
         },
         "additionalProperties": false,
@@ -3554,6 +3782,29 @@
             ],
             "title": "Last Reviewed At"
           },
+          "core_commitment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Core Commitment Id"
+          },
+          "published_to_core_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published To Core At"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -3710,6 +3961,36 @@
           "status"
         ],
         "title": "OrderReference"
+      },
+      "PlatformIdentity": {
+        "properties": {
+          "channel": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Channel"
+          },
+          "sender_identity_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Sender Identity Id"
+          },
+          "sender_alias": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Sender Alias"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "channel",
+          "sender_identity_id",
+          "sender_alias"
+        ],
+        "title": "PlatformIdentity"
       },
       "ProcessResponse": {
         "properties": {
@@ -3924,6 +4205,19 @@
               "PROCESSING_FAILED"
             ],
             "title": "Processing Status"
+          },
+          "extractor_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extractor Version"
           },
           "ingested_at": {
             "type": "string",

@@ -442,7 +442,8 @@ class PostgresMessageRepository:
         """P1-02 discovery boundary only; no claim, processing, worker or automatic retry."""
         return self.list(tenant_id, processing_status="RECEIVED", limit=limit).items
 
-    def process(self, tenant_id: str, message_id: str, *, reprocess: bool = False, now: datetime | None = None) -> ProcessResponse:
+    def process(self, tenant_id: str, message_id: str, *, reprocess: bool = False, now: datetime | None = None,
+                operation_id: str | None = None) -> ProcessResponse:
         current_time = now or datetime.now(timezone.utc)
         extractor_version = VERSION
         try:
@@ -455,6 +456,18 @@ class PostgresMessageRepository:
                 )
                 if row is None:
                     raise MessageNotFound(f"Message {message_id} not found")
+
+                if operation_id:
+                    previous = session.scalars(select(ExtractionAttempt).where(
+                        ExtractionAttempt.tenant_id == tenant_id, ExtractionAttempt.message_id == message_id,
+                    ).order_by(desc(ExtractionAttempt.started_at))).all()
+                    for prior in previous:
+                        try:
+                            if json.loads(prior.diagnostic or "{}").get("operation_id") == operation_id:
+                                return ProcessResponse(message=stored(row, prior.extractor_version),
+                                    attempt=attempt_record(prior), reprocessed=reprocess)
+                        except (ValueError, TypeError):
+                            continue  # Legacy unstructured diagnostic; never rewrite it.
 
                 if not reprocess:
                     existing_attempt = session.scalar(
@@ -491,7 +504,6 @@ class PostgresMessageRepository:
                 session.flush()
 
                 stored_msg = stored(row)
-                completed_time = datetime.now(timezone.utc)
                 try:
                     result = extract_explicit_fields(stored_msg, catalog=PROVISIONAL_PRODUCTS)
                     raw_text = stored_msg.raw.text
@@ -508,10 +520,16 @@ class PostgresMessageRepository:
                                 )
                     active_fields = list(result.fields)
                     actual_extractor_version = extractor_version
-                    diagnostics_dict = {}
+                    diagnostics_dict = {"trigger": "explicit_reprocess" if reprocess else "process",
+                                        "configured": False, "accepted_model_fields": 0}
+                    if operation_id:
+                        diagnostics_dict["operation_id"] = operation_id
+                    if stored_msg.raw.received_at > stored_msg.ingested_at:
+                        diagnostics_dict["source_clock_anomaly"] = "receipt_after_persistence"
 
                     svc = self.proposal_service
                     if svc and getattr(svc, "enabled", False):
+                        diagnostics_dict["configured"] = True
                         try:
                             import asyncio
                             import concurrent.futures
@@ -530,6 +548,7 @@ class PostgresMessageRepository:
                             )
                             if getattr(proposal_res, "outcomes", None):
                                 diagnostics_dict["model_outcomes"] = proposal_res.outcomes
+                            diagnostics_dict["runtime_reported"] = getattr(proposal_res, "telemetry", {})
 
                             candidates = getattr(proposal_res, "candidates", [])
                             if candidates:
@@ -545,17 +564,31 @@ class PostgresMessageRepository:
                             ):
                                 diagnostics_dict["fallback"] = "rules_only"
                         except Exception as model_exc:
-                            diagnostics_dict["model_error"] = str(model_exc)[:200]
+                            diagnostics_dict["model_error"] = "proposal_processing_failed"
                             diagnostics_dict["fallback"] = "rules_only"
 
                     attempt.status = "PROCESSED"
                     attempt.extractor_version = actual_extractor_version
                     attempt.fields = [f.model_dump(mode="json") for f in active_fields]
-                    attempt.diagnostic = json.dumps(diagnostics_dict)[:1000] if diagnostics_dict else None
+                    # Preserve valid JSON in the existing bounded column. Never
+                    # truncate JSON mid-string or discard primary outcome state.
+                    diagnostic = json.dumps(diagnostics_dict, separators=(",", ":"))
+                    if len(diagnostic) > 1000:
+                        for telemetry in diagnostics_dict.get("runtime_reported", {}).values():
+                            for key in ("dtype", "peak_gpu_bytes", "load_seconds"):
+                                telemetry.pop(key, None)
+                        diagnostic = json.dumps(diagnostics_dict, separators=(",", ":"))
+                    if len(diagnostic) > 1000:
+                        diagnostics_dict["runtime_reported"] = {k: {"attempted": v.get("attempted", False),
+                            "succeeded": v.get("succeeded", False)} for k, v in diagnostics_dict.get("runtime_reported", {}).items()}
+                        diagnostic = json.dumps(diagnostics_dict, separators=(",", ":"))
+                    attempt.diagnostic = diagnostic
+                    completed_time = datetime.now(timezone.utc)
                     attempt.completed_at = completed_time
                     row.processing_status = "PROCESSED"
                     row.updated_at = completed_time
                 except Exception as exc:
+                    completed_time = datetime.now(timezone.utc)
                     attempt.status = "PROCESSING_FAILED"
                     attempt.diagnostic = str(exc)[:1000]
                     attempt.completed_at = completed_time
@@ -1008,7 +1041,6 @@ class PostgresMessageRepository:
                     created_at=now,
                 )
                 session.add(review_entry)
-
                 if field_changes:
                     evidence = dict(row.field_evidence or {})
                     for field_name in field_changes:

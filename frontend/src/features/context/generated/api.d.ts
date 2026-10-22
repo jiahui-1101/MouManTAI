@@ -278,6 +278,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/attachments/{evidence_ref}/page-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Attachment Page Count */
+        get: operations["get_attachment_page_count_v1_attachments__evidence_ref__page_count_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/attachments/{evidence_ref}/pages/{page_number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Attachment Page */
+        get: operations["get_attachment_page_v1_attachments__evidence_ref__pages__page_number__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/attachments/{evidence_ref}/metadata": {
         parameters: {
             query?: never;
@@ -360,6 +394,26 @@ export interface paths {
         get: operations["fixture_inbox_dev_p1_inbox_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dev/p1/infer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dev Loopback Infer
+         * @description Old launcher target: fail explicitly rather than impersonate a model.
+         */
+        post: operations["dev_loopback_infer_dev_p1_infer_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -629,6 +683,8 @@ export interface components {
             active: boolean;
             /** Verified Channels */
             verified_channels?: string[];
+            /** Verified Contacts */
+            verified_contacts?: components["schemas"]["PlatformIdentity"][];
         };
         /** DevelopmentContext */
         DevelopmentContext: {
@@ -968,6 +1024,10 @@ export interface components {
             last_reviewed_role?: string | null;
             /** Last Reviewed At */
             last_reviewed_at?: string | null;
+            /** Core Commitment Id */
+            core_commitment_id?: string | null;
+            /** Published To Core At */
+            published_to_core_at?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -1025,6 +1085,15 @@ export interface components {
              * @default
              */
             description: string;
+        };
+        /** PlatformIdentity */
+        PlatformIdentity: {
+            /** Channel */
+            channel: string;
+            /** Sender Identity Id */
+            sender_identity_id: string;
+            /** Sender Alias */
+            sender_alias: string;
         };
         /** ProcessResponse */
         ProcessResponse: {
@@ -1100,6 +1169,8 @@ export interface components {
              * @enum {string}
              */
             processing_status: "RECEIVED" | "PROCESSING" | "PROCESSED" | "PROCESSING_FAILED";
+            /** Extractor Version */
+            extractor_version?: string | null;
             /**
              * Ingested At
              * Format: date-time
@@ -1357,7 +1428,9 @@ export interface operations {
             query?: {
                 reprocess?: boolean;
             };
-            header?: never;
+            header?: {
+                "x-p1-operation-id"?: string | null;
+            };
             path: {
                 message_id: string;
             };
@@ -2252,6 +2325,145 @@ export interface operations {
             };
         };
     };
+    get_attachment_page_count_v1_attachments__evidence_ref__page_count_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidence_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_attachment_page_v1_attachments__evidence_ref__pages__page_number__get: {
+        parameters: {
+            query?: {
+                rotate?: number;
+            };
+            header?: never;
+            path: {
+                evidence_ref: string;
+                page_number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unsupported Media Type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     get_attachment_metadata_v1_attachments__evidence_ref__metadata_get: {
         parameters: {
             query?: never;
@@ -2473,6 +2685,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InboxPreview"];
+                };
+            };
+        };
+    };
+    dev_loopback_infer_dev_p1_infer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
