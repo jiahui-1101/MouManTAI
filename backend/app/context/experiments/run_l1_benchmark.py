@@ -119,10 +119,29 @@ async def evaluate_l1(endpoint_url: str, api_key: str, mode: str = "direct"):
             failures.append({"case_id": case_id, "error": f"Extraction exception: {exc}", "text": text})
             continue
 
-        # Extract observations grouped by entity field
+        # Extract observations from both rules (L0) and model proposals (L1)
         obs_by_field = {}
+        # Include L0 rule-extracted fields that are valid
+        for rf in proposal.rules.fields:
+            if rf.validation_status == "VALID" and rf.value is not None:
+                fname = {
+                    "sku": "product",
+                    "quantity": "quantity",
+                    "unit": "unit",
+                    "requested_delivery_at": "delivery",
+                    "order_id": "order_reference",
+                }.get(rf.field_name, rf.field_name)
+                quote = rf.evidence[0].quote if rf.evidence else str(rf.value)
+                obs_by_field.setdefault(fname, []).append({
+                    "value": rf.value,
+                    "quote": quote,
+                    "source": "L0_RULE",
+                    "disposition": "accepted",
+                    "domain_supported": "true",
+                })
+
+        # Include L1 GLiNER candidates
         for cand in proposal.candidates:
-            # Map candidate field_name back to entity field name
             fname = {
                 "sku": "product",
                 "quantity": "quantity",
@@ -130,11 +149,11 @@ async def evaluate_l1(endpoint_url: str, api_key: str, mode: str = "direct"):
                 "requested_delivery_at": "delivery",
                 "order_id": "order_reference",
             }.get(cand.field_name, cand.field_name)
-            # Use raw quote for span comparison
             quote = cand.evidence[0].quote if cand.evidence else cand.value
             obs_by_field.setdefault(fname, []).append({
                 "value": cand.value,
                 "quote": quote,
+                "source": "L1_GLINER",
                 "disposition": cand.metadata.get("disposition"),
                 "domain_supported": cand.metadata.get("domain_supported"),
             })
