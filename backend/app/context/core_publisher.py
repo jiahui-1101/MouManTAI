@@ -163,6 +163,8 @@ class CoreContextPublisher:
         enforce_eligibility: bool = True,
     ) -> Commitment:
         """Publish an OrderContextRecord to Core using CoreIntegrationFacade."""
+        if request_context.tenant_id != order_context.tenant_id:
+            raise IneligibleContextError("Tenant mismatch before publication", ["Request and context tenant must match"])
         if enforce_eligibility:
             is_eligible, reasons = self.check_eligibility(order_context)
             if not is_eligible:
@@ -191,10 +193,13 @@ class CoreContextPublisher:
         if row.core_commitment_id and row.published_to_core_at and row.updated_at <= row.published_to_core_at:
             return self.facade.service.get(session, request_context, row.core_commitment_id)
 
+        effective_order_id = business_context.order_id or f"ord_{business_context.context_id}"
         existing = session.scalar(select(CommitmentRecord).where(
             CommitmentRecord.tenant_id == request_context.tenant_id,
-            CommitmentRecord.order_id == business_context.order_id,
-        ).with_for_update()) if business_context.order_id else None
+            CommitmentRecord.order_id == effective_order_id,
+        ).with_for_update())
+        if existing is not None and existing.customer_id != business_context.customer_id:
+            raise IneligibleContextError("Existing order customer mismatch", ["Context cannot reassign an existing Core customer"])
         if existing is not None and existing.agreement_state != AgreementState.REQUESTED.value:
             raise IneligibleContextError("P5 amendment integration required; existing agreed/proposed terms preserved",
                 ["Current Core context facade cannot safely amend non-REQUESTED commitments; use the P5 proposal workflow"])
