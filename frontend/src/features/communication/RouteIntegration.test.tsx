@@ -121,6 +121,15 @@ describe("Real App communication route", () => {
       const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/v1/confirmations/confirmation"));
       expect(call?.[1]?.headers).toMatchObject({ "X-Tenant-ID": "tenant_route_test", "X-Actor-ID": "user_manager_01" });
     }
+    if (path.startsWith("/recovery/")) {
+      expect(await screen.findByRole("heading", { name: "Recovery case not found" })).toBeInTheDocument();
+      const call = fetchMock.mock.calls.find(([url]) =>
+        new URL(String(url), "http://localhost").pathname === "/v1/recovery/cases/recovery",
+      );
+      expect(call?.[1]?.headers).toMatchObject({ "X-Tenant-ID": "tenant_route_test", "X-Actor-ID": "user_manager_01" });
+      expect(call?.[1]?.method ?? "GET").toBe("GET");
+      expect(screen.queryByRole("button", { name: /approve|execute/i })).not.toBeInTheDocument();
+    }
   });
 
   it.each([
