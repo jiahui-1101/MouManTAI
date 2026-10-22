@@ -18,7 +18,10 @@ def development_context(
     x_tenant_id: Annotated[str | None, Header(alias="X-Tenant-ID")] = None,
 ) -> DevelopmentContext:
     """Resolve tenant context from trusted X-Tenant-ID header when present,
-    falling back to server environment configuration in local test/dev workflows."""
+    falling back to server environment configuration in local test/dev workflows.
+    In strict/production configuration, a missing X-Tenant-ID header fails closed."""
+    if (os.environ.get("ENVIRONMENT") == "production" or os.environ.get("P1_STRICT_AUTH") == "true") and not x_tenant_id:
+        raise HTTPException(status_code=400, detail="X-Tenant-ID header is required in production configuration")
     tenant_id = x_tenant_id or os.environ.get("P1_DEV_TENANT_ID", "synthetic_tenant_a")
     try:
         return DevelopmentContext(tenant_id=tenant_id)
@@ -35,7 +38,10 @@ def resolve_actor(
     Returns (actor_id, actor_role). The caller-supplied X-Actor-Role header
     is never trusted to grant privileged roles (OWNER/MANAGER); roles for registered
     actors are always resolved server-side from ACTOR_ROLES.
+    In strict/production configuration, a missing X-Actor-ID header fails closed.
     """
+    if (os.environ.get("ENVIRONMENT") == "production" or os.environ.get("P1_STRICT_AUTH") == "true") and not x_actor_id:
+        raise HTTPException(status_code=401, detail="X-Actor-ID header is required in production configuration")
     actor_id = x_actor_id or "user_staff_01"
     if actor_id in ACTOR_ROLES:
         actor_role = ACTOR_ROLES[actor_id]

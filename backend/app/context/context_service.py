@@ -175,6 +175,17 @@ class ContextService:
             if not existing_context.customer_id:
                 missing.append("customer_identity")
 
+            for f in attempt.fields:
+                intent_val = f.metadata.get("request_intent") if f.metadata else None
+                if intent_val in ("ADVERSARIAL", "CANCELLED"):
+                    conflicts.append(f"Security guard: {intent_val} intent detected in message {message_id}; review required")
+                    break
+
+            if (extracted_qualifier == "EXACT" or existing_context.delivery_qualifier == "EXACT"):
+                exact_msg = "Delivery precision: EXACT arrival time requires human confirmation as DEADLINE before publication"
+                if exact_msg not in conflicts:
+                    conflicts.append(exact_msg)
+
             # Determine readiness
             if conflicts:
                 status: ContextReadinessStatus = "CONFLICT"
@@ -217,6 +228,13 @@ class ContextService:
         else:
             # Create new OrderContext
             conflicts = list(assoc.conflicts)
+            for f in attempt.fields:
+                intent_val = f.metadata.get("request_intent") if f.metadata else None
+                if intent_val in ("ADVERSARIAL", "CANCELLED"):
+                    conflicts.append(f"Security guard: {intent_val} intent detected; review required")
+                    break
+            if extracted_qualifier and extracted_qualifier == "EXACT":
+                conflicts.append("Delivery precision: EXACT arrival time requires human confirmation as DEADLINE before publication")
             missing = []
             if not new_items:
                 missing.append("requested_items")

@@ -1026,6 +1026,9 @@ class PostgresMessageRepository:
                                 }
                                 setattr(row, field_name, model_val)
 
+                if row.conflicts and row.delivery_qualifier == "DEADLINE":
+                    row.conflicts = [c for c in row.conflicts if "EXACT arrival time" not in c]
+
                 if request.action == "ACCEPT_EXTRACTION":
                     # Mark READY if no conflicts, no missing fields, and requested_items present
                     if not row.conflicts and not row.missing_fields and row.requested_items:
