@@ -16,7 +16,7 @@ from .extraction import ExtractionResult
 from .ingestion_schemas import StoredMessage
 from .schemas import ExtractedField, FieldEvidence
 
-VERSION = "p1-deterministic-v3"
+VERSION = "p1-deterministic-v4"
 
 # ---------------------------------------------------------------------------
 # Catalogs and Normalization Maps
@@ -69,7 +69,7 @@ QUANTITY_PREFIX_RE = re.compile(
 )
 
 UNSAFE_ASSOCIATION_RE = re.compile(
-    r"\b(?:and|or|dan|atau|not|no|cancel|instead)\b|[,;/]|和|或|不要|改成",
+    r"\b(?:and|or|dan|atau|not|no|cancel|instead|sorry|correction)\b|和|或|不要|改成|取消",
     re.IGNORECASE
 )
 
@@ -629,6 +629,11 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     # -----------------------------------------------------------------------
     # Numbers that fall inside orders or delivery spans are excluded from quantity candidates
     non_quantity_spans = [o.span() for o in orders] + delivery_spans
+    # Explicitly labelled non-item numbers only. Unlabelled numbers still block
+    # single-item association; do not simply select the nearest/first number.
+    non_quantity_spans += [m.span() for m in re.finditer(
+        r"\b(?:phone|tel|reference|ref)\s*[:#]?\s*[0-9]+\b|"
+        r"\bpukul\s+[0-9]+(?::[0-9]+)?\s*(?:pagi|petang|malam)\b", text, re.IGNORECASE)]
 
     numbers = [
         m for m in NUMBER_RE.finditer(text)
