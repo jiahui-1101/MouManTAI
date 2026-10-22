@@ -69,7 +69,7 @@ QUANTITY_PREFIX_RE = re.compile(
 )
 
 UNSAFE_ASSOCIATION_RE = re.compile(
-    r"\b(?:and|or|dan|atau|not|no|cancel|instead|sorry|correction)\b|和|或|不要|改成|取消",
+    r"\b(?:and|or|dan|atau|not|no|cancel|instead|sorry|correction|jangan|batal)\b|和|或|不要|改成|取消",
     re.IGNORECASE
 )
 

@@ -38,6 +38,7 @@ def test_explicit_item_survives_conversational_wrapping(text):
     "40 burgers, sorry make that 50", "40 or 50 burgers", "not 40 burgers",
     "40 burgers, cancel please", "40 burgers and 6 buns", "40 burgers 99881",
     "40 kg burgers", "-40 burgers", "40.5 burgers",
+    "Jangan hantar 40 burger", "batal 40 burger",
 ])
 def test_wrapping_fix_does_not_relax_quantity_safety(text):
     qty = next(f for f in extract(text).fields if f.field_name == "quantity")
