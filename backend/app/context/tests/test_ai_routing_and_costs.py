@@ -171,3 +171,65 @@ def test_worker_failure_reports_cleanly_without_runaway_retries():
     assert len(spy.calls) == 1
     assert result.outcomes["gliner"] == "worker_connection_refused"
     assert not result.candidates
+    assert result.worker_request_count == service.worker_request_count == 1
+
+
+def test_cache_rechecks_current_catalog_and_never_claims_a_new_request():
+    text = "nak order burger 5 biji esok"
+    answer = InferenceOutput(engine='gliner', model_id=MODEL_CONFIG['gliner'][0],
+        revision=MODEL_CONFIG['gliner'][1], status='ok', finish_reason='stop',
+        load_seconds=0.0, inference_seconds=0.1, fields=[{
+            'field':'product', 'message_id':'m1', 'quote':'burger',
+            'start':text.index('burger'), 'end':text.index('burger')+6}])
+    spy = SpyEndpoint(responses={'gliner': answer})
+    service = ModelProposalService(spy, enabled=True, stages=("gliner",))
+    message = stored(text)
+    first = asyncio.run(service.extract_stored(message, catalog=PROVISIONAL_PRODUCTS))
+    assert len(first.candidates) == 1 and first.candidates[0].metadata['domain_supported'] == 'true'
+    result = asyncio.run(service.extract_stored(message, catalog=()))
+    assert len(spy.calls) == 1
+    assert result.worker_request_count == 0
+    assert not result.telemetry['gliner']['attempted']
+    assert result.telemetry['gliner']['cached']
+    assert len(result.candidates) == 1
+    assert all(c.metadata['domain_supported'] != 'true' for c in result.candidates if c.field_name == 'sku')
+
+
+def test_cache_is_bounded_expires_and_separates_tenant_endpoint_and_revision(monkeypatch):
+    spy = SpyEndpoint()
+    service = ModelProposalService(spy, enabled=True, stages=('gliner',))
+    service.cache_max_entries = 1
+    msg = stored('nak order burger 5 biji esok')
+    asyncio.run(service.extract_stored(msg, catalog=PROVISIONAL_PRODUCTS))
+    other = msg.model_copy(deep=True)
+    other.raw.tenant_id = 'other_tenant'
+    asyncio.run(service.extract_stored(other, catalog=PROVISIONAL_PRODUCTS))
+    assert len(spy.calls) == 2 and len(service._inference_cache) == 1
+    asyncio.run(service.extract_stored(msg, catalog=PROVISIONAL_PRODUCTS))
+    assert len(spy.calls) == 3
+    service.cache_ttl_seconds = 0
+    asyncio.run(service.extract_stored(msg, catalog=PROVISIONAL_PRODUCTS))
+    assert len(spy.calls) == 4
+    service.cache_ttl_seconds = 60
+    service.endpoint = SpyEndpoint()
+    asyncio.run(service.extract_stored(msg, catalog=PROVISIONAL_PRODUCTS))
+    assert len(service.endpoint.calls) == 1
+    monkeypatch.setitem(MODEL_CONFIG, 'gliner', (MODEL_CONFIG['gliner'][0], 'new-revision'))
+    asyncio.run(service.extract_stored(msg, catalog=PROVISIONAL_PRODUCTS))
+    assert len(service.endpoint.calls) == 2
+
+
+def test_concurrent_identical_requests_share_one_inference():
+    class SlowEndpoint(SpyEndpoint):
+        async def infer(self, request):
+            await asyncio.sleep(0.01)
+            return await super().infer(request)
+    spy = SlowEndpoint()
+    service = ModelProposalService(spy, enabled=True, stages=('gliner',))
+    async def run():
+        return await asyncio.gather(*(service.extract_stored(stored('nak order burger 5 biji esok'),
+            catalog=PROVISIONAL_PRODUCTS) for _ in range(2)))
+    results = asyncio.run(run())
+    assert len(spy.calls) == 1
+    assert sum(r.worker_request_count for r in results) == 1
+    assert sum(r.telemetry['gliner']['attempted'] for r in results) == 1

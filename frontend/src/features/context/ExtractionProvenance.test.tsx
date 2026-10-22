@@ -5,6 +5,13 @@ import type { ExtractionAttemptRecord } from './types';
 
 const attempt = { fields: [], diagnostic: null } as unknown as ExtractionAttemptRecord;
 describe('honest extraction provenance', () => {
+  it('distinguishes reused cached observations from a fresh worker call', () => {
+    render(<ExtractionProvenance attempt={{ ...attempt, extractor_version: 'p1-ai-pipeline-v2', diagnostic: JSON.stringify({
+      runtime_reported: { gliner: { attempted: false, succeeded: true, cached: true } },
+    }) }} />);
+    expect(screen.getByText(/cached observations reused/)).toBeInTheDocument();
+    expect(screen.queryByText(/model call attempted/)).not.toBeInTheDocument();
+  });
   it('does not infer GPU or accepted fields from legacy pipeline labels', () => {
     render(<ExtractionProvenance attempt={{ ...attempt, extractor_version: 'p1-ai-pipeline-v1' }} />);
     expect(screen.getByText(/GPU unverified/)).toBeInTheDocument();

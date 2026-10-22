@@ -4,7 +4,7 @@ export function ExtractionProvenance({ attempt }: { attempt: ExtractionAttemptRe
   let diagnostic: Record<string, unknown> = {};
   try { diagnostic = JSON.parse(attempt.diagnostic ?? '{}'); } catch { /* Legacy diagnostics are unverified. */ }
 
-  const runtime = diagnostic.runtime_reported as Record<string, { attempted?: boolean; succeeded?: boolean; device?: string; model?: string; inference_seconds?: number }> | undefined;
+  const runtime = diagnostic.runtime_reported as Record<string, { attempted?: boolean; succeeded?: boolean; cached?: boolean; coalesced?: boolean; device?: string; model?: string; inference_seconds?: number }> | undefined;
   const outcomes = diagnostic.model_outcomes as Record<string, string> | undefined;
   const modelFields = (attempt.fields ?? []).filter(f => f.evidence?.some(e => e.method === 'MODEL'));
   const accepted = typeof diagnostic.accepted_model_fields === 'number' ? diagnostic.accepted_model_fields : 0;
@@ -36,6 +36,9 @@ export function ExtractionProvenance({ attempt }: { attempt: ExtractionAttemptRe
           {runtime ? (
             <div className="p1-prov-telemetry-section">
               {Object.entries(runtime).map(([engine, value]) => {
+                if (value.cached || value.coalesced) {
+                  return <p key={engine}>{engine}: {value.cached ? 'cached observations reused' : 'shared in-flight response reused'} · no new worker call · current validation and review still required</p>;
+                }
                 if (!value.attempted) {
                   return null;
                 }

@@ -3,6 +3,10 @@
 Operational repositories may invoke this service when explicitly configured.
 Schema/source validity does not prove correct semantics or GPU execution.
 """
+import asyncio
+import hashlib
+import time
+from collections import OrderedDict
 from typing import Literal, Sequence
 from decimal import Decimal
 import re
@@ -61,7 +65,10 @@ class ModelProposalService:
         self.endpoint = endpoint
         self.enabled = enabled
         self.stages = stages
-        self._inference_cache: dict[tuple[str, str, str, str, str], object] = {}
+        self._inference_cache = OrderedDict()
+        self._inflight = {}
+        self.cache_ttl_seconds = 60.0
+        self.cache_max_entries = 128
         self.worker_request_count: int = 0
 
     async def extract_stored(self, message: StoredMessage, *, catalog: Sequence[ProductAlias],
@@ -116,42 +123,7 @@ class ModelProposalService:
 
                 result.routing_reasons[engine] = l0_reason
                 try:
-                    endpoint_url = getattr(self.endpoint, "url", "")
-                    revision = MODEL_CONFIG["gliner"][1]
-                    import hashlib
-                    text_hash = hashlib.sha256(message.raw.text.encode("utf-8")).hexdigest()
-                    cache_key = (message.raw.tenant_id, engine, endpoint_url, revision, text_hash)
-
-                    if cache_key in self._inference_cache:
-                        answer = self._inference_cache[cache_key]
-                        result.telemetry[engine] = {
-                            "attempted": True,
-                            "succeeded": True,
-                            "cached": True,
-                            "model": answer.model_id,
-                            "revision": answer.revision,
-                            "device": answer.gpu_name,
-                            "inference_seconds": 0.0,
-                        }
-                        result.routing_reasons[engine] = "Retrieved from safe in-memory idempotency cache (0 worker network calls)"
-                    else:
-                        request = InferenceInput(engine=engine, messages=[SourceText(id="m1", text=message.raw.text)])
-                        result.telemetry[engine] = {"attempted": True, "succeeded": False, "cached": False}
-                        raw_answer = await self.endpoint.infer(request)
-                        answer = validate_evidence(raw_answer, request)
-                        self._inference_cache[cache_key] = answer
-                        self.worker_request_count += 1
-                        result.worker_request_count += 1
-                        result.telemetry[engine].update(
-                            succeeded=True,
-                            model=answer.model_id,
-                            revision=answer.revision,
-                            device=answer.gpu_name,
-                            dtype=answer.dtype,
-                            peak_gpu_bytes=answer.peak_gpu_bytes,
-                            inference_seconds=answer.inference_seconds,
-                            load_seconds=answer.load_seconds,
-                        )
+                    answer = await self._infer_observations(engine, message, result)
 
                     observations_to_process = list(answer.fields)
                     # Check for adjacent/separated date and time observations to combine
@@ -263,41 +235,7 @@ class ModelProposalService:
                 # Qwen is invoked only when meaningful ambiguity remains
                 result.routing_reasons[engine] = "Meaningful ambiguity remains after L1 extraction; invoking L2 Qwen"
                 try:
-                    endpoint_url = getattr(self.endpoint, "url", "")
-                    revision = MODEL_CONFIG["qwen"][1]
-                    import hashlib
-                    text_hash = hashlib.sha256(message.raw.text.encode("utf-8")).hexdigest()
-                    cache_key = (message.raw.tenant_id, engine, endpoint_url, revision, text_hash)
-
-                    if cache_key in self._inference_cache:
-                        answer = self._inference_cache[cache_key]
-                        result.telemetry[engine] = {
-                            "attempted": True,
-                            "succeeded": True,
-                            "cached": True,
-                            "model": answer.model_id,
-                            "revision": answer.revision,
-                            "device": answer.gpu_name,
-                            "inference_seconds": 0.0,
-                        }
-                    else:
-                        request = InferenceInput(engine=engine, messages=[SourceText(id="m1", text=message.raw.text)])
-                        result.telemetry[engine] = {"attempted": True, "succeeded": False, "cached": False}
-                        raw_answer = await self.endpoint.infer(request)
-                        answer = validate_evidence(raw_answer, request)
-                        self._inference_cache[cache_key] = answer
-                        self.worker_request_count += 1
-                        result.worker_request_count += 1
-                        result.telemetry[engine].update(
-                            succeeded=True,
-                            model=answer.model_id,
-                            revision=answer.revision,
-                            device=answer.gpu_name,
-                            dtype=answer.dtype,
-                            peak_gpu_bytes=answer.peak_gpu_bytes,
-                            inference_seconds=answer.inference_seconds,
-                            load_seconds=answer.load_seconds,
-                        )
+                    answer = await self._infer_observations(engine, message, result)
 
                     has_existing_quantity = any(
                         f.field_name == "quantity" and f.validation_status == "VALID"
@@ -333,6 +271,59 @@ class ModelProposalService:
                     result.routing_reasons[engine] = "Worker exception or validation error"
 
         return result
+
+    async def _infer_observations(self, engine, message, result):
+        """Cache raw, grounded observations only; current domain/review gates run again.
+
+        Cache hits/coalesced calls do not claim a new worker invocation. Failures
+        count as requests but are never cached. Bounds prevent stale, unbounded
+        cross-message retention in the long-lived development repository.
+        """
+        request = InferenceInput(engine=engine, messages=[SourceText(id="m1", text=message.raw.text)])
+        config = getattr(self.endpoint, "config", None)
+        key = (message.raw.tenant_id, engine, id(self.endpoint), getattr(config, "url", ""),
+               MODEL_CONFIG[engine], "grounded-observations-v2",
+               hashlib.sha256(request.model_dump_json().encode()).hexdigest())
+        now = time.monotonic()
+        cached = self._inference_cache.get(key)
+        result.telemetry[engine] = {"attempted": False, "succeeded": False, "cached": False}
+        if cached and now - cached[0] < self.cache_ttl_seconds:
+            answer = validate_evidence(cached[1].model_copy(deep=True), request)
+            self._inference_cache.move_to_end(key)
+            result.telemetry[engine]["cached"] = True
+            result.routing_reasons[engine] = "Retrieved grounded observations from idempotency cache (0 worker network calls)"
+        else:
+            self._inference_cache.pop(key, None)
+            flight_key = (asyncio.get_running_loop(), key)
+            task = self._inflight.get(flight_key)
+            if task is not None:
+                answer = validate_evidence((await asyncio.shield(task)).model_copy(deep=True), request)
+                result.telemetry[engine]["coalesced"] = True
+            else:
+                result.telemetry[engine]["attempted"] = True
+                self.worker_request_count += 1
+                result.worker_request_count += 1
+
+                async def invoke():
+                    raw = await self.endpoint.infer(request)
+                    return validate_evidence(raw, request)
+
+                task = asyncio.create_task(invoke())
+                self._inflight[flight_key] = task
+                try:
+                    answer = await task
+                finally:
+                    self._inflight.pop(flight_key, None)
+                self._inference_cache[key] = (time.monotonic(), answer.model_copy(deep=True))
+                while len(self._inference_cache) > self.cache_max_entries:
+                    self._inference_cache.popitem(last=False)
+        result.telemetry[engine].update(
+            succeeded=True, model=answer.model_id, revision=answer.revision,
+            device=answer.gpu_name, dtype=answer.dtype, peak_gpu_bytes=answer.peak_gpu_bytes,
+            inference_seconds=answer.inference_seconds if result.telemetry[engine]["attempted"] else 0.0,
+            load_seconds=answer.load_seconds if result.telemetry[engine]["attempted"] else 0.0,
+        )
+        return answer
 
     @staticmethod
     def _candidate(observation: Observation, message, catalog, model_id, revision, has_existing_quantity: bool = False):
