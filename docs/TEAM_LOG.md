@@ -1421,6 +1421,36 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Validation: `python -m pytest app/communication/tests -q -p no:cacheprovider --basetemp=.pytest-basetemp-p4-fix --tb=short` passed (exit 0; PostgreSQL cases skipped without URL). PowerShell `$env:P4_TEST_DATABASE_URL='postgresql+psycopg://postgres@127.0.0.1:15444/p4_test_final_reconcile'; python -m pytest app/communication/tests/test_migration_persistence.py app/communication/tests/test_route_integration.py -q -p no:cacheprovider --basetemp=.pytest-basetemp-p4-pg --tb=short -rA` passed (exit 0; fresh UUID schemas on authorized disposable PostgreSQL 16). Final route test rerun passed; scoped Ruff `F,E4,E7,E9`, compileall and `git diff --check` passed. No general backend/front-end suite claimed.
 - Review and integration: code commit `5dfa32cd4718ac6b4ec6714f7563ab1ad18ce544` on draft PR #19; P4 reviewer `Sheng554` requested, approval pending; no merge to Main. Outstanding integration work includes PR #16 migration/Core/P2/P3 dependencies, P2 required changes, P1 route, trusted authority and positive customer acceptance.
 
+## 2026-10-22 — P4 Commit 07: Durable Customer Confirmation & Response Handling
+
+- Status: P4 backend evidence workflow implemented and regression-tested in isolated copy; positive customer acceptance cross-module E2E remains BLOCKED, not production integrated.
+- Scope: durable session/attempt/decision, secure hashed challenge, exact tenant/customer/channel/outbound/proposal/version/terms binding, EN/MS/ZH conservative response rules, verified P1 ports, replay/concurrency controls, atomic P4 evidence + Audit/Outbox. No frontend, live sending, Core agreement/fulfilment writes or P3 Plan mutation.
+- Changed files:
+- `backend/app/communication/confirmation_authority.py`
+- `backend/app/communication/confirmation_router.py`
+- `backend/app/communication/confirmation_schemas.py`
+- `backend/app/communication/confirmations.py`
+- `backend/app/communication/models.py`
+- `backend/app/communication/response_rules.py`
+- `backend/app/communication/router.py`
+- `backend/app/communication/tests/test_confirmation_integration.py`
+- `backend/app/communication/tests/test_confirmations.py`
+- `backend/app/communication/tests/test_migration_persistence.py`
+- `backend/app/communication/tests/test_route_integration.py`
+- `backend/migrations/versions/0011_p4_confirmations.py`
+- Migration: new 0011_p4_confirmations -> actual 0010_p4_recipient_preferences; unique standalone Head. Historical migrations untouched. P5 Review required for new shared migration and events. Future P3 0013 coexistence requires a new merge revision after checking actual Heads, not rewriting existing files.
+- Tests: final P4 460 passed / 0 skipped; requested shared Backend + P4 563 passed / 1 existing P1 module skip; new rule/service tests 62, integration file 28; migrated=postgresql subset 49 passed (overlap; excludes offline/metadata/fake-bind tests). Compileall + heads pass. Frontend P4 141 passed; full FE 308 passed / 5 existing LIVE_API skips; typecheck, explicit App tsc and build pass.
+- Runtime: all new evidence explicitly SYNTHETIC_ONLY/P4_EVIDENCE_ONLY, Core transition false. Default new create/read/revoke restricted to explicit synthetic scope and actual disposable PostgreSQL bind. Respond default denies header-user impersonation; P1 source adapter never wired by default. No test trust fixtures installed in app.
+- BLOCK-P4-07-IDENTITY: P1/P5 authenticated processor principal and trusted normalized-message/identity composition pending. Typed P1 contracts/directory confirmed available; tests use source fixtures, not live ingress.
+- BLOCK-P4-07-CORE: trusted P5 confirmation.accepted consumer and idempotent version-safe Core transaction protocol pending. Existing Core confirm_proposal is not equivalent to a connected consumer. No automatic proposal confirmation.
+- P3 durable approval producer plus rejection/counteroffer handoff consumer absent in this baseline. Existing P4 authority still fails closed when necessary source is unavailable.
+- Evidence limitation: token minted once for issuer, not delivered to customer by this task; no token recovery/rotation/reissue; synthetic fixtures do not establish production acceptance. Counteroffer leaves approved proposal unchanged.
+- P5 Review: migration DDL/graph, router composition, identity/processor authorization contract, redacted events and Core consumer. P1/P3 review their integration boundaries.
+- Live safety: 353 baseline file hashes unchanged; P4-communication remains clean; no Git mutations.
+- Cleanup: dedicated test PostgreSQL UUID schemas verified absent after final suite; only this task's test containers/network removed after validation. No development database used.
+- Next milestone: P1/P5 trusted composition + P3 producer + Core consumer; then verify actual positive Customer Acceptance E2E before claiming full integration. Confirmation Workspace frontend remains deferred.
+- Suggested commit: feat(p4): add durable customer confirmation and response handling
+
 ### 2026-10-22 — Task P5-TAIZEN: Audit Ratification, Amendment Protection, Zero-Guessing Deadline & Multi-Item Alignment (P5 / ADR-020 / D-037)
 - **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
 - **Decision / Impact / Owner**:
