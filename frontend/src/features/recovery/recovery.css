@@ -38,4 +38,25 @@
 .recovery-error { max-width: 640px; margin: 3rem auto; padding: 2rem; border: 1px solid #ef4444; border-radius: 0.85rem; background: rgba(239, 68, 68, 0.08); text-align: center; }
 .recovery-error h2 { color: #f8fafc; }
 .recovery-status-badge { margin-bottom: 0.75rem; color: #fca5a5; background: rgba(239, 68, 68, 0.2); }
+.recovery-demo-label { max-width: 18rem; border: 1px solid #92400e; border-radius: 999px; padding: 0.45rem 0.7rem; color: #fcd34d; background: rgba(146, 64, 14, 0.15); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; text-align: center; }
+.recovery-demo-notice { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.85rem 1rem; border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 0.65rem; color: #fde68a; background: rgba(120, 53, 15, 0.2); font-size: 0.82rem; line-height: 1.5; }
+.recovery-demo-list { display: grid; gap: 0.75rem; margin: 0; padding-left: 1.15rem; color: #cbd5e1; font-size: 0.84rem; line-height: 1.55; }
+.recovery-demo-footnote { margin: 1rem 0 0; color: #fcd34d; font-size: 0.78rem; line-height: 1.5; }
+.recovery-demo-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.recovery-demo-impact { grid-column: 1 / -1; }
+.recovery-demo-timeline { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+.recovery-demo-timeline > div { display: flex; gap: 0.7rem; padding: 0.9rem; border: 1px solid #1e293b; border-radius: 0.65rem; background: rgba(15, 23, 42, 0.55); }
+.recovery-demo-timeline > div > span { display: grid; place-items: center; flex: 0 0 1.5rem; width: 1.5rem; height: 1.5rem; border-radius: 50%; color: #082f49; background: #7dd3fc; font-size: 0.75rem; font-weight: 800; }
+.recovery-demo-timeline p { margin: 0; color: #cbd5e1; font-size: 0.78rem; line-height: 1.5; }
+.recovery-constraint-explanations { display: grid; gap: 0.25rem; margin: 0; padding-left: 1rem; color: #cbd5e1; font-size: 0.75rem; line-height: 1.45; }
+.recovery-policy-reason { color: #7dd3fc; font-size: 0.78rem; line-height: 1.5; }
+.recovery-review-record { display: grid; gap: 0.4rem; padding: 0.85rem; border: 1px solid #334155; border-radius: 0.55rem; color: #cbd5e1; font-size: 0.8rem; }
+.recovery-timeline { display: grid; gap: 0.75rem; }
+.recovery-timeline-item { display: grid; grid-template-columns: minmax(9rem, 0.8fr) minmax(0, 2fr); gap: 0.75rem; padding: 0.75rem; border-left: 2px solid #38bdf8; background: rgba(2, 6, 23, 0.45); }
+.recovery-timeline-item time { color: #94a3b8; font-size: 0.72rem; }
+.recovery-timeline-item strong { color: #e2e8f0; font-size: 0.82rem; }
+.recovery-timeline-item p { margin: 0.25rem 0 0; color: #94a3b8; font-size: 0.76rem; line-height: 1.45; }
+.recovery-action-list { display: grid; gap: 0.45rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+.recovery-action-list li { padding: 0.65rem; border-radius: 0.45rem; background: rgba(2, 6, 23, 0.5); color: #cbd5e1; font-size: 0.78rem; }
+@media (max-width: 860px) { .recovery-demo-timeline { grid-template-columns: 1fr; } .recovery-timeline-item { grid-template-columns: 1fr; } }
 @media (max-width: 860px) { .recovery-incident-grid, .recovery-options-grid, .recovery-detail-grid { grid-template-columns: 1fr; } }
