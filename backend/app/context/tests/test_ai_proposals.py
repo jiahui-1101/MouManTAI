@@ -52,7 +52,10 @@ def test_l2_requires_explicit_stage_configuration(monkeypatch):
     assert prepare_model_proposal_service(FakeEndpoint(), enabled=True).stages == ('gliner',)
 
 
-def test_endpoint_failure_keeps_every_rule_result_and_reports_failure():
+def test_endpoint_failure_keeps_every_rule_result_and_reports_failure(monkeypatch):
+    # Isolate to a single GLiNER stage so the failure outcome set is deterministic
+    # regardless of P1_AI_STAGES environment configuration.
+    monkeypatch.setenv("P1_AI_STAGES", "gliner")
     message = stored("burgers tomorrow after 3pm")
     plain = asyncio.run(prepare_model_proposal_service().extract_stored(message, catalog=PROVISIONAL_PRODUCTS))
     result = asyncio.run(prepare_model_proposal_service(FakeEndpoint(fail=True), enabled=True).extract_stored(

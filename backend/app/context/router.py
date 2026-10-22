@@ -11,7 +11,7 @@ from .context_service import ContextService
 from .core_publisher import CoreContextPublisher, IneligibleContextError
 from .document_extractor import extract_pdf_document
 from .document_schemas import AttachmentRecord, DocumentExtractionResult
-from .dependencies import development_context, local_repository
+from .dependencies import development_context, local_repository, resolve_actor
 from app.core.dependencies import ACTOR_ROLES, RequestContext
 from sqlalchemy.orm import Session
 from .ingestion import IngestionService
@@ -133,8 +133,7 @@ def decide_message_association(
     x_actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
     x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
 ) -> MessageAssociationRecord:
-    actor_id = x_actor_id or "user_staff_01"
-    actor_role = x_actor_role or "STAFF"
+    actor_id, actor_role = resolve_actor(x_actor_id, x_actor_role)
     return repository.decide_association(tenant.tenant_id, message_id, request, actor_id=actor_id, actor_role=actor_role)
 
 
@@ -177,8 +176,7 @@ def review_order_context(
     x_actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
     x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
 ) -> OrderContextRecord:
-    actor_id = x_actor_id or "user_staff_01"
-    actor_role = x_actor_role or "STAFF"
+    actor_id, actor_role = resolve_actor(x_actor_id, x_actor_role)
     svc = ContextService(repository)
     return svc.review_context(tenant.tenant_id, context_id, request, actor_id=actor_id, actor_role=actor_role)
 
@@ -193,8 +191,7 @@ def update_order_context(
     x_actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
     x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
 ) -> OrderContextRecord:
-    actor_id = x_actor_id or "user_staff_01"
-    actor_role = x_actor_role or "STAFF"
+    actor_id, actor_role = resolve_actor(x_actor_id, x_actor_role)
     svc = ContextService(repository)
     return svc.update_context(tenant.tenant_id, context_id, request, actor_id=actor_id, actor_role=actor_role)
 
@@ -242,8 +239,7 @@ def publish_order_context_to_core(
             },
         )
 
-    actor_id = x_actor_id or "user_staff_01"
-    actor_role = x_actor_role or "STAFF"
+    actor_id, actor_role = resolve_actor(x_actor_id, x_actor_role)
     actor_role = ACTOR_ROLES.get(actor_id)
     if actor_role not in {"STAFF", "MANAGER", "OWNER"}:
         raise HTTPException(status_code=403, detail="Known synthetic human actor required; role headers cannot authorize publication")
