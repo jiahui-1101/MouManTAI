@@ -171,7 +171,13 @@ def _to_event(record: OutboxEventRecord) -> DomainEvent:
 
 
 class CommitmentService:
-    def create_request(self, db: Session, context: RequestContext, request: CommitmentCreateRequest) -> Commitment:
+    def create_request(
+        self,
+        db: Session,
+        context: RequestContext,
+        request: CommitmentCreateRequest,
+        commit: bool = True,
+    ) -> Commitment:
         now = _now()
         commitment_id = request.commitment_id or _id("com")
         causation_id = request.causation_id or context.causation_id
@@ -214,8 +220,11 @@ class CommitmentService:
         )
         try:
             db.add_all([record, audit, event])
-            db.commit()
-            db.refresh(record)
+            if commit:
+                db.commit()
+                db.refresh(record)
+            else:
+                db.flush()
         except Exception:
             db.rollback()
             raise
@@ -241,6 +250,7 @@ class CommitmentService:
         context: RequestContext,
         commitment_id: str,
         request: CommitmentTransitionRequest,
+        commit: bool = True,
     ) -> CommitmentTransitionResponse:
         record = db.scalar(
             select(CommitmentRecord)
@@ -355,6 +365,7 @@ class CommitmentService:
         context: RequestContext,
         commitment_id: str,
         request: ProposalCreateRequest,
+        commit: bool = True,
     ) -> CommitmentTransitionResponse:
         record = db.scalar(
             select(CommitmentRecord)
@@ -447,13 +458,17 @@ class CommitmentService:
             occurred_at=record.updated_at,
             causation_id=causation_id,
         )
-        try:
+        if commit:
+            try:
+                db.add_all([audit, event, proposal_record])
+                db.commit()
+                db.refresh(record)
+            except Exception:
+                db.rollback()
+                raise
+        else:
             db.add_all([audit, event, proposal_record])
-            db.commit()
-            db.refresh(record)
-        except Exception:
-            db.rollback()
-            raise
+            db.flush()
 
         return CommitmentTransitionResponse(
             commitment=_to_commitment(record),
@@ -467,6 +482,7 @@ class CommitmentService:
         context: RequestContext,
         commitment_id: str,
         request: ProposalConfirmRequest,
+        commit: bool = True,
     ) -> CommitmentTransitionResponse:
         record = db.scalar(
             select(CommitmentRecord)
@@ -592,13 +608,17 @@ class CommitmentService:
             occurred_at=record.updated_at,
             causation_id=causation_id,
         )
-        try:
+        if commit:
+            try:
+                db.add_all([audit, event])
+                db.commit()
+                db.refresh(record)
+            except Exception:
+                db.rollback()
+                raise
+        else:
             db.add_all([audit, event])
-            db.commit()
-            db.refresh(record)
-        except Exception:
-            db.rollback()
-            raise
+            db.flush()
 
         return CommitmentTransitionResponse(
             commitment=_to_commitment(record),
@@ -612,6 +632,7 @@ class CommitmentService:
         context: RequestContext,
         commitment_id: str,
         request: RecordFulfilmentRequest,
+        commit: bool = True,
     ) -> CommitmentTransitionResponse:
         record = db.scalar(
             select(CommitmentRecord)
@@ -724,13 +745,17 @@ class CommitmentService:
             occurred_at=record.updated_at,
             causation_id=causation_id,
         )
-        try:
+        if commit:
+            try:
+                db.add_all([audit, event])
+                db.commit()
+                db.refresh(record)
+            except Exception:
+                db.rollback()
+                raise
+        else:
             db.add_all([audit, event])
-            db.commit()
-            db.refresh(record)
-        except Exception:
-            db.rollback()
-            raise
+            db.flush()
 
         return CommitmentTransitionResponse(
             commitment=_to_commitment(record),
@@ -744,6 +769,7 @@ class CommitmentService:
         context: RequestContext,
         commitment_id: str,
         assessment: FeasibilityAssessment,
+        commit: bool = True,
     ) -> Commitment:
         # 1. Caller Authorization Guard: only trusted internal/service principal is permitted (D-013)
         if context.actor_role not in {"SERVICE", "SYSTEM"}:
@@ -801,40 +827,71 @@ class CommitmentService:
 
         causation_id = context.causation_id
         if record.agreement_state == AgreementState.CONFIRMED.value and assessment.status == FeasibilityState.INFEASIBLE:
+            is_new_risk_edge = (previous_state["risk_state"] != RiskState.AT_RISK.value)
             record.risk_state = RiskState.AT_RISK.value
             record.recovery_state = RecoveryState.RECOVERY_REQUIRED.value
             record.commitment_version += 1
             record.updated_at = _now()
             new_state = _commitment_snapshot(record)
 
-            audit = self._audit(
-                context=context,
-                commitment_id=commitment_id,
-                event_type=CoreEventType.COMMITMENT_AT_RISK.value,
-                dimension="risk",
-                previous_state=previous_state,
-                new_state=new_state,
-                evidence_refs=assessment.evidence_refs,
-                reason=f"Assessment {assessment.assessment_id} evaluated INFEASIBLE on confirmed commitment",
-                occurred_at=record.updated_at,
-                causation_id=causation_id,
-            )
-            event = self._outbox(
-                context=context,
-                event_id=_id("evt"),
-                event_type=CoreEventType.COMMITMENT_AT_RISK.value,
-                commitment_id=commitment_id,
-                commitment_version=record.commitment_version,
-                payload={
-                    "commitment_id": commitment_id,
-                    "assessment_id": assessment.assessment_id,
-                    "snapshot_version": assessment.snapshot_version,
-                    "constraints": [c.model_dump(mode="json") for c in assessment.constraints],
-                    "affected_commitment_ids": assessment.affected_commitment_ids,
-                },
-                occurred_at=record.updated_at,
-                causation_id=causation_id,
-            )
+            if is_new_risk_edge:
+                # Single-edge risk transition: emit COMMITMENT_AT_RISK only on edge entering AT_RISK
+                audit = self._audit(
+                    context=context,
+                    commitment_id=commitment_id,
+                    event_type=CoreEventType.COMMITMENT_AT_RISK.value,
+                    dimension="risk",
+                    previous_state=previous_state,
+                    new_state=new_state,
+                    evidence_refs=assessment.evidence_refs,
+                    reason=f"Assessment {assessment.assessment_id} evaluated INFEASIBLE on confirmed commitment",
+                    occurred_at=record.updated_at,
+                    causation_id=causation_id,
+                )
+                event = self._outbox(
+                    context=context,
+                    event_id=_id("evt"),
+                    event_type=CoreEventType.COMMITMENT_AT_RISK.value,
+                    commitment_id=commitment_id,
+                    commitment_version=record.commitment_version,
+                    payload={
+                        "commitment_id": commitment_id,
+                        "assessment_id": assessment.assessment_id,
+                        "snapshot_version": assessment.snapshot_version,
+                        "constraints": [c.model_dump(mode="json") for c in assessment.constraints],
+                        "affected_commitment_ids": assessment.affected_commitment_ids,
+                    },
+                    occurred_at=record.updated_at,
+                    causation_id=causation_id,
+                )
+            else:
+                # Repeated INFEASIBLE during active risk episode updates state without duplicate at_risk outbox event
+                audit = self._audit(
+                    context=context,
+                    commitment_id=commitment_id,
+                    event_type=CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value,
+                    dimension="feasibility",
+                    previous_state=previous_state,
+                    new_state=new_state,
+                    evidence_refs=assessment.evidence_refs,
+                    reason=f"Subsequent assessment {assessment.assessment_id} evaluated INFEASIBLE while already AT_RISK",
+                    occurred_at=record.updated_at,
+                    causation_id=causation_id,
+                )
+                event = self._outbox(
+                    context=context,
+                    event_id=_id("evt"),
+                    event_type=CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value,
+                    commitment_id=commitment_id,
+                    commitment_version=record.commitment_version,
+                    payload={
+                        "commitment_id": commitment_id,
+                        "assessment_id": assessment.assessment_id,
+                        "feasibility_state": "INFEASIBLE",
+                    },
+                    occurred_at=record.updated_at,
+                    causation_id=causation_id,
+                )
         elif assessment.status == FeasibilityState.UNKNOWN:
             record.commitment_version += 1
             record.updated_at = _now()
@@ -901,16 +958,85 @@ class CommitmentService:
                 causation_id=causation_id,
             )
 
-        try:
+        if commit:
+            try:
+                db.add_all([audit, event])
+                db.commit()
+                db.refresh(record)
+            except Exception:
+                db.rollback()
+                raise
+        else:
             db.add_all([audit, event])
-            db.commit()
-            db.refresh(record)
-        except Exception:
-            db.rollback()
-            raise
+            db.flush()
 
         return _to_commitment(record)
 
+    def record_advisory_assessment(
+        self,
+        db: Session,
+        context: RequestContext,
+        assessment: FeasibilityAssessment,
+        commit: bool = True,
+    ) -> AuditEvent:
+        """Record an advisory or pre-commitment feasibility assessment (D-033).
+
+        Advisory assessments are append-only audit rows and NEVER mutate the
+        authoritative CommitmentRecord or touch CommitmentTerms.
+        """
+        if context.actor_role not in {"SERVICE", "SYSTEM"}:
+            raise DomainError(
+                "CALLER_NOT_AUTHORIZED",
+                f"Actor '{context.actor_id}' with role '{context.actor_role}' is not authorized to record advisory assessment; trusted service principal required",
+                status_code=403,
+            )
+        if assessment.tenant_id != context.tenant_id:
+            raise DomainError(
+                "TENANT_MISMATCH",
+                f"Assessment tenant_id '{assessment.tenant_id}' does not match context tenant '{context.tenant_id}'",
+                status_code=400,
+            )
+
+        now = _now()
+        audit = AuditEventRecord(
+            audit_id=_id("aud"),
+            tenant_id=assessment.tenant_id,
+            commitment_id=assessment.commitment_id,
+            event_type="commitment.advisory_feasibility_assessed",
+            actor_id=context.actor_id,
+            actor_role=context.actor_role,
+            dimension="feasibility",
+            previous_state=None,
+            new_state={
+                "advisory": True,
+                "assessment_id": assessment.assessment_id,
+                "status": assessment.status.value,
+                "snapshot_version": assessment.snapshot_version,
+                "commitment_version": assessment.commitment_version,
+                "constraints": [c.model_dump(mode="json") for c in assessment.constraints],
+                "affected_commitment_ids": assessment.affected_commitment_ids,
+                "solver_status": assessment.solver_status,
+                "assessed_at": assessment.assessed_at.isoformat(),
+            },
+            evidence_refs=assessment.evidence_refs,
+            reason=f"Advisory feasibility assessed: {assessment.status.value}",
+            occurred_at=now,
+            causation_id=context.causation_id,
+            correlation_id=context.correlation_id,
+        )
+        if commit:
+            try:
+                db.add(audit)
+                db.commit()
+                db.refresh(audit)
+            except Exception:
+                db.rollback()
+                raise
+        else:
+            db.add(audit)
+            db.flush()
+
+        return _to_audit(audit, role=context.actor_role)
 
     def audit(self, db: Session, context: RequestContext, commitment_id: str | None) -> list[AuditEvent]:
         if commitment_id:
@@ -1022,4 +1148,122 @@ class CommitmentService:
             status=OutboxStatus.PENDING.value,
             last_error=None,
             next_retry_at=None,
+        )
+
+    # -------------------------------------------------------------------------
+    # Section 4 Thin Alias Methods (R55, D-002)
+    # -------------------------------------------------------------------------
+    def request(
+        self,
+        db: Session,
+        context: RequestContext,
+        request: CommitmentCreateRequest,
+        *,
+        commit: bool = True,
+    ) -> Commitment:
+        """Alias for create_request matching Section 4 domain vocabulary."""
+        return self.create_request(db, context, request, commit=commit)
+
+    def offer(
+        self,
+        db: Session,
+        context: RequestContext,
+        commitment_id: str,
+        request: ProposalCreateRequest,
+        *,
+        commit: bool = True,
+    ) -> CommitmentTransitionResponse:
+        """Alias for create_proposal matching Section 4 domain vocabulary."""
+        return self.create_proposal(db, context, commitment_id, request, commit=commit)
+
+    def confirm(
+        self,
+        db: Session,
+        context: RequestContext,
+        commitment_id: str,
+        request: ProposalConfirmRequest,
+        *,
+        commit: bool = True,
+    ) -> CommitmentTransitionResponse:
+        """Alias for confirm_proposal matching Section 4 domain vocabulary."""
+        return self.confirm_proposal(db, context, commitment_id, request, commit=commit)
+
+    def verify_fulfilment(
+        self,
+        db: Session,
+        context: RequestContext,
+        commitment_id: str,
+        request: RecordFulfilmentRequest,
+        *,
+        commit: bool = True,
+    ) -> CommitmentTransitionResponse:
+        """Alias for record_fulfilment matching Section 4 domain vocabulary."""
+        return self.record_fulfilment(db, context, commitment_id, request, commit=commit)
+
+    def mark_risk(
+        self,
+        db: Session,
+        context: RequestContext,
+        commitment_id: str,
+        assessment: FeasibilityAssessment,
+        *,
+        commit: bool = True,
+    ) -> Commitment:
+        """Delegate for marking risk on a commitment matching Section 4 domain vocabulary."""
+        return self.assess(db, context, commitment_id, assessment, commit=commit)
+
+    def start_recovery(
+        self,
+        db: Session,
+        context: RequestContext,
+        commitment_id: str,
+        *,
+        expected_commitment_version: int,
+        reason: str = "Recovery started",
+        causation_id: str | None = None,
+        commit: bool = True,
+    ) -> CommitmentTransitionResponse:
+        """Delegate for initiating recovery matching Section 4 domain vocabulary."""
+        return self.transition(
+            db,
+            context,
+            commitment_id,
+            CommitmentTransitionRequest(
+                dimension="recovery",
+                target_state="PLANNING",
+                expected_commitment_version=expected_commitment_version,
+                reason=reason,
+                causation_id=causation_id,
+            ),
+            commit=commit,
+        )
+
+    def record_action_outcome(
+        self,
+        db: Session,
+        context: RequestContext,
+        commitment_id: str,
+        *,
+        expected_commitment_version: int,
+        dimension: str,
+        target_state: str,
+        reason: str,
+        evidence_refs: list[str] | None = None,
+        causation_id: str | None = None,
+        commit: bool = True,
+    ) -> CommitmentTransitionResponse:
+        """Delegate for recording action outcome matching Section 4 domain vocabulary."""
+        return self.transition(
+            db,
+            context,
+            commitment_id,
+            CommitmentTransitionRequest(
+                dimension=dimension,
+                target_state=target_state,
+                expected_commitment_version=expected_commitment_version,
+                reason=reason,
+                evidence_refs=evidence_refs,
+                causation_id=causation_id,
+            ),
+            commit=commit,
         )

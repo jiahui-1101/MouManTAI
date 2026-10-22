@@ -98,12 +98,42 @@ describe("Real App communication route", () => {
   it.each([
     ["/", "Commitment Overview"], ["/overview", "Commitment Overview"],
     ["/activity", "Activity & Audit History"], ["/inbox", "Smart inbox"],
-    ["/orders/order", "Order context"], ["/commitments/commitment", "Commitment feasibility"],
-    ["/impact/impact", "Operational impact"], ["/recovery/recovery", "Recovery case"],
+    ["/orders/order", "Order context"], ["/recovery/recovery", "Recovery case"],
     ["/confirmations/confirmation", "Confirmation workspace"], ["/unknown-route", "Page not found"],
   ])("preserves the actual App route %s", async (path, heading) => {
     mount(path);
     expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MouManTAI" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["/commitments/commitment", ["/v1/commitments/commitment", "/v1/commitments/commitment/assessments"]],
+    ["/impact/impact", ["/v1/impacts/impact"]],
+  ] as const)("preserves the actual App route %s", async (path, apiPaths) => {
+    mount(path);
+    // Real P2 pages load through the App's authenticated API source. With no
+    // detail fixtures they render LoadFailure, rather than a placeholder heading.
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("Request failed (404, NOT_FOUND): Test endpoint not configured");
+    expect(error.closest(".p2-feature")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "MouManTAI" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeInTheDocument();
+    expect(screen.queryByText(/owner module pending/i)).not.toBeInTheDocument();
+    const callsFor = (apiPath: string) => fetchMock.mock.calls.filter(
+      ([url]) => new URL(String(url)).pathname === apiPath,
+    );
+    for (const apiPath of apiPaths) {
+      expect(callsFor(apiPath)).toHaveLength(1);
+      expect(callsFor(apiPath)[0][1]?.headers).toMatchObject({
+        "X-Tenant-ID": "tenant_route_test", "X-Actor-ID": "user_manager_01",
+      });
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Retry loading" }));
+    await waitFor(() => {
+      for (const apiPath of apiPaths) expect(callsFor(apiPath)).toHaveLength(2);
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Request failed (404, NOT_FOUND)");
+    expect(screen.getByRole("button", { name: "Retry loading" })).toBeEnabled();
+    expect(window.location.pathname).toBe(path);
   });
 });

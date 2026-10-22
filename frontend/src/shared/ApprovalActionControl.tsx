@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ApiError, confirmProposal } from "./api";
 import { useAuth } from "./auth";
 import { StatusBadge } from "./StatusBadge";
+import { useToast } from "./Toast";
 import type { CommitmentTerms } from "./types";
 
 export interface ApprovalActionControlProps {
@@ -35,6 +36,7 @@ export function ApprovalActionControl({
 }: ApprovalActionControlProps) {
   const { actorRole, authHeaders } = useAuth();
   const isStaff = actorRole === "STAFF";
+  const toast = useToast();
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -60,7 +62,9 @@ export function ApprovalActionControl({
       );
 
       // Only show success when API actually returns 200 OK
-      setSuccessMessage("Proposal approved and committed successfully.");
+      const successText = "Proposal approved and committed successfully.";
+      setSuccessMessage(successText);
+      toast.success(successText);
       if (onSuccess) {
         onSuccess();
       }
@@ -76,6 +80,7 @@ export function ApprovalActionControl({
         msg = err.message;
       }
       setErrorMessage(msg);
+      toast.error(msg);
       if (onError) {
         onError(err);
       }

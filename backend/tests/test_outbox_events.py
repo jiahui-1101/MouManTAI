@@ -34,6 +34,8 @@ from app.core.schemas import (
     CommitmentTerms,
     CommitmentTransitionRequest,
     DomainEvent,
+    FeasibilityAssessment,
+    FeasibilityState,
 )
 from app.core.service import CommitmentService
 from app.db.base import Base
@@ -477,3 +479,363 @@ def test_correlation_and_causation_chain(service: CommitmentService, db_session:
     assert db_audit is not None
     assert db_audit.correlation_id == "corr_001"
     assert db_audit.causation_id == "evt_supplier_delay"
+
+
+def test_caller_owned_transaction_consumer_failure_and_atomic_rollback(
+    service: CommitmentService,
+    db_session: Session,
+) -> None:
+    """A consumer failure after Core mutation rolls back everything; re-delivery succeeds without duplicate (D-032, R26/R36/R55)."""
+    dispatcher = OutboxDispatcher()
+    now = datetime.now(timezone.utc)
+    tenant_id = "tenant_tx_test"
+    commitment_id = "com_tx_001"
+
+    # Seed confirmed commitment
+    record = CommitmentRecord(
+        tenant_id=tenant_id,
+        commitment_id=commitment_id,
+        order_id="ord_tx_001",
+        customer_id="cust_tx_001",
+        terms={"sku": "BURGER", "quantity": "100", "unit": "pcs", "deadline": now.isoformat()},
+        agreement_state="CONFIRMED",
+        feasibility_state="NOT_ASSESSED",
+        risk_state="NORMAL",
+        recovery_state="NONE",
+        fulfilment_state="NOT_STARTED",
+        commitment_version=1,
+        evidence_refs=["ev_conf_001"],
+        updated_at=now,
+    )
+    event_record = OutboxEventRecord(
+        event_id="evt_tx_consumer_001",
+        tenant_id=tenant_id,
+        event_type="commitment.confirmed",
+        commitment_id=commitment_id,
+        commitment_version=1,
+        correlation_id="corr_tx_001",
+        occurred_at=now,
+        payload={"commitment_id": commitment_id},
+        attempts=0,
+        status=OutboxStatus.PENDING.value,
+    )
+    db_session.add_all([record, event_record])
+    db_session.commit()
+
+    service_ctx = RequestContext(
+        tenant_id=tenant_id,
+        actor_id="service_p2_worker",
+        actor_role="SERVICE",
+        correlation_id="corr_tx_001",
+    )
+
+    should_fail = True
+    assessments_executed = 0
+
+    def consumer_handler(session: Session, evt: DomainEvent) -> None:
+        nonlocal assessments_executed
+        assessments_executed += 1
+        fa = FeasibilityAssessment(
+            assessment_id="fa_tx_001",
+            tenant_id=tenant_id,
+            commitment_id=commitment_id,
+            commitment_version=1,
+            snapshot_version=1,
+            status=FeasibilityState.INFEASIBLE,
+            constraints=[],
+            affected_commitment_ids=[],
+            solver_status="COMPLETED",
+            assessed_at=datetime.now(timezone.utc),
+        )
+        # Caller-owned transaction semantics: commit=False
+        service.assess(session, service_ctx, commitment_id, fa, commit=False)
+
+        if should_fail:
+            raise RuntimeError("Downstream storage failure after Core assess mutation")
+
+    # Register subscriber as required by D-017
+    dispatcher.register_subscriber("commitment.confirmed", "p2_confirmed_evaluator", consumer_handler)
+
+    # First attempt: handler raises after Core mutation
+    result1 = dispatcher.process_outbox_batch(db_session, max_attempts=3, backoff_base_seconds=1.0)
+    assert result1.failed_count == 1
+    assert assessments_executed == 1
+
+    # Verify atomic rollback: CommitmentRecord is completely unchanged
+    refreshed_rec = db_session.get(CommitmentRecord, (tenant_id, commitment_id))
+    assert refreshed_rec.commitment_version == 1
+    assert refreshed_rec.feasibility_state == "NOT_ASSESSED"
+    assert refreshed_rec.risk_state == "NORMAL"
+    assert refreshed_rec.recovery_state == "NONE"
+
+    # Verify atomic rollback: No audit records or new outbox records were committed for the assessment
+    audits = db_session.scalars(
+        select(AuditEventRecord).where(
+            AuditEventRecord.tenant_id == tenant_id,
+            AuditEventRecord.commitment_id == commitment_id,
+        )
+    ).all()
+    assert len(audits) == 0
+
+    # Verify atomic rollback: No ProcessedEventRecord was committed
+    processed = db_session.scalar(
+        select(ProcessedEventRecord).where(
+            ProcessedEventRecord.tenant_id == tenant_id,
+            ProcessedEventRecord.event_id == "evt_tx_consumer_001",
+        )
+    )
+    assert processed is None
+
+    # Event remains FAILED with retry schedule, not published
+    outbox_rec = db_session.get(OutboxEventRecord, "evt_tx_consumer_001")
+    assert outbox_rec.status == OutboxStatus.FAILED.value
+    assert outbox_rec.attempts == 1
+
+    # Re-delivery: downstream issue resolved
+    should_fail = False
+    outbox_rec.next_retry_at = datetime.now(timezone.utc)
+    db_session.commit()
+
+    result2 = dispatcher.process_outbox_batch(db_session, max_attempts=3)
+    assert result2.published_count == 1
+    assert assessments_executed == 2
+
+    # Verification: now mutations are committed atomically
+    refreshed_rec = db_session.get(CommitmentRecord, (tenant_id, commitment_id))
+    assert refreshed_rec.commitment_version == 2
+    assert refreshed_rec.feasibility_state == "INFEASIBLE"
+    assert refreshed_rec.risk_state == "AT_RISK"
+    assert refreshed_rec.recovery_state == "RECOVERY_REQUIRED"
+
+    # Verification: ProcessedEventRecord is now recorded
+    processed = db_session.scalar(
+        select(ProcessedEventRecord).where(
+            ProcessedEventRecord.tenant_id == tenant_id,
+            ProcessedEventRecord.event_id == "evt_tx_consumer_001",
+        )
+    )
+    assert processed is not None
+
+    # Register p3 subscriber for the downstream commitment.at_risk event emitted by assess()
+    p3_executed = 0
+    def p3_handler(session: Session, evt: DomainEvent) -> None:
+        nonlocal p3_executed
+        p3_executed += 1
+
+    dispatcher.register_subscriber("commitment.at_risk", "p3.recovery_trigger.v1", p3_handler)
+
+    # Verification: Next batch processes the downstream at_risk event cleanly
+    result3 = dispatcher.process_outbox_batch(db_session)
+    assert result3.published_count == 1
+    assert p3_executed == 1
+    assert assessments_executed == 2  # p2 consumer was not re-executed
+
+    # Verification: Now all events are published, no more pending events
+    result4 = dispatcher.process_outbox_batch(db_session)
+    assert result4.processed_count == 0
+
+
+def test_d017_mandatory_subscriber_policy_for_confirmed_and_at_risk(db_session: Session) -> None:
+    """D-017 required subscriber enforcement for commitment.confirmed and commitment.at_risk."""
+    dispatcher = OutboxDispatcher()
+    now = datetime.now(timezone.utc)
+    tenant_id = "tenant_d017"
+    com_id = "com_d017_001"
+
+    rec = CommitmentRecord(
+        tenant_id=tenant_id,
+        commitment_id=com_id,
+        order_id="ord_d017",
+        customer_id="cust_d017",
+        terms={"sku": "BURGER", "quantity": "50", "unit": "pcs", "deadline": now.isoformat()},
+        agreement_state="CONFIRMED",
+        feasibility_state="NOT_ASSESSED",
+        risk_state="NORMAL",
+        recovery_state="NONE",
+        fulfilment_state="NOT_STARTED",
+        commitment_version=1,
+        evidence_refs=["ev_d017"],
+        updated_at=now,
+    )
+    evt_confirmed = OutboxEventRecord(
+        event_id="evt_d017_conf",
+        tenant_id=tenant_id,
+        event_type="commitment.confirmed",
+        commitment_id=com_id,
+        commitment_version=1,
+        correlation_id="corr_d017_1",
+        occurred_at=now,
+        payload={"commitment_id": com_id},
+        attempts=0,
+        status=OutboxStatus.PENDING.value,
+    )
+    evt_at_risk = OutboxEventRecord(
+        event_id="evt_d017_risk",
+        tenant_id=tenant_id,
+        event_type="commitment.at_risk",
+        commitment_id=com_id,
+        commitment_version=1,
+        correlation_id="corr_d017_2",
+        occurred_at=now,
+        payload={"commitment_id": com_id},
+        attempts=0,
+        status=OutboxStatus.PENDING.value,
+    )
+    db_session.add_all([rec, evt_confirmed, evt_at_risk])
+    db_session.commit()
+
+    # 1. No subscribers registered: both events stay PENDING and are NOT published prematurely
+    res = dispatcher.process_outbox_batch(db_session)
+    assert res.published_count == 0
+    assert db_session.get(OutboxEventRecord, "evt_d017_conf").status == OutboxStatus.PENDING.value
+    assert db_session.get(OutboxEventRecord, "evt_d017_risk").status == OutboxStatus.PENDING.value
+
+    # 2. Wildcard subscriber registered: required named subscriber still missing -> still PENDING
+    dispatcher.register_subscriber("*", "wildcard_logger", lambda s, e: None)
+    res_wildcard = dispatcher.process_outbox_batch(db_session)
+    assert res_wildcard.published_count == 0
+    assert db_session.get(OutboxEventRecord, "evt_d017_conf").status == OutboxStatus.PENDING.value
+    assert db_session.get(OutboxEventRecord, "evt_d017_risk").status == OutboxStatus.PENDING.value
+
+    # 3. Register specifically named mandatory subscribers
+    called_p2 = False
+    called_p3 = False
+
+    def p2_handler(session: Session, event: DomainEvent) -> None:
+        nonlocal called_p2
+        called_p2 = True
+
+    def p3_handler(session: Session, event: DomainEvent) -> None:
+        nonlocal called_p3
+        called_p3 = True
+
+    dispatcher.register_subscriber("commitment.confirmed", "p2_confirmed_evaluator", p2_handler)
+    dispatcher.register_subscriber("commitment.at_risk", "p3.recovery_trigger.v1", p3_handler)
+
+    res_valid = dispatcher.process_outbox_batch(db_session)
+    assert res_valid.published_count == 2
+    assert called_p2 is True
+    assert called_p3 is True
+    assert db_session.get(OutboxEventRecord, "evt_d017_conf").status == OutboxStatus.PUBLISHED.value
+    assert db_session.get(OutboxEventRecord, "evt_d017_risk").status == OutboxStatus.PUBLISHED.value
+
+    # 4. Stale event reconciliation: version 1 event when commitment is at version 2
+    rec.commitment_version = 2
+    stale_event = OutboxEventRecord(
+        event_id="evt_d017_stale",
+        tenant_id=tenant_id,
+        event_type="commitment.confirmed",
+        commitment_id=com_id,
+        commitment_version=1,  # Stale!
+        correlation_id="corr_d017_stale",
+        occurred_at=now,
+        payload={"commitment_id": com_id},
+        attempts=0,
+        status=OutboxStatus.PENDING.value,
+    )
+    db_session.add(stale_event)
+    db_session.commit()
+
+    called_p2 = False
+    res_stale = dispatcher.process_outbox_batch(db_session)
+    # Stale event is reconciled via audit without re-evaluating
+    assert res_stale.published_count == 1
+    assert called_p2 is False  # Handler not invoked for stale version
+    assert db_session.get(OutboxEventRecord, "evt_d017_stale").status == OutboxStatus.PUBLISHED.value
+
+    # Verify explicit supersession audit record was written
+    audit_sup = db_session.scalar(
+        select(AuditEventRecord).where(
+            AuditEventRecord.tenant_id == tenant_id,
+            AuditEventRecord.commitment_id == com_id,
+            AuditEventRecord.event_type == "commitment.event_superseded",
+        )
+    )
+    assert audit_sup is not None
+    assert audit_sup.new_state.get("superseded") is True
+    assert audit_sup.new_state.get("current_commitment_version") == 2
+
+
+def test_advisory_assessments_append_only_and_never_mutate_aggregate(
+    service: CommitmentService,
+    db_session: Session,
+) -> None:
+    """Advisory assessments are append-only, do not mutate aggregate, and do not satisfy authoritative idempotency (D-033)."""
+    now = datetime.now(timezone.utc)
+    tenant_id = "tenant_adv_test"
+    com_id = "com_adv_001"
+
+    rec = CommitmentRecord(
+        tenant_id=tenant_id,
+        commitment_id=com_id,
+        order_id="ord_adv_001",
+        customer_id="cust_adv_001",
+        terms={"sku": "BURGER", "quantity": "100", "unit": "pcs", "deadline": now.isoformat()},
+        agreement_state="CONFIRMED",
+        feasibility_state="NOT_ASSESSED",
+        risk_state="NORMAL",
+        recovery_state="NONE",
+        fulfilment_state="NOT_STARTED",
+        commitment_version=1,
+        evidence_refs=["ev_adv_orig"],
+        updated_at=now,
+    )
+    db_session.add(rec)
+    db_session.commit()
+
+    service_ctx = RequestContext(
+        tenant_id=tenant_id,
+        actor_id="service_p2_evaluator",
+        actor_role="SERVICE",
+        correlation_id="corr_adv_001",
+    )
+
+    advisory_fa = FeasibilityAssessment(
+        assessment_id="fa_advisory_001",
+        tenant_id=tenant_id,
+        commitment_id=com_id,
+        commitment_version=1,
+        snapshot_version=1,
+        status=FeasibilityState.INFEASIBLE,
+        constraints=[],
+        affected_commitment_ids=[],
+        solver_status="COMPLETED",
+        assessed_at=now,
+    )
+
+    # Record advisory assessment
+    audit_event = service.record_advisory_assessment(db_session, service_ctx, advisory_fa)
+    assert audit_event.event_type == "commitment.advisory_feasibility_assessed"
+    assert audit_event.dimension == "feasibility"
+    assert audit_event.new_state.get("advisory") is True
+    assert audit_event.new_state.get("status") == "INFEASIBLE"
+
+    # Invariant: Aggregate record is completely untouched!
+    refreshed = db_session.get(CommitmentRecord, (tenant_id, com_id))
+    assert refreshed.commitment_version == 1
+    assert refreshed.agreement_state == "CONFIRMED"
+    assert refreshed.feasibility_state == "NOT_ASSESSED"
+    assert refreshed.risk_state == "NORMAL"  # NOT moved to AT_RISK despite advisory INFEASIBLE!
+    assert refreshed.recovery_state == "NONE"
+    assert refreshed.evidence_refs == ["ev_adv_orig"]
+    assert "advisory" not in refreshed.terms  # Contractual terms untouched
+
+    # Invariant: Advisory assessment does NOT satisfy authoritative idempotency check
+    authoritative_fa = FeasibilityAssessment(
+        assessment_id="fa_advisory_001",  # Same assessment_id
+        tenant_id=tenant_id,
+        commitment_id=com_id,
+        commitment_version=1,
+        snapshot_version=1,
+        status=FeasibilityState.FEASIBLE,
+        constraints=[],
+        affected_commitment_ids=[],
+        solver_status="COMPLETED",
+        assessed_at=now,
+    )
+    # This must execute and transition state (not be skipped as duplicate)
+    updated = service.assess(db_session, service_ctx, com_id, authoritative_fa)
+    assert updated.feasibility_state.value == "FEASIBLE"
+    assert updated.commitment_version == 2
+    assert "fa_advisory_001" in updated.evidence_refs
+

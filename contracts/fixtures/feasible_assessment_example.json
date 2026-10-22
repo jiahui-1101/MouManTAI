@@ -37,5 +37,29 @@
     "solver_status": "UNKNOWN",
     "assumptions": ["Awaiting supplier confirmation; impact set cannot be determined."],
     "assessed_at": "2026-10-21T09:15:00+08:00"
+  },
+  "infeasible_isolated_example": {
+    "assessment_id": "fa_infeasible_001",
+    "tenant_id": "tenant_demo_01",
+    "commitment_id": "com_003",
+    "commitment_version": 1,
+    "snapshot_version": 102,
+    "status": "INFEASIBLE",
+    "constraints": [
+      {
+        "code": "MATERIAL_SHORTAGE",
+        "resource_id": "SKU_BUN",
+        "shortage": "50",
+        "unit": "pcs",
+        "deadline": "2026-10-25T12:00:00+08:00",
+        "severity": "HARD",
+        "evidence_refs": ["ev_stock_shortage_001"]
+      }
+    ],
+    "affected_commitment_ids": [],
+    "evidence_refs": ["ev_stock_shortage_001"],
+    "solver_status": "COMPLETED",
+    "assumptions": ["Isolated infeasibility; target commitment cannot be delivered, but no downstream commitments are disrupted."],
+    "assessed_at": "2026-10-21T09:30:00+08:00"
   }
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -7,7 +7,47 @@ import { FeaturePlaceholder } from "./pages/FeaturePlaceholder";
 import { OverviewPage } from "./features/overview/OverviewPage";
 import { ActivityPage } from "./features/activity/ActivityPage";
 import { CommunicationCenterPage } from "./features/communication/CommunicationCenterPage";
-import { AuthProvider } from "./shared/auth";
+import { AuthProvider, useAuth } from "./shared/auth";
+import { apiRequest, authHeaders } from "./shared/api";
+import { createP2PublicApiSource } from "./features/feasibility/apiSource";
+import { CommitmentFeasibilityPage } from "./features/feasibility/CommitmentFeasibilityPage";
+import { ImpactDetailPage } from "./features/feasibility/ImpactDetailPage";
+
+export function CommitmentFeasibilityRoute() {
+  const { authHeaders: auth } = useAuth();
+  const source = useMemo(
+    () =>
+      createP2PublicApiSource(auth.tenantId, (path, init) =>
+        apiRequest(path, {
+          ...init,
+          headers: {
+            ...authHeaders(auth),
+            ...init?.headers,
+          },
+        }),
+      ),
+    [auth],
+  );
+  return <CommitmentFeasibilityPage source={source} />;
+}
+
+export function ImpactDetailRoute() {
+  const { authHeaders: auth } = useAuth();
+  const source = useMemo(
+    () =>
+      createP2PublicApiSource(auth.tenantId, (path, init) =>
+        apiRequest(path, {
+          ...init,
+          headers: {
+            ...authHeaders(auth),
+            ...init?.headers,
+          },
+        }),
+      ),
+    [auth],
+  );
+  return <ImpactDetailPage source={source} />;
+}
 
 export interface AppProps {
   queryClient?: QueryClient;
@@ -40,8 +80,8 @@ export function App({ queryClient, initialTenantId, initialActorId }: AppProps =
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/inbox" element={<FeaturePlaceholder owner="P1 · Context" title="Smart inbox" />} />
               <Route path="/orders/:id" element={<FeaturePlaceholder owner="P1 · Context" title="Order context" />} />
-              <Route path="/commitments/:id" element={<FeaturePlaceholder owner="P2 · Feasibility" title="Commitment feasibility" />} />
-              <Route path="/impact/:id" element={<FeaturePlaceholder owner="P2 · Feasibility" title="Operational impact" />} />
+              <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
+              <Route path="/impact/:id" element={<ImpactDetailRoute />} />
               <Route path="/recovery/:id" element={<FeaturePlaceholder owner="P3 · Recovery" title="Recovery case" />} />
               <Route path="/communications" element={<CommunicationCenterPage />} />
               <Route path="/confirmations/:id" element={<FeaturePlaceholder owner="P4 · Communication" title="Confirmation workspace" />} />
