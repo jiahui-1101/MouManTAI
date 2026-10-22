@@ -374,6 +374,26 @@ describe('durable synthetic Inbox', () => {
     expect(within(detail).getAllByText('100').length).toBeGreaterThanOrEqual(2);
   });
 
+  it('shows every original evidence span for an unresolved quantity', async () => {
+    const api = fakeApi();
+    vi.mocked(api.list).mockResolvedValue(page([message]));
+    const result = await api.process(message.message_id, false);
+    result.attempt.fields = [{
+      field_name: 'quantity', value: null, validation_status: 'UNRESOLVED',
+      qualifier: null, metadata: { reason: 'Conflicting quantities' },
+      evidence: [
+        { evidence_id: 'first', message_id: message.message_id, quote: '40', start: 0, end: 2, method: 'RULE', method_version: 'p1-deterministic-v4' },
+        { evidence_id: 'second', message_id: message.message_id, quote: '50', start: 6, end: 8, method: 'RULE', method_version: 'p1-deterministic-v4' },
+      ],
+    }];
+    vi.mocked(api.getExtraction).mockResolvedValue(result.attempt);
+    render(<DurableInbox api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Synthetic buyer' }));
+    const detail = screen.getByRole('region', { name: 'Persisted message details' });
+    expect(await within(detail).findByText('"40" [0:2] · "50" [6:8]')).toBeInTheDocument();
+    expect(within(detail).getByText('UNRESOLVED')).toBeInTheDocument();
+  });
+
   it('renders association candidates and allows manual confirmation', async () => {
     const api = fakeApi();
     api.list = vi.fn().mockResolvedValue(page([message]));

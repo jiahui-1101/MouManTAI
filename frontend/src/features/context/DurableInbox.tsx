@@ -399,7 +399,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                         <td><span className={`p1-badge ${f.validation_status === 'VALID' ? 'p1-ready' : f.validation_status === 'CONFLICT' ? 'p1-critical' : 'p1-attention'}`}>{f.validation_status}</span></td>
                         <td>{f.qualifier ?? '—'}</td>
                         <td>
-                          {f.evidence?.[0] ? `"${f.evidence[0].quote}" [${f.evidence[0].start}:${f.evidence[0].end}]` : '—'}
+                          {f.evidence?.length ? f.evidence.map(ev => `"${ev.quote}" [${ev.start}:${ev.end}]`).join(' · ') : '—'}
                           {f.metadata?.reason ? <div className="p1-muted" style={{ fontSize: '10px' }}>{f.metadata.reason}</div> : null}
                         </td>
                       </tr>

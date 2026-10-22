@@ -71,6 +71,8 @@
   right: 0;
   bottom: 0;
   width: min(580px, 100%);
+  max-width: 100%;
+  box-sizing: border-box;
   background: white;
   border-left: 1px solid #dce3ef;
   box-shadow: -10px 0 40px rgba(0, 0, 0, 0.15);
