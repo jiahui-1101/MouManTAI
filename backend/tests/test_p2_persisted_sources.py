@@ -587,6 +587,52 @@ def test_action_blocks_expired_approval_and_rolls_back_adapter_failure(
     assert session.query(InternalRecoveryTaskRecord).count() == 1
 
 
+def test_manager_approval_binds_versioned_proposal_id_for_successor_plan(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    # 1. Version 1 binds proposal_id == plan.plan_id
+    appr_v1 = ManagerApprovalService().decide(
+        session, manager, key, plan.plan_id, decision="APPROVED",
+        expected_plan_version=1, expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="approval-v1-proposal-id", reason="Authorize plan V1",
+    )
+    assert appr_v1.proposal_id == plan.plan_id
+    assert appr_v1.proposal_version == 1
+
+    # 2. Insert a V2 successor plan version in recovery_plan_versions
+    from app.recovery.durable_plans import RecoveryPlanRecord
+    plan_v1_rec = session.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 1))
+    plan_v2_rec = RecoveryPlanRecord(
+        tenant_id=plan_v1_rec.tenant_id,
+        plan_id=plan_v1_rec.plan_id,
+        plan_version=2,
+        case_id=plan_v1_rec.case_id,
+        commitment_id=plan_v1_rec.commitment_id,
+        assessment_id=plan_v1_rec.assessment_id,
+        snapshot_id=plan_v1_rec.snapshot_id,
+        snapshot_version=plan_v1_rec.snapshot_version,
+        core_commitment_version=plan_v1_rec.core_commitment_version,
+        evaluated_commitment_version=plan_v1_rec.evaluated_commitment_version,
+        payload=dict(plan_v1_rec.payload, plan_version=2),
+        status=plan_v1_rec.status,
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(plan_v2_rec)
+    session.commit()
+
+    # 3. Version 2 binds proposal_id == f"{plan_id}_v2"
+    appr_v2 = ManagerApprovalService().decide(
+        session, manager, key, plan.plan_id, decision="APPROVED",
+        expected_plan_version=2, expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="approval-v2-proposal-id", reason="Authorize successor plan V2",
+    )
+    assert appr_v2.proposal_id == f"{plan.plan_id}_v2"
+    assert appr_v2.proposal_version == 2
+
+
 def test_sqlite_alembic_0009_has_source_constraints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Portable migration check; this is not PostgreSQL verification."""
     backend = Path(__file__).resolve().parents[1]

@@ -335,11 +335,21 @@ class RecoveryPlanner:
         event_coordinator: RecoveryEventCoordinator | None = None,
         commitment_reader: CommitmentReader | None = None,
     ) -> None:
-        self.inputs = inputs or load_demo_recovery_inputs()
+        self._inputs = inputs
         self.repository = repository or RecoveryRepository()
         self.evaluator = evaluator or SyntheticP2Evaluator()
         self.event_coordinator = event_coordinator or RecoveryEventCoordinator()
         self.commitment_reader = commitment_reader
+
+    @property
+    def inputs(self) -> DemoRecoveryInputs:
+        if self._inputs is None:
+            self._inputs = load_demo_recovery_inputs()
+        return self._inputs
+
+    @inputs.setter
+    def inputs(self, value: DemoRecoveryInputs) -> None:
+        self._inputs = value
 
     def _assert_tenant(self, tenant_id: str, commitment: Commitment) -> None:
         if tenant_id != commitment.tenant_id:

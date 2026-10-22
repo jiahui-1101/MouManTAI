@@ -1,5 +1,22 @@
 # MouManTAI — Team Execution Log & Decision Register
 
+### 2026-10-22 — P5: Fix Alembic logger reconfiguration and outbox warning throttle test
+
+- Branch: `feat/p5-core-integration`
+- Scope: Fix CI failure in `backend/tests/test_outbox_events.py::test_unregistered_mandatory_subscriber_warning_is_throttled`.
+- Root Cause:
+  - During test suite runs where migration tests (e.g., `test_migration_0007.py`) execute before outbox tests, Alembic's `backend/migrations/env.py` invoked `fileConfig(config.config_file_name)` using the default `disable_existing_loggers=True`.
+  - This disabled all pre-existing loggers across the test session, specifically silencing `logger.warning(...)` on `app.core.outbox`.
+  - As a result, subsequent assertions on `caplog.records` in `test_unregistered_mandatory_subscriber_warning_is_throttled` captured 0 records (`assert 0 == 1`).
+- Fix:
+  - In `backend/migrations/env.py`, pass `disable_existing_loggers=False` to `fileConfig` so in-process migration runs do not disable existing domain loggers.
+  - In `backend/tests/test_outbox_events.py`, ensure `app.core.outbox` logger is explicitly enabled (`logger.disabled = False`) and scope `caplog.at_level(logging.WARNING, logger="app.core.outbox")` for isolated log capture.
+- Validation:
+  - `python -m pytest backend/tests`: 324 passed, 10 skipped.
+  - `python -m pytest backend/tests/test_migration_0007.py backend/tests/test_outbox_events.py`: 14 passed.
+  - `python -m pytest backend/app/feasibility/tests`: 288 passed.
+  - Full suite verified.
+
 ### 2026-10-22 — P1 BATCH 8: final P1 acceptance and delivery (audit, 12 E2E scenarios, demo script, P1 COMPLETE)
 
 - Branch: `feat/p1-ai-pipeline`; commits: demo script `abf75db`, acceptance suite `d8e3a6b`, documentation `docs/p1/FINAL_DELIVERY_AND_ACCEPTANCE.md`.
@@ -1646,3 +1663,83 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - P5 Gan0117 approved the prior 212ff3a head; P2 meishuet16 and P4 Sheng554 had not yet approved that head. All approvals are stale after this Main merge. Request fresh P2/P4/P5 approvals on the reconciled head, including explicit P5 acceptance that production subscribers and live side effects remain disabled.
 - Prior-head GitHub CI passed all three checks; the reconciled-head CI is pending. Keep PR #16 Draft and unmerged until fresh owner approval, green CI, and the final current-Main mergeability check.
 - No production subscriber registration, outbound communication, or real recovery execution was enabled.
+
+## 2026-10-23 — Fix Container Startup Fixture Resolution & Lazy Planner Inputs
+
+- **Context**: Docker container `moumantai-api-1` failed on startup during `alembic -c alembic.ini upgrade head` with `FileNotFoundError: [Errno 2] No such file or directory: '/contracts/fixtures/demo_dataset.json'`.
+- **Root Cause**:
+  1. `backend/app/recovery/fixtures.py` and `backend/app/core/fixture_loader.py` used hardcoded `Path(__file__).resolve().parents[3]`, which resolved to `<repo_root>` on host, but inside Docker container (`WORKDIR /app`, where `backend/app` is copied to `/app/app`), resolved to `/` (filesystem root) instead of `/app`.
+  2. `migrations/env.py` imported `durable_plans.py` to register P3 ORM tables, which imported `trigger_persistence.py` and `service.py`, instantiating `default_recovery_planner = RecoveryPlanner(...)` at module load time. `RecoveryPlanner.__init__` eagerly read fixture JSON from disk during Alembic migration.
+- **Implemented Fix**:
+  1. `backend/app/core/fixture_loader.py`: Added dynamic `resolve_fixture_path()` which walks parent directories up to repo/container root and checks `cwd`, `/app`, and `/contracts`. Updated `load_demo_fixture()` to use it.
+  2. `backend/app/recovery/fixtures.py`: Updated `_fixture_path()` to use `resolve_fixture_path("demo_dataset.json")`.
+  3. `backend/app/recovery/service.py`: Made `RecoveryPlanner.inputs` a lazy property so instantiating `RecoveryPlanner` at module import does not trigger immediate disk I/O.
+  4. `backend/Dockerfile`: Added `RUN ln -s /app/contracts /contracts` and `ENV PYTHONPATH=/app` for container path safety.
+  5. `backend/migrations/versions/0007_recovery_case_constraints_alignment.py`: Handled PostgreSQL constraint drops and additions idempotently via SQLAlchemy inspector checks to avoid failure when database was previously initialized or pre-migrated.
+  6. `scripts/seed_demo.py`: Added `..` to `sys.path` so script resolves `app.*` inside `/app` in container.
+  7. `backend/tests/test_contracts.py`: Added tests for `resolve_fixture_path`, missing fixture handling (`FileNotFoundError`), and `RecoveryPlanner` lazy input loading.
+- **Validation**:
+  - `python -m pytest backend/tests/test_contracts.py` (10 passed in 0.03s).
+  - `python -m pytest backend/tests/test_recovery.py backend/tests/test_recovery_actions.py backend/tests/test_recovery_approvals.py backend/tests/test_recovery_persistence.py backend/tests/test_recovery_triggers.py backend/tests/test_seed_demo.py backend/tests/test_core_api.py backend/tests/test_smoke.py` (94 passed, 1 warning in 1.89s).
+  - `docker compose build api`: Image built cleanly with `/contracts` symlink and `ENV PYTHONPATH=/app`.
+  - `docker compose up -d`: `moumantai-api-1` Up and Healthy, `moumantai-worker-1` Up, Alembic migrations 0006 through 0014 executed cleanly, seed data loaded 5 commitments, and `GET /health` verified HTTP 200 OK.
+
+## 2026-10-23 — Outbox Unregistered Mandatory Subscriber Warning Throttling (P5 / D-017)
+
+- **Context**: The background outbox worker (`python -m app.worker`) logged `Mandatory subscriber 'p3.recovery_trigger.v1' for event 'commitment.at_risk' is not registered; leaving PENDING` every 1 second during its polling cycle, causing terminal log spam.
+- **Architectural Policy Check**:
+  - Decision **D-017** ([TEAM_LOG.md:L1144-L1146](file:///c:/Users/ganru/Documents/MouManTAI/docs/TEAM_LOG.md#L1144-L1146)) mandates that events with required named consumers (`commitment.at_risk` → `p3.recovery_trigger.v1`, `commitment.confirmed` → `p2_confirmed_evaluator`) must remain `PENDING` if unhandled; they must never be published prematurely.
+  - Team consensus on PR #16 ([TEAM_LOG.md:L1646-L1648](file:///c:/Users/ganru/Documents/MouManTAI/docs/TEAM_LOG.md#L1646-L1648)) explicitly keeps production subscribers and live background cascades disabled by default to protect canonical seed data (`com_001`, `com_delay_01`, etc.) from unreviewed background mutation.
+- **Implemented Fix**:
+  - `backend/app/core/outbox.py`: Added `self._warned_unregistered: set[tuple[str, str, str]]` to `OutboxDispatcher`.
+  - When an unregistered mandatory subscriber is encountered, `logger.warning(...)` is emitted once on the initial detection.
+  - Subsequent 1-second polling intervals log at `logger.debug(...)` while keeping the event safely in `PENDING` state.
+  - Tracking set is cleared upon subscriber registration/unregistration.
+  - `backend/tests/test_outbox_events.py`: Added `test_unregistered_mandatory_subscriber_warning_is_throttled` verifying warning is emitted on initial batch and suppressed from repeating on subsequent batches.
+- **Teammate Impact Analysis**:
+  - **P1 (Omni-Channel Context)**: ZERO impact. No inbound message, parser, or context routing changes.
+  - **P2 (Feasibility & Impact)**: ZERO impact. No changes to feasibility evaluator, ATP, BOM, snapshot storage, or assessment contracts.
+  - **P3 (Recovery & Action)**: ZERO impact. `commitment.at_risk` events safely remain in `PENDING` state until explicitly consumed in test suites or opt-in E2E runs.
+  - **P4 (Communication & Confirmation)**: ZERO impact. No communication drafts, templates, or proposal integration affected.
+  - **P5 (Core/DB/Shell)**: P5-internal log hygiene. Zero schema changes, zero database mutations, zero API contract changes. Canonical seeded commitments in PostgreSQL remain intact.
+- **Validation**:
+  - `python -m pytest backend/tests/test_outbox_events.py` (12 passed in 0.29s).
+  - `python -m pytest backend/tests/test_contracts.py backend/tests/test_recovery.py backend/tests/test_recovery_actions.py backend/tests/test_recovery_approvals.py backend/tests/test_recovery_persistence.py backend/tests/test_recovery_triggers.py backend/tests/test_seed_demo.py backend/tests/test_core_api.py backend/tests/test_smoke.py backend/tests/test_outbox_events.py` (116 passed in 2.15s).
+  - Rebuilt worker (`docker compose build worker && docker compose up -d`). Container logs confirmed warning logged once on startup, followed by clean, quiet operation.
+
+## 2026-10-23 — Core Manager Approval Proposal ID Binding for Successor Plans (P5 / D-043 / Handoff #P3-1)
+
+- **Context**: Person 3 reported in Handoff #P3-1 (PR #32) that `ManagerApprovalService.decide()` recorded `proposal_id = plan_id` unconditionally. When successor recovery plans (V2+) were evaluated, this caused a mismatch against versioned proposal IDs (`f"{plan_id}_v{plan_version}"`) expected by Core and P4, causing P3 to fail closed with HTTP 409.
+- **Architectural Policy & Decision (D-043)**:
+  1. **Canonical Proposal ID Binding**: For successor recovery plans (version > 1), `ManagerApprovalService.decide()` binds `proposal_id` to `typed.proposal_id`, `plan.payload["proposal_id"]`, or dynamically derives `f"{plan_id}_v{expected_plan_version}"`.
+  2. **V1 Backward Compatibility**: For plan version 1, `proposal_id` defaults to `plan_id`, strictly preserving V1 compatibility and historical approval evidence.
+  3. **Revocation Lookup Alignment**: In `ManagerApprovalService.decide()`, when revoking an approval (`decision == "REVOKED"`), the proposal lookup checks `target_proposal_id = latest.proposal_id or ...`, correctly locating the active `CommitmentProposalRecord`.
+- **Delivered Changes**:
+  - `backend/app/core/manager_approval.py`: Implemented dynamic `derived_proposal_id` resolution and updated revocation proposal lookup.
+  - `backend/tests/test_p2_persisted_sources.py`: Added `test_manager_approval_binds_versioned_proposal_id_for_successor_plan` verifying V1 preserves `proposal_id == plan_id` and V2 binds to `f"{plan_id}_v2"`.
+- **Validation**:
+  - `python -m pytest backend/tests/test_p2_persisted_sources.py` (20 passed in 0.23s).
+  - Full backend pytest suite: `325 passed, 10 skipped, 8 warnings`.
+  - PostgreSQL dual-boundary handshake suite: `20 passed` on port 5433 (`engine.dialect.name == "postgresql"`).
+- **Owner Actions**:
+  - P3: Reconcile PR #32 with latest `feat/p5-core-integration`, verify regression tests, and re-request P5 GitHub review.
+
+## 2026-10-23 — Pure-Python SQLAlchemy Enforcement to Prevent Linux CI Segmentation Faults (P5 / D-044)
+
+- **Context**: In CI on Ubuntu (`python 3.12.15`), the test suite crashed with a native segmentation fault (`SIGSEGV` exit code 139) in `sqlalchemy/orm/loading.py` line 231 in `chunks` when transitioning from `backend/tests/test_registry.py` to `backend/tests/test_resource_reservations.py`.
+- **Root Cause**:
+  1. SQLAlchemy's Cython-accelerated modules (`_result_cy`, `_processors_cy`, `_row_cy`) have known ABI/memory management incompatibilities with Python 3.12's C-API during ORM result hydration and batch row fetching.
+  2. While `backend/tests/conftest.py` previously attempted `os.environ.setdefault("DISABLE_SQLALCHEMY_CEXT", "1")`, this had zero effect because:
+     - `DISABLE_SQLALCHEMY_CEXT` is only evaluated by `setup.py` at package build time, not at runtime when pre-compiled binary wheels (`.so`) are already installed.
+     - In `conftest.py`, `sqlalchemy` was already imported before `os.environ` was updated.
+- **Implemented Fix**:
+  1. `conftest.py` (root) & `backend/tests/conftest.py`: Implemented `PurePythonSQLAlchemyFinder(importlib.machinery.PathFinder)` and registered it into `sys.meta_path[0]`. This intercepts all imports of `sqlalchemy.*_cy` and transparently routes them to the pure-Python `.py` implementations (`_result_cy.py`, etc.), completely bypassing native Cython `.so` libraries at runtime.
+  2. `.github/workflows/ci.yml`:
+     - Added `env: DISABLE_SQLALCHEMY_CEXT: "1"` at the job level for `backend-tests`.
+     - Added `pip install --no-binary=sqlalchemy -e "./backend[dev]"` with `DISABLE_SQLALCHEMY_CEXT: "1"` so wheels do not install Cython extensions.
+     - Added `env: DISABLE_SQLALCHEMY_CEXT: "1"` to the test execution step.
+- **Validation**:
+  - `python -m pytest backend/tests`: 325 passed, 10 skipped in 8.16s.
+  - Verified pure-Python fallback execution with `sqlalchemy.util._has_cython.HAS_CYEXTENSION == False`.
+  - All resource reservation and registry tests execute cleanly without native memory faults.
+
