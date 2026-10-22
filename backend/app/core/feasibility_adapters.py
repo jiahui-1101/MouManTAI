@@ -86,7 +86,36 @@ class AuthoritativeEvaluationAuthority:
         context: RequestContext,
         commitment_id: str,
         expected_commitment_version: int,
+        db: Session | None = None,
     ) -> tuple[EvaluationSnapshot, Commitment]:
+        if db is not None:
+            record = db.scalar(
+                select(CommitmentRecord).where(
+                    CommitmentRecord.tenant_id == context.tenant_id,
+                    CommitmentRecord.commitment_id == commitment_id,
+                )
+            )
+            if record is not None:
+                default_snap, _ = build_production_example()
+                data = default_snap.model_dump(exclude_computed_fields=True)
+                data["operational"]["tenant_id"] = context.tenant_id
+                data["operational"]["confirmed_commitments"] = (
+                    {
+                        **data["operational"]["confirmed_commitments"][0],
+                        "commitment_id": commitment_id,
+                        "tenant_id": context.tenant_id,
+                    },
+                )
+                data["production"]["tenant_id"] = context.tenant_id
+                data["production"]["plans"] = (
+                    {
+                        **data["production"]["plans"][0],
+                        "tenant_id": context.tenant_id,
+                    },
+                )
+                snapshot = EvaluationSnapshot.model_validate(data)
+                commitment = self.service._to_model(record)
+                return snapshot, commitment
         default_snap, default_comm = build_production_example()
         data = default_snap.model_dump(exclude_computed_fields=True)
         data["operational"]["tenant_id"] = context.tenant_id
@@ -130,6 +159,7 @@ class AuthoritativeAssessmentWriter:
         *,
         snapshot: EvaluationSnapshot,
         result: EvaluationResult,
+        commit: bool = True,
     ) -> FeasibilityAssessment:
         record = db.scalar(
             select(CommitmentRecord)
@@ -182,7 +212,7 @@ class AuthoritativeAssessmentWriter:
             )
 
         # Map pure P2 evaluation result to FeasibilityAssessment preserving P2 deterministic ID
-        now = _now()
+        assessed_at = getattr(result, "assessed_at", None) or getattr(request, "assessed_at", None) or _now()
         assessment_id = getattr(result, "assessment_id", None) or getattr(request, "assessment_id", None) or _id("fa")
         assessment = FeasibilityAssessment(
             assessment_id=assessment_id,
@@ -196,7 +226,7 @@ class AuthoritativeAssessmentWriter:
             evidence_refs=list(result.evidence_refs),
             solver_status=result.solver_status,
             assumptions=list(result.assumptions),
-            assessed_at=now,
+            assessed_at=assessed_at,
         )
 
         # Intent suppression (A5):
@@ -212,12 +242,13 @@ class AuthoritativeAssessmentWriter:
         )
         self.service.assess(db, service_ctx, commitment.commitment_id, assessment, commit=False)
 
-        # Explicit HTTP-path commit with full rollback on error (A1)
-        try:
-            db.commit()
-        except Exception:
-            db.rollback()
-            raise
+        if commit:
+            # Explicit HTTP-path commit with full rollback on error (A1)
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
 
         return assessment
 

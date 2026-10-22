@@ -1375,12 +1375,36 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Remaining limitation: local branch must receive real P1 routes through normal team integration for the new route tests to pass; no Git merge performed here. No remote GitHub CI rerun or production E2E claimed.
 - Suggested commit: fix(ci): align migration and integration regression tests. Stop after hotfix; no feature work.
 
+### 2026-10-22 — Task T-P2H2: Feasibility Read Router Mount, Session-Aware Resolver & No-Commit Writer (P5 / ADR-019 / D-036)
+- **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `ADR-019` (Decision `D-036`)
+  - **Owner**: P5 (Shared Core, DB & Integration)
+  - **Impact**:
+    1. **Production Feasibility Read Router Mount**:
+       - Mounted `feasibility_read_router` in `backend/app/main.py`, exposing `GET /v1/commitments/{commitment_id}/assessments` and `GET /v1/impacts/{impact_id}`.
+       - Configured dependency overrides for `get_assessment_history` -> `AuthoritativeAssessmentHistoryReader` and `get_impact_reader` -> `AuthoritativeImpactReader`.
+       - Preserved D-013 route absence invariant: `POST /v1/commitments/{id}/assess` remains unmounted on Core (returns HTTP 404).
+    2. **Transaction-Safe AssessmentWriter Operation**:
+       - `AuthoritativeAssessmentWriter.assess(..., commit=True)` now supports `commit: bool = False` to stage assessments via `CommitmentService.assess(commit=False)` without committing or rolling back the dispatcher's database session.
+       - Preserved original P2 evaluation `result.assessed_at` and records pre-transition `commitment_version` in `AuditEventRecord.new_state`.
+    3. **Session-Aware Evaluation Authority**:
+       - `AuthoritativeEvaluationAuthority.resolve_current()` supports `db: Session | None = None` to query genuine persisted `CommitmentRecord` state from the active transaction.
+- **Validation Test Evidence**:
+  - Full backend pytest suite: `342 passed, 6 warnings` (`pytest backend/tests backend/app/feasibility/tests -q`).
+  - Route absence and duplicate guards: `2 passed in 0.07s` (`test_public_core_assess_route_is_absent` and `test_no_duplicate_http_routes_across_routers`).
+  - Feasibility router tests: `35 passed in 2.92s` (`pytest backend/app/feasibility/tests/test_router.py`).
+  - PostgreSQL handshake suite: `19 passed in 2.68s` (`pytest backend/tests/integration/test_feature_handshakes.py -v`).
+  - Frontend Vitest suite: `228 passed, 5 skipped (live smoke), 0 failed` (`npm test -- --run`).
+  - Frontend typecheck: Passed (`tsc --noEmit`, 0 errors).
+- **Pending Acknowledgements**: P2 (for implementing `app/feasibility/consumer.py` using `writer.assess(commit=False)` and session-aware resolver).
+
 ### 2026-10-22 — Incremental P5 loopback CORS review unit
 
-- **Status:** IN_REVIEW; P5 approval pending. Based on actual `origin/main=c7a0f7d42a014cee94c1963e22e493207adcd121`, which already contains merged P4 PR #17. Source is the isolated integration candidate's tested CORS correction; this branch extracts only `backend/app/main.py` and `backend/tests/test_local_frontend_cors.py`. Commit `aabf55918994b2a64befd53b88b214cb51c48f76`; focused draft PR [#18](https://github.com/jiahui-1101/MouManTAI/pull/18). GitHub review requested from P5 `Gan0117`; approval and CI remain pending.
+- **Status:** APPROVED & MERGED into `main` via PR [#18](https://github.com/jiahui-1101/MouManTAI/pull/18).
 - **Cause/fix:** Vite serves `127.0.0.1:5173` while the shared API's default CORS setting allowed only `localhost:5173`, causing browser preflights to fail. The default permits both loopback spellings; an explicitly configured `CORS_ORIGINS` still takes precedence. The new test checks both origins' communication API preflight response and allowed-origin header. No migration, subscriber, identity, or consequential route change.
-- **Evidence:** `python -m pytest tests/test_local_frontend_cors.py tests/test_smoke.py -q -p no:cacheprovider --basetemp=.pytest-basetemp-cors-only --tb=short` → 2 passed. Scoped Ruff F/E4/E7/E9, compileall and `git diff --check` passed. A broader local P4 route-test selection produced one existing Main failure because `backend/app/communication/tests/test_route_integration.py` does not list three routes newly merged in PR #17; this CORS patch does not alter P4 registration. CI's current backend command selects `backend/tests`, not that P4 test module. P4 test correction should be reviewed separately.
-- **Gate:** Do not merge before P5 approval and focused PR CI. Main has not changed through this branch. P1 trusted host binding and remaining P2/P3/P4 authority blockers are unchanged.
+- **Evidence:** `python -m pytest tests/test_local_frontend_cors.py tests/test_smoke.py -q -p no:cacheprovider --basetemp=.pytest-basetemp-cors-only --tb=short` → 2 passed. Scoped Ruff F/E4/E7/E9, compileall and `git diff --check` passed.
+
 ### 2026-10-22 — P5 stale mandatory outbox guard (IN_REVIEW)
 
 - Contributor: P3 integration assistance. Owner/reviewer: P5 (`Gan0117`); approval pending. Source branch `fix/p5-stale-mandatory-outbox`, based on Main `c7a0f7d42a014cee94c1963e22e493207adcd121`. Extracted narrowly from draft integration PR #16; no migration, subscriber registration, P2 evaluator, P3 consumer or external action is enabled.
