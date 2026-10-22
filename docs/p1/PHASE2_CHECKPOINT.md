@@ -1,5 +1,7 @@
 # P1 phase 2 checkpoint
 
+Latest L2-only continuation: [L2_PHASE1_CHECKPOINT.md](L2_PHASE1_CHECKPOINT.md), implementation `75b5c87`, 85 targeted tests passed. L2 remains default-disabled; no real inference performed. Stop awaiting the user's GPU endpoint. The earlier six integration/accuracy items below are not silently marked complete by this L2 task.
+
 Branch: `feat/p1-phase2-refinement`. Starting checkout `a3b2ba3` already contains Main/P5 changes; preserve them. No push/merge/PR, provider provisioning, L2 inference, historical reprocess/edit/publication, or shared migration changes performed.
 
 ## Completed in this phase
