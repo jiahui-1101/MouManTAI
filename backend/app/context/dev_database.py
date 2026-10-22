@@ -50,6 +50,8 @@ def create_p1_engine(url: str | None = None) -> Engine:
 
 def initialize_p1_schema(engine: Engine) -> None:
     with engine.begin() as connection:
+        from app.db.base import Base
+        Base.metadata.create_all(connection)
         connection.execute(CreateSchema("p1_dev", if_not_exists=True))
         P1Base.metadata.create_all(connection)
         connection.execute(text("ALTER TABLE p1_dev.order_contexts ADD COLUMN IF NOT EXISTS core_commitment_id VARCHAR(100);"))

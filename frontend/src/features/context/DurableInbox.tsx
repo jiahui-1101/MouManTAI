@@ -639,6 +639,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
             <OrderContextDetail
               contextId={activeContext.context_id}
               onClose={() => setShowContextModal(false)}
+              onContextUpdated={updated => setActiveContext(updated)}
             />
           </div>
         </div>,
@@ -649,6 +650,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
             <OrderContextDetail
               contextId={activeContext.context_id}
               onClose={() => setShowContextModal(false)}
+              onContextUpdated={updated => setActiveContext(updated)}
             />
           </div>
         </div>

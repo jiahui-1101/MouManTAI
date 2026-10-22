@@ -220,4 +220,50 @@ describe('OrderContextDetail component', () => {
       expect(screen.getByText(/Stale context version 2/)).toBeInTheDocument();
     });
   });
+
+  it('publishes context to Core successfully and renders commitment badge', async () => {
+    vi.spyOn(operationalApi, 'publishContext').mockResolvedValue({
+      ...mockContext,
+      core_commitment_id: 'com_pub_123',
+      published_to_core_at: '2026-10-22T08:00:00Z',
+    });
+
+    render(<OrderContextDetail contextId="ctx_mock_1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Order Context: ORD-5001')).toBeInTheDocument();
+    });
+
+    const publishBtn = screen.getByRole('button', { name: 'Publish to Core' });
+    expect(publishBtn).toBeInTheDocument();
+
+    fireEvent.click(publishBtn);
+
+    await waitFor(() => {
+      expect(operationalApi.publishContext).toHaveBeenCalledWith('ctx_mock_1');
+      expect(screen.getByText('Core: com_pub_123')).toBeInTheDocument();
+      expect(screen.getByText(/Successfully published to Core commitment com_pub_123/)).toBeInTheDocument();
+    });
+  });
+
+  it('displays error alert when Core publication fails', async () => {
+    vi.spyOn(operationalApi, 'publishContext').mockRejectedValue(
+      new Error('Publishing rejected: Context status is not INFORMATION_READY')
+    );
+
+    render(<OrderContextDetail contextId="ctx_mock_1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Order Context: ORD-5001')).toBeInTheDocument();
+    });
+
+    const publishBtn = screen.getByRole('button', { name: 'Publish to Core' });
+    fireEvent.click(publishBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Publish to Core Ineligible \/ Failed/)).toBeInTheDocument();
+      expect(screen.getByText(/Context status is not INFORMATION_READY/)).toBeInTheDocument();
+    });
+  });
 });
+

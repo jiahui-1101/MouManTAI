@@ -28,8 +28,9 @@ def pg_engine():
     base = create_p1_engine(url)
     engine = base.execution_options(schema_translate_map={"p1_dev": schema})
     with engine.begin() as connection:
-        connection.execute(text("SELECT 1"))
         connection.execute(CreateSchema(schema))
+        from app.db.base import Base
+        Base.metadata.create_all(connection)
         P1Base.metadata.create_all(connection)
     try:
         yield engine

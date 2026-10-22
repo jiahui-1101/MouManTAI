@@ -43,6 +43,7 @@ export interface OperationalApi {
   updateContext(id: string, req: ContextUpdateRequest, headers?: Record<string, string>): Promise<OrderContextRecord>;
   listContextVersions(id: string): Promise<OrderContextVersionRecord[]>;
   listContextReviews(id: string): Promise<ContextReviewRecord[]>;
+  publishContext(id: string, headers?: Record<string, string>): Promise<OrderContextRecord>;
   uploadAttachment(file: File): Promise<AttachmentRecord>;
   extractAttachment(evidenceRef: string): Promise<DocumentExtractionResult>;
   getAttachmentExtraction(evidenceRef: string): Promise<DocumentExtractionResult>;
@@ -56,8 +57,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     let message = `Message request failed (${response.status}).`;
     try {
       const body = await response.json();
-      if (typeof body.detail === 'string') message = body.detail;
-      else if (Array.isArray(body.detail)) message = body.detail.map((item: { msg?: string }) => item.msg ?? 'Invalid input').join('; ');
+      if (typeof body.detail === 'string') {
+        message = body.detail;
+      } else if (Array.isArray(body.detail)) {
+        message = body.detail.map((item: { msg?: string }) => item.msg ?? 'Invalid input').join('; ');
+      } else if (body.detail && typeof body.detail === 'object') {
+        if (Array.isArray(body.detail.reasons)) {
+          message = `${body.detail.message || 'Validation failed'}: ${body.detail.reasons.join('; ')}`;
+        } else if (body.detail.message) {
+          message = body.detail.message;
+        }
+      }
     } catch { /* Keep the status-based diagnostic when the server does not return JSON. */ }
     throw new PreviewError(message, response.status);
   }
@@ -114,6 +124,11 @@ export const operationalApi: OperationalApi = {
     }),
   listContextVersions: id => request(`/v1/contexts/${encodeURIComponent(id)}/versions`),
   listContextReviews: id => request(`/v1/contexts/${encodeURIComponent(id)}/reviews`),
+  publishContext: (id, headers = {}) =>
+    request(`/v1/contexts/${encodeURIComponent(id)}/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+    }),
   uploadAttachment: file => {
     const formData = new FormData();
     formData.append('file', file);

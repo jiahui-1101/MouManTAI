@@ -263,3 +263,64 @@ def test_context_api_tenant_isolation(pg_engine):
     )
     assert resp.status_code == 404
 
+
+def test_publish_context_to_core_ineligible(api_client):
+    envelope = {
+        "tenant_id": "synthetic_tenant_a",
+        "channel": "WHATSAPP",
+        "provider_message_id": f"msg_pub_inelig_{uuid4().hex[:8]}",
+        "sender_identity_id": "+60199999999",  # unverified sender
+        "sender_alias": "Unknown Sender",
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "business_timezone": "Asia/Kuala_Lumpur",
+        "text": "Hello I might want some items later",
+        "attachments": [],
+    }
+    resp = api_client.post("/v1/messages/ingest", json=envelope)
+    assert resp.status_code == 201
+    msg_id = resp.json()["message"]["message_id"]
+
+    ctx = api_client.post(f"/v1/contexts/from-message/{msg_id}").json()
+    ctx_id = ctx["context_id"]
+
+    # Calling publish on unverified / incomplete context returns 422
+    pub_resp = api_client.post(f"/v1/contexts/{ctx_id}/publish")
+    assert pub_resp.status_code == 422
+    detail = pub_resp.json()["detail"]
+    assert "ineligible for Core publication" in detail["message"]
+    assert len(detail["reasons"]) > 0
+
+
+def test_publish_context_to_core_success(api_client):
+    envelope = {
+        "tenant_id": "synthetic_tenant_a",
+        "channel": "WHATSAPP",
+        "provider_message_id": f"msg_pub_succ_{uuid4().hex[:8]}",
+        "sender_identity_id": "+60123456789",  # cust_bk verified
+        "sender_alias": "Burger King Procurement",
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "business_timezone": "Asia/Kuala_Lumpur",
+        "text": "Please send 50 pcs burgers tomorrow before 3pm for ORD-1001",
+        "attachments": [],
+    }
+    resp = api_client.post("/v1/messages/ingest", json=envelope)
+    assert resp.status_code == 201
+    msg_id = resp.json()["message"]["message_id"]
+
+    ctx = api_client.post(f"/v1/contexts/from-message/{msg_id}").json()
+    ctx_id = ctx["context_id"]
+    assert ctx["status"] == "INFORMATION_READY"
+    assert ctx["customer_identity_status"] == "LINK_VERIFIED"
+
+    # Publish to Core
+    pub_resp = api_client.post(
+        f"/v1/contexts/{ctx_id}/publish",
+        headers={"X-Actor-ID": "usr_mgr", "X-Actor-Role": "MANAGER"},
+    )
+    assert pub_resp.status_code == 200
+    published_ctx = pub_resp.json()
+    assert published_ctx["core_commitment_id"] is not None
+    assert published_ctx["core_commitment_id"].startswith("com_")
+    assert published_ctx["published_to_core_at"] is not None
+
+

@@ -8,9 +8,12 @@ from .association_schemas import AssociationDecisionRequest, MessageAssociationR
 from .association_service import AssociationService
 from .attachment_validator import validate_attachment
 from .context_service import ContextService
+from .core_publisher import CoreContextPublisher, IneligibleContextError
 from .document_extractor import extract_pdf_document
 from .document_schemas import AttachmentRecord, DocumentExtractionResult
 from .dependencies import development_context, local_repository
+from app.core.dependencies import RequestContext
+from sqlalchemy.orm import Session
 from .ingestion import IngestionService
 from .ingestion_schemas import (
     ApiError,
@@ -212,6 +215,68 @@ def list_context_reviews(context_id: str, tenant: Tenant, repository: Repository
     if ctx is None:
         raise HTTPException(status_code=404, detail="Order context not found")
     return repository.list_context_reviews(tenant.tenant_id, context_id)
+
+
+@router.post("/v1/contexts/{context_id}/publish", response_model=OrderContextRecord,
+             responses={**errors, 404: {"model": ApiError}, 422: {"model": ApiError}})
+def publish_order_context_to_core(
+    context_id: str,
+    tenant: Tenant,
+    repository: Repository,
+    x_actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
+    x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
+    x_correlation_id: Annotated[str | None, Header(alias="X-Correlation-ID")] = None,
+) -> OrderContextRecord:
+    ctx = repository.get_order_context(tenant.tenant_id, context_id)
+    if ctx is None:
+        raise HTTPException(status_code=404, detail="Order context not found")
+
+    publisher = CoreContextPublisher()
+    is_eligible, reasons = publisher.check_eligibility(ctx)
+    if not is_eligible:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": f"Context '{context_id}' is ineligible for Core publication",
+                "reasons": reasons,
+            },
+        )
+
+    actor_id = x_actor_id or "user_staff_01"
+    actor_role = x_actor_role or "STAFF"
+    correlation_id = x_correlation_id or f"corr_{uuid4().hex[:12]}"
+    req_context = RequestContext(
+        tenant_id=tenant.tenant_id,
+        actor_id=actor_id,
+        actor_role=actor_role,
+        correlation_id=correlation_id,
+        causation_id=context_id,
+    )
+
+    engine = getattr(repository, "engine", None)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database persistence engine is unavailable")
+
+    try:
+        with Session(engine) as session:
+            publisher.publish_to_core(session, req_context, ctx)
+    except IneligibleContextError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": exc.message,
+                "reasons": exc.reasons,
+            },
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Core publication failed: {exc}") from exc
+
+    refetched = repository.get_order_context(tenant.tenant_id, context_id)
+    if refetched is None:
+        raise HTTPException(status_code=404, detail="Order context not found after publication")
+    return refetched
 
 
 @router.post("/v1/attachments/upload", response_model=AttachmentRecord, status_code=201,
