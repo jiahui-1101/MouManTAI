@@ -158,6 +158,7 @@
 | ADR-013 | Caller-Owned Unit-of-Work (D-032), D-017 Named Subscriber Policy, and Advisory Isolation (D-033) | `CommitmentService.assess()` supports `commit=False`/`flush()`; OutboxDispatcher verifies required subscriber `p2_confirmed_evaluator` on `commitment.confirmed` and `p3.recovery_trigger.v1` on `commitment.at_risk`; advisory feasibility is stored append-only in audit without mutating aggregate or terms. | Accepted | 2026-10-22 |
 | ADR-014 | Contract Relaxation: `FeasibilityAssessment.affected_commitment_ids` | `affected_commitment_ids` defaults to empty list `[]` (downstream impact set only). FEASIBLE and UNKNOWN pass cleanly with `[]`; INFEASIBLE with `[]` signals local constraint breach without downstream cascade. | Accepted | 2026-10-22 |
 | ADR-015 | Concurrency Lock Hierarchy & Deadlock Safety (D-041) | Canonical lock hierarchy: `CommitmentRecord` row lock (`with_for_update`) strictly precedes secondary entity updates. Feasibility snapshot evaluation uses lock-free MVCC reads (`get_resource_snapshot`), preventing AB-BA deadlocks between confirmed evaluation and operational disruptions. Verified with dual-session PostgreSQL concurrency test. | Accepted | 2026-10-22 |
+| ADR-016 | D-041 Scope Clarification: P2 OperationalSnapshot Row Locking (D-042) | Confirmed that P2's persisted OperationalSnapshotRecord row locks under the monotonic Commitment → OperationalSnapshot hierarchy are fully compatible with D-041. Distinguishes Core lock-free MVCC stock reads from P2 operational currentness serialization. | Accepted | 2026-10-22 |
 
 Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/files, agreed-by, time; never silently reverse a lock.
 
@@ -1605,6 +1606,18 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - **Owner Actions**:
   - P2: Complete Phase 7B-4G acceptance review against PR #16.
   - P5: PR #16 remains Draft until final P2 approval and trusted operational-source authority integration.
+
+## 2026-10-22 — P5 Decision D-042: Formal D-041 Scope Clarification on P2 OperationalSnapshotRecord Row Locking
+
+- **Context**: Person 2 and Person 3 requested formal P5 confirmation in Handoffs #P2-1 and #P3-1 regarding whether D-041 permits the P2 persisted-source adapter to retain row locks on `OperationalSnapshotRecord` under the unified `CommitmentRecord` → `OperationalSnapshotRecord` hierarchy.
+- **Scope Distinction & Architectural Ruling**:
+  1. **Core Domain (`backend/app/core/`)**: Core's built-in resource snapshot abstraction (`ResourceStockRecord`) relies on lock-free MVCC reads (`get_resource_snapshot()`) with optimistic concurrency checks (`expected_snapshot_version`). Core does not acquire row-level write locks on resource stock during assessment reads.
+  2. **P2 Feature Domain (`backend/app/feasibility/`)**: P2's persisted operational source model (`OperationalSnapshotRecord` in `persisted_sources.py`) manages operational snapshot currentness (`is_current`) and multi-commitment impact recalculations.
+  3. **Compatibility Confirmed (D-042)**: In PR #16 (commit `2913421e`), P3 and P2 aligned `PersistedSupplierDelayProcessor` to lock `CommitmentRecord` rows FIRST in deterministic ID order BEFORE locking `OperationalSnapshotRecord` rows in deterministic version order. Because both the confirmed-event path and supplier-delay path adhere strictly to the monotonic **Commitment → OperationalSnapshot** lock sequence, AB-BA deadlocks are impossible. Retaining `with_for_update()` on `OperationalSnapshotRecord` in P2 is **fully compatible with D-041**.
+- **Owner Actions**:
+  - P2: Technical review marked PASS; finalize GitHub P2 Owner Approval on PR #16 (HEAD `f3fbadd`).
+  - P3: Retain PR #16 in Draft until final P2/P5 GitHub approvals and operational-source integration.
+
 
 
 
