@@ -13,15 +13,15 @@ export interface ReviewDrawerProps {
 export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDrawerProps) {
   if (!isOpen) return null;
 
-  const currentItem = context.requested_items?.[0] || { sku: 'BURGER', quantity: '1', unit: 'pcs' };
+  const currentItem = context.requested_items?.[0] || { sku: '', quantity: '', unit: '' };
 
   const [sku, setSku] = useState(currentItem.sku);
   const [quantity, setQuantity] = useState(currentItem.quantity);
   const [unit, setUnit] = useState(currentItem.unit);
   const [deliveryAt, setDeliveryAt] = useState(
-    context.requested_delivery_at ? new Date(context.requested_delivery_at).toISOString().slice(0, 16) : ''
+    context.requested_delivery_at || ''
   );
-  const [qualifier, setQualifier] = useState(context.delivery_qualifier || 'EXACT');
+  const [qualifier, setQualifier] = useState(context.delivery_qualifier || '');
   const [specialInstructions, setSpecialInstructions] = useState(context.special_instructions || '');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -35,9 +35,15 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
       const fieldEdits: Record<string, unknown> = {};
 
       if (action === 'EDIT_FIELD') {
+        if (!sku.trim() || !unit.trim() || !/^[0-9]+(?:\.[0-9]+)?$/.test(quantity.trim()) || Number(quantity) <= 0) {
+          throw new Error('Enter an explicit SKU, positive quantity and unit. Missing fields are not defaulted.');
+        }
         fieldEdits.requested_items = items;
         fieldEdits.delivery_qualifier = qualifier;
         if (deliveryAt) {
+          if (!/(Z|[+-][0-9]{2}:[0-9]{2})$/.test(deliveryAt) || Number.isNaN(Date.parse(deliveryAt))) {
+            throw new Error('Enter an ISO timestamp with explicit UTC offset, for example 2026-10-23T15:00:00+08:00.');
+          }
           fieldEdits.requested_delivery_at = new Date(deliveryAt).toISOString();
         }
         if (specialInstructions) {
@@ -132,6 +138,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                   onChange={e => setUnit(e.target.value)}
                   disabled={submitting}
                 >
+                  <option value="">Missing / unknown</option>
                   <option value="pcs">pcs</option>
                   <option value="box">box</option>
                   <option value="kg">kg</option>
@@ -144,10 +151,10 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
             <h4>Requested Delivery</h4>
             <div className="p1-form-row">
               <div className="p1-form-group">
-                <label htmlFor="p1-input-delivery">Date & Time</label>
+                <label htmlFor="p1-input-delivery">Date & Time (ISO with UTC offset)</label>
                 <input
                   id="p1-input-delivery"
-                  type="datetime-local"
+                  type="text"
                   value={deliveryAt}
                   onChange={e => setDeliveryAt(e.target.value)}
                   disabled={submitting}
@@ -162,9 +169,9 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                   onChange={e => setQualifier(e.target.value)}
                   disabled={submitting}
                 >
+                  <option value="">Unresolved</option>
                   <option value="EXACT">EXACT</option>
-                  <option value="BEFORE">BEFORE / DEADLINE</option>
-                  <option value="AFTER">AFTER</option>
+                  <option value="DEADLINE">DEADLINE</option>
                   <option value="DATE_ONLY">DATE_ONLY</option>
                 </select>
               </div>

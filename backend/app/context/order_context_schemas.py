@@ -55,7 +55,7 @@ class RequestedItem(P1ContextModel):
     def validate_positive_quantity(cls, value: str) -> str:
         try:
             val = Decimal(value)
-            if val <= 0:
+            if not val.is_finite() or val <= 0:
                 raise ValueError("Quantity must be positive")
         except Exception:
             raise ValueError("Quantity must be a positive decimal string")
@@ -127,6 +127,22 @@ class ContextReviewRequest(P1ContextModel):
     field_edits: dict[str, Any] = Field(default_factory=dict)
     note: str | None = None
 
+    @field_validator("field_edits")
+    @classmethod
+    def safe_review_fields(cls, edits):
+        allowed = {"requested_items", "requested_delivery_at", "delivery_qualifier", "special_instructions",
+                   "customer_id", "customer_identity_status", "missing_fields", "conflicts"}
+        if set(edits) - allowed:
+            raise ValueError("Review cannot modify tenant, IDs, versions, provenance or publication state")
+        if "requested_items" in edits:
+            edits["requested_items"] = [RequestedItem.model_validate(v).model_dump() for v in edits["requested_items"]]
+        if edits.get("requested_delivery_at") is not None:
+            value = edits["requested_delivery_at"]
+            dt = datetime.fromisoformat(value) if isinstance(value, str) else value
+            if not isinstance(dt, datetime) or dt.tzinfo is None or dt.utcoffset() is None:
+                raise ValueError("Human delivery edits require an explicit UTC offset")
+        return edits
+
 
 class ContextUpdateRequest(P1ContextModel):
     expected_context_version: int = Field(ge=1)
@@ -135,3 +151,10 @@ class ContextUpdateRequest(P1ContextModel):
     delivery_qualifier: str | None = None
     special_instructions: str | None = None
     reason: str | None = None
+
+    @field_validator("requested_delivery_at")
+    @classmethod
+    def aware_delivery(cls, value):
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("Delivery edits require an explicit UTC offset")
+        return value

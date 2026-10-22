@@ -75,6 +75,7 @@ export function SyntheticComposer({ tenantId, ingest, uploadAttachment, onSucces
   const [identity, setIdentity] = useState('synthetic_platform_sender');
   const [text, setText] = useState('');
   const [thread, setThread] = useState('');
+  const [businessTimezone, setBusinessTimezone] = useState('Asia/Kuala_Lumpur');
   const [attachedRecord, setAttachedRecord] = useState<AttachmentRecord | null>(null);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -121,7 +122,7 @@ export function SyntheticComposer({ tenantId, ingest, uploadAttachment, onSucces
     const timestamp = new Date().toISOString();
     const payload: RawMessageEnvelope = { tenant_id: tenantId, channel, adapter_mode: 'SYNTHETIC',
       provider_message_id: providerId, sender_identity_id: identity, sender_alias: sender, text,
-      received_at: timestamp, message_at: timestamp, business_timezone: 'Asia/Kuala_Lumpur',
+      received_at: timestamp, message_at: timestamp, business_timezone: businessTimezone || null,
       thread_ref: thread || null, reply_to_provider_message_id: null,
       attachments: attachedRecord ? [{
         attachment_id: attachedRecord.attachment_id,
@@ -136,7 +137,7 @@ export function SyntheticComposer({ tenantId, ingest, uploadAttachment, onSucces
   }
 
   return <section className="p1-compose-card" aria-labelledby="compose-title"><div className="p1-compose-heading"><h2 id="compose-title">New synthetic message</h2><button type="button" className="p1-secondary" disabled={pending} onClick={onCancel}>Close form</button></div>
-    <p className="p1-muted">Multi-channel synthetic adapter · WhatsApp, Email, Telegram support. Extraction starts upon ingest.</p>
+    <p className="p1-muted">Synthetic input. Saving persists the original; Process starts extraction. Business timezone is an explicit synthetic declaration.</p>
     <form onSubmit={submit} noValidate>
       <fieldset disabled={pending || frozen !== null}><legend className="p1-sr-only">Synthetic message input</legend>
         <div style={{ marginBottom: '14px' }}>
@@ -164,6 +165,14 @@ export function SyntheticComposer({ tenantId, ingest, uploadAttachment, onSucces
           </select>
         </div>
         <div className="p1-compose-fields">
+          <label>Synthetic business timezone
+            <select value={businessTimezone} onChange={event => setBusinessTimezone(event.target.value)}>
+              <option value="">Missing / unknown</option>
+              <option value="Asia/Kuala_Lumpur">Asia/Kuala_Lumpur (declared for this synthetic message)</option>
+              <option value="Asia/Singapore">Asia/Singapore</option>
+              <option value="America/New_York">America/New_York</option>
+            </select>
+          </label>
           <label>Channel
             <select aria-label="Channel" value={channel} onChange={event => setChannel(event.target.value as Channel)}>
               <option value="WHATSAPP">WHATSAPP</option>
