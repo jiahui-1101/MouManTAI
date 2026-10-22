@@ -538,16 +538,15 @@ class CommitmentService:
                     },
                 )
             if request.proposal_id and request.proposal_id != latest_proposal.proposal_id:
-                if not (request.proposal_id == "prop_001" and latest_proposal.proposal_id.startswith("prop_")):
-                    raise DomainError(
-                        "PROPOSAL_ID_MISMATCH",
-                        f"Requested proposal_id '{request.proposal_id}' does not match active proposal '{latest_proposal.proposal_id}'",
-                        status_code=409,
-                        details={
-                            "active_proposal_id": latest_proposal.proposal_id,
-                            "submitted_proposal_id": request.proposal_id,
-                        },
-                    )
+                raise DomainError(
+                    "PROPOSAL_ID_MISMATCH",
+                    f"Requested proposal_id '{request.proposal_id}' does not match active proposal '{latest_proposal.proposal_id}'",
+                    status_code=409,
+                    details={
+                        "active_proposal_id": latest_proposal.proposal_id,
+                        "submitted_proposal_id": request.proposal_id,
+                    },
+                )
 
         # Check customer identity link
         if request.customer_identity_status == CustomerIdentityStatus.UNVERIFIED or (

@@ -1500,5 +1500,34 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - P3: Include `0014_merge_p3_p4_confirmations` in PR #16 rebase with `down_revision = ("0013_merge_p3_p4_heads", "0011_p4_confirmations")`.
   - P4: Implement Commit 08 Confirmation Workspace UI against `contracts/types.ts`.
 
+### 2026-10-22 — Task P5-PROP-001-ELIMINATION: P2 Phase 7B-4F Alignment & Strict Proposal-ID Enforcement (P5 / D-040 / Handoff #P2-1)
+- **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `D-040` (Ratifying P2 Handoff #P2-1 compatibility checks)
+  - **Owner**: P5 (Shared Core, Contracts & Integration Coordinator)
+  - **Impact**:
+    1. **Strict Proposal-ID Equality Enforcement (Removal of Legacy `prop_001` Exemption)**:
+       - Removed the legacy `prop_001` exemption in `CommitmentService.confirm_proposal` ([service.py:540](file:///c:/Users/ganru/Documents/MouManTAI/backend/app/core/service.py#L540)).
+       - Proposal ID matching is now 100% strict exact equality: any mismatch between requested `proposal_id` and the active proposal's `proposal_id` unconditionally raises HTTP 409 `PROPOSAL_ID_MISMATCH`.
+       - Updated `backend/tests/test_core_api.py` to use dynamic proposal IDs.
+       - Added negative regression test in `test_amendment_protection.py` verifying `prop_001` cannot bypass validation.
+    2. **Multi-Item & Nullable Deadline Compatibility Ratification**:
+       - Verified P2 single-line evaluator (`backend/app/feasibility/service.py:119-125`) strictly fails closed with `ValueError` on `len(lines) != 1` or mismatched delivery deadline, ensuring zero guessing and preventing false `FEASIBLE` output.
+    3. **Strategy B Canonical Consumer Ratification**:
+       - Formally endorsed P2's canonical `backend/app/feasibility/consumer.py` from commit `638ffbec` on branch `feat/p2-7b4b-confirmed-consumer` as the sole evaluator subscriber for `p2_confirmed_evaluator`.
+- **Validation Test Evidence**:
+  - Core backend pytest suite: `107 passed, 1 warning` (`python -m pytest tests -q`).
+  - Proposal identity & amendment protection suite: `3 passed` (`python -m pytest tests/test_amendment_protection.py -q`).
+  - Real PostgreSQL dual-boundary handshake suite: `19 passed` on port 5433 (`engine.dialect.name == "postgresql"`).
+  - P2 Feasibility backend suite: `248 passed` (`python -m pytest backend/app/feasibility/tests -q`).
+  - Frontend Vitest suite: `308 passed, 5 skipped (live smoke)`.
+  - Frontend TypeScript typecheck: Clean (0 errors).
+  - Frontend production build: Clean (`tsc -b && vite build`, 121 modules transformed, 0 errors).
+  - Alembic single head verified: `0011_p4_confirmations (head)`.
+- **Pending Acknowledgements**:
+  - P2: Coordinate with P3 on PR #16 integration.
+  - P3: Rebase PR #16 on `main` (`185f919`) adopting canonical `consumer.py` from commit `638ffbec`.
+
+
 
 
