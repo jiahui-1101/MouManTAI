@@ -1421,6 +1421,36 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Validation: `python -m pytest app/communication/tests -q -p no:cacheprovider --basetemp=.pytest-basetemp-p4-fix --tb=short` passed (exit 0; PostgreSQL cases skipped without URL). PowerShell `$env:P4_TEST_DATABASE_URL='postgresql+psycopg://postgres@127.0.0.1:15444/p4_test_final_reconcile'; python -m pytest app/communication/tests/test_migration_persistence.py app/communication/tests/test_route_integration.py -q -p no:cacheprovider --basetemp=.pytest-basetemp-p4-pg --tb=short -rA` passed (exit 0; fresh UUID schemas on authorized disposable PostgreSQL 16). Final route test rerun passed; scoped Ruff `F,E4,E7,E9`, compileall and `git diff --check` passed. No general backend/front-end suite claimed.
 - Review and integration: code commit `5dfa32cd4718ac6b4ec6714f7563ab1ad18ce544` on draft PR #19; P4 reviewer `Sheng554` requested, approval pending; no merge to Main. Outstanding integration work includes PR #16 migration/Core/P2/P3 dependencies, P2 required changes, P1 route, trusted authority and positive customer acceptance.
 
+## 2026-10-22 — P4 Commit 07: Durable Customer Confirmation & Response Handling
+
+- Status: P4 backend evidence workflow implemented and regression-tested in isolated copy; positive customer acceptance cross-module E2E remains BLOCKED, not production integrated.
+- Scope: durable session/attempt/decision, secure hashed challenge, exact tenant/customer/channel/outbound/proposal/version/terms binding, EN/MS/ZH conservative response rules, verified P1 ports, replay/concurrency controls, atomic P4 evidence + Audit/Outbox. No frontend, live sending, Core agreement/fulfilment writes or P3 Plan mutation.
+- Changed files:
+- `backend/app/communication/confirmation_authority.py`
+- `backend/app/communication/confirmation_router.py`
+- `backend/app/communication/confirmation_schemas.py`
+- `backend/app/communication/confirmations.py`
+- `backend/app/communication/models.py`
+- `backend/app/communication/response_rules.py`
+- `backend/app/communication/router.py`
+- `backend/app/communication/tests/test_confirmation_integration.py`
+- `backend/app/communication/tests/test_confirmations.py`
+- `backend/app/communication/tests/test_migration_persistence.py`
+- `backend/app/communication/tests/test_route_integration.py`
+- `backend/migrations/versions/0011_p4_confirmations.py`
+- Migration: new 0011_p4_confirmations -> actual 0010_p4_recipient_preferences; unique standalone Head. Historical migrations untouched. P5 Review required for new shared migration and events. Future P3 0013 coexistence requires a new merge revision after checking actual Heads, not rewriting existing files.
+- Tests: final P4 460 passed / 0 skipped; requested shared Backend + P4 563 passed / 1 existing P1 module skip; new rule/service tests 62, integration file 28; migrated=postgresql subset 49 passed (overlap; excludes offline/metadata/fake-bind tests). Compileall + heads pass. Frontend P4 141 passed; full FE 308 passed / 5 existing LIVE_API skips; typecheck, explicit App tsc and build pass.
+- Runtime: all new evidence explicitly SYNTHETIC_ONLY/P4_EVIDENCE_ONLY, Core transition false. Default new create/read/revoke restricted to explicit synthetic scope and actual disposable PostgreSQL bind. Respond default denies header-user impersonation; P1 source adapter never wired by default. No test trust fixtures installed in app.
+- BLOCK-P4-07-IDENTITY: P1/P5 authenticated processor principal and trusted normalized-message/identity composition pending. Typed P1 contracts/directory confirmed available; tests use source fixtures, not live ingress.
+- BLOCK-P4-07-CORE: trusted P5 confirmation.accepted consumer and idempotent version-safe Core transaction protocol pending. Existing Core confirm_proposal is not equivalent to a connected consumer. No automatic proposal confirmation.
+- P3 durable approval producer plus rejection/counteroffer handoff consumer absent in this baseline. Existing P4 authority still fails closed when necessary source is unavailable.
+- Evidence limitation: token minted once for issuer, not delivered to customer by this task; no token recovery/rotation/reissue; synthetic fixtures do not establish production acceptance. Counteroffer leaves approved proposal unchanged.
+- P5 Review: migration DDL/graph, router composition, identity/processor authorization contract, redacted events and Core consumer. P1/P3 review their integration boundaries.
+- Live safety: 353 baseline file hashes unchanged; P4-communication remains clean; no Git mutations.
+- Cleanup: dedicated test PostgreSQL UUID schemas verified absent after final suite; only this task's test containers/network removed after validation. No development database used.
+- Next milestone: P1/P5 trusted composition + P3 producer + Core consumer; then verify actual positive Customer Acceptance E2E before claiming full integration. Confirmation Workspace frontend remains deferred.
+- Suggested commit: feat(p4): add durable customer confirmation and response handling
+
 ### 2026-10-22 — Task P5-TAIZEN: Audit Ratification, Amendment Protection, Zero-Guessing Deadline & Multi-Item Alignment (P5 / ADR-020 / D-037)
 - **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
 - **Decision / Impact / Owner**:
@@ -1476,5 +1506,57 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - P2: Integrate with canonical `backend/app/feasibility/consumer.py` on branch `feat/p2-7b4b-confirmed-consumer`.
   - P3: Rebase PR #16 incorporating verified proposal payload derivation.
   - P4: Map customer confirmation tokens to verified proposal identities.
+
+### 2026-10-22 — Task P5-MIGRATION-0014: P4 Handoff Triage & Alembic 0014 Merge Strategy (P5 / D-039 / Handoff #P4-1)
+- **Status**: Complete, Verified & Recorded by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `D-039` (Ratifying P4 Handoff #P4-1 requirements)
+  - **Owner**: P5 (Shared Core, Contracts & Integration Coordinator)
+  - **Impact**:
+    1. **Commit 08 Confirmation Workspace Scope Ratification**:
+       - Approved P4 proceeding with frontend-only Confirmation Workspace using shared OpenAPI-derived contracts in `contracts/types.ts`.
+       - Enforces strict proposal ID/version validation and fail-closed state rendering (never showing green success for unconfirmed or awaiting states).
+    2. **Alembic Merge Strategy (`0014_merge_p3_p4_confirmations`) Coordination**:
+       - Formally endorsed the additive merge migration strategy (`0014_merge_p3_p4_confirmations`) joining `0013_merge_p3_p4_heads` and `0011_p4_confirmations`.
+       - Strictly preserves existing published migrations `0001`–`0011` per AGENTS §4 ("never edit existing migrations") and resolves PR #16 and Commit 08 into a single linear head.
+- **Validation Test Evidence**:
+  - Core pytest suite: `107 passed, 1 warning` (`python -m pytest tests -q`).
+  - Real PostgreSQL dual-boundary handshake suite: `19 passed` on port 5433 (`engine.dialect.name == "postgresql"`).
+  - Frontend Vitest suite: `308 passed, 5 skipped (live smoke)`.
+  - Frontend TypeScript typecheck: Clean (0 errors).
+  - Frontend production build: Clean (`tsc -b && vite build`, 121 modules transformed, 0 errors).
+  - Current Alembic head on Main: `0010_p4_recipient_preferences (head)`.
+- **Pending Acknowledgements**:
+  - P3: Include `0014_merge_p3_p4_confirmations` in PR #16 rebase with `down_revision = ("0013_merge_p3_p4_heads", "0011_p4_confirmations")`.
+  - P4: Implement Commit 08 Confirmation Workspace UI against `contracts/types.ts`.
+
+## 2026-10-22 — P4 Commit 09: Read-only Follow-Up & Escalation Queue
+
+- Baseline: remote Main/HEAD/origin-main verified at 37b8379f65cfc74df8a3ff54d8135ee58d17edb9, PR #25 merge including Commit 08. Isolated Git Archive; formal P4-communication clean and untouched. PR #16 not required.
+- Status: frontend queue implemented; positive Transport Fixture UI tests and real API fail-closed Browser smoke verified. No positive Customer Acceptance E2E, Reminder Sent or Escalation Completed claim.
+- Features: /communications/follow-ups; read-only/receipt time; loaded-record UI counts; exact proposal ID/version/backend state; 24-hour Expiring Soon and expired/revoked/stale/unresolved/clarification/manual-review display hints; local filters/search/numerical/time sort/reset; View Confirmation; on-demand latest attempts with ties/evidence; scoped cache/cancellation; honest loading/empty/error/retry.
+- APIs: existing GET /v1/confirmations, optional original communication_id filtering retained; per-item /attempts on demand; Commit 08 detail/history route reused. No write endpoints or invented server filters.
+- D-037: old-version acceptance stays on exact old proposal/version. UI Attention is not Lifecycle; terminal response does not imply fulfilment/replanning completion. No SENT -> ACCEPTED -> FULFILLED inference or client approval flags.
+- Ownership: only these 10 Frontend files changed/new:
+- `frontend/src/App.tsx`
+- `frontend/src/features/communication/CommunicationCenterPage.test.tsx`
+- `frontend/src/features/communication/CommunicationCenterPage.tsx`
+- `frontend/src/features/communication/FollowUpQueue.test.tsx`
+- `frontend/src/features/communication/FollowUpQueuePage.tsx`
+- `frontend/src/features/communication/FollowUpResponse.tsx`
+- `frontend/src/features/communication/RouteIntegration.test.tsx`
+- `frontend/src/features/communication/confirmationApi.ts`
+- `frontend/src/features/communication/follow-up.css`
+- `frontend/src/features/communication/followUp.ts`
+- P5 Review Required: App.tsx one Import and one Route, exact APP_ROUTE.patch supplied. Do not overwrite current Shared App.tsx. Shared navigation/Shell/Providers and other owners' routes unchanged. Center link is P4-owned.
+- Tests: new Queue 42 passed; complete FE 400 passed / 5 existing LIVE_API skips / 0 failed; typecheck, explicit App tsc and build pass, 130 modules. Commit 08 Workspace and P1/P2/P3/P5 route regression retained. Build only warns about ~504 kB main chunk; no shared build-config change.
+- Runtime evidence: unchanged Backend GET list returned actual PRODUCTION_AUTH_UNAVAILABLE 503, Browser Retry remained blocked with unavailable stats. No test authority installed in production, no database connection/write/migration required for this negative check.
+- Capability gaps: no reminder/escalation execution/history/task contract, current Proposal authority, current identity verdict or current Core result in this P4-only read DTO. Unknown required Schema -> unavailable; valid unknown restrictions -> Needs Review. Real positives require existing authorized records/runtime composition.
+- P5 Core Consumers/version guards reported implemented, not conflated with independently verified E2E. P1 verified inbound and full cross-module journey remain deployment verification dependencies. Do not modify Backend to make a UI demo pass.
+- Safety: 248 backend files/file-set and all Contracts unchanged; all 374 formal tracked-file hashes unchanged. No Shared Team Log overwrite or Git mutation. Temporary Browser/servers closed after smoke verification.
+- Next milestone: coordinated durable Reminder/Escalation contract/authorization, then real positive runtime journey; not implemented here.
+- Suggested commit: feat(p4): add read-only follow-up and escalation queue
+
+**No Backend Changes. No Database Changes. No New Alembic Migrations.**
 
 

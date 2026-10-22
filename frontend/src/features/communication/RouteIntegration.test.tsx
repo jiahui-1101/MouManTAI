@@ -102,11 +102,25 @@ describe("Real App communication route", () => {
   it.each([
     ["/", "Commitment Overview"], ["/overview", "Commitment Overview"],
     ["/activity", "Activity & Audit History"], ["/recovery/recovery", "Recovery case"],
+    ["/communications/follow-ups", "Follow-Up Queue"],
     ["/confirmations/confirmation", "Confirmation workspace"], ["/unknown-route", "Page not found"],
   ])("preserves the actual App route %s", async (path, heading) => {
     mount(path);
     expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MouManTAI" })).toBeInTheDocument();
+    if (path === "/communications/follow-ups") {
+      expect(await screen.findByRole("alert")).toHaveTextContent("confirmation list or its route is unavailable");
+      expect(screen.getByRole("region", { name: "Follow-Up Queue" })).toBeInTheDocument();
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/v1/confirmations"))).toBe(true);
+      expect(screen.queryByText(/owner module pending/i)).not.toBeInTheDocument();
+    }
+    if (path.startsWith("/confirmations/")) {
+      expect(await screen.findByRole("alert")).toHaveTextContent("Confirmation not found");
+      expect(screen.getByRole("region", { name: "Customer Confirmation Workspace" })).toBeInTheDocument();
+      expect(screen.queryByText(/owner module pending/i)).not.toBeInTheDocument();
+      const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/v1/confirmations/confirmation"));
+      expect(call?.[1]?.headers).toMatchObject({ "X-Tenant-ID": "tenant_route_test", "X-Actor-ID": "user_manager_01" });
+    }
   });
 
   it.each([
