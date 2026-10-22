@@ -35,7 +35,7 @@ def test_context_end_to_end_lifecycle(api_client):
         "sender_alias": "Burger King Procurement",
         "received_at": datetime.now(timezone.utc).isoformat(),
         "business_timezone": "Asia/Kuala_Lumpur",
-        "text": "Please send 50 burgers tomorrow before 3pm for ORD-1001",
+        "text": "Please send 50 pcs burgers tomorrow before 3pm for ORD-1001",
         "attachments": [],
     }
     resp = api_client.post("/v1/messages/ingest", json=envelope)
@@ -74,7 +74,7 @@ def test_context_end_to_end_lifecycle(api_client):
         "sender_alias": "Burger King Procurement",
         "received_at": datetime.now(timezone.utc).isoformat(),
         "business_timezone": "Asia/Kuala_Lumpur",
-        "text": "Please change ORD-1001 to 100 burgers",
+        "text": "Please change ORD-1001 to 100 pcs burgers",
         "attachments": [],
     }
     resp = api_client.post("/v1/messages/ingest", json=envelope_2)
@@ -160,7 +160,7 @@ def test_context_patch_and_review_actions(api_client):
         "sender_alias": "Burger King Procurement",
         "received_at": datetime.now(timezone.utc).isoformat(),
         "business_timezone": "Asia/Kuala_Lumpur",
-        "text": "Please send 30 burgers tomorrow for ORD-1002",
+        "text": "Please send 30 pcs burgers tomorrow before 3pm for ORD-1002",
         "attachments": [],
     }
     resp = api_client.post("/v1/messages/ingest", json=envelope)
@@ -176,7 +176,7 @@ def test_context_patch_and_review_actions(api_client):
     patch_req = {
         "expected_context_version": 1,
         "special_instructions": "Handle with care",
-        "delivery_qualifier": "BEFORE",
+        "delivery_qualifier": "DEADLINE",
         "reason": "Customer added delivery instructions",
     }
     resp = api_client.patch(
@@ -188,7 +188,7 @@ def test_context_patch_and_review_actions(api_client):
     patched = resp.json()
     assert patched["context_version"] == 2
     assert patched["special_instructions"] == "Handle with care"
-    assert patched["delivery_qualifier"] == "BEFORE"
+    assert patched["delivery_qualifier"] == "DEADLINE"
 
     # Stale PATCH returns 409
     resp = api_client.patch(f"/v1/contexts/{ctx_id}", json=patch_req)

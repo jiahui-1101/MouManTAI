@@ -70,27 +70,27 @@ class CoreContextPublisher:
             reasons.append(f"Unresolved conflicts: {', '.join(context.conflicts)}")
         if context.missing_fields:
             reasons.append(f"Missing mandatory fields: {', '.join(context.missing_fields)}")
+        if context.requested_delivery_at is None or context.requested_delivery_at.tzinfo is None:
+            reasons.append("An explicit offset-aware delivery deadline is required")
+        if context.delivery_qualifier != "DEADLINE":
+            reasons.append("DATE_ONLY/EXACT/unknown delivery semantics require P5/P2 mapping; no automatic deadline conversion")
+        if len(context.requested_items) != 1:
+            reasons.append("Core single-item mapping requires exactly one reviewed item")
+        if not context.source_message_ids:
+            reasons.append("Original source message references are required")
+        if not context.field_evidence or any(not (ev.get("evidence_id") or ev.get("evidence_ref"))
+                for values in context.field_evidence.values() for ev in values if isinstance(ev, dict)):
+            reasons.append("Stable source evidence references are required; cannot fabricate evidence")
 
         return (len(reasons) == 0, reasons)
 
     def to_business_context(self, context: OrderContextRecord) -> BusinessContext:
         """Map P1 OrderContextRecord to canonical Core BusinessContext."""
+        eligible, reasons = self.check_eligibility(context)
+        if not eligible:
+            raise IneligibleContextError("Context is ineligible for Core mapping", reasons)
         delivery_at = context.requested_delivery_at
         special_instructions = context.special_instructions
-
-        if delivery_at is not None:
-            if delivery_at.tzinfo is None:
-                delivery_at = delivery_at.replace(tzinfo=timezone.utc)
-            # If qualifier is DATE_ONLY, bound to operating close (17:00:00 local/UTC) if time is midnight
-            if context.delivery_qualifier == "DATE_ONLY":
-                if delivery_at.time() == time(0, 0):
-                    delivery_at = delivery_at.replace(hour=17, minute=0, second=0)
-                tag = "[DATE_ONLY]"
-                if special_instructions:
-                    if tag not in special_instructions:
-                        special_instructions = f"{tag} {special_instructions}"
-                else:
-                    special_instructions = tag
 
         core_items = [
             CoreRequestedItem(
@@ -108,16 +108,11 @@ class CoreContextPublisher:
             for item in ev_list:
                 if isinstance(item, dict):
                     ref = item.get("evidence_ref") or item.get("evidence_id")
-                    if not ref:
-                        quote = str(item.get("quote", ""))[:16]
-                        ref = f"ev_p1_{context.context_id}_{field}_{abs(hash(quote)) % 10000}"
                     refs.append(ref)
                 elif isinstance(item, str):
                     refs.append(item)
             if refs:
                 mapped_evidence[field] = refs
-        if not mapped_evidence:
-            mapped_evidence = {"context": [f"ev_p1_ctx_{context.context_id}"]}
 
         identity_map = {
             "LINK_VERIFIED": CustomerIdentityStatus.LINK_VERIFIED,
@@ -137,11 +132,7 @@ class CoreContextPublisher:
         }
         status = status_map.get(context.status, ContextStatus.UNRESOLVED)
 
-        source_message_ids = (
-            list(context.source_message_ids)
-            if context.source_message_ids
-            else [f"msg_{context.context_id}"]
-        )
+        source_message_ids = list(context.source_message_ids)
 
         return BusinessContext(
             tenant_id=context.tenant_id,

@@ -1009,6 +1009,14 @@ class PostgresMessageRepository:
                 )
                 session.add(review_entry)
 
+                if field_changes:
+                    evidence = dict(row.field_evidence or {})
+                    for field_name in field_changes:
+                        evidence[field_name] = [{"evidence_ref": review_entry.review_id,
+                            "method": "HUMAN", "actor_id": actor_id,
+                            "context_version": after_ver, "normalized_value": field_changes[field_name]["new"]}]
+                    row.field_evidence = evidence
+
                 version_entry = OrderContextVersion(
                     version_id=str(uuid4()),
                     context_id=context_id,

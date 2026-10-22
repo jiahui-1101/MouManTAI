@@ -245,6 +245,7 @@ def test_full_message_ai_processing_review_core_p2_flow(pg_engine):
         field_edits={
             "requested_items": [{"sku": "BURGER", "quantity": "100", "unit": "pcs"}],
             "requested_delivery_at": datetime(2026, 10, 23, 15, 0, 0, tzinfo=timezone.utc),
+            "delivery_qualifier": "DEADLINE",
             "customer_id": "cust_bk",
             "customer_identity_status": "LINK_VERIFIED",
             "missing_fields": [],

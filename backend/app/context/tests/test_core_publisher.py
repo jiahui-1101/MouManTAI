@@ -24,10 +24,10 @@ def make_valid_context(tenant_id: str, context_id: str, order_id: str = "ORD-TES
         context_version=1,
         requested_items=[RequestedItem(sku="SKU_BREAD_01", quantity="100", unit="pcs")],
         requested_delivery_at=now,
-        delivery_qualifier="EXACT",
+        delivery_qualifier="DEADLINE",
         special_instructions="Deliver to front door",
         source_message_ids=["msg_001"],
-        field_evidence={"sku": [{"quote": "SKU_BREAD_01", "start": 0, "end": 12, "method": "RULE"}]},
+        field_evidence={"sku": [{"evidence_id": "ev_msg_001_sku", "quote": "SKU_BREAD_01", "start": 0, "end": 12, "method": "RULE"}]},
         missing_fields=[],
         conflicts=[],
         created_at=now,
@@ -80,14 +80,10 @@ def test_to_business_context_date_only_normalization():
     ctx.delivery_qualifier = "DATE_ONLY"
     ctx.special_instructions = "Handle with care"
 
-    b_ctx = publisher.to_business_context(ctx)
-    assert b_ctx.requested_delivery_at is not None
-    # Hour normalized to 17:00 operating cutoff
-    assert b_ctx.requested_delivery_at.hour == 17
-    assert "[DATE_ONLY]" in (b_ctx.special_instructions or "")
-    assert "Handle with care" in (b_ctx.special_instructions or "")
-    assert b_ctx.customer_identity_status == CustomerIdentityStatus.LINK_VERIFIED
-    assert b_ctx.status == ContextStatus.INFORMATION_READY
+    with pytest.raises(IneligibleContextError):
+        publisher.to_business_context(ctx)
+    assert ctx.requested_delivery_at.hour == 0
+    assert ctx.special_instructions == "Handle with care"
 
 
 def test_publish_to_core_ineligible_raises_error():
