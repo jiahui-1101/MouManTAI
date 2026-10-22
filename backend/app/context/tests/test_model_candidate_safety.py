@@ -59,3 +59,17 @@ def test_rejected_span_never_becomes_rule_conflict():
     assert not r.conflicts
     assert r.candidates[0].metadata["disposition"] == "rejected"
     assert any(f.value == "BURGER" and f.validation_status == "VALID" for f in r.rules.fields)
+
+
+def test_broad_product_span_equal_to_valid_rule_is_a_duplicate_not_conflict():
+    text = '15 burgers serving 40 guests'
+    class Endpoint:
+        async def infer(self, request):
+            return InferenceOutput(engine=request.engine, model_id=MODEL_CONFIG[request.engine][0],
+                revision=MODEL_CONFIG[request.engine][1], status='ok', finish_reason='stop', load_seconds=0,
+                inference_seconds=.1, fields=[Observation(field='product', message_id='m1', quote='15 burgers', start=0,end=10)])
+    result = asyncio.run(ModelProposalService(Endpoint(), enabled=True, stages=('gliner',)).extract_stored(stored(text), catalog=PROVISIONAL_PRODUCTS))
+    assert result.candidates[0].value == 'BURGER'
+    assert result.candidates[0].metadata['disposition'] == 'duplicate'
+    assert result.candidates[0].validation_status == 'UNRESOLVED'
+    assert not result.conflicts
