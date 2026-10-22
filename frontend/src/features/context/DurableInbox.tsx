@@ -136,7 +136,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
     </div>{resource.page.items.length === 0 && <p role="status" className="p1-empty">No persisted messages match this view. Submit a synthetic message to begin.</p>}
       <footer className="p1-table-footer"><span>Showing {resource.page.items.length ? offset + 1 : 0}–{offset + resource.page.items.length} of {resource.page.total}</span><div className="p1-pagination"><button type="button" className="p1-secondary" disabled={offset === 0} onClick={() => setOffset(n => Math.max(0, n - 25))}>Previous</button><button type="button" className="p1-secondary" disabled={offset + 25 >= resource.page.total || offset + 25 > 10_000} onClick={() => setOffset(n => n + 25)}>Next</button></div></footer>
     </section>}
-    <p className="p1-preview-note">Local development tenant only · no production authentication. Only the synthetic WhatsApp-shaped adapter is implemented. Deterministic extraction is persisted with exact Unicode evidence spans.</p>
+    <p className="p1-preview-note">Local development tenant only · no production authentication. Synthetic multi-channel adapters (WhatsApp, Email, Telegram) are implemented. Deterministic extraction is persisted with exact Unicode evidence spans.</p>
     {selected && <StoredMessageDetail id={selected} api={api} onUpdated={() => setAttempt(n => n + 1)} onClose={closeDetail} />}
   </div>;
 }

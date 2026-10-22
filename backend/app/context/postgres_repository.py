@@ -92,7 +92,13 @@ class InboundMessage(P1Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "channel", "provider_message_id", name="uq_p1_delivery"),
         CheckConstraint("processing_status IN ('RECEIVED', 'PROCESSING', 'PROCESSED', 'PROCESSING_FAILED')", name="ck_p1_processing"),
-        CheckConstraint("channel = 'WHATSAPP' AND synthetic_provider = 'SYNTHETIC_WHATSAPP'", name="ck_p1_synthetic_provider"),
+        CheckConstraint(
+            "(channel = 'WHATSAPP' AND synthetic_provider = 'SYNTHETIC_WHATSAPP') OR "
+            "(channel = 'EMAIL' AND synthetic_provider = 'SYNTHETIC_EMAIL') OR "
+            "(channel = 'TELEGRAM' AND synthetic_provider = 'SYNTHETIC_TELEGRAM') OR "
+            "(channel = 'UNKNOWN' AND synthetic_provider = 'SYNTHETIC_UNKNOWN')",
+            name="ck_p1_synthetic_provider",
+        ),
         Index("ix_p1_inbox", "tenant_id", "ingested_at", "message_id"),
         {"schema": "p1_dev"},
     )
@@ -365,7 +371,7 @@ class PostgresMessageRepository:
             with Session(self.engine) as session, session.begin():
                 statement = insert(InboundMessage).values(
                     message_id=str(uuid4()), tenant_id=envelope.tenant_id, channel=envelope.channel,
-                    provider_message_id=envelope.provider_message_id, synthetic_provider="SYNTHETIC_WHATSAPP",
+                    provider_message_id=envelope.provider_message_id, synthetic_provider=f"SYNTHETIC_{envelope.channel}",
                     raw=envelope.model_dump(mode="json"), immutable_fingerprint=digest,
                     content_sha256=hashlib.sha256(envelope.text.encode("utf-8")).hexdigest(),
                     processing_status="RECEIVED", ingested_at=now, updated_at=now,

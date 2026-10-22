@@ -1,7 +1,29 @@
 """P1-only local config and explicit schema initialization, not shared migrations."""
 
 import os
+from pathlib import Path
 import sys
+
+
+def _load_env_if_present() -> None:
+    candidates = [Path(".env"), Path(__file__).resolve().parents[3] / ".env"]
+    for path in candidates:
+        if path.is_file():
+            try:
+                for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, val = line.split("=", 1)
+                        key = key.strip()
+                        val = val.strip().strip("'\"")
+                        if key not in os.environ:
+                            os.environ[key] = val
+            except Exception:
+                pass
+            break
+
+
+_load_env_if_present()
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
@@ -32,6 +54,16 @@ def initialize_p1_schema(engine: Engine) -> None:
         P1Base.metadata.create_all(connection)
         connection.execute(text("ALTER TABLE p1_dev.order_contexts ADD COLUMN IF NOT EXISTS core_commitment_id VARCHAR(100);"))
         connection.execute(text("ALTER TABLE p1_dev.order_contexts ADD COLUMN IF NOT EXISTS published_to_core_at TIMESTAMPTZ;"))
+        connection.execute(text("ALTER TABLE p1_dev.inbound_messages DROP CONSTRAINT IF EXISTS ck_p1_synthetic_provider;"))
+        connection.execute(text("""
+            ALTER TABLE p1_dev.inbound_messages ADD CONSTRAINT ck_p1_synthetic_provider
+            CHECK (
+                (channel = 'WHATSAPP' AND synthetic_provider = 'SYNTHETIC_WHATSAPP') OR
+                (channel = 'EMAIL' AND synthetic_provider = 'SYNTHETIC_EMAIL') OR
+                (channel = 'TELEGRAM' AND synthetic_provider = 'SYNTHETIC_TELEGRAM') OR
+                (channel = 'UNKNOWN' AND synthetic_provider = 'SYNTHETIC_UNKNOWN')
+            );
+        """))
 
 
 if __name__ == "__main__":

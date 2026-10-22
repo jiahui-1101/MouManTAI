@@ -32,7 +32,7 @@ def register_p1_errors(app: FastAPI) -> None:
         PersistenceUnavailable: (503, "Message storage unavailable; check the local P1 PostgreSQL setup"),
         DuplicateConflict: (409, "Provider message ID already has different original content; the original was preserved"),
         TenantMismatch: (403, "Envelope tenant does not match the server development tenant"),
-        UnsupportedSyntheticChannel: (422, "Only the synthetic WhatsApp-shaped adapter is implemented"),
+        UnsupportedSyntheticChannel: (422, "Channel is not supported by synthetic adapter"),
         MessageNotFound: (404, "Message not found"),
         ExtractionNotFound: (404, "Extraction attempt not found"),
         ProcessingConflict: (409, "Message processing conflict"),
