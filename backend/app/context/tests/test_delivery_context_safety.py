@@ -63,3 +63,11 @@ def test_future_source_timestamp_does_not_anchor_delivery():
     field = extract(message.model_copy(update={"raw": raw}))
     assert field.validation_status == "UNRESOLVED" and field.value is None
     assert "message_at" in field.metadata["reason"]
+
+
+def test_future_receipt_compared_with_preserved_persistence_clock_requires_review():
+    message = stored("Deliver tomorrow at 3pm")
+    message.ingested_at = datetime(2026, 10, 20, 1, tzinfo=timezone.utc)
+    field = extract(message)
+    assert field.value is None and field.validation_status == 'UNRESOLVED'
+    assert 'persistence' in field.metadata['reason']

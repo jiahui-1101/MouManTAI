@@ -77,7 +77,7 @@ UNSAFE_ASSOCIATION_RE = re.compile(
 AMBIGUOUS_DELIVERY_RE = re.compile(
     r"\b(?:next\s+(?:friday|monday|tuesday|wednesday|thursday|saturday|sunday|week|month)|"
     r"this\s+(?:friday|monday|tuesday|wednesday|thursday|saturday|sunday|weekend)|"
-    r"asap|as\s+soon\s+as\s+possible|soon|same\s+as\s+last\s+time)\b|"
+    r"asap|as\s+soon\s+as\s+possible|soon|same\s+as\s+last\s+time|esok)\b|"
     r"(?:下周[一二三四五六日七]?|下个星期[一二三四五六天]?|这周末|下个月|尽快|马上|越快越好|老样子|照旧)",
     re.IGNORECASE
 )
@@ -135,7 +135,7 @@ UNSUPPORTED_TIME_SEMANTICS_RE = re.compile(
     r"\b(?:after|not\s+before|earlier\s+than|around|about|between|from|maybe|possibly|at\s+least|not\s+at|"
     r"not\s+by|UTC|GMT|EST|EDT|CST|CDT|MST|MDT|PST|PDT|BST|CET|CEST|HKT|SGT|MYT|JST|AEST|AEDT)\b|"
     r"(?<![A-Za-z0-9])[+-][0-9]{2}:?[0-9]{2}(?![0-9])|"
-    r"\b[A-Za-z_]+/[A-Za-z_]+\b|之后|以后|过后|大约|左右|不早于|不要|不是|(?<=点)后",
+    r"\b[A-Za-z_]+/[A-Za-z_]+\b|之后|以后|过后|大约|左右|不早于|不要|不是|再定|待定|(?<=点)后",
     re.IGNORECASE,
 )
 
@@ -579,6 +579,11 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
         delivery_field = field("requested_delivery_at", None, "MISSING")
 
     if delivery_field.validation_status != "MISSING":
+        if message.raw.received_at > message.ingested_at and delivery_field.validation_status == "VALID":
+            delivery_field.metadata.update(reason="Source receipt is later than server persistence; review clock provenance",
+                                           candidate_delivery_value=delivery_field.value or "")
+            delivery_field.validation_status = "UNRESOLVED"
+            delivery_field.value = None
         delivery_field.metadata.update({
             "source_timestamp_policy": "message_at_else_received_at_v1",
             "source_timestamp_source": source_kind,

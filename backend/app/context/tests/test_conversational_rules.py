@@ -48,3 +48,9 @@ def test_missing_timezone_does_not_block_quantity_or_invent_date():
     fields = {f.field_name: f for f in extract("Hello boss, need 40 burgers tomorrow 3pm", None).fields}
     assert fields["quantity"].value == "40"
     assert fields["requested_delivery_at"].validation_status == "UNRESOLVED"
+
+
+@pytest.mark.parametrize('text', ['40 burger esok sebelum pukul 3 petang', '40个burger明天再定时间'])
+def test_unsupported_or_tentative_delivery_is_explicitly_unresolved(text):
+    fields = {f.field_name: f for f in extract(text).fields}
+    assert fields['requested_delivery_at'].validation_status == 'UNRESOLVED'
