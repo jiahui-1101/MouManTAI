@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from datetime import timedelta
+import importlib
 
 import pytest
 from fastapi import FastAPI, Request
@@ -24,6 +25,76 @@ from app.feasibility.api_dependencies import (
 )
 from app.feasibility.production_fixtures import build_production_example
 from app.feasibility.router import router as feasibility_router
+
+
+def _flatten_routes(router) -> list:
+    flattened = []
+    for route in router.routes:
+        included_router = getattr(route, "original_router", None)
+        if included_router is None:
+            flattened.append(route)
+        else:
+            flattened.extend(_flatten_routes(included_router))
+    return flattened
+
+
+def _route_method_paths(router) -> list[tuple[str, str]]:
+    return sorted(
+        (method, route.path)
+        for route in _flatten_routes(router)
+        for method in (getattr(route, "methods", None) or set())
+    )
+
+
+def test_feasibility_routers_are_separately_mountable_and_compatibly_combined() -> None:
+    router_module = importlib.import_module("app.feasibility.router")
+    expected_by_router = {
+        "feasibility_read_router": {
+            ("GET", "/v1/commitments/{commitment_id}/assessments"),
+            ("GET", "/v1/impacts/{impact_id}"),
+        },
+        "feasibility_assessment_router": {
+            ("POST", "/v1/commitments/{commitment_id}/assess"),
+        },
+        "feasibility_supplier_event_router": {
+            ("POST", "/v1/operations/events/supplier-delay"),
+        },
+        "feasibility_internal_router": {
+            ("POST", "/internal/feasibility/evaluate"),
+        },
+    }
+
+    for router_name, expected_routes in expected_by_router.items():
+        actual_routes = _route_method_paths(getattr(router_module, router_name))
+        assert set(actual_routes) == expected_routes
+        assert len(actual_routes) == len(expected_routes)
+
+    expected_combined_routes = set().union(*expected_by_router.values())
+    combined_routes = _route_method_paths(router_module.router)
+    assert router_module.router is feasibility_router
+    assert set(combined_routes) == expected_combined_routes
+    assert len(combined_routes) == len(expected_combined_routes) == 5
+
+    assessment_path = "/v1/commitments/{commitment_id}/assess"
+    assessment_endpoint = next(
+        route.endpoint
+        for route in _flatten_routes(router_module.feasibility_assessment_router)
+        if route.path == assessment_path
+    )
+    combined_assessment_endpoint = next(
+        route.endpoint
+        for route in _flatten_routes(router_module.router)
+        if route.path == assessment_path
+    )
+    assert combined_assessment_endpoint is assessment_endpoint
+
+    core_assessment_routes = {
+        (method, route.path)
+        for route in _flatten_routes(core_router)
+        for method in (getattr(route, "methods", None) or set())
+        if route.path == assessment_path
+    }
+    assert ("POST", assessment_path) not in core_assessment_routes
 
 
 class FixtureEvaluationAuthority:
