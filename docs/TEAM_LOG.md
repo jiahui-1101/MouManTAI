@@ -1,5 +1,22 @@
 # MouManTAI — Team Execution Log & Decision Register
 
+### 2026-10-22 — P5: Fix Alembic logger reconfiguration and outbox warning throttle test
+
+- Branch: `feat/p5-core-integration`
+- Scope: Fix CI failure in `backend/tests/test_outbox_events.py::test_unregistered_mandatory_subscriber_warning_is_throttled`.
+- Root Cause:
+  - During test suite runs where migration tests (e.g., `test_migration_0007.py`) execute before outbox tests, Alembic's `backend/migrations/env.py` invoked `fileConfig(config.config_file_name)` using the default `disable_existing_loggers=True`.
+  - This disabled all pre-existing loggers across the test session, specifically silencing `logger.warning(...)` on `app.core.outbox`.
+  - As a result, subsequent assertions on `caplog.records` in `test_unregistered_mandatory_subscriber_warning_is_throttled` captured 0 records (`assert 0 == 1`).
+- Fix:
+  - In `backend/migrations/env.py`, pass `disable_existing_loggers=False` to `fileConfig` so in-process migration runs do not disable existing domain loggers.
+  - In `backend/tests/test_outbox_events.py`, ensure `app.core.outbox` logger is explicitly enabled (`logger.disabled = False`) and scope `caplog.at_level(logging.WARNING, logger="app.core.outbox")` for isolated log capture.
+- Validation:
+  - `python -m pytest backend/tests`: 324 passed, 10 skipped.
+  - `python -m pytest backend/tests/test_migration_0007.py backend/tests/test_outbox_events.py`: 14 passed.
+  - `python -m pytest backend/app/feasibility/tests`: 288 passed.
+  - Full suite verified.
+
 ### 2026-10-22 — P1 BATCH 8: final P1 acceptance and delivery (audit, 12 E2E scenarios, demo script, P1 COMPLETE)
 
 - Branch: `feat/p1-ai-pipeline`; commits: demo script `abf75db`, acceptance suite `d8e3a6b`, documentation `docs/p1/FINAL_DELIVERY_AND_ACCEPTANCE.md`.

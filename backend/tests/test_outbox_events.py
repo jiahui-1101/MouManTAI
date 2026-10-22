@@ -867,6 +867,9 @@ def test_unregistered_mandatory_subscriber_warning_is_throttled(
     """Ensure unregistered mandatory subscriber warning logs once and does not spam every cycle."""
     import logging
 
+    logger = logging.getLogger("app.core.outbox")
+    logger.disabled = False
+
     dispatcher = OutboxDispatcher()
     now = datetime.now(timezone.utc)
     tenant_id = "tenant_throttle"
@@ -902,7 +905,7 @@ def test_unregistered_mandatory_subscriber_warning_is_throttled(
     db_session.add_all([rec, evt_risk])
     db_session.commit()
 
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.WARNING, logger="app.core.outbox"):
         # 1. First poll emits a warning
         res1 = dispatcher.process_outbox_batch(db_session)
         assert res1.published_count == 0
