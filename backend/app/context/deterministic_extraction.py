@@ -31,7 +31,7 @@ class ProductAlias:
 
 
 PROVISIONAL_PRODUCTS = tuple(
-    ProductAlias(tenant, "BURGER", ("burger", "burgers", "beef burger", "beef burgers", "chicken burger", "chicken burgers"), "pcs")
+    ProductAlias(tenant, "BURGER", ("burger", "burgers", "beef burger", "beef burgers", "chicken burger", "chicken burgers", "汉堡", "汉堡包", "roti burger"), "pcs")
     for tenant in ("synthetic_tenant_a", "synthetic_tenant_b")
 )
 
