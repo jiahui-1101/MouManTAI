@@ -116,6 +116,16 @@ def evaluate(snapshot: EvaluationSnapshot, proposed_changes: ProposedChanges | N
         raise ValueError('target commitment/version not in snapshot')
     if commitment.agreement_state != 'CONFIRMED':
         raise ValueError('confirmed operational target required')
+    if commitment.terms.deadline is None:
+        raise ValueError('Core terms without a delivery deadline require manual review')
+    if commitment.terms.items is not None:
+        items = commitment.terms.items
+        if len(items) != 1 or (
+            items[0].sku,
+            items[0].quantity,
+            items[0].unit,
+        ) != (commitment.terms.sku, commitment.terms.quantity, commitment.terms.unit):
+            raise ValueError('Core multi-item terms require reviewed multi-line adapter')
     if len(target.lines) != 1:
         raise ValueError('Core-to-snapshot multi-line mapping requires reviewed adapter')
     line = target.lines[0]

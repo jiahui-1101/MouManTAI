@@ -8,12 +8,16 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core import models as _core_models  # noqa: F401 - register ORM tables for Alembic metadata
 from app.communication import models as _communication_models  # noqa: F401 - register P4 ORM tables
+from app.feasibility import persisted_sources as _p2_sources  # noqa: F401 - register P2 ORM tables
+from app.recovery import durable_plans as _p3_plans  # noqa: F401 - register P3 plan tables
+from app.core import manager_approval as _manager_approval  # noqa: F401 - register Core approval table
+from app.recovery import durable_actions as _p3_actions  # noqa: F401 - register P3 action tables
 from app.db.base import Base
 
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 database_url = os.getenv("DATABASE_URL")
 if database_url:

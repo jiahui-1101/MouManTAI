@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from fastapi import Request
@@ -12,19 +12,25 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.communication.router import router as communication_router
 from app.context.router import router as context_router
 from app.core.errors import DomainError
+from app.core.router import router as core_router
+from app.recovery.router import router as recovery_router
+from app.communication.router import router as communication_router
 from app.core.feasibility_adapters import (
     AuthoritativeAssessmentHistoryReader,
     AuthoritativeImpactReader,
 )
-from app.core.router import router as core_router
+from app.feasibility.router import (
+    feasibility_assessment_router,
+    feasibility_read_router,
+    feasibility_supplier_event_router,
+)
 from app.feasibility.api_dependencies import (
     get_assessment_history,
     get_impact_reader,
+    require_isolated_e2e_key,
 )
-from app.feasibility.router import feasibility_read_router
 
 
 class HealthResponse(BaseModel):
@@ -48,9 +54,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(core_router)
+app.include_router(recovery_router)
 app.include_router(communication_router)
 app.include_router(feasibility_read_router)
 app.include_router(context_router)
+if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
+    isolated_dependencies = [Depends(require_isolated_e2e_key)]
+    app.include_router(feasibility_assessment_router, dependencies=isolated_dependencies)
+    app.include_router(feasibility_supplier_event_router, dependencies=isolated_dependencies)
 
 app.dependency_overrides[get_assessment_history] = lambda: AuthoritativeAssessmentHistoryReader()
 app.dependency_overrides[get_impact_reader] = lambda: AuthoritativeImpactReader()

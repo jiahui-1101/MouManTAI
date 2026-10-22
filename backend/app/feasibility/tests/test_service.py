@@ -82,6 +82,16 @@ def test_four_statuses_and_shared_constraint_mapping():
     assert run(snapshot, changes).status is FeasibilityState.CONDITIONAL
 
 
+def test_nullable_core_deadline_fails_closed_even_with_dated_snapshot():
+    snapshot, commitment = fixture()
+    undated_commitment = commitment.model_copy(
+        update={'terms': commitment.terms.model_copy(update={'deadline': None})},
+    )
+
+    with pytest.raises(ValueError, match='delivery deadline'):
+        run(snapshot, commitment=undated_commitment)
+
+
 def test_material_covered_does_not_override_missing_capacity():
     snapshot, _ = fixture()
     snapshot = changed(snapshot, lambda d: d.update(production=None))

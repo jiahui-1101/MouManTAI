@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import { ApiError } from "../../shared/api";
 import { useAuth } from "../../shared/auth";
@@ -70,7 +70,10 @@ function LoadedCase({ caseView }: { caseView: RecoveryCaseView }) {
           <h1>Recovery case</h1>
           <p className="recovery-case-muted">Commitment {caseView.commitment_id}</p>
         </div>
-        <span className="recovery-case-status">{caseView.status.replaceAll("_", " ")}</span>
+        <div className="recovery-case-header-actions">
+          <span className="recovery-case-status">{caseView.status.replaceAll("_", " ")}</span>
+          <Link className="btn btn-secondary" to={"/recovery/" + encodeURIComponent(caseView.commitment_id) + "/plans"}>Open planning workspace</Link>
+        </div>
       </header>
 
       <section className="recovery-case-panel" aria-label="Recovery case details">

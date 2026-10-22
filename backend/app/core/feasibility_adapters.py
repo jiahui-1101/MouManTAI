@@ -25,11 +25,9 @@ from app.core.schemas import (
     FeasibilityState,
 )
 
-from uuid import uuid4
-
 from app.core.models import CommitmentRecord
 from app.core.reservations import get_resource_snapshot
-from app.core.schemas import Commitment, SolverStatus
+from app.core.schemas import Commitment
 from app.core.service import CommitmentService
 from app.feasibility.api_schemas import (
     AssessCommitmentRequest,
@@ -38,7 +36,7 @@ from app.feasibility.api_schemas import (
 )
 from app.feasibility.impact import ImpactAssessment
 from app.feasibility.production import EvaluationSnapshot
-from app.feasibility.production_fixtures import build_production_example
+from app.feasibility.persisted_sources import OperationalSnapshotRecord, read_snapshot
 from app.feasibility.service import EvaluationResult
 
 
@@ -48,10 +46,6 @@ def _now() -> datetime:
 
 def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
-
-
-def _id(prefix: str) -> str:
-    return f"{prefix}_{uuid4().hex[:16]}"
 
 
 class AuthoritativeEvaluationAuthority:
@@ -88,59 +82,12 @@ class AuthoritativeEvaluationAuthority:
         expected_commitment_version: int,
         db: Session | None = None,
     ) -> tuple[EvaluationSnapshot, Commitment]:
-        if db is not None:
-            record = db.scalar(
-                select(CommitmentRecord).where(
-                    CommitmentRecord.tenant_id == context.tenant_id,
-                    CommitmentRecord.commitment_id == commitment_id,
-                )
-            )
-            if record is not None:
-                default_snap, _ = build_production_example()
-                data = default_snap.model_dump(exclude_computed_fields=True)
-                data["operational"]["tenant_id"] = context.tenant_id
-                data["operational"]["confirmed_commitments"] = (
-                    {
-                        **data["operational"]["confirmed_commitments"][0],
-                        "commitment_id": commitment_id,
-                        "tenant_id": context.tenant_id,
-                    },
-                )
-                data["production"]["tenant_id"] = context.tenant_id
-                data["production"]["plans"] = (
-                    {
-                        **data["production"]["plans"][0],
-                        "tenant_id": context.tenant_id,
-                    },
-                )
-                snapshot = EvaluationSnapshot.model_validate(data)
-                commitment = self.service._to_model(record)
-                return snapshot, commitment
-        default_snap, default_comm = build_production_example()
-        data = default_snap.model_dump(exclude_computed_fields=True)
-        data["operational"]["tenant_id"] = context.tenant_id
-        data["operational"]["confirmed_commitments"] = (
-            {
-                **data["operational"]["confirmed_commitments"][0],
-                "commitment_id": commitment_id,
-                "tenant_id": context.tenant_id,
-            },
-        )
-        data["production"]["tenant_id"] = context.tenant_id
-        data["production"]["plans"] = (
-            {
-                **data["production"]["plans"][0],
-                "tenant_id": context.tenant_id,
-            },
-        )
-        snapshot = EvaluationSnapshot.model_validate(data)
-        commitment = default_comm.model_copy(
-            update={
-                "tenant_id": context.tenant_id,
-                "commitment_id": commitment_id,
-                "commitment_version": expected_commitment_version,
-            }
-        )
+        if db is None:
+            raise DomainError("OPERATIONAL_SNAPSHOT_UNAVAILABLE", "Persisted source session is required", status_code=503)
+        snapshot = read_snapshot(db, context.tenant_id)
+        commitment = self.service.get(db, context, commitment_id)
+        if commitment.commitment_version != expected_commitment_version:
+            raise DomainError("COMMITMENT_VERSION_CONFLICT", "Commitment changed", status_code=409)
         return snapshot, commitment
 
 
@@ -181,52 +128,79 @@ class AuthoritativeAssessmentWriter:
                 correlation_id=context.correlation_id,
             )
 
-        # Snapshot freshness verification (A5)
-        expected_snap_ver = getattr(request, "expected_snapshot_version", None)
-        current_snap_ver = snapshot.current_snapshot_version
-
-        stocks = get_resource_snapshot(db, context.tenant_id)
-        if stocks and stocks[0].snapshot_version is not None:
-            authoritative_snap_ver = stocks[0].snapshot_version
-            if expected_snap_ver is not None and expected_snap_ver != authoritative_snap_ver:
-                raise DomainError(
-                    "SNAPSHOT_DRIFT_CONFLICT",
-                    f"Operational snapshot drifted: expected version {expected_snap_ver} != current authoritative version {authoritative_snap_ver}",
-                    status_code=409,
-                    details={
-                        "expected_snapshot_version": expected_snap_ver,
-                        "current_snapshot_version": authoritative_snap_ver,
-                    },
-                    correlation_id=context.correlation_id,
-                )
-        elif expected_snap_ver is not None and expected_snap_ver != current_snap_ver:
+        if (
+            result.tenant_id != context.tenant_id
+            or result.commitment_id != commitment.commitment_id
+            or result.commitment_version != record.commitment_version
+        ):
             raise DomainError(
-                "SNAPSHOT_DRIFT_CONFLICT",
-                f"Operational snapshot drifted: expected version {expected_snap_ver} != current snapshot version {current_snap_ver}",
+                "ASSESSMENT_PROVENANCE_MISMATCH",
+                "P2 evaluation identity does not match the current Core commitment",
                 status_code=409,
-                details={
-                    "expected_snapshot_version": expected_snap_ver,
-                    "current_snapshot_version": current_snap_ver,
-                },
+                correlation_id=context.correlation_id,
+            )
+        if not result.snapshot_id or result.snapshot_version < 1:
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISSING",
+                "P2 evaluation is missing snapshot identity or version",
+                status_code=422,
+                details={"field": "snapshot_id", "commitment_id": commitment.commitment_id},
+                correlation_id=context.correlation_id,
+            )
+        if (
+            result.snapshot_id != snapshot.operational.snapshot_id
+            or result.snapshot_version != snapshot.operational.snapshot_version
+        ):
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISMATCH",
+                "P2 evaluation snapshot does not match the supplied evaluation input",
+                status_code=409,
                 correlation_id=context.correlation_id,
             )
 
+        # Lock the exact persisted source until the assessment, audit, outbox and
+        # caller-owned transaction commit together. A supplier promotion updates
+        # this same row, so either operation observes the other's committed state.
+        source = db.scalar(
+            select(OperationalSnapshotRecord).where(
+                OperationalSnapshotRecord.tenant_id == context.tenant_id,
+                OperationalSnapshotRecord.snapshot_version == result.snapshot_version,
+                OperationalSnapshotRecord.snapshot_id == result.snapshot_id,
+            ).with_for_update().execution_options(populate_existing=True)
+        )
+        if source is None or not source.is_current or (
+            request.expected_snapshot_version != result.snapshot_version
+            or snapshot.current_snapshot_version != result.snapshot_version
+            or source.payload != snapshot.model_dump(mode="json", exclude_computed_fields=True)
+        ):
+            raise DomainError(
+                "SNAPSHOT_DRIFT_CONFLICT", "Evaluated source is no longer the current persisted snapshot",
+                status_code=409, correlation_id=context.correlation_id,
+            )
+
         # Map pure P2 evaluation result to FeasibilityAssessment preserving P2 deterministic ID
-        assessed_at = getattr(result, "assessed_at", None) or getattr(request, "assessed_at", None) or _now()
-        assessment_id = getattr(result, "assessment_id", None) or getattr(request, "assessment_id", None) or _id("fa")
+        assessment_id = result.assessment_id
+        if not assessment_id:
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISSING",
+                "P2 evaluation result is missing assessment_id",
+                status_code=422,
+                details={"field": "assessment_id", "commitment_id": commitment.commitment_id},
+                correlation_id=context.correlation_id,
+            )
         assessment = FeasibilityAssessment(
             assessment_id=assessment_id,
             tenant_id=context.tenant_id,
             commitment_id=commitment.commitment_id,
             commitment_version=record.commitment_version,
-            snapshot_version=current_snap_ver or 1,
+            snapshot_version=result.snapshot_version,
             status=result.status,
             constraints=result.constraints,
             affected_commitment_ids=[],  # Downstream impact set only (empty if none)
             evidence_refs=list(result.evidence_refs),
             solver_status=result.solver_status,
             assumptions=list(result.assumptions),
-            assessed_at=assessed_at,
+            assessed_at=result.assessed_at,
         )
 
         # Intent suppression (A5):
@@ -240,7 +214,10 @@ class AuthoritativeAssessmentWriter:
             correlation_id=context.correlation_id,
             causation_id=context.causation_id,
         )
-        self.service.assess(db, service_ctx, commitment.commitment_id, assessment, commit=False)
+        self.service.assess(
+            db, service_ctx, commitment.commitment_id, assessment,
+            commit=False, snapshot_id=result.snapshot_id,
+        )
 
         if commit:
             # Explicit HTTP-path commit with full rollback on error (A1)
@@ -311,7 +288,8 @@ class AuthoritativeAssessmentHistoryReader:
 
     Enforces ADR-015 and P3 Handoff P3-1 contract guarantees:
     - Never defaults missing assessment_id to audit_id.
-    - Never defaults missing commitment_version or snapshot_version to 1.
+    - Preserves the evaluated commitment version separately from the resulting Core version.
+    - Never defaults missing commitment or snapshot versions to 1.
     - Rejects advisory assessments (advisory=True) with ASSESSMENT_PROVENANCE_MISSING.
     - Fails closed with typed DomainError("ASSESSMENT_PROVENANCE_MISSING", ...) naming the missing field without PII.
     """
@@ -351,6 +329,24 @@ class AuthoritativeAssessmentHistoryReader:
                 correlation_id=correlation_id,
             )
 
+        evaluated_version = new_state.get("assessment_commitment_version")
+        if type(evaluated_version) is not int or evaluated_version < 1:
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISSING",
+                "Authoritative assessment record is missing evaluated commitment version",
+                status_code=422,
+                details={"field": "assessment_commitment_version", "commitment_id": commitment_id},
+                correlation_id=correlation_id,
+            )
+        if new_state["commitment_version"] != evaluated_version + 1:
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISSING",
+                "Assessment and resulting Core commitment versions are inconsistent",
+                status_code=422,
+                details={"field": "commitment_version", "commitment_id": commitment_id},
+                correlation_id=correlation_id,
+            )
+
         if new_state.get("snapshot_version") is None:
             raise DomainError(
                 "ASSESSMENT_PROVENANCE_MISSING",
@@ -359,6 +355,23 @@ class AuthoritativeAssessmentHistoryReader:
                 details={"field": "snapshot_version", "commitment_id": commitment_id},
                 correlation_id=correlation_id,
             )
+
+        if not new_state.get("snapshot_id"):
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISSING",
+                "Authoritative assessment record is missing snapshot_id",
+                status_code=422,
+                details={"field": "snapshot_id", "commitment_id": commitment_id},
+                correlation_id=correlation_id,
+            )
+
+        for field in ("assessed_at", "solver_status", "assumptions"):
+            if new_state.get(field) is None:
+                raise DomainError(
+                    "ASSESSMENT_PROVENANCE_MISSING", f"Assessment is missing {field}",
+                    status_code=422, details={"field": field, "commitment_id": commitment_id},
+                    correlation_id=correlation_id,
+                )
 
     def list_for_commitment(
         self,
@@ -408,7 +421,7 @@ class AuthoritativeAssessmentHistoryReader:
             )
 
             assessment_id = a.new_state["assessment_id"]
-            commitment_version = a.new_state["commitment_version"]
+            commitment_version = a.new_state["assessment_commitment_version"]
             snapshot_version = a.new_state["snapshot_version"]
 
             constraints_raw = a.new_state.get("constraints") or []
@@ -428,9 +441,9 @@ class AuthoritativeAssessmentHistoryReader:
                     constraints=constraints,
                     affected_commitment_ids=a.new_state.get("affected_commitment_ids", []),
                     evidence_refs=a.new_state.get("evidence_refs", a.evidence_refs or []),
-                    solver_status=a.new_state.get("solver_status", "COMPLETED"),
-                    assumptions=a.new_state.get("assumptions", []),
-                    assessed_at=a.occurred_at if (a.occurred_at and a.occurred_at.tzinfo) else (a.occurred_at.replace(tzinfo=timezone.utc) if a.occurred_at else datetime.now(timezone.utc)),
+                    solver_status=a.new_state["solver_status"],
+                    assumptions=a.new_state["assumptions"],
+                    assessed_at=datetime.fromisoformat(a.new_state["assessed_at"]),
                 )
             )
         return results

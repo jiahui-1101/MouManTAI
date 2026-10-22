@@ -2,12 +2,44 @@
 
 from __future__ import annotations
 
-from app.core.outbox import run_worker
+import os
+
+from app.core.outbox import OutboxDispatcher, default_dispatcher, run_worker
 from app.db.session import SessionLocal
 
 
+def configure_isolated_subscribers(dispatcher: OutboxDispatcher) -> None:
+    """Enable persisted mandatory consumers only in an explicitly keyed E2E worker."""
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") != "1":
+        return
+    if len(os.getenv("MOUMANTAI_ISOLATED_E2E_KEY", "")) < 32:
+        raise RuntimeError("Isolated E2E worker requires a server-owned mutation key")
+    from app.core.confirmed_event_source import PersistedConfirmedEventSourceProvider
+    from app.core.feasibility_adapters import AuthoritativeAssessmentWriter
+    from app.feasibility.consumer import create_p2_confirmed_evaluator
+    from app.recovery.trigger_persistence import (
+        PersistedCoreAssessmentLookup,
+        SessionScopedRecoveryTriggerAdapter,
+    )
+
+    dispatcher.register_subscriber(
+        "commitment.confirmed",
+        "p2_confirmed_evaluator",
+        create_p2_confirmed_evaluator(
+            PersistedConfirmedEventSourceProvider(),
+            AuthoritativeAssessmentWriter(),
+        ),
+    )
+
+    adapter = SessionScopedRecoveryTriggerAdapter(
+        authoritative_assessment_lookup=PersistedCoreAssessmentLookup(),
+    )
+    dispatcher.register_subscriber("commitment.at_risk", "p3.recovery_trigger.v1", adapter.persist)
+
+
 def main() -> None:
-    run_worker(SessionLocal, poll_interval=1.0)
+    configure_isolated_subscribers(default_dispatcher)
+    run_worker(SessionLocal, poll_interval=1.0, dispatcher=default_dispatcher)
 
 
 if __name__ == "__main__":
