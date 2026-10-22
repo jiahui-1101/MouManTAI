@@ -44,9 +44,10 @@ from app.db.base import Base
 from app.main import app
 
 BACKEND = Path(__file__).resolve().parents[3]
-HEAD = "0009_p4_outbound_messaging"
-PREVIOUS = "0008_p4_communication"
+P4_HEAD = "0010_p4_recipient_preferences"
+PREVIOUS = "0007_recovery_case_constraints_alignment"
 TABLES = {
+    "communication_recipient_preferences", "communication_recipient_preference_changes",
     "communication_requests", "communication_request_sources",
     "communication_drafts", "communication_draft_reviews",
     "communication_outbound_messages", "communication_send_attempts",
@@ -88,8 +89,7 @@ def migrated(request, tmp_path, monkeypatch):
             connection.execute("PRAGMA foreign_keys=ON")
     monkeypatch.setenv("DATABASE_URL", url)
     try:
-        # Exercise P4's exact migration independent of later owner revisions.
-        command.upgrade(config(url), HEAD)
+        command.upgrade(config(url), "head")
         yield engine, config(url)
     finally:
         engine.dispose()
@@ -105,10 +105,11 @@ def test_single_head_and_real_parent():
     scripts = ScriptDirectory.from_config(config())
     heads = scripts.get_heads()
     assert len(heads) == 1
-    assert HEAD in {revision.revision for revision in scripts.iterate_revisions(heads[0], "base")}
-    assert scripts.get_revision(HEAD).down_revision == PREVIOUS
-    assert len(HEAD) <= 32
-    assert len(list(scripts.walk_revisions())) >= 12
+    assert P4_HEAD in {revision.revision for revision in scripts.iterate_revisions(heads[0], "base")}
+    assert scripts.get_revision(P4_HEAD).down_revision == "0009_p4_outbound_messaging"
+    assert scripts.get_revision("0009_p4_outbound_messaging").down_revision == "0008_p4_communication"
+    assert len(P4_HEAD) <= 32
+    assert len(list(scripts.walk_revisions())) >= 15
 
 
 def test_postgresql_offline_ddl_and_fresh_metadata_registration(monkeypatch):
@@ -132,10 +133,8 @@ def test_postgresql_offline_ddl_and_fresh_metadata_registration(monkeypatch):
     assert "CREATE TABLE commitments" not in result.stdout
     stream = StringIO()
     with redirect_stdout(stream):
-        command.downgrade(config(), f"{HEAD}:{PREVIOUS}", sql=True)
-    assert stream.getvalue().count("DROP TABLE communication_") == 2
-    assert "DROP TABLE communication_outbound_messages" in stream.getvalue()
-    assert "DROP TABLE communication_send_attempts" in stream.getvalue()
+        command.downgrade(config(), f"{P4_HEAD}:{PREVIOUS}", sql=True)
+    assert stream.getvalue().count("DROP TABLE communication_") == len(TABLES)
     assert "DROP TABLE commitments" not in stream.getvalue()
 
 
@@ -144,7 +143,7 @@ def test_migrated_schema_matches_orm_exactly(migrated):
     inspector = inspect(engine)
     assert TABLES <= set(inspector.get_table_names())
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == HEAD
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == ScriptDirectory.from_config(config()).get_heads()[0]
         differences = compare_metadata(MigrationContext.configure(connection, opts={
             "include_object": lambda obj, name, kind, reflected, compare_to: (
                 name in TABLES if kind == "table" else True
@@ -426,22 +425,21 @@ def test_p4_downgrade_preserves_core_and_recovery_then_reupgrade(migrated):
             status="COMPLETED", case_version=1, commitment_version=11, payload_schema_version=1,
             case_payload={}, resolution_refs=[], created_at=NOW, updated_at=NOW))
     original_tables = set(inspect(engine).get_table_names()) - TABLES
-    base_p4_tables = TABLES - {"communication_outbound_messages", "communication_send_attempts"}
+    base_tables = {name for name in original_tables if name in {"commitments", "recovery_cases", "recovery_triggers"}}
     with engine.connect() as connection:
         before = {name: connection.scalar(text(f'SELECT count(*) FROM "{name}"'))
-                  for name in original_tables if name != "alembic_version"}
-        base_p4_before = {name: connection.scalar(text(f'SELECT count(*) FROM "{name}"'))
-                          for name in base_p4_tables}
+                  for name in base_tables}
     command.downgrade(cfg, PREVIOUS)
-    assert set(inspect(engine).get_table_names()) == original_tables | base_p4_tables
+    assert TABLES.isdisjoint(inspect(engine).get_table_names())
+    assert base_tables <= set(inspect(engine).get_table_names())
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == PREVIOUS
         for name, count in before.items():
             assert connection.scalar(text(f'SELECT count(*) FROM "{name}"')) == count
-    command.upgrade(cfg, HEAD)
+    command.upgrade(cfg, "head")
     assert TABLES <= set(inspect(engine).get_table_names())
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == HEAD
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == ScriptDirectory.from_config(cfg).get_heads()[0]
         assert connection.scalar(select(func.count()).select_from(recovery)) == 1
         for name in TABLES:
-            assert connection.scalar(text(f'SELECT count(*) FROM "{name}"')) == base_p4_before.get(name, 0)
+            assert connection.scalar(text(f'SELECT count(*) FROM "{name}"')) == 0

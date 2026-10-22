@@ -19,7 +19,7 @@ from app.main import app
 
 
 @pytest.fixture
-def main_client(db):  # noqa: F811
+def main_client(db):  # noqa: F811 - pytest fixture imported for collection
     previous = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = lambda: db
     try:

@@ -16,12 +16,20 @@ from app.core.errors import DomainError
 from app.core.router import router as core_router
 from app.recovery.router import router as recovery_router
 from app.communication.router import router as communication_router
+from app.core.feasibility_adapters import (
+    AuthoritativeAssessmentHistoryReader,
+    AuthoritativeImpactReader,
+)
 from app.feasibility.router import (
     feasibility_assessment_router,
     feasibility_read_router,
     feasibility_supplier_event_router,
 )
-from app.feasibility.api_dependencies import require_isolated_e2e_key
+from app.feasibility.api_dependencies import (
+    get_assessment_history,
+    get_impact_reader,
+    require_isolated_e2e_key,
+)
 
 
 class HealthResponse(BaseModel):
@@ -52,6 +60,9 @@ if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
     isolated_dependencies = [Depends(require_isolated_e2e_key)]
     app.include_router(feasibility_assessment_router, dependencies=isolated_dependencies)
     app.include_router(feasibility_supplier_event_router, dependencies=isolated_dependencies)
+
+app.dependency_overrides[get_assessment_history] = lambda: AuthoritativeAssessmentHistoryReader()
+app.dependency_overrides[get_impact_reader] = lambda: AuthoritativeImpactReader()
 
 
 @app.exception_handler(DomainError)

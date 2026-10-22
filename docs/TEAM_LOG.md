@@ -1557,3 +1557,62 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - P2: Acknowledge Core adapter placement and D-013 public assess route guard.
   - P3: Restart PR #10 merge against updated `main` (`5cf5cae5`) and rerun affected regressions.
   - P4: Implement migration `0008_communication_tables.py` branching from `0007`.
+### 2026-10-22 — P4 PR CI Hotfix: migration ancestry and route/recalculation regression tests
+
+- Scope: confirmed PR CI failures only; isolated current P4-communication 6f5102a working tree with user's latest MouManTAI-main (4).zip as PR integration input. Formal repo untouched, starting file hashes verified. No Git commit/push/merge/rebase/reset/checkout/stash.
+- Baseline difference: local branch/local origin/main still mount P1 placeholders; latest supplied main mounts real DurableInbox and OrderContextDetail. Reconstructed validation input retains existing P4 slice and registrations while using latest main source. This baseline composition is not part of the delivered changes. Applying route tests to an unsynchronized old Placeholder branch is expected to fail; do not weaken real-route assertions to support that branch.
+- Backend root cause: test_migration_0007.py hardcoded 0007 as current Head despite legitimate later migrations. Fix checks exactly one Head, required 0007 existence and ancestry, resolvable full revision graph, unique revision IDs, base and parent completeness. No hardcoded 0010, no migration edits, no contract/approval changes.
+- P1 route root causes: stale Smart inbox / Order context placeholder headings after main mounted real pages, plus transport fixture lacking a base for relative P1 URLs. Fix uses real Message Inbox / Order Context Unavailable, real API 404/error cards, P1-specific structures, Retry buttons, expected API paths/retry counts, retained URL and shared shell/navigation. P1 components are not mocked and both route cases retained.
+- P2 diagnosis: production already retains old data and renders FeatureDataError through role=alert. Reported 409 was not consistently reproduced locally; an adjacent receipt-time recalculation test intermittently lost its result with the same immediate-Promise/initial-effects pattern. Tests were interacting before initial lifecycle effects were explicitly settled. Fix awaits async mount effects/actions and explicitly rejects controlled first/retry promises for 403/409/503. Alert assertions strengthened to exact status/code/message; pending disabled button, retained prior assessment, no success claim, second alert and unchanged expected versions asserted. Related recalculation tests await the same initial effect boundary. No P2 Production Code/calculation/feasibility status/Core state edits.
+- Changed files only: backend/tests/test_migration_0007.py; frontend/src/features/communication/RouteIntegration.test.tsx; frontend/src/features/feasibility/pages.test.tsx. Backend shared test and P2 test changes require corresponding owner review; explicitly authorized by current user task. No App.tsx/main.py/Production/shared contract/migration hotfix delivered.
+- Backend validation: python -m pytest tests/test_migration_0007.py -q -> 2 passed (Windows and Linux); python -m pytest tests -q -> 103 passed + 1 existing module-level P1_DATABASE_URL skip, final Linux Python 3.12 container exit 0. All resource-reservation concurrency tests ran in Linux to avoid the known Windows SQLite native crash; no deselection. Disposable SQLite only, no dev/prod DB or PostgreSQL operations. Initial incomplete container inputs failed setup; final complete source inputs passed without bypassing assertions.
+- Frontend validation: requested target Vitest files -> 49 passed; three additional independent final runs -> 49 passed each; full npm test -- --maxWorkers=2 -> 308 passed / 5 existing LIVE_API skips; npm run typecheck, actual app tsc and npm run build -> passed, 121 modules. No --retry or timeout inflation. Latest main reproduction before fixes -> 47 passed / 2 stale-heading failures.
+- Delivery: P4-PR-CI-hotfix.zip with three tests, minimal HOTFIX.patch and COPY_AND_TEST.md / TEST_RESULTS.md / TEAM_LOG_APPEND.md. Append this entry manually; do not replace team history.
+- Remaining limitation: local branch must receive real P1 routes through normal team integration for the new route tests to pass; no Git merge performed here. No remote GitHub CI rerun or production E2E claimed.
+- Suggested commit: fix(ci): align migration and integration regression tests. Stop after hotfix; no feature work.
+
+### 2026-10-22 — Task T-P2H2: Feasibility Read Router Mount, Session-Aware Resolver & No-Commit Writer (P5 / ADR-019 / D-036)
+- **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `ADR-019` (Decision `D-036`)
+  - **Owner**: P5 (Shared Core, DB & Integration)
+  - **Impact**:
+    1. **Production Feasibility Read Router Mount**:
+       - Mounted `feasibility_read_router` in `backend/app/main.py`, exposing `GET /v1/commitments/{commitment_id}/assessments` and `GET /v1/impacts/{impact_id}`.
+       - Configured dependency overrides for `get_assessment_history` -> `AuthoritativeAssessmentHistoryReader` and `get_impact_reader` -> `AuthoritativeImpactReader`.
+       - Preserved D-013 route absence invariant: `POST /v1/commitments/{id}/assess` remains unmounted on Core (returns HTTP 404).
+    2. **Transaction-Safe AssessmentWriter Operation**:
+       - `AuthoritativeAssessmentWriter.assess(..., commit=True)` now supports `commit: bool = False` to stage assessments via `CommitmentService.assess(commit=False)` without committing or rolling back the dispatcher's database session.
+       - Preserved original P2 evaluation `result.assessed_at` and records pre-transition `commitment_version` in `AuditEventRecord.new_state`.
+    3. **Session-Aware Evaluation Authority**:
+       - `AuthoritativeEvaluationAuthority.resolve_current()` supports `db: Session | None = None` to query genuine persisted `CommitmentRecord` state from the active transaction.
+- **Validation Test Evidence**:
+  - Full backend pytest suite: `342 passed, 6 warnings` (`pytest backend/tests backend/app/feasibility/tests -q`).
+  - Route absence and duplicate guards: `2 passed in 0.07s` (`test_public_core_assess_route_is_absent` and `test_no_duplicate_http_routes_across_routers`).
+  - Feasibility router tests: `35 passed in 2.92s` (`pytest backend/app/feasibility/tests/test_router.py`).
+  - PostgreSQL handshake suite: `19 passed in 2.68s` (`pytest backend/tests/integration/test_feature_handshakes.py -v`).
+  - Frontend Vitest suite: `228 passed, 5 skipped (live smoke), 0 failed` (`npm test -- --run`).
+  - Frontend typecheck: Passed (`tsc --noEmit`, 0 errors).
+- **Pending Acknowledgements**: P2 (for implementing `app/feasibility/consumer.py` using `writer.assess(commit=False)` and session-aware resolver).
+
+### 2026-10-22 — Incremental P5 loopback CORS review unit
+
+- **Status:** APPROVED & MERGED into `main` via PR [#18](https://github.com/jiahui-1101/MouManTAI/pull/18).
+- **Cause/fix:** Vite serves `127.0.0.1:5173` while the shared API's default CORS setting allowed only `localhost:5173`, causing browser preflights to fail. The default permits both loopback spellings; an explicitly configured `CORS_ORIGINS` still takes precedence. The new test checks both origins' communication API preflight response and allowed-origin header. No migration, subscriber, identity, or consequential route change.
+- **Evidence:** `python -m pytest tests/test_local_frontend_cors.py tests/test_smoke.py -q -p no:cacheprovider --basetemp=.pytest-basetemp-cors-only --tb=short` → 2 passed. Scoped Ruff F/E4/E7/E9, compileall and `git diff --check` passed.
+
+### 2026-10-22 — P5 stale mandatory outbox guard (IN_REVIEW)
+
+- Contributor: P3 integration assistance. Owner/reviewer: P5 (`Gan0117`); approval pending. Source branch `fix/p5-stale-mandatory-outbox`, based on Main `c7a0f7d42a014cee94c1963e22e493207adcd121`. Extracted narrowly from draft integration PR #16; no migration, subscriber registration, P2 evaluator, P3 consumer or external action is enabled.
+- Root cause: Main's outbox reconciled a stale event to `PUBLISHED` solely because a newer Commitment Version existed, even if the named mandatory subscriber had never completed. This could silently discard a required prior P2 evaluation or P3 recovery transition.
+- Changed files: `backend/app/core/outbox.py`, `backend/tests/test_outbox_events.py`, `backend/tests/integration/test_feature_handshakes.py`, `docs/TEAM_LOG.md`. The dispatcher now checks the exact tenant/event/mandatory consumer `ProcessedEventRecord` before supersession; missing completion leaves the event `FAILED` with explicit reason and retry, or `DEAD_LETTER` at the configured attempt limit. Existing completed events retain supersession audit behavior. The handshake test verifies the newly visible stale P2 failure separately from a downstream P3 rollback. No test-only callback is wired into production.
+- Validation: `python -m pytest tests/test_outbox_events.py tests/test_transaction_ab_isolation.py tests/integration/test_feature_handshakes.py -q -p no:cacheprovider --basetemp=.pytest-basetemp-stale-check --tb=short` passed, 31 tests. `python -m pytest tests -q -p no:cacheprovider --basetemp=.pytest-basetemp-stale-all --tb=short` passed (exit 0). Scoped Ruff `F,E4,E7,E9`, compileall and `git diff --check` passed. These commands used portable SQLite fixtures; no PostgreSQL/migrated schema validation is claimed for this unit.
+- Review and integration: code commit `ae20793a94911b7b7f7ec6e6dc56885ad5b9d5a9` on draft PR #20; P5 reviewer `Gan0117` requested, approval pending; no merge to Main. Required production `p2_confirmed_evaluator` and P3 subscriber are still not registered; stale mandatory events require an authoritative reconciliation path. PR #16 remains draft and unmerged.
+
+### 2026-10-22 — P4 post-merge test alignment (IN_REVIEW)
+
+- Contributor: P3 integration assistance. Owner/reviewer: P4 (`Sheng554`); approval pending. Source: `fix/p4-postmerge-regression-tests` from Main `c7a0f7d42a014cee94c1963e22e493207adcd121` (PR #17 merge). This unit changes tests only; no production code or migration.
+- Root cause: Main added P4 recipient preference migration `0010_p4_recipient_preferences` and three routes, while P4 tests still expected migration `0009_p4_outbound_messaging`, six P4 tables and the older route set. Main baseline `python -m pytest app/communication/tests -q -p no:cacheprovider --basetemp=.pytest-basetemp-p4-main --tb=short` failed four tests.
+- Changed files: `backend/app/communication/tests/test_migration_persistence.py`, `backend/app/communication/tests/test_route_integration.py`, `docs/TEAM_LOG.md`. The migration test now includes both recipient preference tables, verifies the `0008 -> 0009 -> 0010` parent chain and full P4 downgrade scope; the route test covers all three new endpoints. Existing assertions and migrated schema checks remain active.
+- Validation: `python -m pytest app/communication/tests -q -p no:cacheprovider --basetemp=.pytest-basetemp-p4-fix --tb=short` passed (exit 0; PostgreSQL cases skipped without URL). PowerShell `$env:P4_TEST_DATABASE_URL='postgresql+psycopg://postgres@127.0.0.1:15444/p4_test_final_reconcile'; python -m pytest app/communication/tests/test_migration_persistence.py app/communication/tests/test_route_integration.py -q -p no:cacheprovider --basetemp=.pytest-basetemp-p4-pg --tb=short -rA` passed (exit 0; fresh UUID schemas on authorized disposable PostgreSQL 16). Final route test rerun passed; scoped Ruff `F,E4,E7,E9`, compileall and `git diff --check` passed. No general backend/front-end suite claimed.
+- Review and integration: code commit `5dfa32cd4718ac6b4ec6714f7563ab1ad18ce544` on draft PR #19; P4 reviewer `Sheng554` requested, approval pending; no merge to Main. Outstanding integration work includes PR #16 migration/Core/P2/P3 dependencies, P2 required changes, P1 route, trusted authority and positive customer acceptance.
