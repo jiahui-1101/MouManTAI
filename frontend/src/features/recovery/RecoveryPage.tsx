@@ -440,6 +440,7 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
 
   const assessment = caseData.trigger_assessment;
   const snapshot = caseData.operational_snapshot;
+  const deadline = caseData.commitment.terms.deadline;
   const synthetic = caseData.storage_mode === "IN_MEMORY_SYNTHETIC";
   const feasibleOptions = plans.filter((plan) => plan.feasibility_status === "FEASIBLE" || plan.feasibility_status === "CONDITIONAL");
 
@@ -488,7 +489,7 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
             <div><dt>Customer</dt><dd>{caseData.commitment.customer_id}</dd></div>
             <div><dt>Order</dt><dd>{caseData.commitment.order_id}</dd></div>
             <div><dt>Terms</dt><dd>{caseData.commitment.terms.quantity} {caseData.commitment.terms.unit} {caseData.commitment.terms.sku}</dd></div>
-            <div><dt>Deadline</dt><dd>{new Date(caseData.commitment.terms.deadline).toLocaleString()}</dd></div>
+            <div><dt>Deadline</dt><dd>{deadline ? new Date(deadline).toLocaleString() : "Not provided"}</dd></div>
             <div><dt>Agreement state</dt><dd>{caseData.commitment.agreement_state} · confirmation is separate from fulfilment</dd></div>
             <div><dt>Customer response refs</dt><dd><EvidenceList refs={synthetic ? [] : caseData.customer_confirmation_evidence_refs} /></dd></div>
             <div><dt>Fulfilment refs</dt><dd><EvidenceList refs={synthetic ? [] : caseData.fulfilment_evidence_refs} /></dd></div>

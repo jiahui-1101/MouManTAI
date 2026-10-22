@@ -164,6 +164,21 @@ describe("P3 recovery page", () => {
     expect(screen.queryByText(/execution succeeded/i)).not.toBeInTheDocument();
   });
 
+  it("renders a nullable commitment deadline without creating an invalid date", async () => {
+    const caseData = recoveryCase();
+    caseData.commitment.terms.deadline = null;
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request) => {
+      if (url.toString().endsWith("/plans")) {
+        return response({ tenant_id: "tenant_demo_01", commitment_id: "com_001", case_id: "rc_001", plans: [] });
+      }
+      return response(caseData);
+    }));
+
+    renderPage();
+
+    expect(await screen.findByText("Not provided")).toBeInTheDocument();
+  });
+
   it("shows loading and blocks invalid selection", async () => {
     let resolveCase: ((value: Response) => void) | undefined;
     const pending = new Promise<Response>((resolve) => { resolveCase = resolve; });

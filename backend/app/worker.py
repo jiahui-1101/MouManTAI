@@ -14,14 +14,21 @@ def configure_isolated_subscribers(dispatcher: OutboxDispatcher) -> None:
         return
     if len(os.getenv("MOUMANTAI_ISOLATED_E2E_KEY", "")) < 32:
         raise RuntimeError("Isolated E2E worker requires a server-owned mutation key")
+    from app.core.confirmed_event_source import PersistedConfirmedEventSourceProvider
+    from app.core.feasibility_adapters import AuthoritativeAssessmentWriter
+    from app.feasibility.consumer import create_p2_confirmed_evaluator
     from app.recovery.trigger_persistence import (
         PersistedCoreAssessmentLookup,
         SessionScopedRecoveryTriggerAdapter,
     )
-    from app.feasibility.confirmed_consumer import PersistedConfirmedEvaluator
 
     dispatcher.register_subscriber(
-        "commitment.confirmed", "p2_confirmed_evaluator", PersistedConfirmedEvaluator().persist,
+        "commitment.confirmed",
+        "p2_confirmed_evaluator",
+        create_p2_confirmed_evaluator(
+            PersistedConfirmedEventSourceProvider(),
+            AuthoritativeAssessmentWriter(),
+        ),
     )
 
     adapter = SessionScopedRecoveryTriggerAdapter(
