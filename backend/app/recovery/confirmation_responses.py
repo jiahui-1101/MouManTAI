@@ -54,6 +54,7 @@ from app.recovery.models import (
 
 from .durable_plans import DurablePlanService, RecoveryPlanRecord
 from .persistence import RecoveryCaseRecord, SqlAlchemyRecoveryRepository
+from .proposal_identity import require_proposal_binding
 
 _RESPONSE_INTENTS = {
     "confirmation.rejected": ("REJECT", "REJECTED"),
@@ -193,6 +194,10 @@ class P3ConfirmationContextResolver:
                 "P4 communication does not match the trusted P3 proposal reference",
                 status_code=409,
             )
+        require_proposal_binding(
+            reference.plan_id, reference.plan_version,
+            reference.proposal_id, reference.proposal_version,
+        )
 
         outbound = db.get(OutboundMessageRecord, (tenant_id, payload["outbound_id"]))
         confirmation = db.get(ConfirmationSessionRecord, (tenant_id, payload["confirmation_id"]))
@@ -227,8 +232,10 @@ class P3ConfirmationContextResolver:
                     "Persisted P3 plan payload is invalid",
                     status_code=500,
                 ) from exc
-            bound_proposal_id = candidate.proposal_id or candidate.plan_id
-            bound_proposal_version = candidate.proposal_version or candidate.plan_version
+            bound_proposal_id, bound_proposal_version = require_proposal_binding(
+                candidate.plan_id, candidate.plan_version,
+                candidate.proposal_id, candidate.proposal_version,
+            )
             if (bound_proposal_id, bound_proposal_version) == (
                 reference.proposal_id,
                 reference.proposal_version,
@@ -643,6 +650,9 @@ class P3ConfirmationResponseConsumer:
     @staticmethod
     def _require_active_approval(db: Session, event: DomainEvent, plan_record: RecoveryPlanRecord,
                                  plan: RecoveryPlanVersion) -> None:
+        proposal_id, proposal_version = require_proposal_binding(
+            plan.plan_id, plan.plan_version, plan.proposal_id, plan.proposal_version,
+        )
         decisions = db.scalars(select(ManagerApprovalRecord).where(
             ManagerApprovalRecord.tenant_id == event.tenant_id,
             ManagerApprovalRecord.plan_id == plan.plan_id,
@@ -660,8 +670,8 @@ class P3ConfirmationResponseConsumer:
             or latest.decision != "APPROVED"
             or latest.plan_id != plan.plan_id
             or latest.plan_version != plan.plan_version
-            or latest.proposal_id != plan.plan_id
-            or latest.proposal_version != plan.plan_version
+            or latest.proposal_id != proposal_id
+            or latest.proposal_version != proposal_version
             or latest.actor_role not in {"MANAGER", "OWNER"}
             or decided_at is None
             or decided_at > event.occurred_at

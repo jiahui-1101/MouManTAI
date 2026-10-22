@@ -35,6 +35,7 @@ from .models import (
     ValidationSource,
 )
 from .persistence import RecoveryCaseRecord, SqlAlchemyRecoveryRepository
+from .proposal_identity import proposal_id_for_plan
 from .ranking import RankingCandidate, rank_candidates
 from .trigger_persistence import PersistedCoreAssessmentLookup
 
@@ -226,7 +227,7 @@ class DurablePlanService:
         if latest_version is None:
             raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Current Recovery plan version is unavailable", status_code=404)
         next_version = latest_version + 1
-        next_proposal_id = f"{proposal.proposal_id}__counteroffer_v{next_version}"
+        next_proposal_id = proposal_id_for_plan(prior_plan.plan_id, next_version)
 
         constraints = [f"{item.code}:{item.resource_id}" for item in result.constraints]
         constraints.append("CUSTOMER_COUNTEROFFER_REQUIRES_FRESH_APPROVAL")
@@ -426,7 +427,7 @@ class DurablePlanService:
         for name, strategy, result, proposal, cost, delay, confirmation, uncertainty in candidates:
             plan_id = f"{case.case_id}_{name}"
             plan_version = latest_rows[plan_id].plan_version + 1 if plan_id in replan_ids else 1
-            proposal_id = plan_id if plan_version == 1 else f"{plan_id}__v{plan_version}"
+            proposal_id = proposal_id_for_plan(plan_id, plan_version)
             decision = ranking[plan_id]
             action_type = "CREATE_INTERNAL_REVIEW_TASK"
             action_params = {"strategy": strategy.value, "proposal": proposal.model_dump(mode="json") if proposal else None}

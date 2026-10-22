@@ -17,7 +17,12 @@ from app.communication.tests.test_requests import NOW
 from app.communication.tests.test_review import MANAGER
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
-from app.core.models import AuditEventRecord, OutboxEventRecord, ProcessedEventRecord
+from app.core.models import (
+    AuditEventRecord,
+    CommitmentProposalRecord,
+    OutboxEventRecord,
+    ProcessedEventRecord,
+)
 from app.core.outbox import OutboxDispatcher
 from app.core.schemas import DomainEvent
 from app.recovery.confirmation_responses import (
@@ -26,12 +31,30 @@ from app.recovery.confirmation_responses import (
     P3ConfirmationResponseConsumer,
 )
 from app.recovery.durable_actions import DurableActionService
+from app.recovery.durable_communication import (
+    DurableCommunicationHandoff,
+    RequestCommunicationInput,
+)
 from app.recovery.durable_plans import DurablePlanService, RecoveryPlanRecord
 from app.recovery.eventing import PendingRecoveryEventPublisher
 from app.recovery.fixtures import load_demo_recovery_inputs
 from app.recovery.models import RecoveryCaseStatus, RecoveryStrategy
 from app.recovery.persistence import RecoveryCaseRecord
+from app.recovery.proposal_identity import proposal_id_for_plan, require_proposal_binding
 from app.recovery.service import RecoveryPlanner
+
+
+def test_canonical_proposal_identity_preserves_v1_and_uniquely_versions_successors():
+    assert proposal_id_for_plan("plan_123", 1) == "plan_123"
+    assert proposal_id_for_plan("plan_123", 2) == "plan_123_v2"
+    assert proposal_id_for_plan("plan_123", 3) == "plan_123_v3"
+    assert len({proposal_id_for_plan("plan_123", version) for version in (1, 2, 3)}) == 3
+    assert require_proposal_binding("plan_123", 1, None, None) == ("plan_123", 1)
+    assert require_proposal_binding("plan_123", 2, "plan_123_v2", 2) == ("plan_123_v2", 2)
+    for proposal_id, proposal_version in (("plan_123", 2), ("plan_123__v2", 2), ("plan_123_v2", 1)):
+        with pytest.raises(DomainError) as error:
+            require_proposal_binding("plan_123", 2, proposal_id, proposal_version)
+        assert error.value.code == "PROPOSAL_PLAN_IDENTITY_CONFLICT"
 
 
 @pytest.mark.parametrize(
@@ -124,7 +147,7 @@ def test_p3_rejects_p4_events_with_modified_payload(session):
     assert error.value.code == "P4_RESPONSE_SOURCE_MISMATCH"
 
 
-def _persist_exact_p3_plan_for_p4_request(session):
+def _persist_exact_p3_plan_for_p4_request(session, plan_version=2):
     p2_fixtures = pytest.importorskip("app.feasibility.production_fixtures")
     snapshot, commitment = p2_fixtures.build_production_example()
     commitment = commitment.model_copy(update={
@@ -158,13 +181,13 @@ def _persist_exact_p3_plan_for_p4_request(session):
     )
     plan = source_plan.model_copy(update={
         "plan_id": "plan_001",
-        "plan_version": 2,
-        "proposal_id": "proposal_001",
-        "proposal_version": 3,
+        "plan_version": plan_version,
+        "proposal_id": proposal_id_for_plan("plan_001", plan_version),
+        "proposal_version": plan_version,
         "core_commitment_version": 10,
         "evaluation": source_plan.evaluation.model_copy(update={
             "plan_id": "plan_001",
-            "plan_version": 2,
+            "plan_version": plan_version,
             "commitment_version": 10,
         }),
     })
@@ -210,7 +233,30 @@ def _persist_exact_p3_plan_for_p4_request(session):
     return case, plan
 
 
-def _p4_response_event(session, intent="REJECT"):
+def _p4_response_event(session, monkeypatch, intent="REJECT", plan_version=2):
+    # Adapt P4's deliberately noncanonical generic fixture to a P3-owned
+    # versioned source before P4 creates the request/confirmation chain.
+    from app.communication.tests import test_migration_persistence as p4_fixture
+
+    original_seed = p4_fixture.seed_core
+
+    def canonical_seed(db):
+        original_seed(db)
+        old = db.get(CommitmentProposalRecord, ("tenant_a", "proposal_001"))
+        assert old is not None
+        old.proposal_id = proposal_id_for_plan("plan_001", plan_version)
+        old.proposal_version = plan_version
+        source = db.get(OutboxEventRecord, "evt_001")
+        assert source is not None
+        source.payload = {
+            **source.payload,
+            "plan_version": plan_version,
+            "proposal_id": old.proposal_id,
+            "proposal_version": plan_version,
+        }
+        db.commit()
+
+    monkeypatch.setattr(p4_fixture, "seed_core", canonical_seed)
     sent, drafts, reviews = fixture_sent(session)
     inbound = FixtureInbound()
     p4 = confirmation_service(session, drafts, reviews, inbound)
@@ -248,9 +294,12 @@ def _p4_response_event(session, intent="REJECT"):
     )
 
 
-def test_typed_resolver_follows_p4_source_request_and_outbound_to_exact_p3_plan(session):
-    event = _p4_response_event(session)
-    case, plan = _persist_exact_p3_plan_for_p4_request(session)
+@pytest.mark.parametrize("plan_version", [1, 2])
+def test_typed_resolver_follows_p4_source_request_and_outbound_to_exact_p3_plan(
+    session, monkeypatch, plan_version,
+):
+    event = _p4_response_event(session, monkeypatch, plan_version=plan_version)
+    case, plan = _persist_exact_p3_plan_for_p4_request(session, plan_version)
 
     resolved = P3ConfirmationContextResolver().resolve(session, event)
 
@@ -258,7 +307,9 @@ def test_typed_resolver_follows_p4_source_request_and_outbound_to_exact_p3_plan(
     assert resolved.commitment_id == "com_001"
     assert resolved.recovery_case_id == case.case_id
     assert (resolved.plan_id, resolved.plan_version) == (plan.plan_id, plan.plan_version)
-    assert (resolved.proposal_id, resolved.proposal_version) == ("proposal_001", 3)
+    assert (resolved.proposal_id, resolved.proposal_version) == (
+        proposal_id_for_plan(plan.plan_id, plan_version), plan_version,
+    )
     assert resolved.communication_id == event.payload["communication_id"]
     assert resolved.outbound_id == event.payload["outbound_id"]
     assert resolved.source_communication_event_id == "evt_001"
@@ -266,13 +317,13 @@ def test_typed_resolver_follows_p4_source_request_and_outbound_to_exact_p3_plan(
     assert resolved.evidence_refs == event.payload["evidence_refs"]
 
 
-def test_typed_resolver_fails_closed_on_ambiguous_plan_association(session):
-    event = _p4_response_event(session)
+def test_typed_resolver_fails_closed_on_ambiguous_plan_association(session, monkeypatch):
+    event = _p4_response_event(session, monkeypatch)
     case, plan = _persist_exact_p3_plan_for_p4_request(session)
-    duplicate = plan.model_copy(update={"plan_id": "another_plan_same_proposal"})
+    duplicate = plan.model_copy()
     session.add(RecoveryPlanRecord(
         tenant_id=case.tenant_id,
-        plan_id=duplicate.plan_id,
+        plan_id="another_plan_same_proposal",
         plan_version=duplicate.plan_version,
         case_id=case.case_id,
         commitment_id=case.commitment_id,
@@ -293,12 +344,41 @@ def test_typed_resolver_fails_closed_on_ambiguous_plan_association(session):
     assert error.value.code == "RECOVERY_PROPOSAL_PLAN_AMBIGUOUS"
 
 
-def test_stale_response_is_reconciled_once_without_invalidating_newer_plan(session):
-    event = _p4_response_event(session)
+def test_v1_approval_cannot_authorize_a_v2_communication_handoff(session, monkeypatch):
+    _p4_response_event(session, monkeypatch)
+    case, plan = _persist_exact_p3_plan_for_p4_request(session)
+    monkeypatch.setattr(
+        "app.recovery.durable_communication.trusted_isolated_manager",
+        lambda _context, _key: "manager_test",
+    )
+    monkeypatch.setattr(
+        "app.recovery.durable_communication.ManagerApprovalService.require_active",
+        lambda _self, _db, _context, _plan: SimpleNamespace(
+            approval_id="approval_v1", proposal_id=plan.plan_id, proposal_version=1,
+        ),
+    )
+    with pytest.raises(DomainError) as error:
+        DurableCommunicationHandoff().request(
+            session,
+            RequestContext(case.tenant_id, "manager_test", "MANAGER", "corr_approval_v2"),
+            None,
+            plan.plan_id,
+            RequestCommunicationInput(
+                expected_plan_version=plan.plan_version,
+                expected_commitment_version=11,
+                expected_snapshot_version=plan.snapshot_version,
+            ),
+        )
+    assert error.value.code == "APPROVAL_SCOPE_CONFLICT"
+    assert session.get(CommitmentProposalRecord, (case.tenant_id, "plan_001_v2")) is not None
+
+
+def test_stale_response_is_reconciled_once_without_invalidating_newer_plan(session, monkeypatch):
+    event = _p4_response_event(session, monkeypatch)
     case, plan = _persist_exact_p3_plan_for_p4_request(session)
     newer = plan.model_copy(update={
         "plan_version": 3,
-        "proposal_id": "proposal_001__v3",
+        "proposal_id": proposal_id_for_plan(plan.plan_id, 3),
         "proposal_version": 3,
         "evaluation": plan.evaluation.model_copy(update={
             "plan_version": 3,
@@ -358,8 +438,8 @@ def test_stale_response_is_reconciled_once_without_invalidating_newer_plan(sessi
     ).count() == audit_count == 1
 
 
-def test_p4_confirmation_schema_version_is_enforced(session):
-    event = _p4_response_event(session)
+def test_p4_confirmation_schema_version_is_enforced(session, monkeypatch):
+    event = _p4_response_event(session, monkeypatch)
     unsupported = event.model_copy(update={"schema_version": 2})
 
     with pytest.raises(DomainError) as error:
@@ -454,8 +534,10 @@ def test_counteroffer_creates_a_fresh_p2_evaluated_plan_version(monkeypatch):
     assert str(evaluate_calls[0][1].quantity) == "70"
     assert evaluate_calls[0][2].agreement_state == "CONFIRMED"
     assert outcome in {"REPLANNED", "REPLAN_REQUIRED"}
+    assert next_plan.plan_id == previous.plan_id
     assert next_plan.plan_version == previous.plan_version + 1
-    assert next_plan.proposal_id == f"proposal_source__counteroffer_v{next_plan.plan_version}"
+    assert next_plan.proposal_id == proposal_id_for_plan(previous.plan_id, next_plan.plan_version)
+    assert next_plan.proposal_version == next_plan.plan_version
     assert next_plan.approval_state.value == "PENDING"
     assert next_plan.recommended is False
     assert next_plan.evaluation.feasibility_status == next_plan.feasibility_status
