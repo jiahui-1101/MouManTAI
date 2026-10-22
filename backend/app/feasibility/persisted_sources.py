@@ -16,7 +16,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
-from app.core.models import OutboxEventRecord
+from app.core.models import CommitmentRecord, OutboxEventRecord
 from app.core.schemas import Commitment
 from app.core.service import CommitmentService
 from app.db.base import Base
@@ -45,6 +45,28 @@ Index(
     "uq_p2_one_current_snapshot", OperationalSnapshotRecord.tenant_id, unique=True,
     postgresql_where=text("is_current"), sqlite_where=text("is_current = 1"),
 )
+
+
+def _snapshot_from_record(row: OperationalSnapshotRecord) -> EvaluationSnapshot:
+    try:
+        snapshot = EvaluationSnapshot.model_validate(row.payload)
+    except Exception as exc:
+        raise DomainError(
+            "OPERATIONAL_SNAPSHOT_CORRUPT",
+            "Persisted operational snapshot is invalid",
+            status_code=500,
+        ) from exc
+    if (
+        snapshot.operational.tenant_id,
+        snapshot.operational.snapshot_id,
+        snapshot.operational.snapshot_version,
+    ) != (row.tenant_id, row.snapshot_id, row.snapshot_version):
+        raise DomainError(
+            "OPERATIONAL_SNAPSHOT_CORRUPT",
+            "Snapshot payload identity mismatch",
+            status_code=500,
+        )
+    return snapshot
 
 
 class SupplierDelayEventRecord(Base):
@@ -107,12 +129,7 @@ def read_snapshot(db: Session, tenant_id: str, version: int | None = None) -> Ev
     rows = db.scalars(stmt).all()
     if len(rows) != 1:
         raise DomainError("OPERATIONAL_SNAPSHOT_UNAVAILABLE", "One trusted snapshot is required", status_code=503)
-    snapshot = EvaluationSnapshot.model_validate(rows[0].payload)
-    if (snapshot.operational.tenant_id, snapshot.operational.snapshot_version, snapshot.operational.snapshot_id) != (
-        rows[0].tenant_id, rows[0].snapshot_version, rows[0].snapshot_id,
-    ):
-        raise DomainError("OPERATIONAL_SNAPSHOT_CORRUPT", "Snapshot payload identity mismatch", status_code=500)
-    return snapshot
+    return _snapshot_from_record(rows[0])
 
 
 class PersistedEvaluationAuthority:
@@ -145,7 +162,28 @@ class PersistedEvaluationAuthority:
 
 
 class PersistedSupplierDelayProcessor:
-    """Promote a staged AFTER snapshot only after typed P2 impact validation."""
+    """Promote a staged snapshot with the shared Commitment -> Snapshot lock order.
+
+    Core confirmed-event assessment locks a Commitment before its current source
+    snapshot. This path must use the same order: all affected tenant Commitments
+    sorted by ID, followed by the before/after snapshot rows sorted by version.
+    The snapshot payload read used to discover the Commitment IDs is deliberately
+    unlocked and is revalidated after both lock sets are acquired.
+    """
+
+    @staticmethod
+    def _prior_event(
+        db: Session, tenant_id: str, event_id: str, event_digest: str,
+    ) -> ImpactAssessment | None:
+        prior = db.scalar(select(SupplierDelayEventRecord).where(
+            SupplierDelayEventRecord.tenant_id == tenant_id,
+            SupplierDelayEventRecord.event_id == event_id,
+        ).execution_options(populate_existing=True))
+        if prior is None:
+            return None
+        if prior.event_digest != event_digest:
+            raise DomainError("SUPPLIER_EVENT_ID_CONFLICT", "Event ID has different content", status_code=409)
+        return ImpactAssessment.model_validate(prior.impact_payload)
 
     def process(
         self, db: Session, context: RequestContext, request: SupplierDelayRequest,
@@ -156,18 +194,95 @@ class PersistedSupplierDelayProcessor:
         digest = sha256(json.dumps(
             request.model_dump(mode="json"), sort_keys=True, separators=(",", ":"),
         ).encode()).hexdigest()
-        prior = db.get(SupplierDelayEventRecord, (context.tenant_id, change.event_id))
+        with db.no_autoflush:
+            prior = self._prior_event(db, context.tenant_id, change.event_id, digest)
         if prior is not None:
-            if prior.event_digest != digest:
-                raise DomainError("SUPPLIER_EVENT_ID_CONFLICT", "Event ID has different content", status_code=409)
-            return ImpactAssessment.model_validate(prior.impact_payload)
+            return prior
 
-        before_record = db.get(OperationalSnapshotRecord, (context.tenant_id, change.before_snapshot_version))
-        after_record = db.get(OperationalSnapshotRecord, (context.tenant_id, change.after_snapshot_version))
-        if before_record is None or after_record is None or not before_record.is_current or after_record.is_current:
-            raise DomainError("SNAPSHOT_DRIFT_CONFLICT", "Expected current BEFORE and staged AFTER snapshots", status_code=409)
-        before = read_snapshot(db, context.tenant_id, change.before_snapshot_version)
-        after = read_snapshot(db, context.tenant_id, change.after_snapshot_version)
+        # This first read is only a lock-set hint. Do not autoflush unrelated ORM
+        # work before the shared lock order, and do not use these rows for the
+        # calculation after waiting on another transaction.
+        with db.no_autoflush:
+            before_candidate = db.scalar(select(OperationalSnapshotRecord).where(
+                OperationalSnapshotRecord.tenant_id == context.tenant_id,
+                OperationalSnapshotRecord.snapshot_version == change.before_snapshot_version,
+            ).execution_options(populate_existing=True))
+            after_candidate = db.scalar(select(OperationalSnapshotRecord).where(
+                OperationalSnapshotRecord.tenant_id == context.tenant_id,
+                OperationalSnapshotRecord.snapshot_version == change.after_snapshot_version,
+            ).execution_options(populate_existing=True))
+            if before_candidate is None or after_candidate is None:
+                raise DomainError(
+                    "SNAPSHOT_DRIFT_CONFLICT",
+                    "Expected current BEFORE and staged AFTER snapshots",
+                    status_code=409,
+                )
+            before_hint = _snapshot_from_record(before_candidate)
+            commitment_ids = tuple(sorted({
+                row.commitment_id for row in before_hint.operational.confirmed_commitments
+            }))
+
+            # Lock every Commitment the before snapshot can send to Core in a
+            # deterministic order before taking either source row lock.
+            locked_commitments = db.scalars(
+                select(CommitmentRecord)
+                .where(
+                    CommitmentRecord.tenant_id == context.tenant_id,
+                    CommitmentRecord.commitment_id.in_(commitment_ids),
+                )
+                .order_by(CommitmentRecord.commitment_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).all() if commitment_ids else []
+            locked_commitment_ids = {row.commitment_id for row in locked_commitments}
+            if locked_commitment_ids != set(commitment_ids):
+                raise DomainError(
+                    "COMMITMENT_VERSION_CONFLICT",
+                    "A Commitment referenced by the current source is unavailable",
+                    status_code=409,
+                )
+
+            # A concurrent identical delivery may have committed while this
+            # transaction waited on Commitment locks. Return its durable result.
+            prior = self._prior_event(db, context.tenant_id, change.event_id, digest)
+            if prior is not None:
+                return prior
+
+            snapshot_rows = db.scalars(
+                select(OperationalSnapshotRecord)
+                .where(
+                    OperationalSnapshotRecord.tenant_id == context.tenant_id,
+                    OperationalSnapshotRecord.snapshot_version.in_((
+                        change.before_snapshot_version,
+                        change.after_snapshot_version,
+                    )),
+                )
+                .order_by(OperationalSnapshotRecord.snapshot_version)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).all()
+            # Empty-impact snapshots have no Commitment row to serialize two
+            # identical deliveries. Recheck after acquiring the source lock too.
+            prior = self._prior_event(db, context.tenant_id, change.event_id, digest)
+            if prior is not None:
+                return prior
+
+        snapshots_by_version = {row.snapshot_version: row for row in snapshot_rows}
+        before_record = snapshots_by_version.get(change.before_snapshot_version)
+        after_record = snapshots_by_version.get(change.after_snapshot_version)
+        if (
+            before_record is None
+            or after_record is None
+            or not before_record.is_current
+            or after_record.is_current
+        ):
+            raise DomainError(
+                "SNAPSHOT_DRIFT_CONFLICT",
+                "Expected current BEFORE and staged AFTER snapshots",
+                status_code=409,
+            )
+        before = _snapshot_from_record(before_record)
+        after = _snapshot_from_record(after_record)
         old_delivery = next((row for row in before.operational.incoming_deliveries
                              if row.delivery_id == request.source_evidence.delivery_id), None)
         new_delivery = next((row for row in after.operational.incoming_deliveries
@@ -202,6 +317,12 @@ class PersistedSupplierDelayProcessor:
             impact = recalculate_supplier_delay(inputs, tenant_id=context.tenant_id)
         except ValueError as exc:
             raise DomainError("SUPPLIER_SOURCE_CONFLICT", str(exc), status_code=409) from exc
+        if not {row.commitment_id for row in impact.impacts}.issubset(locked_commitment_ids):
+            raise DomainError(
+                "SUPPLIER_IMPACT_SCOPE_MISMATCH",
+                "P2 impact calculation returned a Commitment outside the locked source scope",
+                status_code=409,
+            )
         before_record.is_current = False
         db.flush()
         after_record.is_current = True

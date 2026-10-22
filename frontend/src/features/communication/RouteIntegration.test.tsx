@@ -102,7 +102,7 @@ describe("Real App communication route", () => {
   it.each([
     ["/", "Commitment Overview"], ["/overview", "Commitment Overview"],
     ["/activity", "Activity & Audit History"], ["/inbox", "Message Inbox"],
-    ["/recovery/recovery", "Recovery case"],
+    ["/recovery/recovery", "Recovery data is unavailable"],
     ["/communications/follow-ups", "Follow-Up Queue"],
     ["/confirmations/confirmation", "Confirmation workspace"], ["/unknown-route", "Page not found"],
   ])("preserves the actual App route %s", async (path, heading) => {

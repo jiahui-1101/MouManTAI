@@ -50,9 +50,11 @@ class CurrentOperationalSourceProvider(Protocol):
 
     ``resolve_current`` must bind tenant, Commitment terms and versions, validate
     source authenticity/completeness/freshness, and lock the current snapshot row
-    for the caller-owned transaction. ``validate_current`` must recheck the exact
-    snapshot identity/version after P2 evaluation while retaining the lock through
-    the dispatcher's commit or rollback.
+    for the caller-owned transaction. Paths that also lock a Core Commitment must
+    acquire that Commitment first, then the snapshot, matching supplier promotion's
+    canonical lock order. ``validate_current`` must recheck the exact snapshot
+    identity/version after P2 evaluation while retaining the lock through the
+    dispatcher's commit or rollback.
     """
 
     def resolve_current(
