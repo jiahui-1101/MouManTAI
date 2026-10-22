@@ -68,6 +68,10 @@ class CoreContextPublisher:
                         reasons.append(f"Item #{idx + 1} quantity '{item.quantity}' is not positive")
                 except Exception:
                     reasons.append(f"Item #{idx + 1} quantity '{item.quantity}' is not a valid decimal")
+                if not item.sku:
+                    reasons.append(f"Item #{idx + 1} SKU is missing")
+                if not item.unit:
+                    reasons.append(f"Item #{idx + 1} unit is missing")
         if context.conflicts:
             reasons.append(f"Unresolved conflicts: {', '.join(context.conflicts)}")
         if context.missing_fields:
@@ -76,8 +80,6 @@ class CoreContextPublisher:
             reasons.append("An explicit offset-aware delivery deadline is required")
         if context.delivery_qualifier != "DEADLINE":
             reasons.append("DATE_ONLY/EXACT/unknown delivery semantics require P5/P2 mapping; no automatic deadline conversion")
-        if len(context.requested_items) != 1:
-            reasons.append("Core single-item mapping requires exactly one reviewed item")
         if not context.source_message_ids:
             reasons.append("Original source message references are required")
         if not context.field_evidence or any(not (ev.get("evidence_id") or ev.get("evidence_ref"))
@@ -200,9 +202,14 @@ class CoreContextPublisher:
         ).with_for_update())
         if existing is not None and existing.customer_id != business_context.customer_id:
             raise IneligibleContextError("Existing order customer mismatch", ["Context cannot reassign an existing Core customer"])
-        if existing is not None and existing.agreement_state != AgreementState.REQUESTED.value:
-            raise IneligibleContextError("P5 amendment integration required; existing agreed/proposed terms preserved",
-                ["Current Core context facade cannot safely amend non-REQUESTED commitments; use the P5 proposal workflow"])
+        if existing is not None and existing.agreement_state in (
+            AgreementState.CANCELLED.value,
+            AgreementState.REJECTED.value,
+        ):
+            raise IneligibleContextError(
+                f"Commitment in terminal state '{existing.agreement_state}' cannot be amended via context update",
+                [f"Terminal agreement state: {existing.agreement_state}"],
+            )
         # D-032 permits caller-owned transactions. Context pointer, aggregate,
         # audit and outbox now succeed or roll back together.
         commitment = self.facade.handle_context_updated(session, request_context, business_context, commit=False)
