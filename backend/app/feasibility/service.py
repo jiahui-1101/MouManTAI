@@ -116,6 +116,8 @@ def evaluate(snapshot: EvaluationSnapshot, proposed_changes: ProposedChanges | N
         raise ValueError('target commitment/version not in snapshot')
     if commitment.agreement_state != 'CONFIRMED':
         raise ValueError('confirmed operational target required')
+    if commitment.terms.deadline is None:
+        raise ValueError('Core terms without a delivery deadline require manual review')
     if commitment.terms.items is not None:
         items = commitment.terms.items
         if len(items) != 1 or (
