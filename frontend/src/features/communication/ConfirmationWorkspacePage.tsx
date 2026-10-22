@@ -9,6 +9,7 @@ import { ConfirmationBadge, ConfirmationError, currentnessText, responseLabels }
 import type { ConfirmationView } from "./confirmationTypes";
 import "./communication.css";
 import "./confirmation.css";
+import { P4Loading } from "./P4Feedback";
 
 export function ConfirmationWorkspacePage() {
   const { id = "" } = useParams();
@@ -28,10 +29,11 @@ function Workspace({ id, auth }: { id: string; auth: RequestAuthHeaders }) {
     <header className="page-heading"><div><p className="eyebrow">Closed-loop communication</p>
       <h2>Confirmation workspace</h2><p className="muted">Review the exact proposal version and its recorded customer response.</p></div>
       <div className="cc-actions"><Link className="btn btn-ghost" to="/communications">Communication Center</Link>
+        <Link className="btn btn-secondary" to="/communications/follow-ups">Follow-Up Queue</Link>
         <button className="btn btn-secondary" onClick={refresh} disabled={!id || detail.isFetching || history.isFetching}>Refresh workspace</button></div>
     </header>
     {!id ? <p className="cc-state">No confirmation selected. Open a linked record from the Communication Center.</p> :
-      detail.isFetching ? <p className="cc-state" role="status">Loading confirmation details…</p> :
+      detail.isFetching ? <P4Loading>Loading confirmation details…</P4Loading> :
       detail.isError ? <ConfirmationError error={detail.error} retry={refresh} /> : value ? <>
         <div className="cw-notice" role="note"><strong>Synthetic evidence workspace</strong>
           <p>This response contains P4 evidence only and reports no Core transition. Check Core separately for the current agreement. Acceptance does not prove fulfilment.</p></div>

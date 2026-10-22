@@ -1,6 +1,7 @@
 import { ApiError } from "../../shared/api";
 import { StatusBadge } from "../../shared/StatusBadge";
 import type { CommunicationRequestView, MessageStatus } from "./types";
+import { P4ErrorPanel } from "./P4Feedback";
 
 // Display labels only. A Request's default DRAFT is NOT evidence of a saved draft.
 export function communicationLabel(requestStatus: CommunicationRequestView["request_status"],
@@ -71,6 +72,7 @@ const reasons: Record<string, string> = {
 export function reasonText(code: string) {
   if (reasons[code]) return reasons[code];
   if (/STALE|SUPERSEDED|VERSION/.test(code)) return "The proposal version is no longer current. Review the latest proposal.";
+  if (code === "PROPOSAL_ID_MISMATCH") return "The backend reports a different proposal identity. Refresh and review the exact proposal ID and version.";
   if (/EXPIRED/.test(code)) return "The proposal or approval has expired. Obtain a current approval.";
   if (/REVOKED|APPROVAL_REQUIRED|APPROVAL_MISSING/.test(code)) return "A current trusted approval is required.";
   return "This request needs review before drafting can continue.";
@@ -78,8 +80,9 @@ export function reasonText(code: string) {
 
 export function errorText(error: unknown, resource: "list" | "detail" | "draft" | "summary" | "review" | "send") {
   if (!(error instanceof ApiError)) return "Cannot reach the server. Check your connection and try again.";
-  if (reasons[error.code] || /STALE|SUPERSEDED|VERSION|EXPIRED|REVOKED/.test(error.code)) return reasonText(error.code);
+  if (reasons[error.code] || error.code === "PROPOSAL_ID_MISMATCH" || /STALE|SUPERSEDED|VERSION|EXPIRED|REVOKED/.test(error.code)) return reasonText(error.code);
   if (error.status === 401) return "Your session is not authorized. Sign in again.";
+  if (error.status === 400) return "The communication request was rejected. Check the current workspace and retry.";
   if (error.status === 403) return "You do not have permission for this action.";
   if (error.status === 404 && resource === "summary") return "Dashboard statistics are not available. The summary route may still be awaiting integration.";
   if (error.status === 404 && resource === "review") return "The draft or its review route is unavailable. Refresh and check the selected draft.";
@@ -105,6 +108,5 @@ export function DisplayBadge({ label }: { label: string }) {
 export function ErrorNotice({ error, resource, onRetry }: {
   error: unknown; resource: "list" | "detail" | "draft" | "summary" | "review"; onRetry: () => void;
 }) {
-  return <div className="cc-error" role="alert"><p>{errorText(error, resource)}</p>
-    <button className="btn btn-secondary" onClick={onRetry}>Retry</button></div>;
+  return <P4ErrorPanel error={error} message={errorText(error, resource)} retry={onRetry} />;
 }
