@@ -1,31 +1,48 @@
-"""Unregistered P4 router. P5 owns application registration and authority wiring."""
+"""P4 routes. Application registration and trusted authority wiring remain P5-owned."""
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
+import os
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext, get_db, get_request_context
 
 from .schemas import (
-    CommunicationRequestView, CreateCommunicationRequest, MessageDraftView,
-    PrepareDraftRequest, RequestStatus,
+    CommunicationRequestView, CommunicationSummary, CreateCommunicationRequest, MessageDraftView,
+    ApproveDraftRequest, DraftReviewView, PrepareDraftRequest, RejectDraftRequest, RequestStatus,
 )
 from .drafting import DraftAuthority, MessageDraftService
 from .service import CommunicationRequestService, RequestAuthority
+from .review import DraftReviewService, ReviewAuthority
+from .authority_adapters import (
+    IsolatedRecoveryRequestAuthority, RuntimeDraftAuthority, RuntimeRequestAuthority, RuntimeReviewAuthority,
+)
 
 
 router = APIRouter(prefix="/v1/communications", tags=["communications"])
 
 
-def get_request_authority() -> RequestAuthority | None:
-    # Intentionally unconfigured: no guessed role policy or hardcoded demo approval.
-    return None
+def get_request_authority(x_isolated_e2e_key: str | None = Header(default=None)) -> RequestAuthority:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
+        return IsolatedRecoveryRequestAuthority(x_isolated_e2e_key)
+    return RuntimeRequestAuthority()
 
 
-def get_draft_authority() -> DraftAuthority | None:
-    # Separate action-specific revalidation; do not reuse client claims or old snapshots.
-    return None
+def get_draft_authority() -> DraftAuthority:
+    return RuntimeDraftAuthority()
+
+
+def get_review_authority() -> ReviewAuthority:
+    return RuntimeReviewAuthority()
+
+
+def get_review_service(
+    db: Annotated[Session, Depends(get_db)],
+    drafts: Annotated[DraftAuthority | None, Depends(get_draft_authority)],
+    authority: Annotated[ReviewAuthority | None, Depends(get_review_authority)],
+) -> DraftReviewService:
+    return DraftReviewService(db, drafts, authority)
 
 
 def get_draft_service(
@@ -45,6 +62,24 @@ def get_service(
 Service = Annotated[CommunicationRequestService, Depends(get_service)]
 Context = Annotated[RequestContext, Depends(get_request_context)]
 DraftService = Annotated[MessageDraftService, Depends(get_draft_service)]
+ReviewService = Annotated[DraftReviewService, Depends(get_review_service)]
+
+
+@router.get("/{communication_id}/drafts/{draft_id}/review", response_model=DraftReviewView)
+def read_draft_review(communication_id: str, draft_id: str, service: ReviewService, context: Context):
+    return service.get(context, communication_id, draft_id)
+
+
+@router.post("/{communication_id}/drafts/{draft_id}/approve", response_model=DraftReviewView)
+def approve_message_draft(communication_id: str, draft_id: str, command: ApproveDraftRequest,
+                          service: ReviewService, context: Context):
+    return service.approve(context, communication_id, draft_id, command)
+
+
+@router.post("/{communication_id}/drafts/{draft_id}/reject", response_model=DraftReviewView)
+def reject_message_draft(communication_id: str, draft_id: str, command: RejectDraftRequest,
+                         service: ReviewService, context: Context):
+    return service.reject(context, communication_id, draft_id, command)
 
 
 @router.post("/{communication_id}/prepare", response_model=MessageDraftView)
@@ -71,6 +106,12 @@ def list_requests(
     request_status: RequestStatus | None = None,
 ):
     return service.list(context, commitment_id=commitment_id, request_status=request_status)
+
+
+# Static path must precede the dynamic /{communication_id} route.
+@router.get("/summary", response_model=CommunicationSummary)
+def communication_summary(service: DraftService, context: Context):
+    return service.summary(context)
 
 
 @router.get("/{communication_id}", response_model=CommunicationRequestView)

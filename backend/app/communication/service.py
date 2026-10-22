@@ -1,5 +1,6 @@
 """Communication request intake; retains the Commit 01 pure inspection helper."""
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Protocol
 from uuid import uuid4
@@ -91,6 +92,25 @@ class RequestAuthority(Protocol):
     ) -> RequestAuthorization | None: ...
 
 
+@dataclass(frozen=True)
+class CurrentCommunicationBasis:
+    """Current Core facts only; NOT approval, authentication, consent or expiry proof."""
+
+    reference: RecoveryCommunicationReference
+    terms: CommitmentTerms
+    order_id: str
+    customer_id: str
+    proposal_evidence_refs: tuple[str, ...]
+
+
+def _check_authority_availability(authority) -> None:
+    # Optional integration preflight; it can only block, never grant permission.
+    # Legacy adapters still implement the existing action-specific Protocols.
+    check = getattr(authority, "check_availability", None)
+    if check is not None:
+        check()
+
+
 def _require_context(context: RequestContext) -> None:
     if not context.tenant_id.strip():
         raise DomainError("TENANT_REQUIRED", "A resolved tenant is required", status_code=400)
@@ -124,6 +144,7 @@ class CommunicationRequestService:
                 "COMMUNICATION_AUTHORITY_UNAVAILABLE",
                 "P5 must configure request creation policy and trusted approval reader", 503,
             )
+        _check_authority_availability(self.authority)
         current_time = now if now is not None else datetime.now(timezone.utc)
         if current_time.tzinfo is None or current_time.utcoffset() is None:
             _fail("TIMEZONE_REQUIRED", "now must include a UTC offset", 422)
@@ -167,52 +188,10 @@ class CommunicationRequestService:
         if authorize is None:
             if self.authority is None:
                 _fail("COMMUNICATION_AUTHORITY_UNAVAILABLE", "Trusted authority is required", 503)
+            _check_authority_availability(self.authority)
             authorize = self.authority.authorize_request
-        source = self.db.scalar(select(OutboxEventRecord).where(
-            OutboxEventRecord.event_id == command.source_event_id,
-            OutboxEventRecord.tenant_id == context.tenant_id,
-        ))
-        if source is None:
-            _fail("SOURCE_EVENT_NOT_FOUND", "Source event not found in current tenant", 404)
-        ref = inspect_recovery_communication_event(
-            to_domain_event(source), expected_tenant_id=context.tenant_id,
-        )
-        commitment = self.db.scalar(select(CommitmentRecord).where(
-            CommitmentRecord.tenant_id == context.tenant_id,
-            CommitmentRecord.commitment_id == ref.commitment_id,
-        ).with_for_update())
-        if commitment is None:
-            _fail("COMMITMENT_NOT_FOUND", "Commitment not found", 404)
-        if commitment.commitment_version != ref.commitment_version:
-            _fail("COMMITMENT_VERSION_CONFLICT", "Source event uses a stale commitment version")
-        proposal = self.db.scalar(select(CommitmentProposalRecord).where(
-            CommitmentProposalRecord.tenant_id == context.tenant_id,
-            CommitmentProposalRecord.proposal_id == ref.proposal_id,
-        ).with_for_update())
-        if proposal is None:
-            _fail("PROPOSAL_NOT_FOUND", "Proposal not found in current tenant", 404)
-        if proposal.commitment_id != ref.commitment_id:
-            _fail("COMMITMENT_ID_MISMATCH", "Proposal targets a different commitment", 422)
-        if proposal.proposal_version != ref.proposal_version:
-            _fail("STALE_PROPOSAL_VERSION", "Proposal version does not match event")
-        latest = self.db.scalars(select(CommitmentProposalRecord).where(
-            CommitmentProposalRecord.tenant_id == context.tenant_id,
-            CommitmentProposalRecord.commitment_id == ref.commitment_id,
-        ).order_by(CommitmentProposalRecord.proposal_version.desc())).all()
-        if not latest or latest[0].proposal_version != ref.proposal_version:
-            _fail("STALE_PROPOSAL_VERSION", "A newer proposal exists")
-        if sum(p.proposal_version == ref.proposal_version for p in latest) != 1:
-            _fail("AMBIGUOUS_PROPOSAL_VERSION", "Proposal version is not unique for commitment")
-        if proposal.status != "ACTIVE" or commitment.agreement_state != "OFFERED":
-            _fail("PROPOSAL_NOT_ELIGIBLE", "Proposal must be ACTIVE on an OFFERED commitment")
-        if not proposal.revised_terms:
-            _fail("APPROVED_TERMS_REQUIRED", "Explicit proposal terms are required", 422)
-        try:
-            terms = CommitmentTerms.model_validate(proposal.revised_terms)
-        except ValidationError as exc:
-            raise DomainError("INVALID_PROPOSAL_TERMS", "Proposal terms are invalid", status_code=422) from exc
-        if terms.deadline <= now:
-            _fail("PROPOSED_DEADLINE_PASSED", "Proposal delivery deadline has passed")
+        basis = self.read_current_basis(context, command, now)
+        ref, terms = basis.reference, basis.terms
         authorization = authorize(
             self.db, context, ref.model_copy(deep=True), terms.model_copy(deep=True),
         )
@@ -235,10 +214,73 @@ class CommunicationRequestService:
             _fail("APPROVAL_EXPIRED", "Request approval has expired")
         if authorization.proposal_expires_at is not None and authorization.proposal_expires_at <= now:
             _fail("PROPOSAL_EXPIRED", "Proposal has expired")
-        if authorization.recipient_customer_id not in (None, commitment.customer_id):
+        if authorization.recipient_customer_id not in (None, basis.customer_id):
             _fail("RECIPIENT_MISMATCH", "Recipient is linked to a different customer", 403)
 
-        return ref, terms, authorization, commitment.order_id, list(proposal.evidence_refs)
+        return ref, terms, authorization, basis.order_id, list(basis.proposal_evidence_refs)
+
+    def read_current_basis(
+        self, context: RequestContext, command: CreateCommunicationRequest, now: datetime,
+    ) -> CurrentCommunicationBasis:
+        """Read/lock real Core facts using the caller's Session; no authorization.
+
+        Deliberately does not promote an ACTIVE proposal, an outbox row or generic
+        audit evidence to manager approval or trusted source provenance. The Core
+        schema currently cannot prove those facts. No commit, rollback or mutation.
+        The caller owns the transaction and must separately verify authority.
+        """
+        _require_context(context)
+        if now.tzinfo is None or now.utcoffset() is None:
+            _fail("TIMEZONE_REQUIRED", "now must include a UTC offset", 422)
+        source = self.db.scalar(select(OutboxEventRecord).where(
+            OutboxEventRecord.event_id == command.source_event_id,
+            OutboxEventRecord.tenant_id == context.tenant_id,
+        ).execution_options(populate_existing=True))
+        if source is None:
+            _fail("SOURCE_EVENT_NOT_FOUND", "Source event not found in current tenant", 404)
+        ref = inspect_recovery_communication_event(
+            to_domain_event(source), expected_tenant_id=context.tenant_id,
+        )
+        commitment = self.db.scalar(select(CommitmentRecord).where(
+            CommitmentRecord.tenant_id == context.tenant_id,
+            CommitmentRecord.commitment_id == ref.commitment_id,
+        ).with_for_update().execution_options(populate_existing=True))
+        if commitment is None:
+            _fail("COMMITMENT_NOT_FOUND", "Commitment not found", 404)
+        if commitment.commitment_version != ref.commitment_version:
+            _fail("COMMITMENT_VERSION_CONFLICT", "Source event uses a stale commitment version")
+        proposal = self.db.scalar(select(CommitmentProposalRecord).where(
+            CommitmentProposalRecord.tenant_id == context.tenant_id,
+            CommitmentProposalRecord.proposal_id == ref.proposal_id,
+        ).with_for_update().execution_options(populate_existing=True))
+        if proposal is None:
+            _fail("PROPOSAL_NOT_FOUND", "Proposal not found in current tenant", 404)
+        if proposal.commitment_id != ref.commitment_id:
+            _fail("COMMITMENT_ID_MISMATCH", "Proposal targets a different commitment", 422)
+        if proposal.proposal_version != ref.proposal_version:
+            _fail("STALE_PROPOSAL_VERSION", "Proposal version does not match event")
+        latest = self.db.scalars(select(CommitmentProposalRecord).where(
+            CommitmentProposalRecord.tenant_id == context.tenant_id,
+            CommitmentProposalRecord.commitment_id == ref.commitment_id,
+        ).order_by(CommitmentProposalRecord.proposal_version.desc()).execution_options(populate_existing=True)).all()
+        if not latest or latest[0].proposal_version != ref.proposal_version:
+            _fail("STALE_PROPOSAL_VERSION", "A newer proposal exists")
+        if sum(p.proposal_version == ref.proposal_version for p in latest) != 1:
+            _fail("AMBIGUOUS_PROPOSAL_VERSION", "Proposal version is not unique for commitment")
+        if proposal.status != "ACTIVE" or commitment.agreement_state != "OFFERED":
+            _fail("PROPOSAL_NOT_ELIGIBLE", "Proposal must be ACTIVE on an OFFERED commitment")
+        if not proposal.revised_terms:
+            _fail("APPROVED_TERMS_REQUIRED", "Explicit proposal terms are required", 422)
+        try:
+            terms = CommitmentTerms.model_validate(proposal.revised_terms)
+        except ValidationError as exc:
+            raise DomainError("INVALID_PROPOSAL_TERMS", "Proposal terms are invalid", status_code=422) from exc
+        if terms.deadline <= now:
+            _fail("PROPOSED_DEADLINE_PASSED", "Proposal delivery deadline has passed")
+        return CurrentCommunicationBasis(
+            reference=ref, terms=terms, order_id=commitment.order_id,
+            customer_id=commitment.customer_id, proposal_evidence_refs=tuple(proposal.evidence_refs),
+        )
 
     def _create_once(
         self, context: RequestContext, command: CreateCommunicationRequest, now: datetime,

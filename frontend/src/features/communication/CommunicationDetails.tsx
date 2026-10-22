@@ -5,6 +5,7 @@ import { formatKLTimestamp } from "../../shared/date";
 import { communicationKeys, getDraft, prepareDraft } from "./api";
 import { channelText, communicationLabel, DisplayBadge, ErrorNotice, errorText, languages, reasonText } from "./presentation";
 import { DraftPreview } from "./DraftPreview";
+import { ManagerReview } from "./ManagerReview";
 import type { CommunicationRequestView, DraftLanguage, MessageDraftView } from "./types";
 
 interface Props {
@@ -53,8 +54,12 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
       // Mark snapshots stale without remounting this in-flight mutation's owner.
       void client.invalidateQueries({ queryKey: communicationKeys.list(auth), refetchType: "none" });
       void client.invalidateQueries({ queryKey: communicationKeys.detail(auth, id), refetchType: "none" });
+      void client.invalidateQueries({ queryKey: communicationKeys.summary(auth) });
     },
-    onError: () => { if (active.current) checked(id, undefined, true); },
+    onError: () => { if (active.current) {
+      checked(id, undefined, true);
+      void client.invalidateQueries({ queryKey: communicationKeys.summary(auth) });
+    } },
     onSettled: () => { pending.current = false; },
   });
   useEffect(() => {
@@ -62,6 +67,11 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
       remember(id, validDraft.draft_id); checked(id, validDraft);
     } else checked(id, undefined, draft.isError || expired || prepare.isError);
   }, [id, validDraft, draft.isError, expired, prepare.isPending, prepare.isError, remember, checked]);
+  useEffect(() => {
+    if (draft.dataUpdatedAt || draft.errorUpdatedAt) {
+      void client.invalidateQueries({ queryKey: communicationKeys.summary(auth) });
+    }
+  }, [client, auth, draft.dataUpdatedAt, draft.errorUpdatedAt, expired]);
   const runPrepare = () => {
     if (pending.current || prepare.isPending || request.request_status === "BLOCKED") return;
     pending.current = true;
@@ -137,7 +147,10 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
       {!draftId && <p className="muted">No draft available. Prepare a draft or open one by ID.</p>}
       {draft.isError && !prepare.isPending && <ErrorNotice error={draft.error} resource="draft" onRetry={reload} />}
       {expired && !draft.isFetching && <div role="alert" className="cc-error"><p>This draft has expired. Refresh and review the current proposal before preparing another draft.</p></div>}
-      {validDraft && !prepare.isPending && !prepare.isError && <DraftPreview draft={validDraft} onReload={reload} />}
+      {validDraft && !prepare.isPending && !prepare.isError && <>
+        <DraftPreview draft={validDraft} onReload={reload} />
+        <ManagerReview key={`${validDraft.draft_id}:${validDraft.content_hash}:${validDraft.validation_hash}`} draft={validDraft} auth={auth} now={now} />
+      </>}
     </section>
   </>;
 }

@@ -39,6 +39,7 @@ from app.core.schemas import (
     ConstraintReason,
     ContextStatus,
     CustomerIdentityStatus,
+    DomainEvent,
     FeasibilityAssessment,
     FeasibilityState,
     FulfilmentState,
@@ -48,7 +49,6 @@ from app.core.schemas import (
     RecordFulfilmentRequest,
     RecoveryExecuteRequest,
     RecoveryPlan,
-    RecoveryStartRequest,
     RecoveryState,
     RequestedItem,
     RiskState,
@@ -1157,31 +1157,16 @@ def test_outbox_event_payloads_contain_no_pii_fields(session: Session) -> None:
 
 
 # =============================================================================
-# 7. PostgreSQL Dialect & Dual-Boundary Transaction Rollback Tests (P2 Handshake)
+# 7. Portable Core assessment and outbox transaction handshake
 # =============================================================================
 
-def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
-    test_engine,
+def test_portable_dual_boundary_transaction_rollback_and_assessment_provenance(
     session: Session,
 ) -> None:
-    """Verifies evidence for P2 handshake:
-    1. engine.dialect.name == 'postgresql' when TEST_DATABASE_URL is provided.
-    2. Dual-boundary transaction rollback:
-       - Boundary A (HTTP path): failure during transition or proposal creation rolls back session cleanly.
-       - Boundary B (Outbox consumer path): downstream consumer failure rolls back aggregate, outbox,
-         and ProcessedEventRecord atomically.
-    3. Case + Trigger + ProcessedEventRecord atomic commit & cascade deletion:
-       - Case + trigger + processed event persist atomically.
-       - Deleting recovery_cases cascades to recovery_case_triggers in PostgreSQL.
-    """
-    import os
-    from sqlalchemy import inspect, text
+    """Assert persisted Core provenance and consumer rollback on a portable test DB."""
     from app.core.models import ProcessedEventRecord
     from app.core.outbox import OutboxDispatcher
-
-    is_pg = test_engine.dialect.name == "postgresql"
-    if os.environ.get("TEST_DATABASE_URL"):
-        assert is_pg, f"Expected PostgreSQL dialect when TEST_DATABASE_URL is set, got {test_engine.dialect.name}"
+    from app.core.feasibility_adapters import AuthoritativeAssessmentHistoryReader
 
     facade = CoreIntegrationFacade()
     context = _ctx(actor="user_manager_01", role="MANAGER")
@@ -1258,11 +1243,13 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
     # -------------------------------------------------------------------------
     # Exercise genuine CommitmentService.assess() transition to AT_RISK
     assessment_id = f"fa_hs_{int(_now().timestamp())}"
+    snapshot_id = f"snap_hs_{assessment_id}"
+    evaluated_version = refreshed_c.commitment_version
     fa_assessment = FeasibilityAssessment(
         assessment_id=assessment_id,
         tenant_id=context.tenant_id,
         commitment_id=c.commitment_id,
-        commitment_version=refreshed_c.commitment_version,
+        commitment_version=evaluated_version,
         snapshot_version=1,
         status=FeasibilityState.INFEASIBLE,
         solver_status=SolverStatus.COMPLETED,
@@ -1276,8 +1263,43 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
         actor_id="service_p2_writer",
         actor_role="SERVICE",
         correlation_id=context.correlation_id,
+        causation_id="evt_supplier_delay_01",
     )
-    facade.service.assess(session, service_ctx, c.commitment_id, fa_assessment, commit=True)
+    assessed = facade.service.assess(
+        session, service_ctx, c.commitment_id, fa_assessment,
+        commit=True, snapshot_id=snapshot_id,
+    )
+    assert assessed.risk_state == RiskState.AT_RISK
+    assert assessed.commitment_version == evaluated_version + 1
+
+    persisted_assessment = AuthoritativeAssessmentHistoryReader().get_assessment(
+        session, service_ctx, c.commitment_id, assessment_id,
+    )
+    assert persisted_assessment.tenant_id == context.tenant_id
+    assert persisted_assessment.commitment_id == c.commitment_id
+    assert persisted_assessment.assessment_id == assessment_id
+    assert persisted_assessment.commitment_version == evaluated_version
+    assert persisted_assessment.snapshot_version == fa_assessment.snapshot_version
+    assert persisted_assessment.evidence_refs == fa_assessment.evidence_refs
+
+    risk_audit = session.scalar(
+        select(AuditEventRecord).where(
+            AuditEventRecord.tenant_id == context.tenant_id,
+            AuditEventRecord.commitment_id == c.commitment_id,
+            AuditEventRecord.event_type == CoreEventType.COMMITMENT_AT_RISK.value,
+        )
+    )
+    assert risk_audit is not None
+    assert risk_audit.previous_state["risk_state"] == RiskState.NORMAL.value
+    assert risk_audit.new_state["risk_state"] == RiskState.AT_RISK.value
+    assert risk_audit.new_state["assessment_id"] == assessment_id
+    assert risk_audit.new_state["assessment_commitment_version"] == evaluated_version
+    assert risk_audit.new_state["commitment_version"] == evaluated_version + 1
+    assert risk_audit.new_state["snapshot_id"] == snapshot_id
+    assert risk_audit.new_state["snapshot_version"] == fa_assessment.snapshot_version
+    assert risk_audit.evidence_refs == fa_assessment.evidence_refs
+    assert risk_audit.correlation_id == service_ctx.correlation_id
+    assert risk_audit.causation_id == service_ctx.causation_id
 
     # Locate the genuine outbox event emitted by CommitmentService.assess
     outbox_event = session.scalar(
@@ -1290,6 +1312,16 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
     )
     assert outbox_event is not None
     event_id = outbox_event.event_id
+    assert outbox_event.tenant_id == context.tenant_id
+    assert outbox_event.commitment_id == c.commitment_id
+    assert outbox_event.commitment_version == evaluated_version + 1
+    assert outbox_event.correlation_id == service_ctx.correlation_id
+    assert outbox_event.causation_id == service_ctx.causation_id
+    assert outbox_event.payload["assessment_id"] == assessment_id
+    assert outbox_event.payload["assessment_commitment_version"] == evaluated_version
+    assert outbox_event.payload["snapshot_id"] == snapshot_id
+    assert outbox_event.payload["snapshot_version"] == fa_assessment.snapshot_version
+    assert outbox_event.payload["evidence_refs"] == fa_assessment.evidence_refs
 
     dispatcher = OutboxDispatcher()
     # Satisfy D-017 policy for confirmed event
@@ -1301,50 +1333,37 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
     consumer_name = "p3.recovery_trigger.v1"
     should_fail = True
 
-    # Check if recovery_cases table exists in this DB (e.g. migration 0006 on PostgreSQL)
-    has_recovery_tables = "recovery_cases" in inspect(test_engine).get_table_names()
+    consumer_audit_id = f"aud_consumer_{assessment_id}"
 
-    case_id = f"case_hs_{int(_now().timestamp())}"
-    trigger_id = f"trig_hs_{int(_now().timestamp())}"
-
-    def mock_p3_consumer(db: Session, event: OutboxEventRecord) -> None:
+    def mock_p3_consumer(db: Session, event: DomainEvent) -> None:
         nonlocal should_fail
-        now_dt = _now()
-        if has_recovery_tables:
-            db.execute(
-                text(
-                    "INSERT INTO recovery_cases (tenant_id, case_id, commitment_id, risk_episode_id, opening_event_id, "
-                    "status, case_version, commitment_version, payload_schema_version, case_payload, resolution_refs, created_at, updated_at) "
-                    "VALUES (:tenant_id, :case_id, :commitment_id, :risk_ep, :open_evt, 'OPEN', 1, :commitment_version, 1, '{}', '[]', :now, :now)"
-                ),
-                {
-                    "tenant_id": event.tenant_id,
-                    "case_id": case_id,
-                    "commitment_id": event.commitment_id,
-                    "risk_ep": f"ep_{case_id}",
-                    "open_evt": event.event_id,
-                    "commitment_version": event.commitment_version,
-                    "now": now_dt,
-                },
-            )
-            db.execute(
-                text(
-                    "INSERT INTO recovery_case_triggers (tenant_id, event_id, case_id, commitment_id, commitment_version, "
-                    "assessment_id, assessment_provenance_status, snapshot_version, constraints, affected_commitment_ids, evidence_refs, correlation_id, occurred_at, event_digest) "
-                    "VALUES (:tenant_id, :event_id, :case_id, :commitment_id, :commitment_version, :assessment_id, 'INFEASIBLE', :snapshot_version, '[]', '[]', '[]', :correlation_id, :now, 'digest_01')"
-                ),
-                {
-                    "tenant_id": event.tenant_id,
-                    "event_id": trigger_id,
-                    "case_id": case_id,
-                    "commitment_id": event.commitment_id,
-                    "commitment_version": event.commitment_version,
-                    "assessment_id": event.payload.get("assessment_id", assessment_id),
-                    "snapshot_version": event.payload.get("snapshot_version", 1),
-                    "correlation_id": event.correlation_id or "corr_01",
-                    "now": now_dt,
-                },
-            )
+        assert event.event_id == event_id
+        assert event.tenant_id == context.tenant_id
+        assert event.commitment_id == c.commitment_id
+        assert event.commitment_version == evaluated_version + 1
+        assert event.correlation_id == service_ctx.correlation_id
+        assert event.causation_id == service_ctx.causation_id
+        assert event.payload["assessment_id"] == persisted_assessment.assessment_id
+        assert event.payload["assessment_commitment_version"] == persisted_assessment.commitment_version
+        assert event.payload["snapshot_id"] == snapshot_id
+        assert event.payload["evidence_refs"] == persisted_assessment.evidence_refs
+        db.add(AuditEventRecord(
+            audit_id=consumer_audit_id,
+            tenant_id=event.tenant_id,
+            commitment_id=event.commitment_id,
+            event_type="recovery.trigger_test_write",
+            actor_id="test_p3_consumer",
+            actor_role="SERVICE",
+            dimension="recovery",
+            previous_state=None,
+            new_state={"source_event_id": event.event_id, "assessment_id": event.payload["assessment_id"]},
+            evidence_refs=event.payload["evidence_refs"],
+            reason="Synthetic consumer transaction marker",
+            correlation_id=event.correlation_id,
+            causation_id=event.event_id,
+            occurred_at=_now(),
+        ))
+        db.flush()
         if should_fail:
             raise RuntimeError("Downstream P3 transient failure")
 
@@ -1354,9 +1373,10 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
         handler_fn=mock_p3_consumer,
     )
 
-    # 1. Downstream failure: atomic rollback of Case + Trigger + ProcessedEventRecord
+    # 1. The stale confirmed evaluation and failing risk consumer both remain incomplete.
     res_fail = dispatcher.process_outbox_batch(session)
-    assert res_fail.failed_count == 1
+    assert res_fail.failed_count == 2
+    assert session.get(OutboxEventRecord, event_id).status == OutboxStatus.FAILED.value
 
     # Verify ProcessedEventRecord was NOT committed
     proc_fail = session.scalar(
@@ -1368,13 +1388,7 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
     )
     assert proc_fail is None
 
-    # Verify recovery_cases was NOT committed
-    if has_recovery_tables:
-        count_cases = session.execute(
-            text("SELECT COUNT(*) FROM recovery_cases WHERE tenant_id = :tenant_id AND case_id = :case_id"),
-            {"tenant_id": context.tenant_id, "case_id": case_id},
-        ).scalar()
-        assert count_cases == 0
+    assert session.get(AuditEventRecord, consumer_audit_id) is None
 
     # 2. Downstream issue resolved: retry succeeds atomically committing Case, Trigger, and ProcessedEventRecord
     should_fail = False
@@ -1395,27 +1409,8 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
     )
     assert proc_ok is not None
 
-    # Verify Case and Trigger committed atomically
-    if has_recovery_tables:
-        count_cases = session.execute(
-            text("SELECT COUNT(*) FROM recovery_cases WHERE tenant_id = :tenant_id AND case_id = :case_id"),
-            {"tenant_id": context.tenant_id, "case_id": case_id},
-        ).scalar()
-        assert count_cases == 1
-
-        count_trigs = session.execute(
-            text("SELECT COUNT(*) FROM recovery_case_triggers WHERE tenant_id = :tenant_id AND case_id = :case_id"),
-            {"tenant_id": context.tenant_id, "case_id": case_id},
-        ).scalar()
-        assert count_trigs == 1
-
-        # Verify ON DELETE RESTRICT (Migration 0007 invariant: append-only trigger history)
-        from sqlalchemy.exc import IntegrityError
-
-        with pytest.raises(IntegrityError):
-            session.execute(
-                text("DELETE FROM recovery_cases WHERE tenant_id = :tenant_id AND case_id = :case_id"),
-                {"tenant_id": context.tenant_id, "case_id": case_id},
-            )
-        session.rollback()
+    consumer_audit = session.get(AuditEventRecord, consumer_audit_id)
+    assert consumer_audit is not None
+    assert consumer_audit.causation_id == event_id
+    assert consumer_audit.new_state["assessment_id"] == assessment_id
 

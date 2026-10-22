@@ -1,7 +1,7 @@
 """Comprehensive migration tests for 0007_recovery_case_constraints_alignment (ADR-017, Task T-P3H1).
 
 Verifies:
-1. Exactly one Alembic head (0007_recovery_case_constraints_alignment).
+1. Exactly one Alembic head that descends from 0007.
 2. Upgrade 0006 -> 0007 preserves seeded case and trigger rows with zero data loss.
 3. Negative RESTRICT test: DELETE FROM recovery_cases with dependent triggers raises IntegrityError.
 4. Negative RESTRICT test: DELETE FROM commitments with dependent triggers raises IntegrityError.
@@ -11,7 +11,7 @@ Verifies:
    - A COMPLETED (inactive) case does not block a new active case for the same commitment.
 6. Downgrade 0007 -> 0006 cleanly restores original constraint names and CASCADE policy.
 7. Re-upgrade from 0006 -> 0007 succeeds.
-8. Introspection verifies exact constraint names and ON DELETE RESTRICT on PostgreSQL when available.
+8. PostgreSQL schema proof is in the separate opt-in migrated database suite.
 """
 
 from __future__ import annotations
@@ -23,9 +23,8 @@ from datetime import datetime, timezone
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if REPO_ROOT not in sys.path:
@@ -42,8 +41,8 @@ def _get_alembic_config(db_url: str) -> Config:
     return cfg
 
 
-def test_alembic_has_exactly_one_head() -> None:
-    """Assert Alembic history has exactly one single head revision: 0007_recovery_case_constraints_alignment."""
+def test_alembic_head_descends_from_0007() -> None:
+    """A later single head may extend 0007 without dropping its migration history."""
     cfg = Config(ALEMBIC_INI)
     cfg.set_main_option("script_location", MIGRATIONS_DIR)
     from alembic.script import ScriptDirectory
@@ -51,21 +50,15 @@ def test_alembic_has_exactly_one_head() -> None:
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
     assert len(heads) == 1, f"Expected exactly 1 Alembic head, found: {heads}"
-    assert heads[0] == "0007_recovery_case_constraints_alignment"
+    revisions = {revision.revision for revision in script.iterate_revisions(heads[0], "base")}
+    assert "0007_recovery_case_constraints_alignment" in revisions
 
 
-def test_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
-    """Test upgrade 0006->0007, data preservation, negative RESTRICT, active index, and clean downgrade."""
-    # Choose DB URL: use TEST_DATABASE_URL if available, else SQLite temporary file
-    db_url = os.environ.get("TEST_DATABASE_URL")
-    is_sqlite = False
-    tmp_path = None
-
-    if not db_url:
-        is_sqlite = True
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-            tmp_path = tmp.name
-        db_url = f"sqlite:///{tmp_path.replace(os.sep, '/')}"
+def test_sqlite_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
+    """Exercise upgrade/downgrade on an isolated temporary SQLite file only."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        tmp_path = tmp.name
+    db_url = f"sqlite:///{tmp_path.replace(os.sep, '/')}"
 
     cfg = _get_alembic_config(db_url)
     old_env_db_url = os.environ.get("DATABASE_URL")
@@ -167,8 +160,7 @@ def test_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
 
         # 5. Negative RESTRICT Test: DELETE FROM recovery_cases with dependent trigger MUST FAIL
         with engine.connect() as conn:
-            if is_sqlite:
-                conn.execute(text("PRAGMA foreign_keys = ON"))
+            conn.execute(text("PRAGMA foreign_keys = ON"))
             with pytest.raises(IntegrityError):
                 conn.execute(
                     text("DELETE FROM recovery_cases WHERE tenant_id = :t AND case_id = :c"),
@@ -179,8 +171,7 @@ def test_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
 
         # 6. Negative RESTRICT Test: DELETE FROM commitments with dependent trigger MUST FAIL
         with engine.connect() as conn:
-            if is_sqlite:
-                conn.execute(text("PRAGMA foreign_keys = ON"))
+            conn.execute(text("PRAGMA foreign_keys = ON"))
             with pytest.raises(IntegrityError):
                 conn.execute(
                     text("DELETE FROM commitments WHERE tenant_id = :t AND commitment_id = :c"),
@@ -230,39 +221,7 @@ def test_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
             )
             conn.commit()
 
-        # 8. PostgreSQL Introspection (when running on real PostgreSQL)
-        if not is_sqlite:
-            with engine.connect() as conn:
-                # Introspect table constraints
-                constraints = conn.execute(
-                    text(
-                        """
-                        SELECT constraint_name, constraint_type
-                        FROM information_schema.table_constraints
-                        WHERE table_name = 'recovery_cases'
-                        """
-                    )
-                ).fetchall()
-                constraint_names = {c[0] for c in constraints}
-                assert "uq_recovery_cases_tenant_case_commitment" in constraint_names, (
-                    f"Plural constraint name missing, found: {constraint_names}"
-                )
-
-                # Introspect foreign key delete policy in pg_constraint
-                fk_info = conn.execute(
-                    text(
-                        """
-                        SELECT conname, confdeltype
-                        FROM pg_constraint
-                        WHERE conname = 'fk_recovery_case_triggers_case_tenant_commitment'
-                        """
-                    )
-                ).fetchone()
-                assert fk_info is not None
-                # 'r' stands for RESTRICT in PostgreSQL pg_constraint.confdeltype
-                assert fk_info[1] == "r", f"Expected 'r' (RESTRICT), got: {fk_info[1]}"
-
-        # 9. Clean Downgrade 0007 -> 0006
+        # 8. Clean Downgrade 0007 -> 0006
         command.downgrade(cfg, "0006_recovery_cases")
 
         # Verify data still preserved after downgrade
@@ -270,7 +229,7 @@ def test_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
             count = conn.execute(text("SELECT count(*) FROM recovery_cases")).scalar()
             assert count >= 2
 
-        # 10. Re-upgrade from 0006 -> 0007 (head)
+        # 9. Re-upgrade from 0006 -> 0007 (head)
         command.upgrade(cfg, "head")
 
     finally:

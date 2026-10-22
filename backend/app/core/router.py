@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
@@ -18,7 +18,6 @@ from .schemas import (
     CommitmentTransitionRequest,
     CommitmentTransitionResponse,
     DomainEvent,
-    FeasibilityAssessment,
     OverviewResponse,
     ProposalConfirmRequest,
     ProposalCreateRequest,
@@ -38,6 +37,26 @@ service = CommitmentService()
 facade = CoreIntegrationFacade(service=service)
 Db = Annotated[Session, Depends(get_db)]
 Context = Annotated[RequestContext, Depends(get_request_context)]
+
+
+class RecoveryExecutionAuthority(Protocol):
+    """Verify trusted actor identity and durable, current, scoped plan approval."""
+
+    def verify(
+        self,
+        db: Session,
+        context: RequestContext,
+        commitment_id: str,
+        request: RecoveryExecuteRequest,
+    ) -> None: ...
+
+
+def get_recovery_execution_authority() -> RecoveryExecutionAuthority | None:
+    # No production durable-approval authority is wired yet. Fail closed.
+    return None
+
+
+ExecutionAuthority = Annotated[RecoveryExecutionAuthority | None, Depends(get_recovery_execution_authority)]
 
 
 @router.get("/overview", response_model=OverviewResponse)
@@ -140,7 +159,18 @@ def execute_recovery_endpoint(
     request: RecoveryExecuteRequest,
     db: Db,
     context: Context,
+    authority: ExecutionAuthority,
 ) -> CommitmentTransitionResponse:
+    facade.authorize(context.actor_id, context.actor_role, "EXECUTE_PLAN", request.plan.plan_version)
+    if request.plan.tenant_id != context.tenant_id or request.plan.commitment_id != commitment_id:
+        raise DomainError("RECOVERY_SCOPE_MISMATCH", "Recovery plan scope does not match request", status_code=403)
+    if authority is None:
+        raise DomainError(
+            "EXECUTION_APPROVAL_UNAVAILABLE",
+            "Trusted actor identity and durable plan approval are not configured for public execution",
+            status_code=503,
+        )
+    authority.verify(db, context, commitment_id, request)
     return facade.execute_recovery_plan(db, context, commitment_id, request)
 
 

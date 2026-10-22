@@ -14,8 +14,6 @@ Verifies:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-import pytest
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
@@ -210,7 +208,7 @@ def test_transaction_ab_isolation_and_rollback_boundary(session: Session) -> Non
 
     # 3. Setup Transaction B with an injected failing consumer
     injected_case_id = "case_injected_01"
-    consumer_name = "test_failing_p3_consumer"
+    consumer_name = "p3.recovery_trigger.v1"
 
     def failing_handler(db: Session, event: DomainEvent) -> None:
         # Simulate writing a recovery case and trigger before failing
@@ -264,9 +262,6 @@ def test_transaction_ab_isolation_and_rollback_boundary(session: Session) -> Non
         raise RuntimeError("Injected transient recovery planning failure")
 
     dispatcher = OutboxDispatcher()
-    # Temporarily remove mandatory subscriber gate for test consumer
-    saved_mandatory = dict(dispatcher.MANDATORY_SUBSCRIBERS)
-    dispatcher.MANDATORY_SUBSCRIBERS.clear()
 
     try:
         dispatcher.register_subscriber(
@@ -433,6 +428,4 @@ def test_transaction_ab_isolation_and_rollback_boundary(session: Session) -> Non
         assert dup_result.processed_count == 0
 
     finally:
-        dispatcher.MANDATORY_SUBSCRIBERS.clear()
-        dispatcher.MANDATORY_SUBSCRIBERS.update(saved_mandatory)
         dispatcher._subscribers.clear()

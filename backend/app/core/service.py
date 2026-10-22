@@ -537,6 +537,23 @@ class CommitmentService:
                 },
             )
 
+        # P3-created customer-term proposals require P4's verified response
+        # boundary. Demo actor headers and client identity claims cannot supply it.
+        p3_sources = db.scalars(select(OutboxEventRecord).where(
+            OutboxEventRecord.tenant_id == context.tenant_id,
+            OutboxEventRecord.commitment_id == commitment_id,
+            OutboxEventRecord.event_type == CoreEventType.RECOVERY_COMMUNICATION_REQUESTED.value,
+        )).all()
+        if any(source.payload.get("approval_id") and
+               (source.payload.get("proposal_id"), source.payload.get("proposal_version")) == (
+                   request.proposal_id, request.proposal_version,
+               ) for source in p3_sources):
+            raise DomainError(
+                "P4_CONFIRMATION_AUTHORITY_UNAVAILABLE",
+                "Verified P4 customer response is required for this recovery proposal",
+                status_code=503,
+            )
+
         # Check customer identity link
         if request.customer_identity_status == CustomerIdentityStatus.UNVERIFIED or (
             isinstance(record.terms, dict)
@@ -770,6 +787,8 @@ class CommitmentService:
         commitment_id: str,
         assessment: FeasibilityAssessment,
         commit: bool = True,
+        *,
+        snapshot_id: str | None = None,
     ) -> Commitment:
         # 1. Caller Authorization Guard: only trusted internal/service principal is permitted (D-013)
         if context.actor_role not in {"SERVICE", "SYSTEM"}:
@@ -835,6 +854,8 @@ class CommitmentService:
             assessment_state = {
                 **_commitment_snapshot(record),
                 "assessment_id": assessment.assessment_id,
+                "assessment_commitment_version": assessment.commitment_version,
+                **({"snapshot_id": snapshot_id} if snapshot_id else {}),
                 "snapshot_version": assessment.snapshot_version,
                 "feasibility_state": assessment.status.value,
                 "constraints": [
@@ -870,7 +891,10 @@ class CommitmentService:
                     payload={
                         "commitment_id": commitment_id,
                         "assessment_id": assessment.assessment_id,
+                        "assessment_commitment_version": assessment.commitment_version,
+                        **({"snapshot_id": snapshot_id} if snapshot_id else {}),
                         "snapshot_version": assessment.snapshot_version,
+                        "evidence_refs": assessment.evidence_refs,
                         "constraints": [c.model_dump(mode="json") for c in assessment.constraints],
                         "affected_commitment_ids": assessment.affected_commitment_ids,
                     },
@@ -911,6 +935,8 @@ class CommitmentService:
             new_state = {
                 **_commitment_snapshot(record),
                 "assessment_id": assessment.assessment_id,
+                "assessment_commitment_version": assessment.commitment_version,
+                **({"snapshot_id": snapshot_id} if snapshot_id else {}),
                 "snapshot_version": assessment.snapshot_version,
                 "feasibility_state": assessment.status.value,
                 "constraints": [
@@ -957,6 +983,8 @@ class CommitmentService:
             new_state = {
                 **_commitment_snapshot(record),
                 "assessment_id": assessment.assessment_id,
+                "assessment_commitment_version": assessment.commitment_version,
+                **({"snapshot_id": snapshot_id} if snapshot_id else {}),
                 "snapshot_version": assessment.snapshot_version,
                 "feasibility_state": assessment.status.value,
                 "constraints": [

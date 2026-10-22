@@ -25,11 +25,9 @@ from app.core.schemas import (
     FeasibilityState,
 )
 
-from uuid import uuid4
-
 from app.core.models import CommitmentRecord
 from app.core.reservations import get_resource_snapshot
-from app.core.schemas import Commitment, SolverStatus
+from app.core.schemas import Commitment
 from app.core.service import CommitmentService
 from app.feasibility.api_schemas import (
     AssessCommitmentRequest,
@@ -48,10 +46,6 @@ def _now() -> datetime:
 
 def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
-
-
-def _id(prefix: str) -> str:
-    return f"{prefix}_{uuid4().hex[:16]}"
 
 
 class AuthoritativeEvaluationAuthority:
@@ -151,6 +145,36 @@ class AuthoritativeAssessmentWriter:
                 correlation_id=context.correlation_id,
             )
 
+        if (
+            result.tenant_id != context.tenant_id
+            or result.commitment_id != commitment.commitment_id
+            or result.commitment_version != record.commitment_version
+        ):
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISMATCH",
+                "P2 evaluation identity does not match the current Core commitment",
+                status_code=409,
+                correlation_id=context.correlation_id,
+            )
+        if not result.snapshot_id or result.snapshot_version < 1:
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISSING",
+                "P2 evaluation is missing snapshot identity or version",
+                status_code=422,
+                details={"field": "snapshot_id", "commitment_id": commitment.commitment_id},
+                correlation_id=context.correlation_id,
+            )
+        if (
+            result.snapshot_id != snapshot.operational.snapshot_id
+            or result.snapshot_version != snapshot.operational.snapshot_version
+        ):
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISMATCH",
+                "P2 evaluation snapshot does not match the supplied evaluation input",
+                status_code=409,
+                correlation_id=context.correlation_id,
+            )
+
         # Snapshot freshness verification (A5)
         expected_snap_ver = getattr(request, "expected_snapshot_version", None)
         current_snap_ver = snapshot.current_snapshot_version
@@ -183,13 +207,21 @@ class AuthoritativeAssessmentWriter:
 
         # Map pure P2 evaluation result to FeasibilityAssessment preserving P2 deterministic ID
         now = _now()
-        assessment_id = getattr(result, "assessment_id", None) or getattr(request, "assessment_id", None) or _id("fa")
+        assessment_id = result.assessment_id
+        if not assessment_id:
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISSING",
+                "P2 evaluation result is missing assessment_id",
+                status_code=422,
+                details={"field": "assessment_id", "commitment_id": commitment.commitment_id},
+                correlation_id=context.correlation_id,
+            )
         assessment = FeasibilityAssessment(
             assessment_id=assessment_id,
             tenant_id=context.tenant_id,
             commitment_id=commitment.commitment_id,
             commitment_version=record.commitment_version,
-            snapshot_version=current_snap_ver or 1,
+            snapshot_version=result.snapshot_version,
             status=result.status,
             constraints=result.constraints,
             affected_commitment_ids=[],  # Downstream impact set only (empty if none)
@@ -210,7 +242,10 @@ class AuthoritativeAssessmentWriter:
             correlation_id=context.correlation_id,
             causation_id=context.causation_id,
         )
-        self.service.assess(db, service_ctx, commitment.commitment_id, assessment, commit=False)
+        self.service.assess(
+            db, service_ctx, commitment.commitment_id, assessment,
+            commit=False, snapshot_id=result.snapshot_id,
+        )
 
         # Explicit HTTP-path commit with full rollback on error (A1)
         try:
@@ -280,7 +315,8 @@ class AuthoritativeAssessmentHistoryReader:
 
     Enforces ADR-015 and P3 Handoff P3-1 contract guarantees:
     - Never defaults missing assessment_id to audit_id.
-    - Never defaults missing commitment_version or snapshot_version to 1.
+    - Preserves the evaluated commitment version separately from the resulting Core version.
+    - Never defaults missing commitment or snapshot versions to 1.
     - Rejects advisory assessments (advisory=True) with ASSESSMENT_PROVENANCE_MISSING.
     - Fails closed with typed DomainError("ASSESSMENT_PROVENANCE_MISSING", ...) naming the missing field without PII.
     """
@@ -320,12 +356,39 @@ class AuthoritativeAssessmentHistoryReader:
                 correlation_id=correlation_id,
             )
 
+        evaluated_version = new_state.get("assessment_commitment_version")
+        if type(evaluated_version) is not int or evaluated_version < 1:
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISSING",
+                "Authoritative assessment record is missing evaluated commitment version",
+                status_code=422,
+                details={"field": "assessment_commitment_version", "commitment_id": commitment_id},
+                correlation_id=correlation_id,
+            )
+        if new_state["commitment_version"] != evaluated_version + 1:
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISSING",
+                "Assessment and resulting Core commitment versions are inconsistent",
+                status_code=422,
+                details={"field": "commitment_version", "commitment_id": commitment_id},
+                correlation_id=correlation_id,
+            )
+
         if new_state.get("snapshot_version") is None:
             raise DomainError(
                 "ASSESSMENT_PROVENANCE_MISSING",
                 "Authoritative assessment record is missing required field: snapshot_version",
                 status_code=422,
                 details={"field": "snapshot_version", "commitment_id": commitment_id},
+                correlation_id=correlation_id,
+            )
+
+        if not new_state.get("snapshot_id"):
+            raise DomainError(
+                "ASSESSMENT_PROVENANCE_MISSING",
+                "Authoritative assessment record is missing snapshot_id",
+                status_code=422,
+                details={"field": "snapshot_id", "commitment_id": commitment_id},
                 correlation_id=correlation_id,
             )
 
@@ -377,7 +440,7 @@ class AuthoritativeAssessmentHistoryReader:
             )
 
             assessment_id = a.new_state["assessment_id"]
-            commitment_version = a.new_state["commitment_version"]
+            commitment_version = a.new_state["assessment_commitment_version"]
             snapshot_version = a.new_state["snapshot_version"]
 
             constraints_raw = a.new_state.get("constraints") or []

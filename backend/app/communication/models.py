@@ -65,6 +65,7 @@ class MessageDraftRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
+        UniqueConstraint("tenant_id", "communication_id", "draft_id", name="uq_draft_request_identity"),
         ForeignKeyConstraint(
             ["tenant_id", "communication_id"],
             ["communication_requests.tenant_id", "communication_requests.communication_id"],
@@ -75,4 +76,31 @@ class MessageDraftRecord(Base):
             name="uq_communication_draft_variant",
         ),
         Index("ix_communication_drafts_tenant_request", "tenant_id", "communication_id"),
+    )
+
+
+class DraftReviewRecord(Base):
+    __tablename__ = "communication_draft_reviews"
+
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    review_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    communication_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    draft_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Original terminal decision never overwritten. Invalidation only adds a latch.
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    invalidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    invalidation_code: Mapped[str | None] = mapped_column(String(128))
+    invalidation_audit_id: Mapped[str | None] = mapped_column(String(128))
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "communication_id", "draft_id"],
+            ["communication_drafts.tenant_id", "communication_drafts.communication_id", "communication_drafts.draft_id"],
+            name="fk_review_exact_draft",
+        ),
+        UniqueConstraint("tenant_id", "communication_id", "draft_id", name="uq_review_terminal_draft"),
+        UniqueConstraint("tenant_id", "request_key", name="uq_review_request_key"),
+        Index("ix_review_tenant_request", "tenant_id", "communication_id"),
     )
