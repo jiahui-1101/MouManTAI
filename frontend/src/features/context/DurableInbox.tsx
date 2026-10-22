@@ -179,7 +179,9 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
   useEffect(() => {
     if (!isResizing) return;
     function handleMouseMove(e: MouseEvent) {
-      const newWidth = Math.max(380, Math.min(window.innerWidth - e.clientX, window.innerWidth * 0.92));
+      const rightOffset = showReviewDrawer ? 520 : 0;
+      const maxWidth = Math.max(380, window.innerWidth - rightOffset - 40);
+      const newWidth = Math.max(380, Math.min(window.innerWidth - rightOffset - e.clientX, maxWidth));
       setPanelWidth(newWidth);
     }
     function handleMouseUp() {
@@ -198,15 +200,21 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-  }, [isResizing, panelWidth]);
+  }, [isResizing, panelWidth, showReviewDrawer]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        if (showReviewDrawer) {
+          setShowReviewDrawer(false);
+        } else {
+          onClose();
+        }
+      }
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  }, [onClose, showReviewDrawer]);
 
   useEffect(() => {
     let active = true;
@@ -297,7 +305,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
   return <>
     <div className="p1-drawer-backdrop" onClick={onClose} aria-label="Close message details" role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onClose(); }} />
-    <section className={`p1-detail ${isResizing ? 'p1-is-resizing' : ''}`} style={{ width: `${panelWidth}px` }} ref={panel} tabIndex={-1} aria-label="Persisted message details">
+    <section className={`p1-detail ${isResizing ? 'p1-is-resizing' : ''} ${showReviewDrawer ? 'p1-detail-shifted' : ''}`} style={{ width: `${panelWidth}px` }} ref={panel} tabIndex={-1} aria-label="Persisted message details">
       <div className={`p1-resize-handle ${isResizing ? 'active' : ''}`} onMouseDown={e => { e.preventDefault(); setIsResizing(true); }} title="Drag left or right to resize panel width">
         <div className="p1-resize-handle-bar" />
       </div>

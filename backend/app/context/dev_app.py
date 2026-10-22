@@ -26,12 +26,21 @@ _load_env_if_present()
 
 from fastapi import FastAPI
 
+from fastapi.middleware.cors import CORSMiddleware
+
 from .fixture_models import InboxPreview
 from .fixture_repository import load_preview
 from .hosting import register_p1_errors
 from .router import router
 
 app = FastAPI(title="MonManTAI P1 development only", version="0.0.1")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(router)
 register_p1_errors(app)
 

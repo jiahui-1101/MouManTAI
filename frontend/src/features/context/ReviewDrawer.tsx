@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ContextReviewRequest, OrderContextRecord, RequestedItem } from './types';
 import { operationalApi } from './operationalApi';
@@ -26,6 +26,16 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const handleSubmit = async (action: 'ACCEPT_EXTRACTION' | 'EDIT_FIELD' | 'REQUEST_MORE_INFO' | 'MARK_UNRESOLVED') => {
     setSubmitting(true);
@@ -78,8 +88,20 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
   };
 
   const drawerContent = (
-    <div className="p1-drawer-backdrop" role="dialog" aria-modal="true" aria-labelledby="review-drawer-title">
-      <div className="p1-drawer-panel">
+    <>
+      <div
+        className="p1-review-backdrop"
+        onClick={onClose}
+        aria-hidden="true"
+        role="presentation"
+      />
+      <aside
+        className="p1-drawer-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="review-drawer-title"
+        data-testid="review-drawer"
+      >
         <div className="p1-drawer-header">
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <h3 id="review-drawer-title" style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
@@ -244,8 +266,8 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </aside>
+    </>
   );
 
   return typeof document !== 'undefined' ? createPortal(drawerContent, document.body) : drawerContent;

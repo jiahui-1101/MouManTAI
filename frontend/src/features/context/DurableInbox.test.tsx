@@ -484,6 +484,71 @@ describe('durable synthetic Inbox', () => {
     expect(await within(detail).findByText(/RULE \(FALLBACK\)/)).toBeInTheDocument();
     expect(within(detail).getByText(/deterministic results preserved/)).toBeInTheDocument();
   });
+
+  it('opens review drawer side-by-side with original message panel and shifts message panel to the left', async () => {
+    const api = fakeApi();
+    const processedMessage = { ...message, processing_status: 'PROCESSED' as const };
+    vi.mocked(api.list).mockResolvedValue(page([processedMessage]));
+    vi.mocked(api.detail).mockResolvedValue(processedMessage);
+    vi.mocked(api.createContextFromMessage).mockResolvedValue({
+      context_id: 'ctx_sidebyside_1',
+      tenant_id: 'server_tenant',
+      order_id: null,
+      customer_id: null,
+      customer_identity_status: 'UNVERIFIED',
+      status: 'INFORMATION_PARTIAL',
+      requested_items: [{ sku: 'BURGER', quantity: '50', unit: 'pcs' }],
+      requested_delivery_at: null,
+      delivery_qualifier: null,
+      special_instructions: null,
+      missing_fields: [],
+      conflicts: [],
+      source_message_ids: ['stored_message_1'],
+      field_evidence: {},
+      context_version: 1,
+      last_reviewed_by: null,
+      last_reviewed_role: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    render(<DurableInbox api={api} />);
+    expect(await screen.findByText('1 persisted messages')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Synthetic buyer' }));
+    const detail = screen.getByRole('region', { name: 'Persisted message details' });
+    expect(detail).toBeInTheDocument();
+    expect(detail).not.toHaveClass('p1-detail-shifted');
+
+    // Click Review & Amend
+    const reviewBtn = await within(detail).findByRole('button', { name: 'Review & Amend' });
+    fireEvent.click(reviewBtn);
+
+    // Both panels are now open side by side!
+    await waitFor(() => {
+      expect(detail).toHaveClass('p1-detail-shifted');
+      expect(screen.getByRole('dialog', { name: 'Context Review & Amendments' })).toBeInTheDocument();
+    });
+
+    // Original message is still visible and interactive
+    expect(within(detail).getByText('PERSISTED SOURCE · SYNTHETIC')).toBeInTheDocument();
+    expect(within(detail).getByText('Original message')).toBeInTheDocument();
+
+    // Review drawer has the form fields on the right
+    expect(screen.getByDisplayValue('BURGER')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('50')).toBeInTheDocument();
+
+    // Close review drawer via its close button
+    const closeReviewBtn = screen.getByRole('button', { name: 'Close drawer' });
+    fireEvent.click(closeReviewBtn);
+
+    // Review drawer is closed, but original message panel remains open and returns to unshifted state
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Context Review & Amendments' })).not.toBeInTheDocument();
+      expect(detail).not.toHaveClass('p1-detail-shifted');
+    });
+    expect(detail).toBeInTheDocument();
+  });
 });
 
 it('uses generated-envelope payloads and operational routes with useful server errors', async () => {
