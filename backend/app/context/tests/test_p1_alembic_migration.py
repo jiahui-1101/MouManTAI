@@ -83,7 +83,7 @@ def test_clean_chain_supports_p1_persistence_review_core_replay_and_owned_rollba
         again=publisher.publish_to_core(session,request,repo.get_order_context(context.tenant_id,context.context_id))
         assert again.commitment_id==first.commitment_id
         assert session.scalar(select(func.count()).select_from(OutboxEventRecord))==before
-    command.downgrade(config,'0011_p4_confirmations')  # This disposable database only.
+    command.downgrade(config,'0014_merge_p3_p4_confirmations')  # This disposable database only.
     assert inspect(engine).get_table_names(schema='p1_dev')==[]
     assert 'commitments' in inspect(engine).get_table_names()
     command.upgrade(config,'head')

@@ -135,6 +135,7 @@ export const operationalApi: OperationalApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
     }),
+  getCatalog: () => request('/v1/contexts/catalog'),
   uploadAttachment: file => {
     const formData = new FormData();
     formData.append('file', file);

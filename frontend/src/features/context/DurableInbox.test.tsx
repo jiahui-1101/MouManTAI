@@ -204,6 +204,7 @@ function fakeApi(): OperationalApi {
     }),
     listContextVersions: vi.fn().mockResolvedValue([]),
     listContextReviews: vi.fn().mockResolvedValue([]),
+    getCatalog: vi.fn().mockResolvedValue([{ sku: 'BURGER', unit: 'pcs' }]),
     publishContext: vi.fn().mockResolvedValue({
       context_id: 'ctx_1',
       tenant_id: 'server_tenant',

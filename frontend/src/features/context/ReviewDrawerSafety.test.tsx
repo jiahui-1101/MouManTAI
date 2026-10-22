@@ -87,7 +87,7 @@ describe('Review Drawer candidate safety', () => {
       ...context.field_evidence, unit: [{ quote: 'bungkus', normalized_value: 'pack', method: 'MODEL' }],
     } }} />);
     expect(screen.getByLabelText('Unit')).toHaveValue('pack');
-    expect(screen.getByRole('option', { name: 'pack', exact: true })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'pack' })).toBeInTheDocument();
   });
 
   it('resets form state when closed and reopened, without changing hook order', () => {

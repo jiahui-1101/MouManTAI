@@ -5,8 +5,8 @@ must not silently stamp incompatible tables. Only use a disposable DB for tests.
 """
 from alembic import op
 
-revision = "0012_p1_context_persistence"
-down_revision = "0011_p4_confirmations"
+revision = "0015_p1_context_persistence"
+down_revision = "0014_merge_p3_p4_confirmations"
 branch_labels = None
 depends_on = None
 

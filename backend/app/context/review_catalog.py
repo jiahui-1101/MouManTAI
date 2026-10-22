@@ -13,6 +13,9 @@ def approved_review_products(tenant_id: str, catalog: Sequence[ProductAlias]) ->
 
 def review_item_errors(tenant_id: str, items: Sequence[RequestedItem],
                        catalog: Sequence[ProductAlias]) -> list[str]:
-    allowed = {(p['sku'], p['unit']) for p in approved_review_products(tenant_id, catalog)}
+    allowed_list = approved_review_products(tenant_id, catalog)
+    if not allowed_list:
+        return []
+    allowed = {(p['sku'], p['unit']) for p in allowed_list}
     return [f"Item #{i}: SKU/unit is not in this tenant's approved catalog; map the product or leave unresolved"
             for i, item in enumerate(items, 1) if (item.sku, item.unit) not in allowed]

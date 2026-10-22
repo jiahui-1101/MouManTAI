@@ -118,6 +118,7 @@ function createMockApi(overrides: Partial<OperationalApi> = {}): OperationalApi 
     listContextVersions: vi.fn(),
     listContextReviews: vi.fn(),
     publishContext: vi.fn(),
+    getCatalog: vi.fn().mockResolvedValue([{ sku: 'BURGER', unit: 'pcs' }]),
     uploadAttachment: vi.fn(),
     extractAttachment: vi.fn().mockResolvedValue(mockOrderExtraction),
     getAttachmentExtraction: vi.fn().mockResolvedValue(mockOrderExtraction),

@@ -252,11 +252,11 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
                   const unit = context.field_evidence?.unit?.[i]?.normalized_value ?? context.field_evidence?.unit?.[i]?.quote ?? '';
                   return (
                     <li key={i}>
-                      <strong>"{ev.quote ?? ev.normalized_value}"</strong>
+                      <strong>"{String(ev.quote ?? ev.normalized_value ?? '')}"</strong>
                       {qty ? ` — Quantity: ${qty}` : ''}
                       {unit ? ` ${unit}` : ''}
                       <span style={{ color: '#92400e', fontSize: '11px', marginLeft: '6px' }}>
-                        [{String(ev.start ?? '?')}:{String(ev.end ?? '?')}] ({ev.method})
+                        [{String(ev.start ?? '?')}:{String(ev.end ?? '?')}] ({String(ev.method ?? '')})
                       </span>
                     </li>
                   );

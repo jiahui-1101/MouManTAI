@@ -196,7 +196,7 @@ def review_order_context(
         if current is None:
             raise HTTPException(status_code=404, detail="Order context not found")
         if current.context_version != request.expected_context_version:
-            raise StaleContextVersion("Context changed before review; refresh and review")
+            raise StaleContextVersion(f"Context version mismatch: expected {request.expected_context_version}, got {current.context_version}")
         _check_review_items(tenant.tenant_id, request.field_edits.get("requested_items", current.requested_items), repository)
     svc = ContextService(repository)
     return svc.review_context(tenant.tenant_id, context_id, request, actor_id=actor_id, actor_role=actor_role)
