@@ -16,6 +16,7 @@ import { apiRequest, authHeaders } from "./shared/api";
 import { createP2PublicApiSource } from "./features/feasibility/apiSource";
 import { CommitmentFeasibilityPage } from "./features/feasibility/CommitmentFeasibilityPage";
 import { ImpactDetailPage } from "./features/feasibility/ImpactDetailPage";
+import { RecoveryCaseRoutePage } from "./features/recovery/RecoveryCaseRoutePage";
 
 export function CommitmentFeasibilityRoute() {
   const { authHeaders: auth } = useAuth();
@@ -86,7 +87,7 @@ export function App({ queryClient, initialTenantId, initialActorId }: AppProps =
               <Route path="/orders/:id" element={<OrderContextDetail />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
-              <Route path="/recovery/:id" element={<FeaturePlaceholder owner="P3 · Recovery" title="Recovery case" />} />
+              <Route path="/recovery/:id" element={<RecoveryCaseRoutePage />} />
               <Route path="/communications" element={<CommunicationCenterPage />} />
               <Route path="/confirmations/:id" element={<ConfirmationWorkspacePage />} />
               <Route path="/communications/follow-ups" element={<FollowUpQueuePage />}/>
