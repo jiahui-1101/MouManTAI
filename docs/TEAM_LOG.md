@@ -1166,3 +1166,37 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - Frontend Vitest: `126 passed, 5 skipped (live smoke), 0 failed` (`npm test -- --run`).
   - Frontend typecheck: `tsc --noEmit` passed with 0 errors.
   - Alembic migrations: `0001_foundation` through `0006_recovery_cases` upgrade & downgrade verified on PostgreSQL.
+
+### 2026-10-22 — Task T-P3H1: Migration 0007 (Recovery Case Constraints Alignment), Fail-Closed Assessment History Reader, and Transaction A/B Isolation (P5 / ADR-017 / D-034)
+- **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Outbox/Audit, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `ADR-017` (Decision `D-034`)
+  - **Owner**: P5 (Shared Core, DB & Integration)
+  - **Impact**:
+    1. **Alembic Migration 0007 (`0007_recovery_case_constraints_alignment`)**:
+       - Branches cleanly from `0006_recovery_cases` as the single head on `main`.
+       - `recovery_cases` primary key remains composite `(tenant_id, case_id)`.
+       - Renames unique constraint to plural form `uq_recovery_cases_tenant_case_commitment` on `recovery_cases(tenant_id, case_id, commitment_id)`.
+       - Updates foreign key `fk_recovery_case_triggers_case_tenant_commitment` deletion policy to `ON DELETE RESTRICT` (append-only trigger history; prevents silent cascade deletion of audit evidence).
+       - Retains partial unique index `uq_recovery_cases_one_active_per_commitment` covering exactly the 5 active statuses (`OPEN`, `AWAITING_EVALUATION_INPUTS`, `OPTIONS_READY`, `NO_SAFE_PLAN`, `NEEDS_REPLAN`).
+       - Retains direct trigger-to-commitment foreign key on `(tenant_id, commitment_id)` referencing `commitments(tenant_id, commitment_id)` with `ON DELETE RESTRICT`.
+       - Zero data loss: existing case and trigger rows preserved during upgrade. Symmetrical `downgrade()` cleanly restores 0006 constraints and `CASCADE` policy.
+    2. **Fail-Closed Assessment Provenance Reader (`AuthoritativeAssessmentHistoryReader`)**:
+       - Located in `backend/app/core/feasibility_adapters.py`.
+       - Raises typed `DomainError("ASSESSMENT_PROVENANCE_MISSING", ...)` (HTTP 422) if candidate record lacks `assessment_id`, evaluated `commitment_version`, `snapshot_version`, or has `advisory=True`.
+       - Zero synthetic fallback to audit IDs or version 1. Timezone-aware ISO-8601 timestamps enforced.
+    3. **Transaction A/B Dual-Boundary Isolation**:
+       - Transaction A (Core `assess()` + risk state transition `AT_RISK` + `AuditEventRecord` + `OutboxEventRecord` `PENDING`) commits independently and atomically.
+       - Transaction B (Outbox Dispatcher -> Consumer handler -> `ProcessedEventRecord`) runs in its own session.
+       - Injected consumer failure rolls back Transaction B writes (case and trigger rows) and `ProcessedEventRecord`. Transaction A state remains committed.
+       - Outbox event attempts increment to 1, status becomes `FAILED`, and exponential backoff `next_retry_at` is scheduled. Subsequent retry succeeds and marks outbox `PUBLISHED`.
+- **Validation Test Evidence**:
+  - Migration 0007 tests (`backend/tests/test_migration_0007.py`): 2 passed (upgrade 0006->0007, zero data loss on seeded data, negative RESTRICT tests on case and commitment deletion, partial active index enforcement, clean downgrade 0007->0006, re-upgrade, and single head assertion).
+  - Reader fail-closed tests (`backend/tests/test_assessment_reader_fail_closed.py`): 5 passed (provenance missing errors, advisory rejection, fully provenanced success, audit event parser).
+  - Transaction A/B isolation test (`backend/tests/test_transaction_ab_isolation.py`): 1 passed (A commits independently, B rolls back on failure, attempts increment, retry succeeds, idempotency holds).
+  - Full backend pytest suite: `331 passed, 8 skipped, 6 warnings` (`pytest backend/tests backend/app/feasibility/tests`).
+  - Single Alembic head confirmed: `0007_recovery_case_constraints_alignment (head)`.
+  - Frontend typecheck: Passed (`tsc --noEmit`, 0 errors).
+  - Frontend Vitest: `218 passed, 5 skipped (live smoke), 0 failed` (`npm test -- --run`).
+  - Frontend production build: Passed (`cmd /c npm run build`, 0 errors).
+- **Pending Acknowledgements**: P3 (for rebase of PR #10 onto `0007_recovery_case_constraints_alignment`).

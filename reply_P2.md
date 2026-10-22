@@ -1,54 +1,51 @@
 Hi P2!
 
-# Reply to P2 (Handoff #P2-1 — Schema Constraint Alignment, Adapter Placement & PR Verification)
+# Reply to P2 (Handoff #P2-1 — Feasibility Adapters, Contract Relaxation & Schema Alignment)
 
 **To**: Person 2 (F2 Feasibility Full-Stack)  
 **From**: Person 5 (Shared Core, Contracts, Integration Coordinator)  
 **Date**: 2026-10-22  
-**Subject**: Alignment on Migration 0006 Constraints, Feasibility Adapters Placement, and PR Delivery
+**Subject**: Confirmation of Feasibility Adapters Placement, Contract Relaxation, and Route Mounting
 
 ---
 
-### 1. Migration 0006 Schema & Constraints Verification [H2-1-ITEM1, H2-1-ITEM2]
-
-P5 has finalized and verified migration `0006_recovery_cases` on real PostgreSQL:
-
-1. **Foreign Key Delete Policy (`ON DELETE CASCADE`)**:
-   - The three-column foreign key `(tenant_id, case_id, commitment_id)` on `recovery_case_triggers` defines:
-     ```sql
-     FOREIGN KEY (tenant_id, case_id, commitment_id)
-     REFERENCES recovery_cases (tenant_id, case_id, commitment_id)
-     ON DELETE CASCADE
-     ```
-   - Verified on PostgreSQL: deleting a `recovery_cases` row cascades cleanly to its linked `recovery_case_triggers`.
-
-2. **Constraint & Index Naming Alignment**:
-   - Unique constraint backing the composite foreign key:
-     ```sql
-     CONSTRAINT uq_recovery_case_tenant_case_commitment
-       UNIQUE (tenant_id, case_id, commitment_id)
-     ```
-   - Partial unique index: `uq_recovery_cases_one_active_per_commitment`, scoped strictly to active statuses:
-     `'OPEN', 'AWAITING_EVALUATION_INPUTS', 'OPTIONS_READY', 'NO_SAFE_PLAN', 'NEEDS_REPLAN'`.
+### 1. Feasibility Adapters Placement [H2-1-ADAPTER1]
+- **Decision: Core Placement (`backend/app/core/feasibility_adapters.py`)**:
+  - Reason: P5 owns shared adapters and integration boundaries; placing them in Core prevents cross-owner edits into `backend/app/feasibility/`.
+  - Concrete adapters (`AuthoritativeEvaluationAuthority`, `AuthoritativeAssessmentWriter`, `AuthoritativeAssessmentHistoryReader`, `AuthoritativeSupplierDelayProcessor`, `AuthoritativeImpactReader`) are registered via FastAPI dependency overrides in `backend/app/main.py`.
+  - P2 may import from Core or continue using local facades where appropriate.
 
 ---
 
-### 2. Feasibility Adapters Placement [H2-1-ITEM3]
-
-- **Current Dual-Path Setup**: The authoritative adapter implementations (`AuthoritativeEvaluationAuthority`, `AuthoritativeAssessmentWriter`, `AuthoritativeAssessmentHistoryReader`, `AuthoritativeSupplierDelayProcessor`, `AuthoritativeImpactReader`) reside in `backend/app/core/feasibility_adapters.py` and are also exposed via `backend/app/feasibility/adapters.py`.
-- **Proposal for P2**: We propose to **keep both paths aliased until P2 completes your integration review, or consolidate strictly into `backend/app/core/` if you confirm that P2 prefers importing directly from Core**.
-- **Dependency Injections**: Concrete adapters are registered via dependency overrides in `backend/app/main.py`.
+### 2. Contract Relaxation for `affected_commitment_ids` [H2-1-CONTRACT1]
+- **Decision: ACCEPTED with default `[]`**:
+  - Reason: `affected_commitment_ids` strictly denotes downstream commitments disrupted by operational/resource changes (impact set), not the scope of the assessment itself.
+  - Schema in `backend/app/core/schemas.py`, TypeScript types in `contracts/types.ts`, and fixtures updated to `default_factory=list, min_length=0`.
+  - For standard `FEASIBLE` or `UNKNOWN` evaluations where no downstream commitments are disrupted, an empty list `[]` is expected and valid.
 
 ---
 
-### 3. Implementation Verification & Checkpoint PR [H2-1-ITEM4]
+### 3. Fail-Closed History Reader & Status Preservation [H2-1-READER1]
+- **Decision: All 4 Statuses Preserved with Fail-Closed Provenance**:
+  - Reason: Invariant safety requires that missing evaluation provenance cannot default to version 1 or fake audit IDs.
+  - `AuthoritativeAssessmentHistoryReader` preserves all four statuses (`FEASIBLE`, `CONDITIONAL`, `INFEASIBLE`, `UNKNOWN`).
+  - Advisory records (`advisory=True`) write only to `AuditEventRecord` and are strictly excluded from authoritative lookup.
+  - Missing provenance raises typed `DomainError("ASSESSMENT_PROVENANCE_MISSING", ..., status_code=422)`.
 
-- **Delivery Scope**: The Phase 7B-2 PR delivers `backend/app/core/feasibility_adapters.py`, D-017 multi-subscriber dispatcher gates (`p2_confirmed_evaluator`, `p3.recovery_trigger.v1`), single-edge risk transition in `assess()`, and migration `0006_recovery_cases`.
-- **PostgreSQL Test Evidence**:
-  - The handshake test suite has been executed against PostgreSQL (`19 passed, 0 failed`):
-    ```bash
-    TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/moumantai_test" pytest backend/tests/integration/test_feature_handshakes.py -q
-    ```
-  - Full output log is saved in `docs/postgresql_handshake_verification.log` confirming `engine.dialect.name == "postgresql"`, dual-boundary rollback (HTTP path and outbox consumer path), and atomic commit/rollback.
+---
+
+### 4. D-017 Named Subscriber Gate & Shell Route Mounting [H2-1-DISPATCH1, H2-1-SHELL1]
+- **D-017 Policy**: `OutboxDispatcher` enforces named subscriber `p2_confirmed_evaluator` on `commitment.confirmed` (no wildcards). Unregistered or failing events remain `PENDING`/`FAILED`, never prematurely published.
+- **Frontend Routes**: `CommitmentFeasibilityPage` (`/commitments/:id`) and `ImpactDetailPage` (`/impact/:id`) are mounted in `frontend/src/App.tsx` with authenticated transport.
+- **Alembic Single Head**: `0007_recovery_case_constraints_alignment`.
+
+---
+
+### 5. Next Actions for P2
+1. **Pull/Rebase on `origin/main`**: Sync with `main` (`74470cf`) and Alembic head `0007`.
+2. **Verify Dependencies**: Confirm P2 evaluation pipeline resolves adapters from `backend/app/core/feasibility_adapters.py`.
+3. **What P2 Must NOT Do**:
+   - Do NOT emit direct `commitment.at_risk` outbox events from local feasibility methods; Core `assess()` alone emits authoritative risk transitions.
+   - Do NOT treat `UNKNOWN` as `INFEASIBLE`.
 
 Thank you!
