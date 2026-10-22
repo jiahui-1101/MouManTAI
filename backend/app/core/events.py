@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
@@ -41,7 +41,6 @@ class CoreEventType(StrEnum):
     RECOVERY_STARTED = "recovery.started"
     RECOVERY_PLAN_APPROVED = "recovery.plan_approved"
     RECOVERY_COMMUNICATION_REQUESTED = "recovery.communication_requested"
-    RECOVERY_REPLAN_REQUIRED = "recovery.replan_required"
     AUDIT_RECORDED = "audit.recorded"
 
 
@@ -77,7 +76,7 @@ def create_domain_event(
     schema_version: int = 1,
 ) -> DomainEvent:
     """Construct and validate a canonical DomainEvent envelope."""
-    now = occurred_at or datetime.now(UTC)
+    now = occurred_at or datetime.now(timezone.utc)
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("occurred_at must include explicit UTC timezone offset")
 

@@ -17,13 +17,20 @@ from app.communication.tests.test_requests import NOW
 from app.communication.tests.test_review import MANAGER
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
-from app.core.models import OutboxEventRecord
+from app.core.models import AuditEventRecord, OutboxEventRecord, ProcessedEventRecord
+from app.core.outbox import OutboxDispatcher
 from app.core.schemas import DomainEvent
-from app.recovery.confirmation_responses import P3ConfirmationResponseConsumer
+from app.recovery.confirmation_responses import (
+    CONSUMER_NAME,
+    P3ConfirmationContextResolver,
+    P3ConfirmationResponseConsumer,
+)
 from app.recovery.durable_actions import DurableActionService
-from app.recovery.durable_plans import DurablePlanService
+from app.recovery.durable_plans import DurablePlanService, RecoveryPlanRecord
+from app.recovery.eventing import PendingRecoveryEventPublisher
 from app.recovery.fixtures import load_demo_recovery_inputs
-from app.recovery.models import RecoveryStrategy
+from app.recovery.models import RecoveryCaseStatus, RecoveryStrategy
+from app.recovery.persistence import RecoveryCaseRecord
 from app.recovery.service import RecoveryPlanner
 
 
@@ -78,7 +85,7 @@ def test_p3_validates_the_real_p4_terminal_event_and_tenant_binding(
     foreign_event = event.model_copy(update={"tenant_id": "tenant_foreign"})
     with pytest.raises(DomainError) as error:
         P3ConfirmationResponseConsumer._validate_p4_evidence(session, foreign_event)
-    assert error.value.code == "P4_RESPONSE_SOURCE_MISSING"
+    assert error.value.code == "P4_RESPONSE_SOURCE_MISMATCH"
 
 
 def test_p3_rejects_p4_events_with_modified_payload(session):
@@ -114,7 +121,251 @@ def test_p3_rejects_p4_events_with_modified_payload(session):
     )
     with pytest.raises(DomainError) as error:
         P3ConfirmationResponseConsumer._validate_p4_evidence(session, event)
-    assert error.value.code == "P4_RESPONSE_SOURCE_MISSING"
+    assert error.value.code == "P4_RESPONSE_SOURCE_MISMATCH"
+
+
+def _persist_exact_p3_plan_for_p4_request(session):
+    p2_fixtures = pytest.importorskip("app.feasibility.production_fixtures")
+    snapshot, commitment = p2_fixtures.build_production_example()
+    commitment = commitment.model_copy(update={
+        "tenant_id": "tenant_a",
+        "commitment_id": "com_001",
+        "commitment_version": 10,
+    })
+    inputs = load_demo_recovery_inputs()
+    planner = RecoveryPlanner(inputs=replace(
+        inputs,
+        commitment=commitment,
+        assessment=inputs.assessment.model_copy(update={
+            "tenant_id": commitment.tenant_id,
+            "commitment_id": commitment.commitment_id,
+            "commitment_version": commitment.commitment_version,
+        }),
+        snapshot=inputs.snapshot.model_copy(update={
+            "snapshot_id": snapshot.operational.snapshot_id,
+            "snapshot_version": snapshot.operational.snapshot_version,
+            "captured_at": snapshot.operational.captured_at,
+        }),
+    ))
+    case = planner.generate(
+        commitment.tenant_id,
+        commitment.commitment_id,
+        expected_commitment_version=commitment.commitment_version,
+    )
+    source_plan = next(
+        plan for plan in case.plans
+        if plan.strategy == RecoveryStrategy.RESCHEDULE_PARTIAL_FULFILMENT
+    )
+    plan = source_plan.model_copy(update={
+        "plan_id": "plan_001",
+        "plan_version": 2,
+        "proposal_id": "proposal_001",
+        "proposal_version": 3,
+        "core_commitment_version": 10,
+        "evaluation": source_plan.evaluation.model_copy(update={
+            "plan_id": "plan_001",
+            "plan_version": 2,
+            "commitment_version": 10,
+        }),
+    })
+    case = case.model_copy(update={
+        "commitment": commitment,
+        "commitment_version": commitment.commitment_version,
+        "status": RecoveryCaseStatus.OPTIONS_READY,
+        "plans": [plan],
+        "storage_mode": "DURABLE_DATABASE",
+    })
+    session.add(RecoveryCaseRecord(
+        tenant_id=case.tenant_id,
+        case_id=case.case_id,
+        commitment_id=case.commitment_id,
+        risk_episode_id="evt_p3_response_context_opened",
+        opening_event_id="evt_p3_response_context_opened",
+        status=case.status.value,
+        case_version=case.case_version,
+        commitment_version=case.commitment_version,
+        payload_schema_version=1,
+        case_payload=case.model_dump(mode="json"),
+        resolution_refs=[],
+        created_at=case.created_at,
+        updated_at=case.updated_at,
+    ))
+    session.flush()
+    session.add(RecoveryPlanRecord(
+        tenant_id=case.tenant_id,
+        plan_id=plan.plan_id,
+        plan_version=plan.plan_version,
+        case_id=case.case_id,
+        commitment_id=case.commitment_id,
+        assessment_id=plan.based_on_assessment_id,
+        snapshot_id=plan.snapshot_id or "snapshot_context_test",
+        snapshot_version=plan.snapshot_version,
+        core_commitment_version=10,
+        evaluated_commitment_version=10,
+        payload=plan.model_dump(mode="json"),
+        status="PENDING_APPROVAL",
+        created_at=case.created_at,
+    ))
+    session.flush()
+    return case, plan
+
+
+def _p4_response_event(session, intent="REJECT"):
+    sent, drafts, reviews = fixture_sent(session)
+    inbound = FixtureInbound()
+    p4 = confirmation_service(session, drafts, reviews, inbound)
+    challenge = p4.issue(MANAGER, CreateConfirmation(outbound_id=sent.outbound_id), now=NOW)
+    message = text(challenge, intent)
+    if intent == "COUNTEROFFER":
+        message += ' changes:{"quantity":"80"}'
+    command = inbound.add(message)
+    p4.respond(
+        MANAGER,
+        challenge.confirmation.confirmation_id,
+        command,
+        challenge.confirmation_token,
+        now=NOW,
+    )
+    source = session.scalar(select(OutboxEventRecord).where(
+        OutboxEventRecord.event_type == (
+            "confirmation.rejected" if intent == "REJECT"
+            else "confirmation.counteroffer_received"
+        ),
+    ))
+    assert source is not None
+    return DomainEvent(
+        event_id=source.event_id,
+        schema_version=1,
+        event_type=source.event_type,
+        tenant_id=source.tenant_id,
+        commitment_id=source.commitment_id,
+        commitment_version=source.commitment_version,
+        correlation_id=source.correlation_id,
+        causation_id=source.causation_id,
+        occurred_at=source.occurred_at.replace(tzinfo=UTC)
+        if source.occurred_at.tzinfo is None else source.occurred_at,
+        payload=source.payload,
+    )
+
+
+def test_typed_resolver_follows_p4_source_request_and_outbound_to_exact_p3_plan(session):
+    event = _p4_response_event(session)
+    case, plan = _persist_exact_p3_plan_for_p4_request(session)
+
+    resolved = P3ConfirmationContextResolver().resolve(session, event)
+
+    assert resolved.tenant_id == "tenant_a"
+    assert resolved.commitment_id == "com_001"
+    assert resolved.recovery_case_id == case.case_id
+    assert (resolved.plan_id, resolved.plan_version) == (plan.plan_id, plan.plan_version)
+    assert (resolved.proposal_id, resolved.proposal_version) == ("proposal_001", 3)
+    assert resolved.communication_id == event.payload["communication_id"]
+    assert resolved.outbound_id == event.payload["outbound_id"]
+    assert resolved.source_communication_event_id == "evt_001"
+    assert resolved.trusted_evidence_ref == event.event_id
+    assert resolved.evidence_refs == event.payload["evidence_refs"]
+
+
+def test_typed_resolver_fails_closed_on_ambiguous_plan_association(session):
+    event = _p4_response_event(session)
+    case, plan = _persist_exact_p3_plan_for_p4_request(session)
+    duplicate = plan.model_copy(update={"plan_id": "another_plan_same_proposal"})
+    session.add(RecoveryPlanRecord(
+        tenant_id=case.tenant_id,
+        plan_id=duplicate.plan_id,
+        plan_version=duplicate.plan_version,
+        case_id=case.case_id,
+        commitment_id=case.commitment_id,
+        assessment_id=duplicate.based_on_assessment_id,
+        snapshot_id=duplicate.snapshot_id or "snapshot_context_test_duplicate",
+        snapshot_version=duplicate.snapshot_version,
+        core_commitment_version=10,
+        evaluated_commitment_version=10,
+        payload=duplicate.model_dump(mode="json"),
+        status="PENDING_APPROVAL",
+        created_at=case.created_at,
+    ))
+    session.flush()
+
+    with pytest.raises(DomainError) as error:
+        P3ConfirmationContextResolver().resolve(session, event)
+
+    assert error.value.code == "RECOVERY_PROPOSAL_PLAN_AMBIGUOUS"
+
+
+def test_stale_response_is_reconciled_once_without_invalidating_newer_plan(session):
+    event = _p4_response_event(session)
+    case, plan = _persist_exact_p3_plan_for_p4_request(session)
+    newer = plan.model_copy(update={
+        "plan_version": 3,
+        "proposal_id": "proposal_001__v3",
+        "proposal_version": 3,
+        "evaluation": plan.evaluation.model_copy(update={
+            "plan_version": 3,
+        }),
+    })
+    case_row = session.get(RecoveryCaseRecord, (case.tenant_id, case.case_id))
+    prior_plan_row = session.get(RecoveryPlanRecord, (case.tenant_id, plan.plan_id, plan.plan_version))
+    assert case_row is not None and prior_plan_row is not None
+    case = case.model_copy(update={
+        "case_version": case.case_version + 1,
+        "plans": [plan, newer],
+    })
+    case_row.case_version = case.case_version
+    case_row.case_payload = case.model_dump(mode="json")
+    prior_plan_row.status = "SUPERSEDED"
+    session.add(RecoveryPlanRecord(
+        tenant_id=case.tenant_id,
+        plan_id=newer.plan_id,
+        plan_version=newer.plan_version,
+        case_id=case.case_id,
+        commitment_id=case.commitment_id,
+        assessment_id=newer.based_on_assessment_id,
+        snapshot_id=newer.snapshot_id or "snapshot_context_test_v3",
+        snapshot_version=newer.snapshot_version,
+        core_commitment_version=10,
+        evaluated_commitment_version=10,
+        payload=newer.model_dump(mode="json"),
+        status="PENDING_APPROVAL",
+        created_at=case.created_at,
+    ))
+    session.flush()
+
+    consumer = P3ConfirmationResponseConsumer(PendingRecoveryEventPublisher())
+    assert OutboxDispatcher.execute_consumer(session, event, CONSUMER_NAME, consumer) is True
+    saved_case = session.get(RecoveryCaseRecord, (case.tenant_id, case.case_id))
+    current_plan = session.get(RecoveryPlanRecord, (case.tenant_id, plan.plan_id, 3))
+    assert saved_case is not None and current_plan is not None
+    assert saved_case.case_payload["customer_response_events"][-1]["outcome"] == "STALE_IGNORED"
+    assert saved_case.status == RecoveryCaseStatus.OPTIONS_READY.value
+    assert current_plan.status == "PENDING_APPROVAL"
+    assert prior_plan_row.status == "SUPERSEDED"
+    assert session.get(ProcessedEventRecord, (event.tenant_id, event.event_id, CONSUMER_NAME)) is not None
+    audit_count = session.query(AuditEventRecord).filter_by(
+        tenant_id=event.tenant_id,
+        causation_id=event.event_id,
+        event_type="recovery.customer_reject",
+    ).count()
+    response_count = len(saved_case.case_payload["customer_response_events"])
+
+    assert OutboxDispatcher.execute_consumer(session, event, CONSUMER_NAME, consumer) is False
+    session.refresh(saved_case)
+    assert len(saved_case.case_payload["customer_response_events"]) == response_count
+    assert session.query(AuditEventRecord).filter_by(
+        tenant_id=event.tenant_id,
+        causation_id=event.event_id,
+        event_type="recovery.customer_reject",
+    ).count() == audit_count == 1
+
+
+def test_p4_confirmation_schema_version_is_enforced(session):
+    event = _p4_response_event(session)
+    unsupported = event.model_copy(update={"schema_version": 2})
+
+    with pytest.raises(DomainError) as error:
+        P3ConfirmationResponseConsumer._validate_p4_evidence(session, unsupported)
+
+    assert error.value.code == "P4_RESPONSE_SCHEMA_UNSUPPORTED"
 
 
 def test_counteroffer_creates_a_fresh_p2_evaluated_plan_version(monkeypatch):

@@ -11,16 +11,20 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.communication.confirmation_schemas import ConfirmationBasis
 from app.communication.models import (
+    CommunicationRequestRecord,
+    CommunicationSourceEventRecord,
     ConfirmationAttemptRecord,
     ConfirmationDecisionRecord,
     ConfirmationSessionRecord,
+    OutboundMessageRecord,
 )
 from app.communication.response_rules import ProposedChanges as P4ProposedChanges
+from app.communication.schemas import RecoveryCommunicationReference
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
 from app.core.manager_approval import ManagerApprovalRecord
@@ -30,7 +34,8 @@ from app.core.models import (
     CommitmentRecord,
     OutboxEventRecord,
 )
-from app.core.schemas import DomainEvent
+from app.core.outbox import to_domain_event
+from app.core.schemas import ContractModel, DomainEvent
 from app.core.service import CommitmentService
 from app.recovery.eventing import (
     P3RecoveryEventPublisherPort,
@@ -57,6 +62,229 @@ _RESPONSE_INTENTS = {
 CONSUMER_NAME = "p3.confirmation_response.v1"
 
 
+class TrustedP3RecoveryResponseContext(ContractModel):
+    """Resolved, persisted P4-to-P3 linkage; no identifiers are inferred."""
+
+    tenant_id: str
+    commitment_id: str
+    recovery_case_id: str
+    plan_id: str
+    plan_version: int
+    proposal_id: str
+    proposal_version: int
+    communication_id: str
+    outbound_id: str
+    source_communication_event_id: str
+    trusted_evidence_ref: str
+    evidence_refs: list[str]
+    intent: str
+
+
+class P3ConfirmationContextResolver:
+    """Resolve the exact persisted P4 communication chain back to one P3 plan."""
+
+    def resolve(self, db: Session, event: DomainEvent) -> TrustedP3RecoveryResponseContext:
+        intent, _ = P3ConfirmationResponseConsumer._validate_p4_evidence(db, event)
+        payload = event.payload
+        tenant_id = event.tenant_id
+        communication_id = payload["communication_id"]
+
+        request = db.get(CommunicationRequestRecord, (tenant_id, communication_id))
+        if request is None:
+            raise DomainError(
+                "RECOVERY_COMMUNICATION_LINK_MISSING",
+                "Persisted P4 communication request is unavailable for this response",
+                status_code=409,
+            )
+        try:
+            reference = RecoveryCommunicationReference.model_validate(
+                request.snapshot["reference"],
+            )
+        except (KeyError, TypeError, ValidationError) as exc:
+            raise DomainError(
+                "RECOVERY_COMMUNICATION_LINK_INVALID",
+                "Persisted P4 communication reference is invalid",
+                status_code=409,
+            ) from exc
+
+        source_link = db.get(
+            CommunicationSourceEventRecord,
+            (tenant_id, reference.source_event_id),
+        )
+        if source_link is None or source_link.communication_id != communication_id:
+            raise DomainError(
+                "RECOVERY_COMMUNICATION_SOURCE_MISSING",
+                "P4 communication request has no exact P3 source event link",
+                status_code=409,
+            )
+        try:
+            linked_reference = RecoveryCommunicationReference.model_validate(source_link.reference)
+            source_event = to_domain_event(db.get(OutboxEventRecord, reference.source_event_id))
+        except (ValidationError, TypeError, ValueError, AttributeError) as exc:
+            raise DomainError(
+                "RECOVERY_COMMUNICATION_SOURCE_INVALID",
+                "Persisted P3 communication source is invalid",
+                status_code=409,
+            ) from exc
+
+        if source_event is None or linked_reference != reference:
+            raise DomainError(
+                "RECOVERY_COMMUNICATION_SOURCE_MISMATCH",
+                "P4 request reference does not match its persisted P3 source",
+                status_code=409,
+            )
+        source_payload = source_event.payload
+        source_identity = (
+            source_event.event_type,
+            source_event.schema_version,
+            source_event.tenant_id,
+            source_event.commitment_id,
+            source_event.commitment_version,
+            source_event.correlation_id,
+            source_event.causation_id,
+            source_event.occurred_at,
+            source_payload.get("commitment_id"),
+            source_payload.get("plan_id"),
+            source_payload.get("plan_version"),
+            source_payload.get("proposal_id"),
+            source_payload.get("proposal_version"),
+        )
+        expected_source_identity = (
+            "recovery.communication_requested",
+            1,
+            reference.tenant_id,
+            reference.commitment_id,
+            reference.commitment_version,
+            reference.correlation_id,
+            reference.causation_id,
+            reference.occurred_at,
+            reference.commitment_id,
+            reference.plan_id,
+            reference.plan_version,
+            reference.proposal_id,
+            reference.proposal_version,
+        )
+        request_identity = (
+            request.tenant_id,
+            request.communication_id,
+            request.commitment_id,
+            request.proposal_id,
+            request.proposal_version,
+            request.snapshot.get("communication_id"),
+        )
+        if (
+            source_identity != expected_source_identity
+            or request_identity
+            != (
+                reference.tenant_id,
+                communication_id,
+                reference.commitment_id,
+                reference.proposal_id,
+                reference.proposal_version,
+                communication_id,
+            )
+            or source_link.correlation_id != reference.correlation_id
+            or (reference.tenant_id, reference.commitment_id, reference.proposal_id,
+                reference.proposal_version)
+            != (tenant_id, event.commitment_id, payload["proposal_id"], payload["proposal_version"])
+        ):
+            raise DomainError(
+                "RECOVERY_COMMUNICATION_BINDING_MISMATCH",
+                "P4 communication does not match the trusted P3 proposal reference",
+                status_code=409,
+            )
+
+        outbound = db.get(OutboundMessageRecord, (tenant_id, payload["outbound_id"]))
+        confirmation = db.get(ConfirmationSessionRecord, (tenant_id, payload["confirmation_id"]))
+        if (
+            outbound is None
+            or confirmation is None
+            or outbound.communication_id != communication_id
+            or outbound.outbound_id != confirmation.outbound_id
+            or outbound.communication_id != confirmation.communication_id
+            or outbound.draft_id != confirmation.draft_id
+            or outbound.approved_review_id != confirmation.approved_review_id
+            or outbound.status != "SENT"
+            or outbound.provider_confirmed is not True
+        ):
+            raise DomainError(
+                "RECOVERY_OUTBOUND_LINK_MISMATCH",
+                "Confirmation is not bound to its persisted sent outbound message",
+                status_code=409,
+            )
+
+        plan_rows = db.scalars(select(RecoveryPlanRecord).where(
+            RecoveryPlanRecord.tenant_id == tenant_id,
+            RecoveryPlanRecord.commitment_id == reference.commitment_id,
+        )).all()
+        matches: list[tuple[RecoveryPlanRecord, RecoveryPlanVersion]] = []
+        for row in plan_rows:
+            try:
+                candidate = RecoveryPlanVersion.model_validate(row.payload)
+            except ValidationError as exc:
+                raise DomainError(
+                    "RECOVERY_PLAN_INTEGRITY_ERROR",
+                    "Persisted P3 plan payload is invalid",
+                    status_code=500,
+                ) from exc
+            bound_proposal_id = candidate.proposal_id or candidate.plan_id
+            bound_proposal_version = candidate.proposal_version or candidate.plan_version
+            if (bound_proposal_id, bound_proposal_version) == (
+                reference.proposal_id,
+                reference.proposal_version,
+            ):
+                matches.append((row, candidate))
+
+        if len(matches) != 1:
+            raise DomainError(
+                "RECOVERY_PROPOSAL_PLAN_AMBIGUOUS",
+                "Trusted P4 communication does not resolve to exactly one P3 plan version",
+                status_code=409,
+            )
+        plan_record, plan = matches[0]
+        if (
+            (plan_record.tenant_id, plan_record.plan_id, plan_record.plan_version,
+             plan_record.case_id, plan_record.commitment_id)
+            != (tenant_id, reference.plan_id, reference.plan_version,
+                plan.recovery_case_id, reference.commitment_id)
+            or (plan.tenant_id, plan.commitment_id, plan.plan_id, plan.plan_version,
+                plan.recovery_case_id)
+            != (tenant_id, reference.commitment_id, reference.plan_id,
+                reference.plan_version, plan_record.case_id)
+        ):
+            raise DomainError(
+                "RECOVERY_PLAN_BINDING_MISMATCH",
+                "P3 plan index and versioned payload disagree with the P4 source reference",
+                status_code=409,
+            )
+        case_record = db.get(
+            RecoveryCaseRecord,
+            (tenant_id, plan_record.case_id),
+        )
+        if case_record is None or case_record.commitment_id != reference.commitment_id:
+            raise DomainError(
+                "RECOVERY_CASE_LINK_MISSING",
+                "The exact P3 plan has no matching persisted Recovery Case",
+                status_code=409,
+            )
+
+        return TrustedP3RecoveryResponseContext(
+            tenant_id=tenant_id,
+            commitment_id=reference.commitment_id,
+            recovery_case_id=plan_record.case_id,
+            plan_id=reference.plan_id,
+            plan_version=reference.plan_version,
+            proposal_id=reference.proposal_id,
+            proposal_version=reference.proposal_version,
+            communication_id=communication_id,
+            outbound_id=payload["outbound_id"],
+            source_communication_event_id=reference.source_event_id,
+            trusted_evidence_ref=event.event_id,
+            evidence_refs=list(payload["evidence_refs"]),
+            intent=intent,
+        )
+
+
 class P3ConfirmationResponseConsumer:
     """Validate source provenance, then atomically invalidate or replan P3 state."""
 
@@ -65,12 +293,15 @@ class P3ConfirmationResponseConsumer:
         publisher: P3RecoveryEventPublisherPort,
         *,
         plans: DurablePlanService | None = None,
+        resolver: P3ConfirmationContextResolver | None = None,
     ) -> None:
         self.publisher = publisher
         self.plans = plans or DurablePlanService()
+        self.resolver = resolver or P3ConfirmationContextResolver()
 
     def __call__(self, db: Session, event: DomainEvent) -> None:
-        intent, _ = self._validate_p4_evidence(db, event)
+        response_context = self.resolver.resolve(db, event)
+        intent = response_context.intent
 
         # D-041: lock the authoritative Commitment before any P2 snapshot reads.
         commitment_row = db.scalar(
@@ -85,11 +316,9 @@ class P3ConfirmationResponseConsumer:
         if commitment_row is None:
             raise DomainError("COMMITMENT_NOT_FOUND", "Confirmation commitment was not found", status_code=404)
 
-        proposal_id = event.payload["proposal_id"]
-        proposal_version = event.payload["proposal_version"]
-        proposal = db.get(CommitmentProposalRecord, (event.tenant_id, proposal_id))
-        (case_record, case), (plan_record, plan) = self._case_and_plan(
-            db, event, proposal_id, proposal_version,
+        proposal = db.get(CommitmentProposalRecord, (event.tenant_id, response_context.proposal_id))
+        (case_record, case), (plan_record, plan), latest_plan_version = self._case_and_plan(
+            db, response_context,
         )
 
         if self._already_recorded(case, event.event_id):
@@ -99,9 +328,11 @@ class P3ConfirmationResponseConsumer:
             event.commitment_version != commitment_row.commitment_version
             or proposal is None
             or proposal.commitment_id != event.commitment_id
-            or proposal.proposal_version != proposal_version
+            or proposal.proposal_version != response_context.proposal_version
             or proposal.status != "ACTIVE"
+            or latest_plan_version != response_context.plan_version
             or plan_record.status in {"NEEDS_REPLAN", "SUPERSEDED"}
+            or case.status == RecoveryCaseStatus.COMPLETED
             or plan.core_commitment_version is None
             or plan.core_commitment_version + 1 != event.commitment_version
         )
@@ -109,8 +340,8 @@ class P3ConfirmationResponseConsumer:
             result = CustomerResponseEvidence(
                 event_id=event.event_id,
                 confirmation_id=event.payload["confirmation_id"],
-                proposal_id=proposal_id,
-                proposal_version=proposal_version,
+                proposal_id=response_context.proposal_id,
+                proposal_version=response_context.proposal_version,
                 intent=intent,
                 outcome="STALE_IGNORED",
                 proposed_terms=self._counteroffer_terms(db, event) if intent == "COUNTEROFFER" else None,
@@ -142,8 +373,8 @@ class P3ConfirmationResponseConsumer:
             result = CustomerResponseEvidence(
                 event_id=event.event_id,
                 confirmation_id=event.payload["confirmation_id"],
-                proposal_id=proposal_id,
-                proposal_version=proposal_version,
+                proposal_id=response_context.proposal_id,
+                proposal_version=response_context.proposal_version,
                 intent="REJECT",
                 outcome="REPLAN_REQUIRED",
                 evidence_refs=list(event.payload["evidence_refs"]),
@@ -182,8 +413,8 @@ class P3ConfirmationResponseConsumer:
             result = CustomerResponseEvidence(
                 event_id=event.event_id,
                 confirmation_id=event.payload["confirmation_id"],
-                proposal_id=proposal_id,
-                proposal_version=proposal_version,
+                proposal_id=response_context.proposal_id,
+                proposal_version=response_context.proposal_version,
                 intent="COUNTEROFFER",
                 outcome=outcome,
                 proposed_terms=counteroffer,
@@ -240,6 +471,12 @@ class P3ConfirmationResponseConsumer:
         expected = _RESPONSE_INTENTS.get(event.event_type)
         if expected is None or not event.commitment_id or event.commitment_version is None:
             raise DomainError("P4_RESPONSE_EVENT_INVALID", "Unsupported or unbound P4 response event", status_code=422)
+        if event.schema_version != 1:
+            raise DomainError(
+                "P4_RESPONSE_SCHEMA_UNSUPPORTED",
+                "P3 supports P4 confirmation event schema version 1",
+                status_code=422,
+            )
         intent, response_state = expected
         payload = event.payload
         required = {
@@ -247,33 +484,46 @@ class P3ConfirmationResponseConsumer:
             "terms_digest", "response_state", "evidence_refs", "evidence_scope", "integration_mode",
             "decision_id", "attempt_id", "intent",
         }
-        if not required.issubset(payload) or (
+        if set(payload) != required or (
             payload.get("response_state") != response_state
             or payload.get("evidence_scope") != "P4_EVIDENCE_ONLY"
             or payload.get("integration_mode") != "SYNTHETIC_ONLY"
             or payload.get("intent") != intent
-            or not isinstance(payload.get("proposal_version"), int)
+            or type(payload.get("proposal_version")) is not int
+            or payload.get("proposal_version", 0) < 1
+            or any(
+                not isinstance(payload.get(key), str) or not payload[key].strip()
+                for key in (
+                    "confirmation_id", "communication_id", "outbound_id", "proposal_id",
+                    "terms_digest", "decision_id", "attempt_id",
+                )
+            )
             or not isinstance(payload.get("evidence_refs"), list)
             or not payload["evidence_refs"]
+            or any(not isinstance(ref, str) or not ref.strip() for ref in payload["evidence_refs"])
+            or len(payload["evidence_refs"]) != len(set(payload["evidence_refs"]))
         ):
             raise DomainError("P4_RESPONSE_EVENT_INVALID", "P4 response evidence is incomplete or untrusted", status_code=422)
 
         source = db.get(OutboxEventRecord, event.event_id)
-        if source is None or (
-            source.tenant_id != event.tenant_id
-            or source.event_type != event.event_type
-            or source.commitment_id != event.commitment_id
-            or source.commitment_version != event.commitment_version
-            or source.correlation_id != event.correlation_id
-            or source.causation_id != event.causation_id
-            or source.payload != payload
-        ):
+        if source is None:
             raise DomainError("P4_RESPONSE_SOURCE_MISSING", "P4 outbox source does not match the event", status_code=409)
+        try:
+            persisted_event = to_domain_event(source)
+        except (ValidationError, TypeError, ValueError, AttributeError) as exc:
+            raise DomainError(
+                "P4_RESPONSE_SOURCE_INVALID",
+                "Persisted P4 outbox row is not a canonical domain event",
+                status_code=409,
+            ) from exc
+        if persisted_event != event:
+            raise DomainError("P4_RESPONSE_SOURCE_MISMATCH", "P4 outbox source does not match the event", status_code=409)
 
         session = db.get(ConfirmationSessionRecord, (event.tenant_id, payload["confirmation_id"]))
         attempt = db.get(ConfirmationAttemptRecord, (event.tenant_id, payload["attempt_id"]))
         decision = db.get(ConfirmationDecisionRecord, (event.tenant_id, payload["decision_id"]))
-        if session is None or attempt is None or decision is None:
+        outbound = db.get(OutboundMessageRecord, (event.tenant_id, payload["outbound_id"]))
+        if session is None or attempt is None or decision is None or outbound is None:
             raise DomainError("P4_RESPONSE_SOURCE_MISSING", "P4 confirmation evidence rows are incomplete", status_code=409)
         try:
             basis = ConfirmationBasis.model_validate(session.binding)
@@ -284,6 +534,12 @@ class P3ConfirmationResponseConsumer:
             session.confirmation_id != payload["confirmation_id"]
             or session.communication_id != payload["communication_id"]
             or session.outbound_id != payload["outbound_id"]
+            or outbound.communication_id != session.communication_id
+            or outbound.outbound_id != session.outbound_id
+            or outbound.draft_id != session.draft_id
+            or outbound.approved_review_id != session.approved_review_id
+            or outbound.status != "SENT"
+            or outbound.provider_confirmed is not True
             or session.state != response_state
             or session.consumed_at is None
             or decision.confirmation_id != session.confirmation_id
@@ -329,43 +585,56 @@ class P3ConfirmationResponseConsumer:
         return terms
 
     @staticmethod
-    def _case_and_plan(db: Session, event: DomainEvent, proposal_id: str, proposal_version: int):
-        rows = db.scalars(select(RecoveryPlanRecord).where(
-            RecoveryPlanRecord.tenant_id == event.tenant_id,
-            RecoveryPlanRecord.commitment_id == event.commitment_id,
-        ).order_by(RecoveryPlanRecord.plan_id, RecoveryPlanRecord.plan_version.desc())).all()
-        matches = []
-        for candidate in rows:
-            try:
-                plan = RecoveryPlanVersion.model_validate(candidate.payload)
-            except ValidationError as exc:
-                raise DomainError(
-                    "RECOVERY_PLAN_INTEGRITY_ERROR",
-                    "Persisted P3 plan payload is invalid",
-                    status_code=500,
-                ) from exc
-            bound_id = plan.proposal_id or plan.plan_id
-            bound_version = plan.proposal_version or plan.plan_version
-            if (bound_id, bound_version) == (proposal_id, proposal_version):
-                matches.append((candidate, plan))
-        if len(matches) != 1:
-            raise DomainError("RECOVERY_PROPOSAL_PLAN_AMBIGUOUS", "Proposal does not resolve to one persisted P3 plan", status_code=409)
-        plan_record, plan = matches[0]
+    def _case_and_plan(db: Session, context: TrustedP3RecoveryResponseContext):
+        # D-041 ordering: caller holds the Commitment lock before this Recovery Case lock.
         case_record = db.scalar(select(RecoveryCaseRecord).where(
-            RecoveryCaseRecord.tenant_id == event.tenant_id,
-            RecoveryCaseRecord.case_id == plan.recovery_case_id,
-            RecoveryCaseRecord.commitment_id == event.commitment_id,
-        ).with_for_update())
+            RecoveryCaseRecord.tenant_id == context.tenant_id,
+            RecoveryCaseRecord.case_id == context.recovery_case_id,
+            RecoveryCaseRecord.commitment_id == context.commitment_id,
+        ).with_for_update().execution_options(populate_existing=True))
         if case_record is None:
-            raise DomainError("RECOVERY_CASE_NOT_FOUND", "P3 Recovery Case was not found", status_code=404)
+            raise DomainError("RECOVERY_CASE_NOT_FOUND", "P3 Recovery Case was not found", status_code=409)
+        plan_record = db.scalar(select(RecoveryPlanRecord).where(
+            RecoveryPlanRecord.tenant_id == context.tenant_id,
+            RecoveryPlanRecord.plan_id == context.plan_id,
+            RecoveryPlanRecord.plan_version == context.plan_version,
+        ).with_for_update().execution_options(populate_existing=True))
+        if plan_record is None:
+            raise DomainError("RECOVERY_PLAN_NOT_FOUND", "P3 Recovery Plan version was not found", status_code=409)
+        try:
+            plan = RecoveryPlanVersion.model_validate(plan_record.payload)
+        except ValidationError as exc:
+            raise DomainError(
+                "RECOVERY_PLAN_INTEGRITY_ERROR",
+                "Persisted P3 plan payload is invalid",
+                status_code=500,
+            ) from exc
+        if (
+            plan_record.case_id != context.recovery_case_id
+            or plan_record.commitment_id != context.commitment_id
+            or (plan.tenant_id, plan.recovery_case_id, plan.commitment_id, plan.plan_id, plan.plan_version)
+            != (context.tenant_id, context.recovery_case_id, context.commitment_id,
+                context.plan_id, context.plan_version)
+        ):
+            raise DomainError(
+                "RECOVERY_PLAN_BINDING_MISMATCH",
+                "P3 plan changed after trusted response context resolution",
+                status_code=409,
+            )
         case = SqlAlchemyRecoveryRepository._case_from_record(case_record).model_copy(update={
             "trigger_events": SqlAlchemyRecoveryRepository().list_case_triggers(
-                db, event.tenant_id, case_record.case_id,
+                db, context.tenant_id, case_record.case_id,
             ),
         })
-        if case.tenant_id != event.tenant_id or case.commitment_id != event.commitment_id:
+        if case.tenant_id != context.tenant_id or case.commitment_id != context.commitment_id:
             raise DomainError("RECOVERY_CASE_IDENTITY_CONFLICT", "P3 Recovery Case identity does not match P4", status_code=409)
-        return (case_record, case), (plan_record, plan)
+        latest_plan_version = db.scalar(select(func.max(RecoveryPlanRecord.plan_version)).where(
+            RecoveryPlanRecord.tenant_id == context.tenant_id,
+            RecoveryPlanRecord.plan_id == context.plan_id,
+        ))
+        if latest_plan_version is None:
+            raise DomainError("RECOVERY_PLAN_NOT_FOUND", "P3 Recovery Plan history is unavailable", status_code=409)
+        return (case_record, case), (plan_record, plan), latest_plan_version
 
     @staticmethod
     def _already_recorded(case: RecoveryCase, event_id: str) -> bool:
