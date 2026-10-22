@@ -393,3 +393,17 @@ def test_unsupported_expressions_remain_unresolved(unsupported_text):
     assert delivery.validation_status == "UNRESOLVED"
     assert delivery.value is None
     assert "unsupported" in delivery.metadata.get("reason", "").lower() or "ambiguous" in delivery.metadata.get("reason", "").lower()
+
+
+def test_colloquial_beef_burger_and_tmr_extraction():
+    msg = stored("Hello boss! Good morning 👋 We need 50 beef burgers for tmr before 3pm please. Subang branch ya.")
+    res = extract_explicit_fields(msg, catalog=PROVISIONAL_PRODUCTS)
+    assert named(res, "sku")[0].value == "BURGER"
+    assert named(res, "sku")[0].validation_status == "VALID"
+    assert named(res, "quantity")[0].value == "50"
+    assert named(res, "quantity")[0].validation_status == "VALID"
+    delivery = named(res, "requested_delivery_at")[0]
+    assert delivery.validation_status == "VALID"
+    assert delivery.qualifier == "DEADLINE"
+    assert delivery.value == "2026-10-21T15:00:00+08:00"
+    assert delivery.evidence[0].quote == "tmr before 3pm"

@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { PreviewError } from './api';
 import { operationalApi } from './operationalApi';
 import type { OperationalApi } from './operationalApi';
 import { SyntheticComposer } from './SyntheticComposer';
 import { OrderContextDetail } from './OrderContextDetail';
+import { ReviewDrawer } from './ReviewDrawer';
 import { AttachmentViewer } from './AttachmentViewer';
+import { ExtractionProvenance } from './ExtractionProvenance';
 import type {
   AttachmentRecord,
   DevelopmentContext,
@@ -72,6 +75,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
   const [saved, setSaved] = useState<IngestResponse | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const returnFocus = useRef<HTMLButtonElement | null>(null);
+  const processLock = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -89,6 +93,8 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
   }
 
   async function handleInlineProcess(messageId: string, isReprocess: boolean) {
+    if (processLock.current) return;
+    processLock.current = true;
     setProcessingId(messageId);
     try {
       await api.process(messageId, isReprocess);
@@ -97,6 +103,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
       // Refresh on error to reflect any status change
       setAttempt(n => n + 1);
     } finally {
+      processLock.current = false;
       setProcessingId(null);
     }
   }
@@ -105,23 +112,31 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
     <header className="p1-page-heading"><div><h1>Message Inbox</h1><p>Receive synthetic messages and inspect their original content.</p></div><button type="button" className="p1-primary" disabled={resource.state !== 'ready' || composing} onClick={() => { setSaved(null); setComposing(true); }}>+ New synthetic message</button></header>
     <div className="p1-tabs"><span className="p1-active-label">Persisted messages</span><a href="/inbox/fixtures">Fixture preview ↗</a><span className="p1-demo-label">Local PostgreSQL · synthetic channel only</span></div>
     {saved && <p role="status" className="p1-success">{saved.duplicate ? 'Duplicate delivery — original message retrieved.' : 'Message saved.'} ID: {saved.message.message_id}. Awaiting processing; extraction has not run.</p>}
-    {composing && tenantId && <SyntheticComposer tenantId={tenantId} ingest={payload => api.ingest(payload)} onSuccess={submitted} onCancel={() => setComposing(false)} />}
+    {composing && tenantId && (
+      <SyntheticComposer
+        tenantId={tenantId}
+        ingest={payload => api.ingest(payload)}
+        uploadAttachment={file => api.uploadAttachment(file)}
+        onSuccess={submitted}
+        onCancel={() => setComposing(false)}
+      />
+    )}
     <section className="p1-filter-card" aria-label="Inbox filters"><div className="p1-filter-fields p1-durable-filters">
       <label className="p1-search"><span>Search messages</span><input type="search" maxLength={200} value={search} placeholder="Search original text, sender or provider ID" onChange={event => { setSearch(event.target.value); setOffset(0); }} /></label>
       <label><span>Channel</span><select value={channel} onChange={event => { setChannel(event.target.value); setOffset(0); }}><option value="ALL">All channels</option>{['WHATSAPP', 'EMAIL', 'TELEGRAM', 'UNKNOWN'].map(value => <option key={value}>{value}</option>)}</select></label>
       <label><span>Processing</span><select value={processing} onChange={event => { setProcessing(event.target.value); setOffset(0); }}><option value="ALL">All processing states</option>{['RECEIVED', 'PROCESSING', 'PROCESSED', 'PROCESSING_FAILED'].map(value => <option key={value}>{value}</option>)}</select></label>
-      <button type="button" className="p1-secondary" onClick={() => { setSearch(''); setChannel('ALL'); setProcessing('ALL'); setOffset(0); }}>× Clear</button>
-      <button type="button" className="p1-secondary" onClick={() => setAttempt(n => n + 1)}>↻ Refresh</button>
+      <button type="button" className="p1-secondary" onClick={() => { setSearch(''); setChannel('ALL'); setProcessing('ALL'); setOffset(0); }}>Clear</button>
+      <button type="button" className="p1-secondary" onClick={() => setAttempt(n => n + 1)}>Refresh</button>
     </div><div className="p1-filter-caption"><span>{resource.state === 'ready' ? `${resource.page.total} persisted messages` : 'PostgreSQL Inbox'}</span><span>Display timezone · Asia/Kuala_Lumpur</span></div></section>
     {resource.state === 'loading' && <p role="status" className="p1-state">Loading persisted messages…</p>}
     {resource.state === 'error' && <div role="alert" className="p1-state"><h2>{resource.error instanceof PreviewError && [401, 403].includes(resource.error.status) ? 'Access denied' : 'Inbox unavailable'}</h2><p>{resource.error.message}</p><button type="button" className="p1-secondary" onClick={() => setAttempt(n => n + 1)}>Retry Inbox</button></div>}
     {resource.state === 'ready' && <section className="p1-table-card" aria-label="Persisted messages"><div className="p1-table-scroll" role="region" aria-label="Persisted message table, scroll horizontally on small screens" tabIndex={0}>
       <table><caption className="p1-sr-only">Persisted original messages awaiting downstream work</caption><thead><tr><th scope="col">Received at</th><th scope="col">Original message</th><th scope="col">Source</th><th scope="col">Processing</th><th scope="col">Information</th><th scope="col">Identity</th><th scope="col">Review</th><th scope="col">Action</th></tr></thead>
-      <tbody>{resource.page.items.map(message => <tr key={message.message_id}><td className="p1-date"><time dateTime={message.ingested_at}>{formatTime(message.ingested_at)}</time></td><td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => select(message.message_id, event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary">{message.raw.provider_message_id}</span></td><td><span className="p1-badge p1-blue">SYNTHETIC</span><span className="p1-row-secondary">{message.raw.channel}</span></td><td><span className="p1-badge p1-neutral">{message.processing_status}</span></td><td className="p1-identity">{message.processing_status === 'PROCESSED' ? <span className="p1-badge p1-ready">Extracted (RULE)</span> : message.processing_status === 'PROCESSING' ? <span className="p1-badge p1-attention">Extracting…</span> : message.processing_status === 'PROCESSING_FAILED' ? <span className="p1-badge p1-attention">Extraction failed</span> : 'Not extracted'}</td><td className="p1-identity">Not associated</td><td className="p1-identity">Not started</td><td><button type="button" className="p1-action-btn" disabled={processingId === message.message_id} onClick={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')}>{processingId === message.message_id ? '…' : message.processing_status === 'PROCESSED' ? 'Reprocess' : 'Process'}</button><button type="button" className="p1-icon-button" aria-label={`View message ${message.raw.provider_message_id}`} onClick={event => select(message.message_id, event.currentTarget)}>↗</button></td></tr>)}</tbody></table>
+      <tbody>{resource.page.items.map(message => <tr key={message.message_id}><td className="p1-date"><time dateTime={message.ingested_at}>{formatTime(message.ingested_at)}</time></td><td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => select(message.message_id, event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary">{message.raw.provider_message_id}</span></td><td><span className="p1-badge p1-blue">SYNTHETIC</span><span className="p1-row-secondary">{message.raw.channel}</span></td><td><span className="p1-badge p1-neutral">{message.processing_status}</span></td><td className="p1-identity">{message.processing_status === 'PROCESSED' ? (message.extractor_version?.startsWith('p1-ai-pipeline-') ? <span className="p1-badge p1-blue">Model observations · review</span> : <span className="p1-badge p1-ready">Extracted (RULE)</span>) : message.processing_status === 'PROCESSING' ? <span className="p1-badge p1-attention">Extracting…</span> : message.processing_status === 'PROCESSING_FAILED' ? <span className="p1-badge p1-critical">Extraction failed</span> : <span className="p1-badge p1-neutral">Awaiting extraction</span>}</td><td className="p1-identity">Not associated</td><td className="p1-identity">Not started</td><td><button type="button" className="p1-action-btn" disabled={processingId === message.message_id} onClick={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')}>{processingId === message.message_id ? '…' : message.processing_status === 'PROCESSED' ? 'Reprocess' : 'Process'}</button><button type="button" className="p1-icon-button" aria-label={`View message ${message.raw.provider_message_id}`} onClick={event => select(message.message_id, event.currentTarget)}>↗</button></td></tr>)}</tbody></table>
     </div>{resource.page.items.length === 0 && <p role="status" className="p1-empty">No persisted messages match this view. Submit a synthetic message to begin.</p>}
       <footer className="p1-table-footer"><span>Showing {resource.page.items.length ? offset + 1 : 0}–{offset + resource.page.items.length} of {resource.page.total}</span><div className="p1-pagination"><button type="button" className="p1-secondary" disabled={offset === 0} onClick={() => setOffset(n => Math.max(0, n - 25))}>Previous</button><button type="button" className="p1-secondary" disabled={offset + 25 >= resource.page.total || offset + 25 > 10_000} onClick={() => setOffset(n => n + 25)}>Next</button></div></footer>
     </section>}
-    <p className="p1-preview-note">Local development tenant only · no production authentication. Only the synthetic WhatsApp-shaped adapter is implemented. Deterministic extraction is persisted with exact Unicode evidence spans.</p>
+    <p className="p1-preview-note">Local development tenant only · no production authentication. Synthetic multi-channel adapters (WhatsApp, Email, Telegram) are implemented. Deterministic extraction is persisted with exact Unicode evidence spans.</p>
     {selected && <StoredMessageDetail id={selected} api={api} onUpdated={() => setAttempt(n => n + 1)} onClose={closeDetail} />}
   </div>;
 }
@@ -137,6 +152,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
   const [assocError, setAssocError] = useState<string | null>(null);
   const [activeContext, setActiveContext] = useState<OrderContextRecord | null>(null);
   const [showContextModal, setShowContextModal] = useState(false);
+  const [showReviewDrawer, setShowReviewDrawer] = useState(false);
   const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -146,10 +162,64 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
   const panel = useRef<HTMLElement>(null);
   useEffect(() => { panel.current?.focus(); }, []);
 
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('moumantai_panel_width');
+      if (saved) {
+        const val = parseInt(saved, 10);
+        if (!isNaN(val) && val >= 380 && val <= (typeof window !== 'undefined' ? window.innerWidth * 0.95 : 1200)) {
+          return val;
+        }
+      }
+    } catch {}
+    return 580;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+
+  useEffect(() => {
+    if (!isResizing) return;
+    function handleMouseMove(e: MouseEvent) {
+      const rightOffset = showReviewDrawer ? 520 : 0;
+      const maxWidth = Math.max(380, window.innerWidth - rightOffset - 40);
+      const newWidth = Math.max(380, Math.min(window.innerWidth - rightOffset - e.clientX, maxWidth));
+      setPanelWidth(newWidth);
+    }
+    function handleMouseUp() {
+      setIsResizing(false);
+      try {
+        localStorage.setItem('moumantai_panel_width', panelWidth.toString());
+      } catch {}
+    }
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, panelWidth, showReviewDrawer]);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        if (showReviewDrawer) {
+          setShowReviewDrawer(false);
+        } else {
+          onClose();
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose, showReviewDrawer]);
+
   useEffect(() => {
     let active = true;
     setData(null); setExtraction(null); setAttempts([]); setAssociation(null); setError(null); setAssocError(null);
-    setActiveContext(null); setShowContextModal(false); setContextLoading(false); setContextError(null);
+    setActiveContext(null); setShowContextModal(false); setShowReviewDrawer(false); setContextLoading(false); setContextError(null);
     setSelectedEvidenceRef(null); setUploadedAttachments([]);
     api.detail(id).then(message => {
       if (active) {
@@ -176,7 +246,24 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
     }
   }
 
+  async function handleDirectReview() {
+    setContextLoading(true);
+    setContextError(null);
+    try {
+      const ctx = await api.createContextFromMessage(id);
+      setActiveContext(ctx);
+      setShowReviewDrawer(true);
+    } catch (err) {
+      setContextError(err instanceof Error ? err.message : 'Failed to generate/view order context for review');
+    } finally {
+      setContextLoading(false);
+    }
+  }
+
+  const processingLock = useRef(false);
   async function handleProcess(reprocess: boolean) {
+    if (processingLock.current) return;
+    processingLock.current = true;
     setProcessing(true);
     try {
       const res = await api.process(id, reprocess);
@@ -189,6 +276,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Processing failed');
     } finally {
+      processingLock.current = false;
       setProcessing(false);
     }
   }
@@ -215,7 +303,25 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
     }
   }
 
-  return <section className="p1-detail" ref={panel} tabIndex={-1} aria-label="Persisted message details" onKeyDown={event => { if (event.key === 'Escape') onClose(); }}><header className="p1-detail-heading"><div><p className="p1-eyebrow">PERSISTED SOURCE · SYNTHETIC</p><h2>Original message</h2></div><button type="button" className="p1-icon-button" aria-label="Close message details" onClick={onClose}>×</button></header>
+  return <>
+    <div className="p1-drawer-backdrop" onClick={onClose} aria-label="Close message details" role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onClose(); }} />
+    <section className={`p1-detail ${isResizing ? 'p1-is-resizing' : ''} ${showReviewDrawer ? 'p1-detail-shifted' : ''}`} style={{ width: `${panelWidth}px` }} ref={panel} tabIndex={-1} aria-label="Persisted message details">
+      <div className={`p1-resize-handle ${isResizing ? 'active' : ''}`} onMouseDown={e => { e.preventDefault(); setIsResizing(true); }} title="Drag left or right to resize panel width">
+        <div className="p1-resize-handle-bar" />
+      </div>
+      <header className="p1-detail-heading">
+        <div>
+          <p className="p1-eyebrow">PERSISTED SOURCE · SYNTHETIC</p>
+          <h2>Original message</h2>
+        </div>
+        <button type="button" className="p1-close-button" aria-label="Close message details" onClick={onClose}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+          <span>Close</span>
+        </button>
+      </header>
     {!data && !error && <p role="status">Loading original message…</p>}
     {error && <div role="alert"><p>{error}</p><button type="button" className="p1-secondary" onClick={() => setAttempt(n => n + 1)}>Retry message</button></div>}
     {data && <>
@@ -227,16 +333,24 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
         )}
         {data.processing_status === 'PROCESSED' && (
           <>
-            <button type="button" className="p1-secondary" disabled={processing} onClick={() => handleProcess(true)}>
-              {processing ? 'Reprocessing…' : '↻ Reprocess extraction'}
-            </button>
             <button
               type="button"
               className="p1-primary"
               disabled={contextLoading}
+              onClick={handleDirectReview}
+            >
+              {contextLoading ? 'Opening Review…' : 'Review & Amend'}
+            </button>
+            <button
+              type="button"
+              className="p1-secondary"
+              disabled={contextLoading}
               onClick={handleOpenOrderContext}
             >
-              {contextLoading ? 'Opening Context…' : '📋 Generate / View Order Context'}
+              {contextLoading ? 'Opening Context…' : 'View Order Context'}
+            </button>
+            <button type="button" className="p1-secondary" disabled={processing} onClick={() => handleProcess(true)}>
+              {processing ? 'Reprocessing…' : 'Reprocess extraction'}
             </button>
           </>
         )}
@@ -256,38 +370,53 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
       <blockquote className="p1-original">
         {extraction?.fields?.length ? renderHighlightedText(data.raw.text, extraction.fields) : data.raw.text}
       </blockquote>
-      <dl className="p1-persisted-metadata"><div><dt>Sender display alias</dt><dd>{data.raw.sender_alias}</dd></div><div><dt>Platform identity (unverified)</dt><dd>{data.raw.sender_identity_id}</dd></div><div><dt>Provider</dt><dd>{data.synthetic_provider}</dd></div><div><dt>Provider message ID</dt><dd>{data.raw.provider_message_id}</dd></div><div><dt>Internal message ID</dt><dd>{data.message_id}</dd></div><div><dt>Message timestamp</dt><dd>{formatTime(data.raw.message_at)}</dd></div><div><dt>First envelope receipt</dt><dd>{formatTime(data.raw.received_at)}</dd></div><div><dt>Server persisted at</dt><dd>{formatTime(data.ingested_at)}</dd></div><div><dt>Last state update</dt><dd>{formatTime(data.updated_at)}</dd></div><div><dt>Business timezone</dt><dd>{data.raw.business_timezone}</dd></div><div><dt>Thread / reply</dt><dd>{data.raw.thread_ref ?? 'None'} / {data.raw.reply_to_provider_message_id ?? 'None'}</dd></div></dl>
+      <dl className="p1-persisted-metadata"><div><dt>Sender display alias</dt><dd>{data.raw.sender_alias}</dd></div><div><dt>Platform identity (unverified)</dt><dd>{data.raw.sender_identity_id}</dd></div><div><dt>Provider</dt><dd>{data.synthetic_provider}</dd></div><div><dt>Provider message ID</dt><dd>{data.raw.provider_message_id}</dd></div><div><dt>Internal message ID</dt><dd>{data.message_id}</dd></div><div><dt>Message timestamp</dt><dd>{formatTime(data.raw.message_at)}</dd></div><div><dt>First envelope receipt</dt><dd>{formatTime(data.raw.received_at)}</dd></div><div><dt>Server persisted at</dt><dd>{formatTime(data.ingested_at)}</dd></div><div><dt>Last state update</dt><dd>{formatTime(data.updated_at)}</dd></div><div><dt>Business timezone</dt><dd>{data.raw.business_timezone ?? 'Missing — no trusted default'}</dd></div><div><dt>Thread / reply</dt><dd>{data.raw.thread_ref ?? 'None'} / {data.raw.reply_to_provider_message_id ?? 'None'}</dd></div></dl>
 
       <section className="p1-evidence">
         <h3>Extraction evidence</h3>
         {extraction ? (
           <>
-            <p style={{ marginTop: '6px', marginBottom: '8px' }}>
-              <strong>Method:</strong> <span className="p1-badge p1-blue">RULE ({extraction.extractor_version})</span>{' '}
-              <span className={`p1-badge ${extraction.status === 'PROCESSED' ? 'p1-ready' : 'p1-attention'}`}>{extraction.status}</span>
-            </p>
+            <ExtractionProvenance attempt={extraction} />
             <p className="p1-muted" style={{ fontSize: '10px' }}>
               Attempt {extraction.attempt_id.slice(0, 8)} · Started {formatTime(extraction.started_at)}
               {extraction.completed_at ? ` · Completed ${formatTime(extraction.completed_at)}` : ''}
             </p>
             {(extraction.fields ?? []).length > 0 ? (
               <table className="p1-field-table" aria-label="Extracted candidate fields">
-                <thead><tr><th>Field</th><th>Value</th><th>Status</th><th>Qualifier</th><th>Evidence quote</th></tr></thead>
+                <thead><tr><th>Field</th><th>Value</th><th>Method</th><th>Status</th><th>Qualifier</th><th>Evidence quote</th></tr></thead>
                 <tbody>
-                  {(extraction.fields ?? []).map((f, idx) => (
-                    <tr key={`${f.field_name}-${idx}`}>
-                      <td><strong>{f.field_name}</strong></td>
-                      <td>{f.value ?? <span className="p1-muted">—</span>}</td>
-                      <td><span className={`p1-badge ${f.validation_status === 'VALID' ? 'p1-ready' : 'p1-attention'}`}>{f.validation_status}</span></td>
-                      <td>{f.qualifier ?? '—'}</td>
-                      <td>{f.evidence?.[0] ? `"${f.evidence[0].quote}" [${f.evidence[0].start}:${f.evidence[0].end}]` : '—'}</td>
-                    </tr>
-                  ))}
+                  {(extraction.fields ?? []).filter(f => !['duplicate', 'rejected'].includes(f.metadata?.disposition ?? '')).map((f, idx) => {
+                    const method = f.evidence?.[0]?.method ?? 'RULE';
+                    return (
+                      <tr key={`${f.field_name}-${idx}`}>
+                        <td><strong>{f.field_name}</strong></td>
+                        <td>{f.value ?? <span className="p1-muted">—</span>}</td>
+                        <td>
+                          <span className={`p1-badge ${method === 'MODEL' ? 'p1-gpu-badge' : method === 'HUMAN' ? 'p1-ready' : 'p1-blue'}`} title={method === 'MODEL' ? 'Provisional model observation; review required' : undefined}>
+                            {method}
+                          </span>
+                        </td>
+                        <td><span className={`p1-badge ${f.validation_status === 'VALID' ? 'p1-ready' : f.validation_status === 'CONFLICT' ? 'p1-critical' : 'p1-attention'}`}>{f.validation_status}</span></td>
+                        <td>{f.qualifier ?? '—'}</td>
+                        <td>
+                          {f.evidence?.length ? f.evidence.map(ev => `"${ev.quote}" [${ev.start}:${ev.end}]`).join(' · ') : '—'}
+                          {f.metadata?.reason ? <div className="p1-muted" style={{ fontSize: '10px' }}>{f.metadata.reason}</div> : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             ) : (
               <p className="p1-muted">No explicit order fields recognized by deterministic rules.</p>
             )}
+            {(extraction.fields ?? []).some(f => f.evidence?.some(e => e.method === 'MODEL')) && <details>
+              <summary>Raw model observations and normalization</summary>
+              {(extraction.fields ?? []).filter(f => f.evidence?.some(e => e.method === 'MODEL')).map((f, i) => <p key={i}>
+                {f.field_name}: {f.evidence?.map(e => `${e.method} "${e.quote}" [${e.start}:${e.end}]`).join(' → ')}
+                {' → '}{f.value ?? 'unresolved'} · {f.metadata?.disposition ?? f.validation_status} · {f.metadata?.reason}
+              </p>)}
+            </details>}
             {attempts.length > 1 && (
               <div className="p1-attempt-history">
                 <h4>Attempt history ({attempts.length})</h4>
@@ -304,7 +433,28 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
         ) : data.processing_status === 'PROCESSING_FAILED' ? (
           <p className="p1-notice" role="alert">Extraction failed: {data.raw ? 'Processing failed' : ''}. Check diagnostic logs.</p>
         ) : (
-          <p className="p1-notice">Awaiting processing. Extraction is not implemented yet; no extracted fields or evidence are available.</p>
+          <div className="p1-pending-card">
+            <div className="p1-pending-content">
+              <div className="p1-pending-indicator" aria-hidden="true" />
+              <div>
+                <strong>Awaiting Extraction</strong>
+                <p className="p1-notice" style={{ margin: '6px 0 8px' }}>
+                  Awaiting processing. No extraction attempt has completed.
+                </p>
+                <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>
+                  Process runs deterministic rules first; optional models are called only when needed and configured.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="p1-primary p1-gpu-action-btn"
+              disabled={processing}
+              onClick={() => handleProcess(false)}
+            >
+              {processing ? 'Processing…' : 'Run extraction'}
+            </button>
+          </div>
         )}
       </section>
 
@@ -373,7 +523,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                           disabled={deciding}
                           onClick={() => handleDecide('CONFIRMED', cand.customer_id, cand.order_id ?? undefined)}
                         >
-                          ✓ Confirm link
+                          Confirm link
                         </button>
                       </div>
                     </li>
@@ -389,7 +539,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                 disabled={deciding || association.status === 'UNVERIFIED'}
                 onClick={() => handleDecide('REJECTED')}
               >
-                ✗ Reject / Unlink
+                Reject / Unlink
               </button>
             </div>
 
@@ -411,7 +561,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3>Attachments & Document Evidence</h3>
           <label className="p1-action-btn" style={{ cursor: 'pointer', fontSize: '11px', padding: '4px 8px' }}>
-            {uploadingAttachment ? '⏳ Uploading...' : '➕ Upload Attachment'}
+            {uploadingAttachment ? 'Uploading...' : 'Upload Attachment'}
             <input
               type="file"
               data-testid="attachment-upload-input"
@@ -453,7 +603,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                   data-testid={`attachment-row-${att.evidence_ref}`}
                 >
                   <div>
-                    <strong>{att.media_type.startsWith('image/') ? '🖼️' : '📄'} {att.filename}</strong>
+                    <strong>{att.filename}</strong>
                     <div className="p1-muted" style={{ fontSize: '11px', marginTop: '2px' }}>
                       {att.media_type} · {(att.size_bytes / 1024).toFixed(1)} KB · Ref: <code>{att.evidence_ref}</code>
                     </div>
@@ -465,7 +615,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                       onClick={() => setSelectedEvidenceRef(att.evidence_ref)}
                       data-testid={`inspect-att-${att.evidence_ref}`}
                     >
-                      🔍 Inspect / OCR
+                      Inspect / OCR
                     </button>
                     <a
                       href={`/v1/attachments/${encodeURIComponent(att.evidence_ref)}/content`}
@@ -474,7 +624,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                       className="p1-secondary"
                       style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
                     >
-                      ⬇️
+                      Download
                     </a>
                   </div>
                 </li>
@@ -491,16 +641,40 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
           api={api}
         />
       )}
-      {showContextModal && activeContext && (
+      {showContextModal && activeContext && (typeof document !== 'undefined' ? createPortal(
         <div className="p1-modal-backdrop" role="dialog" aria-modal="true" aria-label="Order Context Details">
           <div className="p1-modal-card">
             <OrderContextDetail
               contextId={activeContext.context_id}
               onClose={() => setShowContextModal(false)}
+              onContextUpdated={updated => setActiveContext(updated)}
+            />
+          </div>
+        </div>,
+        document.body
+      ) : (
+        <div className="p1-modal-backdrop" role="dialog" aria-modal="true" aria-label="Order Context Details">
+          <div className="p1-modal-card">
+            <OrderContextDetail
+              contextId={activeContext.context_id}
+              onClose={() => setShowContextModal(false)}
+              onContextUpdated={updated => setActiveContext(updated)}
             />
           </div>
         </div>
+      ))}
+      {showReviewDrawer && activeContext && (
+        <ReviewDrawer
+          context={activeContext}
+          isOpen={showReviewDrawer}
+          onClose={() => setShowReviewDrawer(false)}
+          onUpdated={(updated) => {
+            setActiveContext(updated);
+            setShowReviewDrawer(false);
+            onUpdated?.();
+          }}
+        />
       )}
     </>}
-  </section>;
+  </section></>;
 }

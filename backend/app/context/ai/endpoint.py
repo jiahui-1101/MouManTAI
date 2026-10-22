@@ -39,6 +39,16 @@ class EndpointConfig:
                    mode=os.environ.get("P1_AI_ENDPOINT_MODE", "runpod"),
                    timeout_seconds=float(os.environ.get("P1_AI_TIMEOUT_SECONDS", "125")))
 
+    @classmethod
+    def from_env_or_none(cls):
+        url = os.environ.get("P1_AI_ENDPOINT_URL")
+        key = os.environ.get("P1_AI_API_KEY")
+        if not url or not key:
+            return None
+        return cls(url=url, api_key=key,
+                   mode=os.environ.get("P1_AI_ENDPOINT_MODE", "runpod"),
+                   timeout_seconds=float(os.environ.get("P1_AI_TIMEOUT_SECONDS", "125")))
+
 
 class EndpointAdapter:
     """Concurrency 1, no queued caller and NO automatic POST retries.

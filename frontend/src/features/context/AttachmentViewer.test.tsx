@@ -117,10 +117,12 @@ function createMockApi(overrides: Partial<OperationalApi> = {}): OperationalApi 
     updateContext: vi.fn(),
     listContextVersions: vi.fn(),
     listContextReviews: vi.fn(),
+    publishContext: vi.fn(),
     uploadAttachment: vi.fn(),
     extractAttachment: vi.fn().mockResolvedValue(mockOrderExtraction),
     getAttachmentExtraction: vi.fn().mockResolvedValue(mockOrderExtraction),
     getAttachmentMetadata: vi.fn().mockResolvedValue(mockMetadata),
+    getAttachmentPageCount: vi.fn().mockResolvedValue({ total_pages: 1, media_type: 'application/pdf' }),
     ...overrides,
   };
 }

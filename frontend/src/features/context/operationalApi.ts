@@ -43,10 +43,12 @@ export interface OperationalApi {
   updateContext(id: string, req: ContextUpdateRequest, headers?: Record<string, string>): Promise<OrderContextRecord>;
   listContextVersions(id: string): Promise<OrderContextVersionRecord[]>;
   listContextReviews(id: string): Promise<ContextReviewRecord[]>;
+  publishContext(id: string, headers?: Record<string, string>): Promise<OrderContextRecord>;
   uploadAttachment(file: File): Promise<AttachmentRecord>;
   extractAttachment(evidenceRef: string): Promise<DocumentExtractionResult>;
   getAttachmentExtraction(evidenceRef: string): Promise<DocumentExtractionResult>;
   getAttachmentMetadata(evidenceRef: string): Promise<AttachmentRecord>;
+  getAttachmentPageCount(evidenceRef: string): Promise<{ total_pages: number; media_type: string }>;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -55,12 +57,32 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     let message = `Message request failed (${response.status}).`;
     try {
       const body = await response.json();
-      if (typeof body.detail === 'string') message = body.detail;
-      else if (Array.isArray(body.detail)) message = body.detail.map((item: { msg?: string }) => item.msg ?? 'Invalid input').join('; ');
+      if (typeof body.detail === 'string') {
+        message = body.detail;
+      } else if (Array.isArray(body.detail)) {
+        message = body.detail.map((item: { msg?: string }) => item.msg ?? 'Invalid input').join('; ');
+      } else if (body.detail && typeof body.detail === 'object') {
+        if (Array.isArray(body.detail.reasons)) {
+          message = `${body.detail.message || 'Validation failed'}: ${body.detail.reasons.join('; ')}`;
+        } else if (body.detail.message) {
+          message = body.detail.message;
+        }
+      }
     } catch { /* Keep the status-based diagnostic when the server does not return JSON. */ }
     throw new PreviewError(message, response.status);
   }
   return response.json() as Promise<T>;
+}
+
+const processingRequests = new Map<string, Promise<ProcessResponse>>();
+function processMessage(id: string, reprocess = false): Promise<ProcessResponse> {
+  const existing = processingRequests.get(id);
+  if (existing) return existing;
+  const promise = request<ProcessResponse>(`/v1/messages/${encodeURIComponent(id)}/process${reprocess ? '?reprocess=true' : ''}`, {
+    method: 'POST', headers: { 'X-P1-Operation-ID': crypto.randomUUID() },
+  }).finally(() => processingRequests.delete(id));
+  processingRequests.set(id, promise);
+  return promise;
 }
 
 export const operationalApi: OperationalApi = {
@@ -74,8 +96,7 @@ export const operationalApi: OperationalApi = {
   },
   detail: id => request(`/v1/messages/${encodeURIComponent(id)}`),
   ingest: envelope => request('/v1/messages/ingest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(envelope) }),
-  process: (id, reprocess = false) =>
-    request(`/v1/messages/${encodeURIComponent(id)}/process${reprocess ? '?reprocess=true' : ''}`, { method: 'POST' }),
+  process: processMessage,
   getExtraction: id => request(`/v1/messages/${encodeURIComponent(id)}/extraction`),
   listAttempts: id => request(`/v1/messages/${encodeURIComponent(id)}/attempts`),
   getAssociation: id => request(`/v1/messages/${encodeURIComponent(id)}/association`),
@@ -103,6 +124,11 @@ export const operationalApi: OperationalApi = {
     }),
   listContextVersions: id => request(`/v1/contexts/${encodeURIComponent(id)}/versions`),
   listContextReviews: id => request(`/v1/contexts/${encodeURIComponent(id)}/reviews`),
+  publishContext: (id, headers = {}) =>
+    request(`/v1/contexts/${encodeURIComponent(id)}/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+    }),
   uploadAttachment: file => {
     const formData = new FormData();
     formData.append('file', file);
@@ -117,5 +143,7 @@ export const operationalApi: OperationalApi = {
     request(`/v1/attachments/${encodeURIComponent(evidenceRef)}/extraction`),
   getAttachmentMetadata: evidenceRef =>
     request(`/v1/attachments/${encodeURIComponent(evidenceRef)}/metadata`),
+  getAttachmentPageCount: evidenceRef =>
+    request(`/v1/attachments/${encodeURIComponent(evidenceRef)}/page-count`),
 };
 

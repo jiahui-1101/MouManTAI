@@ -8,9 +8,12 @@ from .association_schemas import AssociationDecisionRequest, MessageAssociationR
 from .association_service import AssociationService
 from .attachment_validator import validate_attachment
 from .context_service import ContextService
+from .core_publisher import CoreContextPublisher, IneligibleContextError
 from .document_extractor import extract_pdf_document
 from .document_schemas import AttachmentRecord, DocumentExtractionResult
 from .dependencies import development_context, local_repository
+from app.core.dependencies import ACTOR_ROLES, RequestContext
+from sqlalchemy.orm import Session
 from .ingestion import IngestionService
 from .ingestion_schemas import (
     ApiError,
@@ -29,7 +32,7 @@ from .order_context_schemas import (
     OrderContextRecord,
     OrderContextVersionRecord,
 )
-from .repository import MessageRepository
+from .repository import ContextNotFound, MessageRepository, StaleContextVersion
 from .schemas import Channel, ProcessingStatus, RawMessageEnvelope
 
 router = APIRouter(tags=["P1 synthetic ingestion — provisional"])
@@ -73,7 +76,10 @@ def get_message(message_id: str, tenant: Tenant, repository: Repository) -> Stor
 @router.post("/v1/messages/{message_id}/process", response_model=ProcessResponse,
              responses={**errors, 404: {"model": ApiError}, 409: {"model": ApiError}})
 def process_message(message_id: str, tenant: Tenant, repository: Repository,
-                    reprocess: Annotated[bool, Query()] = False) -> ProcessResponse:
+                    reprocess: Annotated[bool, Query()] = False,
+                    x_p1_operation_id: Annotated[str | None, Header(max_length=64, pattern=r"^[A-Za-z0-9_-]+$")] = None) -> ProcessResponse:
+    if x_p1_operation_id:
+        return repository.process(tenant.tenant_id, message_id, reprocess=reprocess, operation_id=x_p1_operation_id)
     return repository.process(tenant.tenant_id, message_id, reprocess=reprocess)
 
 
@@ -211,6 +217,73 @@ def list_context_reviews(context_id: str, tenant: Tenant, repository: Repository
     return repository.list_context_reviews(tenant.tenant_id, context_id)
 
 
+@router.post("/v1/contexts/{context_id}/publish", response_model=OrderContextRecord,
+             responses={**errors, 404: {"model": ApiError}, 422: {"model": ApiError}})
+def publish_order_context_to_core(
+    context_id: str,
+    tenant: Tenant,
+    repository: Repository,
+    x_actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
+    x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
+    x_correlation_id: Annotated[str | None, Header(alias="X-Correlation-ID")] = None,
+) -> OrderContextRecord:
+    ctx = repository.get_order_context(tenant.tenant_id, context_id)
+    if ctx is None:
+        raise HTTPException(status_code=404, detail="Order context not found")
+
+    publisher = CoreContextPublisher()
+    is_eligible, reasons = publisher.check_eligibility(ctx)
+    if not is_eligible:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": f"Context '{context_id}' is ineligible for Core publication",
+                "reasons": reasons,
+            },
+        )
+
+    actor_id = x_actor_id or "user_staff_01"
+    actor_role = x_actor_role or "STAFF"
+    actor_role = ACTOR_ROLES.get(actor_id)
+    if actor_role not in {"STAFF", "MANAGER", "OWNER"}:
+        raise HTTPException(status_code=403, detail="Known synthetic human actor required; role headers cannot authorize publication")
+    correlation_id = x_correlation_id or f"corr_{uuid4().hex[:12]}"
+    req_context = RequestContext(
+        tenant_id=tenant.tenant_id,
+        actor_id=actor_id,
+        actor_role=actor_role,
+        correlation_id=correlation_id,
+        causation_id=context_id,
+    )
+
+    engine = getattr(repository, "engine", None)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Database persistence engine is unavailable")
+
+    try:
+        with Session(engine) as session:
+            publisher.publish_to_core(session, req_context, ctx)
+    except IneligibleContextError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": exc.message,
+                "reasons": exc.reasons,
+            },
+        ) from exc
+    except HTTPException:
+        raise
+    except (ContextNotFound, StaleContextVersion):
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Core publication unavailable; no success recorded") from None
+
+    refetched = repository.get_order_context(tenant.tenant_id, context_id)
+    if refetched is None:
+        raise HTTPException(status_code=404, detail="Order context not found after publication")
+    return refetched
+
+
 @router.post("/v1/attachments/upload", response_model=AttachmentRecord, status_code=201,
              responses={**errors, 400: {"model": ApiError}, 413: {"model": ApiError}, 415: {"model": ApiError}})
 async def upload_attachment(
@@ -252,6 +325,75 @@ def get_attachment_content(
         media_type=rec.media_type,
         headers={"Content-Disposition": f'inline; filename="{rec.filename}"'},
     )
+
+
+@router.get("/v1/attachments/{evidence_ref}/page-count",
+            responses={**errors, 404: {"model": ApiError}})
+def get_attachment_page_count(
+    evidence_ref: str,
+    tenant: Tenant,
+    repository: Repository,
+) -> dict:
+    res = repository.get_attachment(tenant.tenant_id, evidence_ref)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    rec, content = res
+    if rec.media_type == "application/pdf":
+        try:
+            import pymupdf
+            doc = pymupdf.open(stream=content, filetype="pdf")
+            return {"total_pages": len(doc), "media_type": rec.media_type}
+        except Exception:
+            return {"total_pages": 1, "media_type": rec.media_type}
+    return {"total_pages": 1, "media_type": rec.media_type}
+
+
+@router.get("/v1/attachments/{evidence_ref}/pages/{page_number}",
+            responses={**errors, 404: {"model": ApiError}, 400: {"model": ApiError}, 415: {"model": ApiError}})
+def get_attachment_page(
+    evidence_ref: str,
+    page_number: int,
+    tenant: Tenant,
+    repository: Repository,
+    rotate: int = 0,
+) -> Response:
+    res = repository.get_attachment(tenant.tenant_id, evidence_ref)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    rec, content = res
+    if rec.media_type == "application/pdf":
+        try:
+            import pymupdf
+            doc = pymupdf.open(stream=content, filetype="pdf")
+            total = len(doc)
+            if page_number < 1 or page_number > total:
+                raise HTTPException(status_code=400, detail=f"Page number {page_number} out of range (1..{total})")
+            page = doc[page_number - 1]
+            if rotate % 360 != 0:
+                page.set_rotation(rotate % 360)
+            pix = page.get_pixmap(dpi=150)
+            return Response(
+                content=pix.tobytes("png"),
+                media_type="image/png",
+                headers={
+                    "X-Total-Pages": str(total),
+                    "X-Current-Page": str(page_number),
+                    "Cache-Control": "public, max-age=3600",
+                },
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to render PDF page: {exc}")
+    elif rec.media_type.startswith("image/"):
+        return Response(
+            content=content,
+            media_type=rec.media_type,
+            headers={"X-Total-Pages": "1", "X-Current-Page": "1"},
+        )
+    else:
+        raise HTTPException(status_code=415, detail="Unsupported media type for page rendering")
+
 
 
 @router.get("/v1/attachments/{evidence_ref}/metadata", response_model=AttachmentRecord,

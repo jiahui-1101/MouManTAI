@@ -16,7 +16,7 @@ from .extraction import ExtractionResult
 from .ingestion_schemas import StoredMessage
 from .schemas import ExtractedField, FieldEvidence
 
-VERSION = "p1-deterministic-v3"
+VERSION = "p1-deterministic-v4"
 
 # ---------------------------------------------------------------------------
 # Catalogs and Normalization Maps
@@ -31,7 +31,7 @@ class ProductAlias:
 
 
 PROVISIONAL_PRODUCTS = tuple(
-    ProductAlias(tenant, "BURGER", ("burger", "burgers"), "pcs")
+    ProductAlias(tenant, "BURGER", ("burger", "burgers", "beef burger", "beef burgers", "chicken burger", "chicken burgers"), "pcs")
     for tenant in ("synthetic_tenant_a", "synthetic_tenant_b")
 )
 
@@ -69,7 +69,7 @@ QUANTITY_PREFIX_RE = re.compile(
 )
 
 UNSAFE_ASSOCIATION_RE = re.compile(
-    r"\b(?:and|or|dan|atau|not|no|cancel|instead)\b|[,;/]|和|或|不要|改成",
+    r"\b(?:and|or|dan|atau|not|no|cancel|instead|sorry|correction|jangan|batal)\b|和|或|不要|改成|取消",
     re.IGNORECASE
 )
 
@@ -77,13 +77,13 @@ UNSAFE_ASSOCIATION_RE = re.compile(
 AMBIGUOUS_DELIVERY_RE = re.compile(
     r"\b(?:next\s+(?:friday|monday|tuesday|wednesday|thursday|saturday|sunday|week|month)|"
     r"this\s+(?:friday|monday|tuesday|wednesday|thursday|saturday|sunday|weekend)|"
-    r"asap|as\s+soon\s+as\s+possible|soon|same\s+as\s+last\s+time)\b|"
+    r"asap|as\s+soon\s+as\s+possible|soon|same\s+as\s+last\s+time|esok)\b|"
     r"(?:下周[一二三四五六日七]?|下个星期[一二三四五六天]?|这周末|下个月|尽快|马上|越快越好|老样子|照旧)",
     re.IGNORECASE
 )
 
 # Relative dates
-REL_DATE_EN_RE = re.compile(r"\b(?P<rel>today|tomorrow)\b", re.IGNORECASE)
+REL_DATE_EN_RE = re.compile(r"\b(?P<rel>today|tomorrow|tmr|tmrw|2moro)\b", re.IGNORECASE)
 REL_DATE_ZH_RE = re.compile(r"(?P<rel>今天|明天|后天)")
 
 # ISO Date: YYYY-MM-DD
@@ -135,7 +135,7 @@ UNSUPPORTED_TIME_SEMANTICS_RE = re.compile(
     r"\b(?:after|not\s+before|earlier\s+than|around|about|between|from|maybe|possibly|at\s+least|not\s+at|"
     r"not\s+by|UTC|GMT|EST|EDT|CST|CDT|MST|MDT|PST|PDT|BST|CET|CEST|HKT|SGT|MYT|JST|AEST|AEDT)\b|"
     r"(?<![A-Za-z0-9])[+-][0-9]{2}:?[0-9]{2}(?![0-9])|"
-    r"\b[A-Za-z_]+/[A-Za-z_]+\b|之后|以后|过后|大约|左右|不早于|不要|不是|(?<=点)后",
+    r"\b[A-Za-z_]+/[A-Za-z_]+\b|之后|以后|过后|大约|左右|不早于|不要|不是|再定|待定|(?<=点)后",
     re.IGNORECASE,
 )
 
@@ -217,7 +217,7 @@ def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate
             tz_required.append((m.start(), m.end()))
         else:
             rel = m.group("rel").lower()
-            d = local_date + timedelta(days=1) if rel == "tomorrow" else local_date
+            d = local_date + timedelta(days=1) if rel in ("tomorrow", "tmr", "tmrw", "2moro") else local_date
             valid.append(ParsedDate(d, m.start(), m.end(), m.group()))
 
     for m in REL_DATE_ZH_RE.finditer(text):
@@ -579,6 +579,11 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
         delivery_field = field("requested_delivery_at", None, "MISSING")
 
     if delivery_field.validation_status != "MISSING":
+        if message.raw.received_at > message.ingested_at and delivery_field.validation_status == "VALID":
+            delivery_field.metadata.update(reason="Source receipt is later than server persistence; review clock provenance",
+                                           candidate_delivery_value=delivery_field.value or "")
+            delivery_field.validation_status = "UNRESOLVED"
+            delivery_field.value = None
         delivery_field.metadata.update({
             "source_timestamp_policy": "message_at_else_received_at_v1",
             "source_timestamp_source": source_kind,
@@ -601,11 +606,19 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     for product in catalog:
         if product.tenant_id != message.raw.tenant_id:
             continue
-        for alias in product.aliases:
+        sorted_aliases = sorted(product.aliases, key=len, reverse=True)
+        for alias in sorted_aliases:
             for match in re.finditer(ALIAS_BOUNDARY_PRE + re.escape(alias) + ALIAS_BOUNDARY_POST, text, re.IGNORECASE):
                 key = (match.start(), match.end(), product.sku, product.unit)
                 if not any(key == entry[0] for entry in mentions):
                     mentions.append((key, product, match))
+    pruned_mentions = []
+    for entry in mentions:
+        _, prod, m = entry
+        if any(other[1].sku == prod.sku and other[2].start() <= m.start() and m.end() <= other[2].end() and (other[2].end() - other[2].start()) > (m.end() - m.start()) for other in mentions):
+            continue
+        pruned_mentions.append(entry)
+    mentions = pruned_mentions
     mentions.sort(key=lambda entry: entry[0])
     for _, product, mention in mentions:
         ambiguous = any(
@@ -621,6 +634,11 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     # -----------------------------------------------------------------------
     # Numbers that fall inside orders or delivery spans are excluded from quantity candidates
     non_quantity_spans = [o.span() for o in orders] + delivery_spans
+    # Explicitly labelled non-item numbers only. Unlabelled numbers still block
+    # single-item association; do not simply select the nearest/first number.
+    non_quantity_spans += [m.span() for m in re.finditer(
+        r"\b(?:phone|tel|reference|ref)\s*[:#]?\s*[0-9]+\b|"
+        r"\bpukul\s+[0-9]+(?::[0-9]+)?\s*(?:pagi|petang|malam)\b", text, re.IGNORECASE)]
 
     numbers = [
         m for m in NUMBER_RE.finditer(text)

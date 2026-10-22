@@ -45,6 +45,18 @@ def test_directory_lookups_and_tenant_isolation(directory):
     # Cross tenant order
     assert directory.get_order("synthetic_tenant_b", "ORD-1001") is None
 
+    # Typed contact lookup (P4 outbound support)
+    wa_contact = directory.get_contact_for_channel("synthetic_tenant_a", "cust_bk", "MOCK_WHATSAPP")
+    assert wa_contact is not None
+    assert wa_contact.sender_identity_id == "+60123456789"
+
+    tg_contact = directory.get_contact_for_channel("synthetic_tenant_a", "cust_bk", "MOCK_TELEGRAM")
+    assert tg_contact is not None
+    assert tg_contact.sender_identity_id == "tg_bk_ops"
+
+    # Cross tenant contact lookup
+    assert directory.get_contact_for_channel("synthetic_tenant_b", "cust_bk", "MOCK_WHATSAPP") is None
+
 
 def test_verified_sender_with_explicit_matching_order(service):
     # Sender +60123456789 is cust_bk who owns ORD-1001
@@ -67,7 +79,7 @@ def test_verified_sender_with_explicit_matching_order(service):
         updated_at=NOW,
     )
 
-    extracted_fields = [{"field_name": "order_id", "value": "ORD-1001"}]
+    extracted_fields = [{"field_name": "order_id", "value": "ORD-1001", "evidence": [{"method": "RULE"}]}]
     record = service.evaluate_association(stored_msg, extracted_fields)
 
     assert record.status == IdentityLinkStatus.LINK_VERIFIED
@@ -97,7 +109,7 @@ def test_verified_sender_referencing_another_customers_order_causes_conflict(ser
         updated_at=NOW,
     )
 
-    extracted_fields = [{"field_name": "order_id", "value": "ORD-2001"}]
+    extracted_fields = [{"field_name": "order_id", "value": "ORD-2001", "evidence": [{"method": "RULE"}]}]
     record = service.evaluate_association(stored_msg, extracted_fields)
 
     assert record.status == IdentityLinkStatus.CONFLICT
@@ -152,7 +164,7 @@ def test_unverified_sender_with_extracted_order_proposes_candidate_only(service)
         updated_at=NOW,
     )
 
-    extracted_fields = [{"field_name": "order_id", "value": "ORD-1001"}]
+    extracted_fields = [{"field_name": "order_id", "value": "ORD-1001", "evidence": [{"method": "RULE"}]}]
     record = service.evaluate_association(stored_msg, extracted_fields)
 
     assert record.status == IdentityLinkStatus.LINK_CANDIDATE
@@ -164,6 +176,16 @@ def test_unverified_sender_with_extracted_order_proposes_candidate_only(service)
     assert "Manual authorization required" in record.candidates[0].reasons[0]
 
 
+def test_model_order_observation_cannot_establish_verified_order(service):
+    from app.context.ingestion_schemas import StoredMessage
+    env = envelope(tenant_id='synthetic_tenant_a', sender_identity_id='+60123456789', text='ORD-1001')
+    message = StoredMessage(message_id='model-order', raw=env, synthetic_provider='SYNTHETIC_WHATSAPP',
+        content_sha256='abc', processing_status='PROCESSED', ingested_at=NOW, updated_at=NOW)
+    record = service.evaluate_association(message, [{'field_name': 'order_id', 'value': 'ORD-1001',
+        'evidence': [{'method': 'MODEL'}]}])
+    assert record.verified_order is None
+
+
 def test_postgres_association_persistence_and_optimistic_locking(pg_engine):
     repo = PostgresMessageRepository(pg_engine)
     ingested = repo.ingest(
@@ -172,7 +194,7 @@ def test_postgres_association_persistence_and_optimistic_locking(pg_engine):
     ).message
 
     svc = AssociationService()
-    evaluated = svc.evaluate_association(ingested, [{"field_name": "order_id", "value": "ORD-1001"}])
+    evaluated = svc.evaluate_association(ingested, [{"field_name": "order_id", "value": "ORD-1001", "evidence": [{"method": "RULE"}]}])
 
     # Save to PostgreSQL
     saved = repo.save_association(evaluated)

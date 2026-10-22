@@ -41,14 +41,14 @@ def test_model_cannot_replace_human_reviewed_value_or_original_message():
     service = prepare_model_proposal_service(endpoint, enabled=True)
     result = asyncio.run(service.extract_stored(message, catalog=PROVISIONAL_PRODUCTS, reviewed_fields=[human]))
     assert result.reviewed_fields[0] == human
-    assert all(c.validation_status == "CONFLICT" for c in result.candidates)
-    assert len(result.candidates) == 2 and len(result.conflicts) == 2
+    assert all(c.metadata["disposition"] == "rejected" for c in result.candidates)
+    assert len(result.candidates) == 1 and not result.conflicts
     assert message.model_dump() == original
     assert all(set(r.model_dump()) == {"engine", "messages"} for r in endpoint.requests)
 
 
 def test_endpoint_failure_keeps_every_rule_result_and_reports_failure():
-    message = stored("20 burgers tomorrow after 3pm")
+    message = stored("burgers tomorrow after 3pm")
     plain = asyncio.run(prepare_model_proposal_service().extract_stored(message, catalog=PROVISIONAL_PRODUCTS))
     result = asyncio.run(prepare_model_proposal_service(FakeEndpoint(fail=True), enabled=True).extract_stored(
         message, catalog=PROVISIONAL_PRODUCTS))
@@ -82,4 +82,5 @@ def test_valid_rule_quantity_is_protected_from_wrong_but_grounded_model_number()
         stored("20 pcs burgers tomorrow at 3pm"), catalog=PROVISIONAL_PRODUCTS))
     rule = next(f for f in result.rules.fields if f.field_name == "quantity")
     assert rule.value == "20" and rule.validation_status == "VALID"
-    assert result.candidates[0].value == "3" and result.candidates[0].validation_status == "CONFLICT"
+    assert not result.candidates
+    assert result.outcomes == {"gliner": "not_needed"}

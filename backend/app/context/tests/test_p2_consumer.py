@@ -34,10 +34,10 @@ def make_valid_context(tenant_id: str, context_id: str, order_id: str = "ORD-P2-
         context_version=1,
         requested_items=[RequestedItem(sku="BURGER", quantity="100", unit="pcs")],
         requested_delivery_at=now,
-        delivery_qualifier="EXACT",
+        delivery_qualifier="DEADLINE",
         special_instructions="Deliver on time",
         source_message_ids=["msg_001"],
-        field_evidence={"sku": [{"quote": "BURGER", "start": 0, "end": 6, "method": "RULE"}]},
+        field_evidence={"sku": [{"evidence_id": "ev_synthetic_terms_fixture", "quote": "BURGER", "start": 0, "end": 6, "method": "RULE"}]},
         missing_fields=[],
         conflicts=[],
         created_at=now,
@@ -76,11 +76,17 @@ def test_p2_consumer_evaluates_published_context(pg_engine):
         causation_id=ctx_id,
     )
 
-    # 1. Publish context to Core
+    # 1. Publish context to Core (initially REQUESTED, feasibility NOT_ASSESSED)
     with Session(pg_engine) as session:
         commitment = publisher.publish_to_core(session, req_context, saved)
         assert commitment.commitment_id.startswith("com_")
         assert commitment.feasibility_state == FeasibilityState.NOT_ASSESSED
+
+        # Advance to CONFIRMED to authorize operational P2 feasibility evaluation (Invariant 1)
+        row = session.get(CommitmentRecord, (tenant_id, commitment.commitment_id))
+        assert row is not None
+        row.agreement_state = AgreementState.CONFIRMED.value
+        session.commit()
 
     # 2. Check pending outbox events
     with Session(pg_engine) as session:
