@@ -104,26 +104,43 @@ def load_gliner(cache: Path, device="cuda"):
 
 
 class ModelRuntime:
-    def __init__(self):
+    def __init__(self, device: str | None = None):
         self.loaded = {}
         self.cache = Path(os.environ.get("HF_HOME", "/tmp/p1-models"))
+        self._target_device = device
+
+    @property
+    def device(self) -> str:
+        if self._target_device:
+            return self._target_device
+        env_dev = os.environ.get("P1_DEVICE")
+        if env_dev:
+            return env_dev.lower()
+        import torch
+        return "cuda" if torch.cuda.is_available() else "cpu"
 
     def _load(self, engine):
         import torch
-        if not torch.cuda.is_available():
+        target_device = self.device
+        if target_device == "cuda" and not torch.cuda.is_available():
             raise RuntimeError("CUDA required for the proposed GPU deployment")
         if engine not in self.loaded:
             start = time.perf_counter()
             if engine == "gliner":
-                model = load_gliner(self.cache)
+                model = load_gliner(self.cache, device=target_device)
                 tokenizer = model.data_processor.transformer_tokenizer
             else:
                 from transformers import AutoTokenizer, AutoModelForCausalLM
                 model_id, revision = MODEL_CONFIG[engine]
                 tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision, cache_dir=str(self.cache), trust_remote_code=False)
-                dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+                if target_device == "cuda":
+                    dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+                    device_map = "cuda"
+                else:
+                    dtype = torch.float32
+                    device_map = "cpu"
                 model = AutoModelForCausalLM.from_pretrained(model_id, revision=revision, cache_dir=str(self.cache),
-                    torch_dtype=dtype, device_map="cuda", low_cpu_mem_usage=True,
+                    torch_dtype=dtype, device_map=device_map, low_cpu_mem_usage=True,
                     attn_implementation="sdpa", trust_remote_code=False).eval()
             self.loaded[engine] = (model, tokenizer)
             return model, tokenizer, time.perf_counter() - start
@@ -134,10 +151,12 @@ class ModelRuntime:
         import torch
         model_id, revision = MODEL_CONFIG[request.engine]
         model, tokenizer, load_seconds = self._load(request.engine)
-        if next(model.parameters()).device.type != "cuda":
-            raise RuntimeError("Model parameters must be on CUDA; CPU fallback is disabled")
+        actual_device = next(model.parameters()).device.type
+        if actual_device != self.device:
+            raise RuntimeError(f"Model parameters must be on {self.device}; got {actual_device}")
         torch.manual_seed(42)
-        torch.cuda.reset_peak_memory_stats()
+        if self.device == "cuda":
+            torch.cuda.reset_peak_memory_stats()
         input_tokens = output_tokens = 0
         status, finish_reason = "ok", "stop"
         raw, fields = "", []
@@ -161,7 +180,7 @@ class ModelRuntime:
             else:
                 messages = [{"role": "system", "content": SYSTEM_PROMPT},
                             {"role": "user", "content": json.dumps([m.model_dump() for m in request.messages], ensure_ascii=False)}]
-                ids = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, return_tensors="pt").to("cuda")
+                ids = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, return_tensors="pt").to(self.device)
                 input_tokens = ids.shape[-1]
                 if input_tokens + 768 > 4096:
                     status, finish_reason = "input_too_long", "input_too_long"
@@ -176,17 +195,21 @@ class ModelRuntime:
                         fields = ground_raw_answer(raw, request).fields
                     except ValueError:
                         status = "invalid_output"
-        torch.cuda.synchronize()
+        if self.device == "cuda":
+            torch.cuda.synchronize()
         if status != "ok" or finish_reason != "stop":
             fields = []
+        gpu_name = torch.cuda.get_device_name() if (self.device == "cuda" and torch.cuda.is_available()) else "CPU"
+        peak_gpu_bytes = torch.cuda.max_memory_allocated() if (self.device == "cuda" and torch.cuda.is_available()) else None
+        cuda_runtime = str(torch.version.cuda) if torch.cuda.is_available() else "none"
         return InferenceOutput(engine=request.engine, model_id=model_id, revision=revision, status=status, fields=fields,
             raw_output=raw, finish_reason=finish_reason, load_seconds=load_seconds,
             inference_seconds=time.perf_counter() - before, input_tokens=input_tokens, output_tokens=output_tokens,
-            peak_gpu_bytes=torch.cuda.max_memory_allocated(), gpu_name=torch.cuda.get_device_name(),
+            peak_gpu_bytes=peak_gpu_bytes, gpu_name=gpu_name,
             dtype=str(next(model.parameters()).dtype),
             runtime_versions={**{name: importlib.metadata.version(name) for name in ("torch", "transformers", "gliner", "huggingface-hub")},
-                "p1_worker": "p1-cuda-v2", "parameter_device": str(next(model.parameters()).device),
-                "cuda_runtime": str(torch.version.cuda)})
+                "p1_worker": "p1-cuda-v2" if self.device == "cuda" else "p1-cpu-v1", "parameter_device": str(next(model.parameters()).device),
+                "cuda_runtime": cuda_runtime})
 
 
 _runtime = None
