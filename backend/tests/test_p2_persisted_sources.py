@@ -17,6 +17,9 @@ from app.core.service import CommitmentService
 from app.core.models import CommitmentRecord, OutboxEventRecord
 from app.core.models import ProcessedEventRecord
 from app.core.manager_approval import ManagerApprovalRecord, ManagerApprovalService
+from app.recovery.durable_actions import (
+    DurableActionService, InternalRecoveryTaskRecord, RecoveryActionExecutionRecord,
+)
 from app.core.outbox import OutboxDispatcher
 from app.feasibility.api_schemas import FeasibilityEvaluateRequest
 from app.feasibility.api_dependencies import require_isolated_e2e_key
@@ -405,6 +408,76 @@ def test_approval_rejects_staff_infeasible_plan_and_stale_version(
     assert session.query(ManagerApprovalRecord).count() == 0
 
 
+def test_approved_internal_task_creates_verified_business_record_once(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    ManagerApprovalService().decide(
+        session, manager, key, plan.plan_id, decision="APPROVED",
+        expected_plan_version=1, expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="approval-task", reason="Authorize internal review task",
+    )
+    service = DurableActionService()
+    kwargs = dict(
+        expected_plan_version=1, expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="task-once",
+    )
+    first = service.execute(session, manager, key, plan.plan_id, **kwargs)
+    assert first.status == "SUCCEEDED"
+    assert first.receipt_ref and first.audit_id
+    task = session.get(InternalRecoveryTaskRecord, (manager.tenant_id, first.task_id))
+    assert task is not None and task.status == "OPEN"
+    assert task.payload["customer_acceptance_required_for_terms_change"] is True
+    assert service.execute(session, manager, key, plan.plan_id, **kwargs).execution_id == first.execution_id
+    assert session.query(InternalRecoveryTaskRecord).count() == 1
+    assert session.query(RecoveryActionExecutionRecord).count() == 1
+    with Session(session.bind) as restarted:
+        saved = DurableActionService().history(restarted, manager, plan.plan_id)
+        assert len(saved) == 1 and saved[0].receipt_ref == first.receipt_ref
+    assert session.get(CommitmentRecord, (manager.tenant_id, plan.commitment_id)).risk_state == "AT_RISK"
+
+
+def test_action_blocks_expired_approval_and_rolls_back_adapter_failure(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    approval = ManagerApprovalService().decide(
+        session, manager, key, plan.plan_id, decision="APPROVED",
+        expected_plan_version=1, expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="approval-failure", reason="Authorize internal review task",
+    )
+    kwargs = dict(
+        expected_plan_version=1, expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="task-failure",
+    )
+    approval.expires_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    session.commit()
+    with pytest.raises(DomainError) as error:
+        DurableActionService().execute(session, manager, key, plan.plan_id, **kwargs)
+    assert error.value.code == "APPROVAL_NOT_ACTIVE"
+    approval.expires_at = datetime(2099, 1, 1, tzinfo=timezone.utc)
+    session.commit()
+
+    def fail_adapter(*args, **kwargs):
+        raise RuntimeError("synthetic adapter failure")
+
+    original_adapter = DurableActionService._create_task
+    monkeypatch.setattr(DurableActionService, "_create_task", staticmethod(fail_adapter))
+    with pytest.raises(RuntimeError, match="synthetic adapter failure"):
+        DurableActionService().execute(session, manager, key, plan.plan_id, **kwargs)
+    assert session.query(InternalRecoveryTaskRecord).count() == 0
+    failed = session.query(RecoveryActionExecutionRecord).one()
+    assert failed.status == "FAILED" and failed.attempts == 1
+    monkeypatch.setattr(DurableActionService, "_create_task", staticmethod(original_adapter))
+    retried = DurableActionService().execute(session, manager, key, plan.plan_id, **kwargs)
+    assert retried.status == "SUCCEEDED" and retried.attempts == 2
+    assert session.query(InternalRecoveryTaskRecord).count() == 1
+
+
 def test_sqlite_alembic_0009_has_source_constraints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Portable migration check; this is not PostgreSQL verification."""
     backend = Path(__file__).resolve().parents[1]
@@ -417,10 +490,11 @@ def test_sqlite_alembic_0009_has_source_constraints(tmp_path: Path, monkeypatch:
     engine = create_engine(url)
     try:
         assert {"p2_operational_snapshots", "p2_supplier_delay_events", "recovery_plan_versions",
-                "manager_approval_decisions"} <= set(inspect(engine).get_table_names())
+                "manager_approval_decisions", "internal_recovery_tasks",
+                "recovery_action_executions"} <= set(inspect(engine).get_table_names())
         with engine.begin() as connection:
             connection.execute(text("PRAGMA foreign_keys=ON"))
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0011_manager_approval"
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0012_p3_internal_actions"
             connection.execute(text("""
                 INSERT INTO p2_operational_snapshots
                 (tenant_id,snapshot_version,snapshot_id,payload,is_current,created_at)

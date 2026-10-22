@@ -455,6 +455,30 @@ class RecoveryPlanList(ContractModel):
     plans: list[RecoveryPlanVersion] = Field(default_factory=list)
 
 
+class ExecuteRecoveryTaskRequest(ContractModel):
+    expected_plan_version: int = Field(ge=1)
+    expected_commitment_version: int = Field(ge=1)
+    expected_snapshot_version: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=1)
+
+
+class DurableActionView(ContractModel):
+    execution_id: str
+    tenant_id: str
+    commitment_id: str
+    plan_id: str
+    plan_version: int
+    approval_id: str
+    status: str
+    attempts: int
+    task_id: str | None = None
+    receipt_ref: str | None = None
+    audit_id: str | None = None
+    last_error: str | None = None
+    created_at: OffsetAwareDatetime
+    updated_at: OffsetAwareDatetime
+
+
 class FeasibilityEvaluationResult(ContractModel):
     status: FeasibilityState
     solver_status: str = Field(min_length=1)

@@ -29,11 +29,14 @@ from .models import (
     RecoveryPlanList,
     RecoveryPlanVersion,
     RecoveryTriggerCaseView,
+    ExecuteRecoveryTaskRequest,
+    DurableActionView,
 )
 from .service import default_recovery_planner, demo_recovery_planner
 from .durable_plans import DurablePlanService
 from .persistence import SqlAlchemyRecoveryRepository
 from app.core.manager_approval import ManagerApprovalRecord, ManagerApprovalService, trusted_isolated_manager
+from .durable_actions import DurableActionService, RecoveryActionExecutionRecord
 
 router = APIRouter(prefix="/v1/recovery", tags=["recovery"])
 Context = Annotated[RequestContext, Depends(get_request_context)]
@@ -75,6 +78,18 @@ def _approval_response(row: ManagerApprovalRecord) -> ApprovalDecision:
         expires_at=row.expires_at, evidence_refs=[row.snapshot_id], audit_refs=[row.audit_id],
         idempotency_key=row.idempotency_key, persistence_mode="DURABLE_DATABASE",
     )
+
+
+def _action_response(row: RecoveryActionExecutionRecord) -> DurableActionView:
+    return DurableActionView.model_validate({
+        "execution_id": row.execution_id, "tenant_id": row.tenant_id,
+        "commitment_id": row.commitment_id, "plan_id": row.plan_id,
+        "plan_version": row.plan_version, "approval_id": row.approval_id,
+        "status": row.status, "attempts": row.attempts, "task_id": row.task_id,
+        "receipt_ref": row.receipt_ref, "audit_id": row.audit_id,
+        "last_error": row.last_error, "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    })
 
 
 def _isolated_decision(
@@ -346,3 +361,35 @@ def get_recovery_plan_approval_history(plan_id: str, actor: ApprovalActor, db: D
         correlation_id=actor.correlation_id, causation_id=actor.causation_id,
     )
     return [_approval_response(row) for row in ManagerApprovalService().history(db, context, plan_id)]
+
+
+@router.post("/plans/{plan_id}/execute", response_model=DurableActionView)
+def execute_recovery_internal_task(
+    plan_id: str, request: ExecuteRecoveryTaskRequest, actor: ApprovalActor, db: Db,
+    x_isolated_e2e_key: str | None = Header(default=None),
+) -> DurableActionView:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") != "1":
+        raise DomainError("ACTION_AUTHORITY_UNAVAILABLE", "Synthetic action authority is unavailable", status_code=503)
+    context = CoreRequestContext(
+        tenant_id=actor.tenant_id, actor_id=actor.actor_id, actor_role=actor.actor_role,
+        correlation_id=actor.correlation_id, causation_id=actor.causation_id,
+    )
+    row = DurableActionService().execute(
+        db, context, x_isolated_e2e_key, plan_id,
+        expected_plan_version=request.expected_plan_version,
+        expected_commitment_version=request.expected_commitment_version,
+        expected_snapshot_version=request.expected_snapshot_version,
+        idempotency_key=request.idempotency_key,
+    )
+    return _action_response(row)
+
+
+@router.get("/plans/{plan_id}/actions", response_model=list[DurableActionView])
+def get_recovery_action_history(plan_id: str, actor: ApprovalActor, db: Db) -> list[DurableActionView]:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") != "1":
+        raise DomainError("ACTION_AUTHORITY_UNAVAILABLE", "Synthetic action history is unavailable", status_code=503)
+    context = CoreRequestContext(
+        tenant_id=actor.tenant_id, actor_id=actor.actor_id, actor_role=actor.actor_role,
+        correlation_id=actor.correlation_id, causation_id=actor.causation_id,
+    )
+    return [_action_response(row) for row in DurableActionService().history(db, context, plan_id)]
