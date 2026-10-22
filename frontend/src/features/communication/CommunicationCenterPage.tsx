@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../shared/auth";
 import type { RequestAuthHeaders } from "../../shared/api";
 import { formatKLTimestamp } from "../../shared/date";
@@ -64,7 +65,8 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
     <header className="page-heading">
       <div><p className="eyebrow">Customer communication</p><h2>Communication Center</h2>
         <p className="muted">Review revised promises and prepare customer message drafts.</p></div>
-      <button className="btn btn-secondary" onClick={refresh} disabled={list.isFetching}>Refresh</button>
+      <div className="cc-actions"><Link className="btn btn-secondary" to="/communications/follow-ups">Follow-Up Queue</Link>
+        <button className="btn btn-secondary" onClick={refresh} disabled={list.isFetching}>Refresh</button></div>
     </header>
     <RecipientPreferences auth={auth} />
     <section aria-label="Dashboard statistics">

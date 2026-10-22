@@ -1749,6 +1749,35 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - P3: Include `0014_merge_p3_p4_confirmations` in PR #16 rebase with `down_revision = ("0013_merge_p3_p4_heads", "0011_p4_confirmations")`.
   - P4: Implement Commit 08 Confirmation Workspace UI against `contracts/types.ts`.
 
+## 2026-10-22 — P4 Commit 09: Read-only Follow-Up & Escalation Queue
+
+- Baseline: remote Main/HEAD/origin-main verified at 37b8379f65cfc74df8a3ff54d8135ee58d17edb9, PR #25 merge including Commit 08. Isolated Git Archive; formal P4-communication clean and untouched. PR #16 not required.
+- Status: frontend queue implemented; positive Transport Fixture UI tests and real API fail-closed Browser smoke verified. No positive Customer Acceptance E2E, Reminder Sent or Escalation Completed claim.
+- Features: /communications/follow-ups; read-only/receipt time; loaded-record UI counts; exact proposal ID/version/backend state; 24-hour Expiring Soon and expired/revoked/stale/unresolved/clarification/manual-review display hints; local filters/search/numerical/time sort/reset; View Confirmation; on-demand latest attempts with ties/evidence; scoped cache/cancellation; honest loading/empty/error/retry.
+- APIs: existing GET /v1/confirmations, optional original communication_id filtering retained; per-item /attempts on demand; Commit 08 detail/history route reused. No write endpoints or invented server filters.
+- D-037: old-version acceptance stays on exact old proposal/version. UI Attention is not Lifecycle; terminal response does not imply fulfilment/replanning completion. No SENT -> ACCEPTED -> FULFILLED inference or client approval flags.
+- Ownership: only these 10 Frontend files changed/new:
+- `frontend/src/App.tsx`
+- `frontend/src/features/communication/CommunicationCenterPage.test.tsx`
+- `frontend/src/features/communication/CommunicationCenterPage.tsx`
+- `frontend/src/features/communication/FollowUpQueue.test.tsx`
+- `frontend/src/features/communication/FollowUpQueuePage.tsx`
+- `frontend/src/features/communication/FollowUpResponse.tsx`
+- `frontend/src/features/communication/RouteIntegration.test.tsx`
+- `frontend/src/features/communication/confirmationApi.ts`
+- `frontend/src/features/communication/follow-up.css`
+- `frontend/src/features/communication/followUp.ts`
+- P5 Review Required: App.tsx one Import and one Route, exact APP_ROUTE.patch supplied. Do not overwrite current Shared App.tsx. Shared navigation/Shell/Providers and other owners' routes unchanged. Center link is P4-owned.
+- Tests: new Queue 42 passed; complete FE 400 passed / 5 existing LIVE_API skips / 0 failed; typecheck, explicit App tsc and build pass, 130 modules. Commit 08 Workspace and P1/P2/P3/P5 route regression retained. Build only warns about ~504 kB main chunk; no shared build-config change.
+- Runtime evidence: unchanged Backend GET list returned actual PRODUCTION_AUTH_UNAVAILABLE 503, Browser Retry remained blocked with unavailable stats. No test authority installed in production, no database connection/write/migration required for this negative check.
+- Capability gaps: no reminder/escalation execution/history/task contract, current Proposal authority, current identity verdict or current Core result in this P4-only read DTO. Unknown required Schema -> unavailable; valid unknown restrictions -> Needs Review. Real positives require existing authorized records/runtime composition.
+- P5 Core Consumers/version guards reported implemented, not conflated with independently verified E2E. P1 verified inbound and full cross-module journey remain deployment verification dependencies. Do not modify Backend to make a UI demo pass.
+- Safety: 248 backend files/file-set and all Contracts unchanged; all 374 formal tracked-file hashes unchanged. No Shared Team Log overwrite or Git mutation. Temporary Browser/servers closed after smoke verification.
+- Next milestone: coordinated durable Reminder/Escalation contract/authorization, then real positive runtime journey; not implemented here.
+- Suggested commit: feat(p4): add read-only follow-up and escalation queue
+
+**No Backend Changes. No Database Changes. No New Alembic Migrations.**
+
 ### 2026-10-22 — P3-assisted PR #16 final P2/P4/P5 reconciliation (IN_REVIEW)
 
 - Contributor: P3. Owners/reviewers: P2 (canonical feasibility consumer), P4 (confirmation workflow/UI), P5 (Core contracts, outbox and migration). The user explicitly directed this reconciliation. No owner approval or PR merge is claimed.
