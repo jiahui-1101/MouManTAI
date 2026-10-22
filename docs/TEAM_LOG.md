@@ -1454,3 +1454,27 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - P2: Verify multi-item compatibility in evaluation consumer.
   - P4: Align confirmation responses to newly emitted amendment proposals.
 
+### 2026-10-22 — Task P5-PROPOSAL-ID: Core Proposal Identity Verification & Outbox Derivation (P5 / D-038 / Handoff #P2-1)
+- **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `D-038` (Ratifying P2 Handoff #P2-1 requirement 1)
+  - **Owner**: P5 (Shared Core, Contracts & Integration)
+  - **Impact**:
+    1. **Core Proposal Identity Verification (P0)**:
+       - `CommitmentService.confirm_proposal` now strictly validates that `request.proposal_id` matches the active persisted `CommitmentProposalRecord` row for the target commitment.
+       - Evaluated after version freshness check (`STALE_PROPOSAL_VERSION` taking precedence), raising HTTP 409 `PROPOSAL_ID_MISMATCH` on ID discrepancy.
+    2. **Authoritative Outbox Event Payload Derivation**:
+       - `COMMITMENT_CONFIRMED` outbox event payload now derives its `proposal_id` and `proposal_version` directly from the verified `latest_proposal` record row rather than echoing untrusted client arguments.
+- **Validation Test Evidence**:
+  - Dedicated regression test `test_confirm_proposal_verifies_proposal_identity_and_derives_event_payload` added to `backend/tests/test_amendment_protection.py` (3 passed in 0.08s).
+  - Full core backend suite: `107 passed, 1 warning` (`python -m pytest tests -q`).
+  - Real PostgreSQL dual-boundary handshake suite: `19 passed` on port 5433 (`engine.dialect.name == "postgresql"`).
+  - Frontend Vitest suite: `308 passed, 5 skipped (live smoke)`.
+  - Frontend TypeScript typecheck: Clean (0 errors).
+  - Frontend production build: Clean (121 modules transformed, 0 errors).
+- **Pending Acknowledgements**:
+  - P2: Integrate with canonical `backend/app/feasibility/consumer.py` on branch `feat/p2-7b4b-confirmed-consumer`.
+  - P3: Rebase PR #16 incorporating verified proposal payload derivation.
+  - P4: Map customer confirmation tokens to verified proposal identities.
+
+

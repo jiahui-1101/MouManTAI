@@ -226,3 +226,97 @@ def test_multi_item_support_and_zero_guessing_delivery(db_session: Session) -> N
     assert record.terms.get("deadline") is None
     assert record.terms.get("requires_manual_review") is True
     assert "deadline" in record.terms.get("missing_fields", [])
+
+
+def test_confirm_proposal_verifies_proposal_identity_and_derives_event_payload(db_session: Session) -> None:
+    """Verifies that confirm_proposal:
+    1. Validates proposal_id matches the active proposal row (raises 409 PROPOSAL_ID_MISMATCH on mismatch).
+    2. Derives outbox event payload's proposal identity directly from the verified row.
+    """
+    from app.core.errors import DomainError
+
+    service = CommitmentService()
+    ctx = RequestContext(
+        tenant_id="tenant_p2_recon",
+        actor_id="user_manager_01",
+        actor_role="MANAGER",
+        correlation_id="corr_p2_recon",
+        causation_id="caus_p2_recon",
+    )
+
+    created = service.create_request(
+        db_session,
+        ctx,
+        CommitmentCreateRequest(
+            order_id="ord_prop_check",
+            customer_id="cust_prop_check",
+            terms=CommitmentTerms(sku="BURGER", quantity=Decimal("10"), unit="pcs", deadline=_now() + timedelta(days=2)),
+            evidence_refs=["ev_create"],
+        ),
+    )
+
+    service.create_proposal(
+        db_session,
+        ctx,
+        created.commitment_id,
+        ProposalCreateRequest(
+            proposal_id="prop_deal_v1_canonical",
+            proposal_version=1,
+            expected_commitment_version=1,
+            revised_terms=CommitmentTerms(sku="BURGER", quantity=Decimal("12"), unit="pcs", deadline=_now() + timedelta(days=2)),
+            reason="Offer 12 pcs deal",
+            evidence_refs=["ev_prop"],
+        ),
+    )
+
+    # 1. Attempt confirmation with mismatching proposal_id on matching proposal_version
+    with pytest.raises(DomainError) as exc:
+        service.confirm_proposal(
+            db_session,
+            ctx,
+            created.commitment_id,
+            ProposalConfirmRequest(
+                proposal_id="prop_wrong_id",
+                proposal_version=1,
+                expected_commitment_version=2,
+                decision="ACCEPT",
+                evidence_refs=["ev_signed"],
+                reason="Customer accepted",
+            ),
+        )
+
+    assert exc.value.status_code == 409
+    assert exc.value.code == "PROPOSAL_ID_MISMATCH"
+    assert exc.value.details["active_proposal_id"] == "prop_deal_v1_canonical"
+    assert exc.value.details["submitted_proposal_id"] == "prop_wrong_id"
+
+    # 2. Confirm with correct proposal_id succeeds and outbox payload contains verified proposal identity
+    res = service.confirm_proposal(
+        db_session,
+        ctx,
+        created.commitment_id,
+        ProposalConfirmRequest(
+            proposal_id="prop_deal_v1_canonical",
+            proposal_version=1,
+            expected_commitment_version=2,
+            decision="ACCEPT",
+            evidence_refs=["ev_signed"],
+            reason="Customer accepted",
+        ),
+    )
+
+    assert res.commitment.agreement_state == AgreementState.CONFIRMED
+
+    # Assert outbox event has verified proposal identity
+    outbox = db_session.scalars(
+        select(OutboxEventRecord).where(
+            OutboxEventRecord.tenant_id == ctx.tenant_id,
+            OutboxEventRecord.commitment_id == created.commitment_id,
+            OutboxEventRecord.event_type == CoreEventType.COMMITMENT_CONFIRMED.value,
+        )
+    ).first()
+    assert outbox is not None
+    assert outbox.payload["proposal_id"] == "prop_deal_v1_canonical"
+    assert outbox.payload["proposal_version"] == 1
+    assert outbox.payload["decision"] == "ACCEPT"
+
