@@ -28,7 +28,7 @@ export interface MessageQuery {
 }
 
 export function getReviewCatalog(): Promise<{ sku: string; unit: string }[]> {
-  return request('/v1/context-catalog');
+  return request('/v1/contexts/catalog');
 }
 
 export interface OperationalApi {
@@ -49,6 +49,7 @@ export interface OperationalApi {
   listContextVersions(id: string): Promise<OrderContextVersionRecord[]>;
   listContextReviews(id: string): Promise<ContextReviewRecord[]>;
   publishContext(id: string, headers?: Record<string, string>): Promise<OrderContextRecord>;
+  getCatalog(): Promise<{ sku: string; unit: string }[]>;
   uploadAttachment(file: File): Promise<AttachmentRecord>;
   extractAttachment(evidenceRef: string): Promise<DocumentExtractionResult>;
   getAttachmentExtraction(evidenceRef: string): Promise<DocumentExtractionResult>;

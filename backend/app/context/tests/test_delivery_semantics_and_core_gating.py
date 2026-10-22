@@ -20,7 +20,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.context.core_publisher import CoreContextPublisher, IneligibleContextError
-from app.context.deterministic_extraction import PROVISIONAL_PRODUCTS, extract_explicit_fields
+from app.context.deterministic_extraction import PROVISIONAL_PRODUCTS, ProductAlias, extract_explicit_fields
 from app.context.order_context_schemas import ContextReviewRequest, OrderContextRecord, RequestedItem
 from app.context.postgres_repository import PostgresMessageRepository
 from app.context.schemas import RawMessageEnvelope
@@ -169,7 +169,9 @@ def test_valid_deadline_with_offset_is_eligible_for_core():
 
 # 3. End-to-end: Date-only Context requires Review before Core publication
 def test_date_only_flow_to_review_to_core(pg_engine):
-    repo = PostgresMessageRepository(pg_engine)
+    repo = PostgresMessageRepository(pg_engine, catalog=(
+        ProductAlias("test_tenant_flow", "SKU_BREAD_01", ("bread",), "pcs"),
+    ))
     publisher = CoreContextPublisher()
     tenant = "test_tenant_flow"
     ctx_id = "ctx_flow_01"

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.context.core_publisher import CoreContextPublisher
 from app.context.core_publisher import IneligibleContextError
+from app.context.deterministic_extraction import ProductAlias
 from app.context.order_context_schemas import ContextReviewRequest
 from app.context.postgres_repository import PostgresMessageRepository
 from app.context.tests.test_core_publisher import make_valid_context
@@ -49,7 +50,7 @@ def test_failure_after_core_flush_rolls_back_core_and_p1_pointer(pg_engine, monk
 
 
 def test_generated_order_reference_cannot_bypass_confirmed_terms_guard(pg_engine):
-    repo = PostgresMessageRepository(pg_engine)
+    repo = PostgresMessageRepository(pg_engine, catalog=(ProductAlias('generated-order-tenant', 'SKU_BREAD_01', ('bread',), 'pcs'), ProductAlias('generated-order-tenant', 'BURGER', ('burger',), 'pcs')))
     ctx = make_valid_context('generated-order-tenant', 'generated-order-context')
     ctx.order_id = None
     saved = repo.save_order_context(ctx)

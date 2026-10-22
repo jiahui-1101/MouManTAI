@@ -32,7 +32,7 @@ def repo_stub():
 
 
 def test_catalog_is_tenant_scoped_and_contains_only_canonical_pairs():
-    response = client_for(repo_stub()).get('/v1/context-catalog')
+    response = client_for(repo_stub()).get('/v1/contexts/catalog')
     assert response.status_code == 200
     assert response.json() == [{'sku': 'BURGER', 'unit': 'pcs'}]
 

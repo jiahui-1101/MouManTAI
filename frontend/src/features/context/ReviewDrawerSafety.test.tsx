@@ -82,6 +82,14 @@ describe('Review Drawer candidate safety', () => {
     expect(screen.getAllByLabelText('Unit')[1]).toHaveValue('');
   });
 
+  it('keeps observed packaging units visible without converting to pieces', () => {
+    render(<ReviewDrawer {...props} context={{ ...context, field_evidence: {
+      ...context.field_evidence, unit: [{ quote: 'bungkus', normalized_value: 'pack', method: 'MODEL' }],
+    } }} />);
+    expect(screen.getByLabelText('Unit')).toHaveValue('pack');
+    expect(screen.getByRole('option', { name: 'pack', exact: true })).toBeInTheDocument();
+  });
+
   it('resets form state when closed and reopened, without changing hook order', () => {
     const view = render(<ReviewDrawer {...props} context={context} />);
     fireEvent.change(screen.getByLabelText('SKU / Product'), { target: { value: 'unsaved' } });

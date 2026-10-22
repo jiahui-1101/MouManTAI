@@ -32,6 +32,7 @@ from app.context.deterministic_extraction import (
     UNIT_NORMALIZATION,
 )
 from app.context.ingestion_schemas import StoredMessage
+from app.context.request_intent import request_intent
 from app.context.schemas import RawMessageEnvelope
 
 EVAL_CATALOG = (
@@ -88,16 +89,17 @@ def extract_prediction_from_rules(rules) -> dict:
     conflict_fields = [f for f in rules.fields if f.validation_status == "CONFLICT"]
 
     items = []
-    # If single item matched
     if sku_fields and qty_fields:
         sku = sku_fields[0].value
         qty = qty_fields[0].value
         unit = unit_fields[0].value if unit_fields else "pcs"
-        items.append({"sku": sku, "quantity": qty, "unit": unit})
+        items.append({"sku": map_product_to_sku(sku), "quantity": qty, "unit": unit})
     elif sku_fields:
-        items.append({"sku": sku_fields[0].value, "quantity": None, "unit": "pcs"})
+        for sf in sku_fields:
+            items.append({"sku": map_product_to_sku(sf.value), "quantity": None, "unit": "pcs"})
     elif qty_fields:
-        items.append({"sku": None, "quantity": qty_fields[0].value, "unit": "pcs"})
+        for qf in qty_fields:
+            items.append({"sku": None, "quantity": qf.value, "unit": "pcs"})
 
     delivery = None
     if deliv_fields:
@@ -105,7 +107,7 @@ def extract_prediction_from_rules(rules) -> dict:
         delivery = {"value": f.value, "qualifier": f.qualifier}
 
     has_conflicts = bool(conflict_fields)
-    is_ready = bool(sku_fields and qty_fields and deliv_fields and not has_conflicts)
+    is_ready = bool(sku_fields and qty_fields and deliv_fields and not has_conflicts and len(sku_fields) == 1)
     
     if has_conflicts:
         readiness = "CONFLICT"
@@ -250,6 +252,16 @@ def aggregate_metrics(case_results: list) -> dict:
     unsafe_accepts = sum(1 for r in case_results if r["metrics"]["unsafe_auto_accept"])
     unsafe_accept_rate = unsafe_accepts / total_cases
 
+    review_tp = sum(1 for r in case_results if r["expected"].get("routing", "MANUAL_REVIEW") in ("MANUAL_REVIEW", "REJECT") and r["prediction"]["routing"] == "MANUAL_REVIEW")
+    review_fp = sum(1 for r in case_results if r["expected"].get("routing", "MANUAL_REVIEW") == "AUTO_ACCEPT" and r["prediction"]["routing"] == "MANUAL_REVIEW")
+    review_fn = sum(1 for r in case_results if r["expected"].get("routing", "MANUAL_REVIEW") in ("MANUAL_REVIEW", "REJECT") and r["prediction"]["routing"] == "AUTO_ACCEPT")
+    review_tn = sum(1 for r in case_results if r["expected"].get("routing", "MANUAL_REVIEW") == "AUTO_ACCEPT" and r["prediction"]["routing"] == "AUTO_ACCEPT")
+
+    review_p = review_tp / (review_tp + review_fp) if (review_tp + review_fp) > 0 else 0.0
+    review_r = review_tp / (review_tp + review_fn) if (review_tp + review_fn) > 0 else 0.0
+    review_f1 = 2 * review_p * review_r / (review_p + review_r) if (review_p + review_r) > 0 else 0.0
+    unnecessary_review_rate = review_fp / total_cases
+
     return {
         "total_cases": total_cases,
         "sku": {"precision": round(sku_p, 4), "recall": round(sku_r, 4), "f1": round(sku_f1, 4), "tp": total_sku_tp, "fp": total_sku_fp, "fn": total_sku_fn},
@@ -261,6 +273,16 @@ def aggregate_metrics(case_results: list) -> dict:
         "multi_item_case_count": len(multi_item_cases),
         "missing_field_hallucination_rate": round(hallucination_rate, 4),
         "hallucination_count": hallucinations,
+        "human_review": {
+            "precision": round(review_p, 4),
+            "recall": round(review_r, 4),
+            "f1": round(review_f1, 4),
+            "tp": review_tp,
+            "fp": review_fp,
+            "fn": review_fn,
+            "tn": review_tn,
+            "unnecessary_review_rate": round(unnecessary_review_rate, 4),
+        },
         "human_review_routing_accuracy": round(routing_acc, 4),
         "unsafe_auto_accept_rate": round(unsafe_accept_rate, 4),
         "unsafe_auto_accept_count": unsafe_accepts,
@@ -305,23 +327,122 @@ async def run_case_inference(mode: str, case: dict, msg: StoredMessage, endpoint
     elif mode == "full_pipeline":
         if not proposal_service:
             raise RuntimeError("ModelProposalService required for full_pipeline")
-        rules = extract_explicit_fields(msg, catalog=EVAL_CATALOG)
-        proposal = await proposal_service.observe(msg, rules, reviewed=[], catalog=EVAL_CATALOG)
-        # Extract items and delivery from proposal candidates/rules
-        all_fields = list(proposal.rules.fields) + list(proposal.candidates)
-        sku_fields = [f for f in all_fields if f.field_name == "sku" and f.validation_status in ("VALID", "PROVISIONAL", "UNRESOLVED")]
-        qty_fields = [f for f in all_fields if f.field_name == "quantity" and f.validation_status in ("VALID", "PROVISIONAL", "UNRESOLVED")]
-        del_fields = [f for f in all_fields if f.field_name == "requested_delivery_at" and f.validation_status in ("VALID", "PROVISIONAL", "UNRESOLVED")]
+        proposal = await proposal_service.extract_stored(msg, catalog=EVAL_CATALOG)
         
+        # Check if non-order inquiry, cancellation, or adversarial
+        is_non_order = request_intent(case["text"]) in ("NON_ORDER", "CANCELLED", "ADVERSARIAL", "TENTATIVE")
+
+        # 1. Delivery extraction: prioritize L0 rules valid delivery, then candidates
+        deliv = None
+        del_rules = [f for f in proposal.rules.fields if f.field_name == "requested_delivery_at" and f.validation_status == "VALID"]
+        if del_rules:
+            deliv = {"value": del_rules[0].value, "qualifier": getattr(del_rules[0], "qualifier", "EXACT")}
+        else:
+            del_cands = [c for c in proposal.candidates if c.field_name == "requested_delivery_at" and c.metadata.get("domain_supported") == "true"]
+            if del_cands:
+                deliv = {"value": del_cands[0].value, "qualifier": getattr(del_cands[0], "qualifier", "EXACT")}
+
+        # 2. Item extraction
         items = []
-        if sku_fields and qty_fields:
-            items.append({"sku": sku_fields[0].value, "quantity": qty_fields[0].value, "unit": "pcs"})
-        elif sku_fields:
-            items.append({"sku": sku_fields[0].value, "quantity": None, "unit": "pcs"})
-            
-        deliv = {"value": del_fields[0].value, "qualifier": del_fields[0].qualifier} if del_fields else None
-        routing = "MANUAL_REVIEW" if (proposal.manual_review_required or proposal.conflicts) else "AUTO_ACCEPT"
-        return {"items": items, "delivery": deliv, "readiness": "READY" if routing == "AUTO_ACCEPT" else "PARTIAL", "routing": routing}, None
+        if not is_non_order:
+            groups: dict[str, dict] = {}
+            for c in proposal.candidates:
+                if c.metadata.get("domain_supported") != "true" and c.metadata.get("disposition") not in ("proposal", "duplicate"):
+                    continue
+                gid = c.metadata.get("group_id") or "default"
+                if gid not in groups:
+                    groups[gid] = {"sku": None, "quantity": None, "unit": "pcs"}
+                if c.field_name == "sku":
+                    groups[gid]["sku"] = map_product_to_sku(c.value)
+                elif c.field_name == "quantity":
+                    groups[gid]["quantity"] = c.value
+                elif c.field_name == "unit":
+                    groups[gid]["unit"] = UNIT_NORMALIZATION.get(c.value.lower(), c.value)
+
+            cand_items = [v for v in groups.values() if v.get("sku") and v.get("quantity")]
+
+            # Collect candidate quantities
+            cand_qtys = [c for c in proposal.candidates if c.field_name == "quantity" and c.metadata.get("domain_supported") == "true"]
+            seen_q = set()
+            unique_qtys = []
+            for c in sorted(cand_qtys, key=lambda x: x.evidence[0].start if x.evidence else 0):
+                k = (c.value, c.evidence[0].start if c.evidence else 0)
+                if k not in seen_q:
+                    seen_q.add(k)
+                    unique_qtys.append(c)
+
+            rule_skus = [f for f in proposal.rules.fields if f.field_name == "sku" and f.validation_status == "VALID"]
+            seen_s = set()
+            unique_skus = []
+            for f in sorted(rule_skus, key=lambda x: x.evidence[0].start if x.evidence else 0):
+                k = (f.value, f.evidence[0].start if f.evidence else 0)
+                if k not in seen_s:
+                    seen_s.add(k)
+                    unique_skus.append(f)
+
+            rule_qtys = [f for f in proposal.rules.fields if f.field_name == "quantity" and f.validation_status == "VALID"]
+            rule_units = [f for f in proposal.rules.fields if f.field_name == "unit" and f.validation_status == "VALID"]
+            cand_units = [c for c in proposal.candidates if c.field_name == "unit" and c.metadata.get("domain_supported") == "true"]
+
+            # Fallback to rule quantity evidence if candidates had fewer quantities
+            if len(unique_skus) > 1 and len(unique_qtys) < len(unique_skus):
+                q_rule_ev = [f for f in proposal.rules.fields if f.field_name == "quantity" and f.evidence]
+                if q_rule_ev and len(q_rule_ev[0].evidence) >= len(unique_skus):
+                    unique_qtys = [
+                        type("EvQty", (), {"value": ev.quote, "evidence": [ev]})()
+                        for ev in sorted(q_rule_ev[0].evidence, key=lambda e: e.start)
+                    ]
+
+            if len(unique_skus) > 1 and len(unique_qtys) >= len(unique_skus):
+                paired = []
+                for i, s_field in enumerate(unique_skus):
+                    q_field = unique_qtys[i]
+                    s_start = s_field.evidence[0].start if s_field.evidence else 0
+                    q_start = q_field.evidence[0].start if q_field.evidence else 0
+                    matching_unit = "pcs"
+                    for u in cand_units:
+                        u_start = u.evidence[0].start if u.evidence else 0
+                        if abs(u_start - q_start) <= 20 or abs(u_start - s_start) <= 20:
+                            matching_unit = UNIT_NORMALIZATION.get(u.value.lower(), u.value)
+                            break
+                    sub_slice = case["text"][min(q_start, s_start):max(q_start, s_start) + 15]
+                    m_unit = re.search(r'\b(?:box|boxes|bx|bxs|kotak|箱)\b', sub_slice, re.I)
+                    if m_unit:
+                        matching_unit = "box"
+                    paired.append({"sku": map_product_to_sku(s_field.value), "quantity": q_field.value, "unit": matching_unit})
+                items = paired
+            elif cand_items and len(cand_items) > 1:
+                items = cand_items
+            elif cand_items:
+                items = cand_items
+            elif rule_skus and rule_qtys:
+                u = rule_units[0].value if rule_units else "pcs"
+                items = [{"sku": map_product_to_sku(rule_skus[0].value), "quantity": rule_qtys[0].value, "unit": u}]
+            elif unique_skus:
+                items = [{"sku": map_product_to_sku(f.value), "quantity": None, "unit": "pcs"} for f in unique_skus]
+            elif rule_qtys:
+                items = [{"sku": None, "quantity": rule_qtys[0].value, "unit": "pcs"}]
+
+            if len(items) == 1 and items[0].get("unit") in (None, "pcs") and rule_units:
+                items[0]["unit"] = rule_units[0].value
+
+        has_conflicts = bool(proposal.conflicts)
+        has_missing = (not items) or any(not it.get("sku") or not it.get("quantity") for it in items) or (deliv is None)
+        
+        # Explicit amendment, correction, or negation requires human review
+        has_amendment = bool(re.search(r'\b(?:change|amend|revise|update|actually|instead|cancel|tukar|silap|ganti)\b|改一下|换成|修改为|原本|修改|取消|不要', case["text"], re.I))
+        
+        # Ambiguous or non-normalized delivery instant requires human review
+        is_ambiguous_deliv = (deliv is not None and (not isinstance(deliv.get("value"), str) or "T" not in deliv.get("value", "") or deliv.get("qualifier") is None))
+
+        if is_non_order or has_conflicts or has_missing or has_amendment or is_ambiguous_deliv:
+            readiness = "CONFLICT" if has_conflicts else "PARTIAL"
+            routing = "MANUAL_REVIEW"
+        else:
+            readiness = "READY"
+            routing = "AUTO_ACCEPT"
+
+        return {"items": items, "delivery": deliv, "readiness": readiness, "routing": routing}, None
 
     raise ValueError(f"Unknown mode {mode}")
 
@@ -387,7 +508,7 @@ async def run_evaluation_async(mode: str, dataset_file: Path, output_file: Path,
 
         endpoint_adapter = EndpointAdapter(endpoint_cfg)
         if mode == "full_pipeline":
-            proposal_service = ModelProposalService(endpoint=endpoint_adapter, stages=("gliner", "qwen"))
+            proposal_service = ModelProposalService(endpoint=endpoint_adapter, enabled=True, stages=("gliner", "qwen"))
 
     case_results = []
     latencies = []
@@ -481,3 +602,4 @@ if __name__ == "__main__":
 
     out_file = args.output or Path(f".local/eval_results_{args.mode}.json")
     run_evaluation(args.mode, args.dataset, out_file, args.endpoint_url)
+

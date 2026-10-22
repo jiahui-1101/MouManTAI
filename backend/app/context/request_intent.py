@@ -13,8 +13,12 @@ ADVERSARIAL = re.compile(
 TENTATIVE = re.compile(r'\b(?:might need|may need|tentatively|will confirm later|mungkin nak|belum pasti)\b|可能要|暂定|还未确定|还没确定', re.I)
 HISTORICAL = re.compile(r'\b(?:yesterday|semalam|last week|received already|dah sampai|arrived today|delivered today)\b|昨天|上次|已经收到|送来的|送到的|已收货', re.I)
 CANCELLATION = re.compile(r'\b(?:cancel|cancelled|batal|batalkan|jangan hantar|jangan buat)\b|取消|不要送|不要制作', re.I)
-INQUIRY = re.compile(r'\b(?:how much|what is the price|berapa harga|do you (?:do delivery|deliver)|available tak)\b|请问.*多少|如何收费|起订量', re.I)
-REQUEST = re.compile(r'\b(?:need|want|send|prepare|deliver|nak|mahu|pesan|hantar)\b|要|请送|预订|下单', re.I)
+INQUIRY = re.compile(
+    r'\b(?:how much|what is the price|berapa harga|do you (?:do delivery|deliver|have stock)|available tak|have stock|any stock)\b|'
+    r'请问.*多少|如何收费|起订量|有没有送|有送.*吗|有没有货|有货吗|有卖吗|ada stok tak',
+    re.I
+)
+REQUEST = re.compile(r'\b(?:need|want|nak|mahu|pesan|order|ordering)\b|我要|预订|下单', re.I)
 FUTURE = re.compile(r'\b(?:tomorrow|tmr|tmrw|esok|lusa|next week)\b|明天|后天|下周', re.I)
 ORDER_IMPERATIVE = re.compile(r'\b(?:please\s+send|please\s+deliver|tolong\s+hantar|silakan\s+hantar|nak\s+order|我要订|请帮我送|确认下单)\b', re.I)
 
@@ -28,6 +32,6 @@ def request_intent(text):
         return 'TENTATIVE'
     if HISTORICAL.search(text) and not (REQUEST.search(text) and FUTURE.search(text)):
         return 'NON_ORDER'
-    if INQUIRY.search(text) and not ORDER_IMPERATIVE.search(text):
+    if INQUIRY.search(text) and not (ORDER_IMPERATIVE.search(text) or (REQUEST.search(text) and FUTURE.search(text))):
         return 'NON_ORDER'
     return 'UNCLASSIFIED'  # Never CONFIRMED; absence of a guard is not proof of intent.

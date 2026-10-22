@@ -354,9 +354,10 @@ def context_review_record(row: ContextReview) -> ContextReviewRecord:
 
 
 class PostgresMessageRepository:
-    def __init__(self, engine: Engine, *, proposal_service=None):
+    def __init__(self, engine: Engine, *, proposal_service=None, catalog=None):
         self.engine = engine
         self._proposal_service = proposal_service
+        self.catalog = PROVISIONAL_PRODUCTS if catalog is None else catalog
 
     @property
     def proposal_service(self):
@@ -511,7 +512,7 @@ class PostgresMessageRepository:
 
                 stored_msg = stored(row)
                 try:
-                    result = extract_explicit_fields(stored_msg, catalog=PROVISIONAL_PRODUCTS)
+                    result = extract_explicit_fields(stored_msg, catalog=self.catalog)
                     raw_text = stored_msg.raw.text
                     for f in result.fields:
                         for ev in f.evidence:
@@ -524,7 +525,14 @@ class PostgresMessageRepository:
                                 raise ValueError(
                                     f"Evidence quote mismatch: expected {ev.quote!r}, got {actual_quote!r}"
                                 )
-                    active_fields = list(result.fields)
+                    from .reconciliation import reconcile_canonical_fields
+                    active_fields, _ = reconcile_canonical_fields(
+                        rule_fields=result.fields,
+                        model_candidates=[],
+                        catalog=self.catalog,
+                        tenant_id=stored_msg.raw.tenant_id,
+                        raw_text=raw_text,
+                    )
                     actual_extractor_version = extractor_version
                     diagnostics_dict = {"trigger": "explicit_reprocess" if reprocess else "process",
                                         "configured": False, "accepted_model_fields": 0}
@@ -550,7 +558,7 @@ class PostgresMessageRepository:
                                         return pool.submit(asyncio.run, coro).result()
 
                             proposal_res = _run_async(
-                                svc.extract_stored(stored_msg, catalog=PROVISIONAL_PRODUCTS)
+                                svc.extract_stored(stored_msg, catalog=self.catalog)
                             )
                             if getattr(proposal_res, "outcomes", None):
                                 diagnostics_dict["model_outcomes"] = proposal_res.outcomes
@@ -566,7 +574,19 @@ class PostgresMessageRepository:
                                     for ev in c.evidence:
                                         if ev.start < 0 or ev.end > len(raw_text) or ev.start >= ev.end or raw_text[ev.start:ev.end] != ev.quote:
                                             raise ValueError(f"Model evidence span [{ev.start}:{ev.end}] invalid")
-                                active_fields.extend(candidates)
+                                diagnostics_dict["raw_proposals"] = [
+                                    {"field_name": c.field_name, "value": c.value, "status": c.validation_status}
+                                    for c in candidates
+                                ]
+                                reconciled_fields, accepted_count = reconcile_canonical_fields(
+                                    rule_fields=result.fields,
+                                    model_candidates=candidates,
+                                    catalog=self.catalog,
+                                    tenant_id=stored_msg.raw.tenant_id,
+                                    raw_text=raw_text,
+                                )
+                                active_fields = reconciled_fields
+                                diagnostics_dict["accepted_model_fields"] = accepted_count
                             elif getattr(proposal_res, "outcomes", None) and any(
                                 v in ("unavailable", "timeout", "busy", "endpoint_http_error", "transport_or_schema_error")
                                 for v in proposal_res.outcomes.values()
@@ -586,6 +606,9 @@ class PostgresMessageRepository:
                         for telemetry in diagnostics_dict.get("runtime_reported", {}).values():
                             for key in ("dtype", "peak_gpu_bytes", "load_seconds"):
                                 telemetry.pop(key, None)
+                        diagnostic = json.dumps(diagnostics_dict, separators=(",", ":"))
+                    if len(diagnostic) > 1000:
+                        diagnostics_dict.pop("raw_proposals", None)
                         diagnostic = json.dumps(diagnostics_dict, separators=(",", ":"))
                     if len(diagnostic) > 1000:
                         diagnostics_dict["runtime_reported"] = {k: {"attempted": v.get("attempted", False),
@@ -1001,6 +1024,7 @@ class PostgresMessageRepository:
                 before_ver = row.context_version
                 after_ver = before_ver + 1
                 field_changes: dict = {}
+                previous_missing = list(row.missing_fields or [])
 
                 if request.field_edits:
                     for field_name, new_val in request.field_edits.items():
@@ -1029,15 +1053,15 @@ class PostgresMessageRepository:
                 if row.conflicts and row.delivery_qualifier == "DEADLINE":
                     row.conflicts = [c for c in row.conflicts if "EXACT arrival time" not in c]
 
-                if request.action == "ACCEPT_EXTRACTION":
-                    # Mark READY if no conflicts, no missing fields, and requested_items present
-                    if not row.conflicts and not row.missing_fields and row.requested_items:
-                        row.status = "INFORMATION_READY"
-                    else:
-                        row.status = "INFORMATION_PARTIAL"
-                elif request.action == "EDIT_FIELD":
-                    if not row.conflicts and not row.missing_fields and row.requested_items:
-                        row.status = "INFORMATION_READY"
+                if request.action in {"ACCEPT_EXTRACTION", "EDIT_FIELD"}:
+                    from .review_readiness import reviewed_missing_fields
+                    row.missing_fields = reviewed_missing_fields(row, request.field_edits, self.catalog)
+                    if row.missing_fields != previous_missing or 'missing_fields' in field_changes:
+                        field_changes['missing_fields'] = {'old': previous_missing, 'new': row.missing_fields}
+
+                if request.action in {"ACCEPT_EXTRACTION", "EDIT_FIELD"}:
+                    row.status = ("CONFLICT" if row.conflicts else "INFORMATION_READY"
+                                  if not row.missing_fields and row.requested_items else "INFORMATION_PARTIAL")
                 elif request.action == "MARK_UNRESOLVED":
                     row.status = "UNRESOLVED"
                 elif request.action == "REQUEST_MORE_INFO":

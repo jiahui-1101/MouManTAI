@@ -9,6 +9,7 @@ export interface ReviewDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   onUpdated: (updated: OrderContextRecord) => void;
+  catalogLoader?: () => Promise<{ sku: string; unit: string }[]>;
 }
 
 export function ReviewDrawer(props: ReviewDrawerProps) {
@@ -16,7 +17,7 @@ export function ReviewDrawer(props: ReviewDrawerProps) {
   return <ReviewDrawerForm key={`${props.context.context_id}:${props.context.context_version}`} {...props} />;
 }
 
-function ReviewDrawerForm({ context, onClose, onUpdated }: ReviewDrawerProps) {
+function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: ReviewDrawerProps) {
 
   const evidenceQty = (context.field_evidence?.quantity?.[0]?.normalized_value || context.field_evidence?.quantity?.[0]?.quote || '') as string;
   const evidenceUnit = (context.field_evidence?.unit?.[0]?.normalized_value || context.field_evidence?.unit?.[0]?.quote || '') as string;
@@ -39,19 +40,19 @@ function ReviewDrawerForm({ context, onClose, onUpdated }: ReviewDrawerProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<{ sku: string; unit: string }[]>([]);
-  const [catalogRequest] = useState(getReviewCatalog);
   const [catalogState, setCatalogState] = useState('loading');
   const [targetItem, setTargetItem] = useState('');
   const [conflictsReviewed, setConflictsReviewed] = useState(false);
 
   useEffect(() => {
     let active = true;
-    catalogRequest.then(products => {
+    const load = catalogLoader || getReviewCatalog;
+    load().then(products => {
       if (!Array.isArray(products)) throw new Error('Invalid catalog');
       if (active) { setCatalog(products); setCatalogState('ready'); }
     }).catch(() => { if (active) setCatalogState('unavailable'); });
     return () => { active = false; };
-  }, [catalogRequest]);
+  }, [catalogLoader]);
 
   const updateItem = (index: number, field: keyof RequestedItem, value: string) => {
     setItems(prev => {
@@ -118,7 +119,7 @@ function ReviewDrawerForm({ context, onClose, onUpdated }: ReviewDrawerProps) {
         }
         // If editing to resolve conflicts, clear existing conflicts
         if (!context.conflicts?.length || conflictsReviewed) fieldEdits.conflicts = [];
-        const approved = await catalogRequest;
+        const approved = catalog.length > 0 ? catalog : await (catalogLoader || getReviewCatalog)();
         for (let i = 0; i < items.length; i++) {
           if (!Array.isArray(approved) || !approved.some(p => p.sku === items[i].sku.trim() && p.unit === items[i].unit.trim())) {
             throw new Error(`Item #${i + 1}: Map to an approved SKU and its supported unit. Unknown products must remain unresolved; no automatic unit conversion.`);
@@ -314,9 +315,9 @@ function ReviewDrawerForm({ context, onClose, onUpdated }: ReviewDrawerProps) {
                       disabled={submitting}
                     >
                       <option value="">Missing / unknown</option>
-                      <option value="pcs">pcs</option>
-                      <option value="box">box</option>
-                      <option value="kg">kg</option>
+                      {[...new Set(['pcs', 'box', 'kg', ...catalog.map(p => p.unit),
+                        ...items.map(item => item.unit), ...candidateProposals.filter(p => p.field === 'unit').map(p => p.value)])]
+                        .filter(Boolean).map(unit => <option key={unit} value={unit}>{unit}</option>)}
                     </select>
                     <span className="p1-form-hint">Standard packaging unit</span>
                   </div>

@@ -11,7 +11,14 @@ from typing import Literal, Sequence
 from decimal import Decimal
 import re
 
-from ..deterministic_extraction import ProductAlias, UNIT_NORMALIZATION, extract_explicit_fields
+from ..deterministic_extraction import (
+    ProductAlias,
+    UNIT_NORMALIZATION,
+    extract_explicit_fields,
+    ORDER_RE,
+    DEADLINE_PRE_RE,
+    DEADLINE_POST_RE,
+)
 from ..extraction import ExtractionResult
 from ..ingestion_schemas import StoredMessage
 from ..schemas import ExtractedField, FieldEvidence, P1Model
@@ -101,9 +108,21 @@ class ModelProposalService:
         rule_sku_valid = any(f.field_name == "sku" and f.validation_status == "VALID" for f in rules.fields)
         rule_qty_valid = any(f.field_name == "quantity" and f.validation_status == "VALID" for f in rules.fields)
         rule_del_valid = any(f.field_name == "requested_delivery_at" and f.validation_status == "VALID" for f in rules.fields)
-        has_date_keywords = bool(DATE_TIME_PATTERNS.search(message.raw.text))
+        has_date_keywords = bool(DATE_TIME_PATTERNS.search(message.raw.text)) or any(
+            f.field_name == 'requested_delivery_at' and f.evidence for f in rules.fields)
+        unresolved_items = any(f.field_name in {'sku', 'quantity', 'unit'}
+            and f.validation_status in {'UNRESOLVED', 'CONFLICT', 'INVALID'} and f.evidence for f in rules.fields)
         is_non_order = request_intent(message.raw.text) != 'UNCLASSIFIED' or bool(NON_ORDER_PATTERNS.search(message.raw.text))
-        missing_tz_only = (rule_sku_valid and rule_qty_valid and not message.raw.business_timezone)
+        missing_tz_only = (rule_sku_valid and rule_qty_valid and not unresolved_items and not message.raw.business_timezone)
+
+        has_only_unsupported_unit = (
+            rule_sku_valid and (not has_date_keywords or rule_del_valid)
+            and any(f.field_name == "unit" and f.metadata.get("raw_unit") and f.metadata.get("domain_supported") == "false" for f in rules.fields)
+            and any(f.field_name == "quantity" and f.value is not None and f.value.isdigit() for f in rules.fields)
+            and not any(f.field_name == "quantity" and f.value is None for f in rules.fields)
+            and not any(f.field_name == "sku" and f.validation_status != "VALID" for f in rules.fields)
+            and not any(f.field_name == "requested_delivery_at" and f.metadata.get("rescheduling") == "true" for f in rules.fields)
+        )
 
         # Evaluate deterministic sufficiency before calling any model
         if missing_tz_only:
@@ -112,7 +131,10 @@ class ModelProposalService:
         elif is_non_order:
             needs_l1 = False
             l0_reason = "Non-order inquiry or feedback detected; no candidate generation required"
-        elif rule_sku_valid and rule_qty_valid and (not has_date_keywords or rule_del_valid):
+        elif has_only_unsupported_unit:
+            needs_l1 = False
+            l0_reason = "Missing catalog conversion data or incompatible unit requires authorized review; not escalated to GPU"
+        elif rule_sku_valid and rule_qty_valid and not unresolved_items and (not has_date_keywords or rule_del_valid):
             needs_l1 = False
             l0_reason = "L0 deterministic rules safely resolved all relevant order terms"
         else:
@@ -161,11 +183,21 @@ class ModelProposalService:
                             answer.runtime_versions, sort_keys=True
                         )
                         protected = [f for f in rules.fields if f.validation_status == "VALID" and f.field_name not in reviewed_names] + reviewed
-                        same = [f for f in protected if f.field_name == candidate.field_name]
+                        cand_gid = candidate.metadata.get("group_id") or ""
+                        if cand_gid:
+                            same = [
+                                f for f in protected
+                                if f.field_name == candidate.field_name
+                                and (f.metadata.get("group_id") == cand_gid or (not f.metadata.get("group_id") and cand_gid in ("g1", "default", "")))
+                            ]
+                        else:
+                            same = [f for f in protected if f.field_name == candidate.field_name]
 
                         if candidate.metadata.get("domain_supported") != "true":
                             candidate.metadata["disposition"] = "rejected"
                         elif any(f.value == candidate.value for f in same):
+                            candidate.metadata["disposition"] = "duplicate"
+                        elif self._same_literal_delivery(candidate, rules):
                             candidate.metadata["disposition"] = "duplicate"
                         elif same:
                             candidate.validation_status = "CONFLICT"
@@ -247,10 +279,20 @@ class ModelProposalService:
                             answer.runtime_versions, sort_keys=True
                         )
                         protected = [f for f in rules.fields if f.validation_status == "VALID" and f.field_name not in reviewed_names] + reviewed
-                        same = [f for f in protected if f.field_name == candidate.field_name]
+                        cand_gid = candidate.metadata.get("group_id") or ""
+                        if cand_gid:
+                            same = [
+                                f for f in protected
+                                if f.field_name == candidate.field_name
+                                and (f.metadata.get("group_id") == cand_gid or (not f.metadata.get("group_id") and cand_gid in ("g1", "default", "")))
+                            ]
+                        else:
+                            same = [f for f in protected if f.field_name == candidate.field_name]
                         if candidate.metadata.get("domain_supported") != "true":
                             candidate.metadata["disposition"] = "rejected"
                         elif any(f.value == candidate.value for f in same):
+                            candidate.metadata["disposition"] = "duplicate"
+                        elif self._same_literal_delivery(candidate, rules):
                             candidate.metadata["disposition"] = "duplicate"
                         elif same:
                             candidate.validation_status = "CONFLICT"
@@ -270,6 +312,14 @@ class ModelProposalService:
         return result
 
     @staticmethod
+    def _same_literal_delivery(candidate, rules):
+        return candidate.field_name == 'requested_delivery_at' and bool(candidate.evidence) and all(
+            any(f.field_name == 'requested_delivery_at' and
+                any(ev.message_id == source.message_id and ev.start <= source.start < source.end <= ev.end
+                    for ev in f.evidence) for f in rules.fields)
+            for source in candidate.evidence)
+
+    @staticmethod
     def _l2_escalation_reason(message, result):
         """Interpret literal ambiguity, never fill absent facts or trusted metadata."""
         reviewed_names = {f.field_name for f in result.reviewed_fields}
@@ -285,6 +335,8 @@ class ModelProposalService:
                 continue
             observations = [f for f in result.rules.fields if f.field_name == name]
             if any(f.validation_status == 'UNRESOLVED' and f.evidence for f in observations):
+                if any(f.metadata.get('disposition') == 'unverified_association' for f in observations):
+                    continue
                 return f'Meaningful {name} association remains unresolved after L1'
             values = {f.value for f in proposals if f.field_name == name}
             if len(values) > 1:
@@ -297,6 +349,16 @@ class ModelProposalService:
         # explicit metadata/calendar/DST problem that a model cannot solve.
         for field in result.rules.fields:
             if field.field_name != 'requested_delivery_at' or field.validation_status != 'UNRESOLVED' or not field.evidence:
+                continue
+            if field.metadata.get('rescheduling') == 'true' or field.metadata.get('correction') == 'true':
+                return 'Complex temporal delivery rescheduling request requires semantic interpretation and human review'
+            if field.metadata.get('date_range') == 'true':
+                return 'Delivery date window range requires semantic interpretation and operator confirmation'
+            if field.metadata.get('multiple_delivery_dates') == 'true':
+                return 'Multiple conflicting delivery dates require semantic interpretation and human review'
+            if field.metadata.get('approximate') == 'true':
+                continue
+            if field.metadata.get('meal_period') or field.metadata.get('unconfirmed_time') == 'true':
                 continue
             reason = field.metadata.get('reason', '')
             if message.raw.business_timezone and not re.search(r'timezone|year|timestamp|past|DST|nonexistent|ambiguous local|lower.bound|after ', reason, re.I):
@@ -379,6 +441,7 @@ class ModelProposalService:
         status = "UNRESOLVED"
         supported = False
         subspan = None
+        qualifier = None
         is_non_order = request_intent(message.raw.text) != 'UNCLASSIFIED' or bool(NON_ORDER_PATTERNS.search(message.raw.text))
 
         if observation.field == "product":
@@ -389,11 +452,14 @@ class ModelProposalService:
                     continue
                 for alias in p.aliases:
                     m = re.fullmatch(
-                        r'\s*(?:[0-9]+\s*(?:(?:' + units + r')\s*)?)?(?P<alias>' + re.escape(alias) + r')\s*',
+                        r'\s*(?:(?:[0-9]+(?:\.[0-9]+)?\s*)?(?:(?:' + units + r')\s*)?)?(?P<alias>' + re.escape(alias) + r')\s*',
                         quote, re.IGNORECASE,
                     )
                     if m:
                         matches.append((p, m.span("alias")))
+            if matches:
+                max_len = max(span[1] - span[0] for _, span in matches)
+                matches = [m for m in matches if (m[1][1] - m[1][0]) == max_len]
             if len({(p.sku, p.unit) for p, _ in matches}) == 1:
                 value = matches[0][0].sku
                 subspan = matches[0][1]
@@ -457,6 +523,19 @@ class ModelProposalService:
             else:
                 supported = True
                 reason = "Raw delivery expression only; model cannot normalize or override date safety rules"
+                if DEADLINE_PRE_RE.search(quote) or DEADLINE_POST_RE.search(quote):
+                    qualifier = "DEADLINE"
+
+        elif observation.field == "order_reference":
+            m = ORDER_RE.search(quote)
+            if m:
+                value = m.group()
+                subspan = (m.start(), m.end())
+                supported = True
+                reason = "Model proposed order reference pending human review"
+            else:
+                supported = False
+                status, reason = "INVALID", "Extracted order reference does not match expected format"
 
         evidence = FieldEvidence(
             evidence_id=f"model:{message.message_id}:{observation.start}:{observation.end}:{observation.field}",
@@ -487,6 +566,7 @@ class ModelProposalService:
             value=value,
             validation_status=status,
             evidence=evidence_list,
+            qualifier=qualifier,
             metadata={
                 "reason": reason,
                 "group_id": observation.group_id or "",
@@ -497,3 +577,4 @@ class ModelProposalService:
                 "normalization": "catalog_and_l0_subspan_v3",
             },
         )
+

@@ -239,36 +239,68 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
       {/* Requested Items Table */}
       <section className="p1-section-card">
         <h3>Requested Products</h3>
-        <table className="p1-items-table">
-          <thead>
-            <tr>
-              <th>SKU</th>
-              <th>Quantity</th>
-              <th>Unit</th>
-              <th>Evidence Quotes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(context.requested_items ?? []).map((item, idx) => {
-              const skuEvidence = context.field_evidence?.sku ?? [];
-              const qtyEvidence = context.field_evidence?.quantity ?? [];
-              return (
-                <tr key={idx}>
-                  <td><strong>{item.sku}</strong></td>
-                  <td>{item.quantity}</td>
-                  <td>{item.unit}</td>
-                  <td>
-                    {skuEvidence.concat(qtyEvidence).map((ev, evIdx) => (
-                      <span key={evIdx} className="p1-evidence-tag">
-                        "{String(ev.quote ?? '')}"
+        {(!context.requested_items || context.requested_items.length === 0) ? (
+          (context.field_evidence?.sku?.length || context.field_evidence?.quantity?.length) ? (
+            <div className="p1-unmapped-candidates-alert" style={{ padding: '12px 14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#b45309', fontWeight: 600, marginBottom: '6px' }}>
+                <span className="p1-orbyte-status-badge is-attention">Awaiting Mapping</span>
+                <span>Unverified item candidates detected from source text:</span>
+              </div>
+              <ul style={{ margin: '4px 0 8px 18px', padding: 0, color: '#78350f', fontSize: '13px' }}>
+                {context.field_evidence?.sku?.map((ev, i) => {
+                  const qty = context.field_evidence?.quantity?.[i]?.normalized_value ?? context.field_evidence?.quantity?.[i]?.quote ?? '';
+                  const unit = context.field_evidence?.unit?.[i]?.normalized_value ?? context.field_evidence?.unit?.[i]?.quote ?? '';
+                  return (
+                    <li key={i}>
+                      <strong>"{ev.quote ?? ev.normalized_value}"</strong>
+                      {qty ? ` — Quantity: ${qty}` : ''}
+                      {unit ? ` ${unit}` : ''}
+                      <span style={{ color: '#92400e', fontSize: '11px', marginLeft: '6px' }}>
+                        [{String(ev.start ?? '?')}:{String(ev.end ?? '?')}] ({ev.method})
                       </span>
-                    ))}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    </li>
+                  );
+                })}
+              </ul>
+              <span style={{ fontSize: '12px', color: '#92400e' }}>
+                These items are not yet mapped to authorized catalog SKUs. Click <strong>Review Order</strong> to map them to catalog products.
+              </span>
+            </div>
+          ) : (
+            <p className="p1-subtle-text" style={{ padding: '8px 0', color: '#64748b' }}>No products identified in this context.</p>
+          )
+        ) : (
+          <table className="p1-items-table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Quantity</th>
+                <th>Unit</th>
+                <th>Evidence Quotes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(context.requested_items ?? []).map((item, idx) => {
+                const skuEvidence = context.field_evidence?.sku ?? [];
+                const qtyEvidence = context.field_evidence?.quantity ?? [];
+                return (
+                  <tr key={idx}>
+                    <td><strong>{item.sku}</strong></td>
+                    <td>{item.quantity}</td>
+                    <td>{item.unit}</td>
+                    <td>
+                      {skuEvidence.concat(qtyEvidence).map((ev, evIdx) => (
+                        <span key={evIdx} className="p1-evidence-tag">
+                          "{String(ev.quote ?? '')}"
+                        </span>
+                      ))}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
 
         {context.special_instructions && (
           <div className="p1-instructions-box">

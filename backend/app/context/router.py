@@ -47,7 +47,7 @@ def local_config(tenant: Tenant) -> DevelopmentContext:
     return tenant
 
 
-@router.get("/v1/context-catalog", response_model=list[dict[str, str]])
+@router.get("/v1/contexts/catalog", response_model=list[dict[str, str]])
 def review_catalog(tenant: Tenant, repository: Repository) -> list[dict[str, str]]:
     return approved_review_products(tenant.tenant_id, getattr(repository, "catalog", ()))
 
