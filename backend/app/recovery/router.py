@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from typing import Annotated
+import os
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext, get_db, get_request_context
 from app.core.dependencies import RequestContext as CoreRequestContext
 from app.core.errors import DomainError
+from app.feasibility.api_dependencies import require_isolated_e2e_key
 
 from .integrations import (
     ActorContext,
@@ -29,6 +31,8 @@ from .models import (
     RecoveryTriggerCaseView,
 )
 from .service import default_recovery_planner, demo_recovery_planner
+from .durable_plans import DurablePlanService
+from .persistence import SqlAlchemyRecoveryRepository
 
 router = APIRouter(prefix="/v1/recovery", tags=["recovery"])
 Context = Annotated[RequestContext, Depends(get_request_context)]
@@ -76,6 +80,18 @@ def _planner_for_plan(tenant_id: str, plan_id: str):
 
 @router.get("/cases/{commitment_id}", response_model=RecoveryCase)
 def get_recovery_case(commitment_id: str, context: Context, db: Db) -> RecoveryCase:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1" and commitment_id != "demo":
+        case = SqlAlchemyRecoveryRepository().get_active_case(db, context.tenant_id, commitment_id)
+        if case is None:
+            raise DomainError("RECOVERY_CASE_NOT_FOUND", "Recovery case was not found", status_code=404)
+        if case.trigger_assessment is None or case.operational_snapshot is None:
+            raise DomainError(
+                "RECOVERY_EVALUATION_INPUTS_PENDING", "Recovery planning inputs are pending",
+                status_code=409,
+                details={"recovery_case_id": case.case_id,
+                         "trigger_case_path": f"/v1/recovery/cases/{commitment_id}/trigger"},
+            )
+        return case
     planner, requested_id = _planner_for_commitment(commitment_id)
     case = planner.get_case(context.tenant_id, requested_id, db=db, request_context=context)
     if case.status == RecoveryCaseStatus.COMPLETED:
@@ -102,6 +118,20 @@ def get_recovery_case(commitment_id: str, context: Context, db: Db) -> RecoveryC
 
 @router.get("/cases/{commitment_id}/trigger", response_model=RecoveryTriggerCaseView)
 def get_trigger_only_recovery_case(commitment_id: str, context: Context, db: Db) -> RecoveryTriggerCaseView:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1" and commitment_id != "demo":
+        case = SqlAlchemyRecoveryRepository().get_active_case(db, context.tenant_id, commitment_id)
+        if case is None:
+            raise DomainError("RECOVERY_CASE_NOT_FOUND", "Recovery case was not found", status_code=404)
+        if case.trigger_assessment is not None and case.operational_snapshot is not None:
+            raise DomainError("TRIGGER_ONLY_RECOVERY_CASE_NOT_FOUND", "Case has planning inputs", status_code=404)
+        return RecoveryTriggerCaseView(
+            case_id=case.case_id, tenant_id=case.tenant_id, commitment_id=case.commitment_id,
+            case_version=case.case_version, commitment_version=case.commitment_version,
+            status=case.status, evaluation_readiness="AWAITING_EVALUATION_INPUTS",
+            missing_evaluation_inputs=["P2_FEASIBILITY_ASSESSMENT", "AUTHORITATIVE_OPERATIONAL_SNAPSHOT"],
+            trigger_events=case.trigger_events, resolution_events=case.resolution_events,
+            storage_mode=case.storage_mode, created_at=case.created_at, updated_at=case.updated_at,
+        )
     planner, requested_id = _planner_for_commitment(commitment_id)
     case = planner.get_case(context.tenant_id, requested_id, db=db, request_context=context)
     if not case.trigger_events or (
@@ -142,7 +172,16 @@ def generate_recovery_plans(
     request: GenerateRecoveryRequest,
     context: Context,
     db: Db,
+    x_isolated_e2e_key: str | None = Header(default=None),
 ) -> RecoveryCase:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1" and commitment_id != "demo":
+        require_isolated_e2e_key(x_isolated_e2e_key)
+        DurablePlanService().generate(
+            db, context, commitment_id,
+            expected_commitment_version=request.expected_commitment_version,
+            assessment_id=request.assessment_id, preferences=request.preferences,
+        )
+        return get_recovery_case(commitment_id, context, db)
     planner, requested_id = _planner_for_commitment(commitment_id)
     return planner.generate(
         context.tenant_id,
@@ -159,12 +198,20 @@ def generate_recovery_plans(
 
 @router.get("/cases/{commitment_id}/plans", response_model=RecoveryPlanList)
 def list_recovery_plans(commitment_id: str, context: Context, db: Db) -> RecoveryPlanList:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1" and commitment_id != "demo":
+        case = get_recovery_case(commitment_id, context, db)
+        return RecoveryPlanList(
+            tenant_id=context.tenant_id, commitment_id=commitment_id,
+            case_id=case.case_id, plans=DurablePlanService().list(db, context, commitment_id),
+        )
     planner, requested_id = _planner_for_commitment(commitment_id)
     return planner.list_plans(context.tenant_id, requested_id, db=db, request_context=context)
 
 
 @router.get("/plans/{plan_id}/evaluation", response_model=PlanEvaluation)
 def get_plan_evaluation(plan_id: str, context: Context, db: Db) -> PlanEvaluation:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
+        return DurablePlanService().get_plan(db, context, plan_id).evaluation
     return _planner_for_plan(context.tenant_id, plan_id).get_plan(
         context.tenant_id, plan_id, db=db, request_context=context
     ).evaluation
@@ -172,6 +219,8 @@ def get_plan_evaluation(plan_id: str, context: Context, db: Db) -> PlanEvaluatio
 
 @router.get("/plans/{plan_id}", response_model=RecoveryPlanVersion)
 def get_recovery_plan(plan_id: str, context: Context, db: Db) -> RecoveryPlanVersion:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
+        return DurablePlanService().get_plan(db, context, plan_id)
     return _planner_for_plan(context.tenant_id, plan_id).get_plan(
         context.tenant_id, plan_id, db=db, request_context=context
     )

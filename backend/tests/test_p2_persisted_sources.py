@@ -31,6 +31,7 @@ from app.feasibility.production import EvaluationSnapshot
 from app.feasibility.production_fixtures import build_production_example
 from app.feasibility.pipeline_fixtures import build_pipeline_example
 from app.recovery.persistence import RecoveryCaseRecord, RecoveryCaseTriggerRecord
+from app.recovery.durable_plans import DurablePlanService, RecoveryPlanRecord
 from app.worker import configure_isolated_subscribers
 
 
@@ -274,6 +275,54 @@ def test_worker_binding_is_closed_without_isolated_key(monkeypatch: pytest.Monke
     assert dispatcher.get_subscribers("commitment.at_risk") == []
 
 
+def test_case_generates_two_persisted_p2_checked_plans(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs, context = _seed_delay(session)
+    PersistedSupplierDelayProcessor().process(session, context, inputs.request)
+    dispatcher = OutboxDispatcher()
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E", "1")
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E_KEY", "synthetic-private-key-with-at-least-32-chars")
+    configure_isolated_subscribers(dispatcher)
+    assert dispatcher.process_outbox_batch(session).failed_count == 0
+    core = session.get(CommitmentRecord, (context.tenant_id, "com-001"))
+    plans = DurablePlanService().generate(
+        session, context, "com-001", expected_commitment_version=core.commitment_version,
+        assessment_id=None,
+    )
+    assert len(plans) == 2
+    assert {plan.strategy.value for plan in plans} == {
+        "ALTERNATIVE_SUPPLY", "RESCHEDULE_PARTIAL_FULFILMENT",
+    }
+    assert all(plan.evaluation.validation_source.value == "REAL_P2_VALIDATED" for plan in plans)
+    assert next(plan for plan in plans if plan.option_id == "alternative_supply").feasibility_status == "INFEASIBLE"
+    assert next(plan for plan in plans if plan.option_id == "revised_schedule").feasibility_status == "CONDITIONAL"
+    assert session.query(RecoveryPlanRecord).count() == 2
+    assert len(DurablePlanService().list(session, context, "com-001")) == 2
+    assert len(DurablePlanService().generate(
+        session, context, "com-001", expected_commitment_version=core.commitment_version,
+        assessment_id=plans[0].based_on_assessment_id,
+    )) == 2
+    assert session.query(RecoveryPlanRecord).count() == 2
+    with Session(session.bind) as restarted:
+        reloaded = DurablePlanService().list(restarted, context, "com-001")
+        assert {plan.plan_id for plan in reloaded} == {plan.plan_id for plan in plans}
+        assert reloaded[0].based_on_assessment_id == plans[0].based_on_assessment_id
+        wrong = RequestContext(
+            tenant_id="tenant_other", actor_id="service_p2", actor_role="SERVICE",
+            correlation_id="corr_wrong_tenant",
+        )
+        with pytest.raises(DomainError) as error:
+            DurablePlanService().list(restarted, wrong, "com-001")
+        assert error.value.code == "RECOVERY_CASE_NOT_FOUND"
+    with pytest.raises(DomainError) as error:
+        DurablePlanService().generate(
+            session, context, "com-001", expected_commitment_version=core.commitment_version + 1,
+            assessment_id=None,
+        )
+    assert error.value.code == "COMMITMENT_VERSION_CONFLICT"
+
+
 def test_sqlite_alembic_0009_has_source_constraints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Portable migration check; this is not PostgreSQL verification."""
     backend = Path(__file__).resolve().parents[1]
@@ -285,10 +334,10 @@ def test_sqlite_alembic_0009_has_source_constraints(tmp_path: Path, monkeypatch:
     command.upgrade(cfg, "head")
     engine = create_engine(url)
     try:
-        assert {"p2_operational_snapshots", "p2_supplier_delay_events"} <= set(inspect(engine).get_table_names())
+        assert {"p2_operational_snapshots", "p2_supplier_delay_events", "recovery_plan_versions"} <= set(inspect(engine).get_table_names())
         with engine.begin() as connection:
             connection.execute(text("PRAGMA foreign_keys=ON"))
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0009_p2_operational_sources"
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0010_p3_recovery_plans"
             connection.execute(text("""
                 INSERT INTO p2_operational_snapshots
                 (tenant_id,snapshot_version,snapshot_id,payload,is_current,created_at)
