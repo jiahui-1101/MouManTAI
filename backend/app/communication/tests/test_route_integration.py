@@ -49,6 +49,12 @@ def test_main_registers_every_existing_p4_route_once_without_extra_prefix():
         ("GET", "/v1/communications/runtime-capabilities"),
         ("GET", "/v1/communications/recipient-preferences"),
         ("POST", "/v1/communications/recipient-preferences"),
+        ("GET", "/v1/confirmations"),
+        ("POST", "/v1/confirmations"),
+        ("GET", "/v1/confirmations/{confirmation_id}"),
+        ("GET", "/v1/confirmations/{confirmation_id}/attempts"),
+        ("POST", "/v1/confirmations/{confirmation_id}/respond"),
+        ("POST", "/v1/confirmations/{confirmation_id}/revoke"),
         ("GET", "/v1/communications/{communication_id}/outbound"),
         ("GET", "/v1/communications/{communication_id}/drafts/{draft_id}/send-eligibility"),
         ("POST", "/v1/communications/{communication_id}/drafts/{draft_id}/send"),
@@ -88,7 +94,7 @@ def test_summary_dispatches_to_static_endpoint_not_communication_id(main_client)
 
 def test_registered_openapi_exposes_existing_draft_retrieval_once():
     schema = app.openapi()
-    for route in router.routes:
+    for route in exposed_routes(router.routes):
         assert route.path in schema["paths"]
         for method in route.methods:
             assert method.lower() in schema["paths"][route.path]

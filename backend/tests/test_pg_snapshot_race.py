@@ -35,10 +35,11 @@ def test_postgresql_concurrent_source_promotion_rejects_stale_assessment():
     configured = os.getenv("TEST_DATABASE_URL")
     if not configured:
         pytest.skip("PostgreSQL race NOT VERIFIED: approved TEST_DATABASE_URL absent")
+    assert os.getenv("TEST_DATABASE_APPROVED") == "1"
     url = make_url(configured)
     assert url.get_backend_name() == "postgresql"
     assert url.host in {"127.0.0.1", "localhost"}
-    assert url.database == "p4_test_pr16_corrections"
+    assert (url.database or "").startswith("p4_test_")
     engine = create_engine(configured)
     tenant = f"tenant_race_{uuid4().hex}"
     source, original = build_production_example()
