@@ -95,11 +95,9 @@ def get_gliner():
     _device = "cuda" if torch.cuda.is_available() else "cpu"
     t0 = time.perf_counter()
     model_id, revision = MODEL_CONFIG["gliner"]
-    _gliner_model = GLiNER.from_pretrained(
-        model_id,
-        revision=revision,
-        words_splitter=OffsetSplitter(),
-    )
+    _gliner_model = GLiNER.from_pretrained(model_id)
+    if hasattr(_gliner_model, 'data_processor'):
+        _gliner_model.data_processor.words_splitter = OffsetSplitter()
     _gliner_model.to(_device)
     _gliner_model.eval()
     _gliner_tokenizer = _gliner_model.data_processor.transformer_tokenizer
