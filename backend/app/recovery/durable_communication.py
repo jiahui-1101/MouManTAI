@@ -13,7 +13,7 @@ from app.core.errors import DomainError
 from app.core.events import create_domain_event
 from app.core.manager_approval import ManagerApprovalService, trusted_isolated_manager
 from app.core.models import CommitmentProposalRecord, CommitmentRecord, OutboxEventRecord
-from app.core.schemas import CommitmentTerms, ContractModel, ProposalCreateRequest
+from app.core.schemas import AgreementState, CommitmentTerms, ContractModel, ProposalCreateRequest
 from app.core.service import CommitmentService
 from app.feasibility.persisted_sources import read_snapshot
 from app.feasibility.production import ProposedChanges
@@ -21,7 +21,7 @@ from app.feasibility.service import evaluate
 
 from .durable_plans import RecoveryPlanRecord
 from .models import RecoveryPlanVersion
-from .proposal_identity import require_proposal_binding
+from .proposal_identity import proposal_id_for_plan, require_proposal_binding
 
 
 class RequestCommunicationInput(ContractModel):
@@ -131,7 +131,23 @@ class DurableCommunicationHandoff:
         if source is None or source.commitment_version != plan.evaluated_commitment_version:
             raise DomainError("P2_COMMITMENT_BINDING_MISMATCH", "P2 source changed", status_code=409)
         current = CommitmentService().get(db, context, plan.commitment_id)
-        historical = current.model_copy(update={"commitment_version": plan.evaluated_commitment_version})
+        if current.agreement_state == AgreementState.OFFERED:
+            prior_offer = db.scalar(select(CommitmentProposalRecord).where(
+                CommitmentProposalRecord.tenant_id == context.tenant_id,
+                CommitmentProposalRecord.commitment_id == plan.commitment_id,
+                CommitmentProposalRecord.status == "ACTIVE",
+                CommitmentProposalRecord.proposal_version < proposal_version,
+            ))
+            if prior_offer is None or prior_offer.proposal_id != proposal_id_for_plan(
+                plan_id, prior_offer.proposal_version,
+            ):
+                raise DomainError("PROPOSAL_SOURCE_CONFLICT", "No prior active offer supports replanning", status_code=409)
+        elif current.agreement_state != AgreementState.CONFIRMED:
+            raise DomainError("PROPOSAL_SOURCE_CONFLICT", "Commitment is not eligible for a recovery offer", status_code=409)
+        historical = current.model_copy(update={
+            "commitment_version": plan.evaluated_commitment_version,
+            "agreement_state": AgreementState.CONFIRMED,
+        })
         proposed = ProposedChanges.model_validate(typed.actions[0].parameters["proposal"])
         result = evaluate(snapshot, proposed, historical)
         if (result.status, result.solver_status.value, result.snapshot_id) != (

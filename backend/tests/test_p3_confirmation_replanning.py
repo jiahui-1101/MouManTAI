@@ -8,6 +8,8 @@ import pytest
 from sqlalchemy import select
 
 from app.communication.confirmation_schemas import CreateConfirmation
+from app.communication.schemas import CreateCommunicationRequest
+from app.communication.service import CommunicationRequestService
 from app.communication.tests.test_confirmation_integration import (
     confirmation_service,
     fixture_sent,
@@ -17,9 +19,11 @@ from app.communication.tests.test_requests import NOW
 from app.communication.tests.test_review import MANAGER
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
+from app.core.manager_approval import ManagerApprovalService
 from app.core.models import (
     AuditEventRecord,
     CommitmentProposalRecord,
+    CommitmentRecord,
     OutboxEventRecord,
     ProcessedEventRecord,
 )
@@ -42,6 +46,7 @@ from app.recovery.models import RecoveryCaseStatus, RecoveryStrategy
 from app.recovery.persistence import RecoveryCaseRecord
 from app.recovery.proposal_identity import proposal_id_for_plan, require_proposal_binding
 from app.recovery.service import RecoveryPlanner
+from tests.test_p2_persisted_sources import _prepared_review
 
 
 def test_canonical_proposal_identity_preserves_v1_and_uniquely_versions_successors():
@@ -371,6 +376,104 @@ def test_v1_approval_cannot_authorize_a_v2_communication_handoff(session, monkey
         )
     assert error.value.code == "APPROVAL_SCOPE_CONFLICT"
     assert session.get(CommitmentProposalRecord, (case.tenant_id, "plan_001_v2")) is not None
+
+
+def test_p5_writer_and_p3_handoff_bind_real_v2_approval_and_revoke(session, monkeypatch):
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E_MANAGER_ID", manager.actor_id)
+    approval_service = ManagerApprovalService()
+    v1 = approval_service.decide(
+        session, manager, key, plan.plan_id, decision="APPROVED",
+        expected_plan_version=1, expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="p3-v1-approval", reason="Authorize original plan",
+    )
+    v1_handoff = DurableCommunicationHandoff().request(
+        session, manager, key, plan.plan_id,
+        RequestCommunicationInput(
+            expected_plan_version=1, expected_commitment_version=2,
+            expected_snapshot_version=plan.snapshot_version,
+        ),
+    )
+    assert (v1_handoff.proposal_id, v1_handoff.proposal_version) == (plan.plan_id, 1)
+    prior = session.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 1))
+    assert prior is not None
+    payload = dict(prior.payload)
+    payload.update({
+        "plan_version": 2,
+        "proposal_id": proposal_id_for_plan(plan.plan_id, 2),
+        "proposal_version": 2,
+        "core_commitment_version": v1_handoff.commitment_version,
+        "evaluation": {**payload["evaluation"], "plan_version": 2},
+    })
+    prior.status = "SUPERSEDED"
+    successor = RecoveryPlanRecord(
+        tenant_id=prior.tenant_id, plan_id=prior.plan_id, plan_version=2,
+        case_id=prior.case_id, commitment_id=prior.commitment_id,
+        assessment_id=prior.assessment_id, snapshot_id=prior.snapshot_id,
+        snapshot_version=prior.snapshot_version,
+        core_commitment_version=v1_handoff.commitment_version,
+        evaluated_commitment_version=prior.evaluated_commitment_version,
+        payload=payload, status="PENDING_APPROVAL", created_at=datetime.now(UTC),
+    )
+    session.add(successor)
+    session.commit()
+    command = RequestCommunicationInput(
+        expected_plan_version=2, expected_commitment_version=v1_handoff.commitment_version,
+        expected_snapshot_version=plan.snapshot_version,
+    )
+    with pytest.raises(DomainError) as stale:
+        DurableCommunicationHandoff().request(session, manager, key, plan.plan_id, command)
+    assert stale.value.code == "APPROVAL_SCOPE_CONFLICT"
+
+    v2 = approval_service.decide(
+        session, manager, key, plan.plan_id, decision="APPROVED",
+        expected_plan_version=2, expected_commitment_version=v1_handoff.commitment_version,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="p3-v2-approval", reason="Authorize successor terms",
+    )
+    assert (v1.proposal_id, v1.proposal_version) == (plan.plan_id, 1)
+    assert (v2.plan_id, v2.plan_version, v2.proposal_id, v2.proposal_version) == (
+        plan.plan_id, 2, proposal_id_for_plan(plan.plan_id, 2), 2,
+    )
+    assert v2.approved_amount == plan.estimated_extra_cost
+    assert approval_service.decide(
+        session, manager, key, plan.plan_id, decision="APPROVED",
+        expected_plan_version=2, expected_commitment_version=v1_handoff.commitment_version,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="p3-v2-approval", reason="Authorize successor terms",
+    ).approval_id == v2.approval_id
+    original_terms = dict(session.get(CommitmentRecord, (manager.tenant_id, plan.commitment_id)).terms)
+    handoff = DurableCommunicationHandoff().request(session, manager, key, plan.plan_id, command)
+    assert (handoff.plan_id, handoff.plan_version, handoff.proposal_id, handoff.proposal_version) == (
+        plan.plan_id, 2, v2.proposal_id, 2,
+    )
+    proposal = session.get(CommitmentProposalRecord, (manager.tenant_id, v2.proposal_id))
+    assert proposal is not None and proposal.status == "ACTIVE"
+    original_proposal = session.get(CommitmentProposalRecord, (manager.tenant_id, v1.proposal_id))
+    assert original_proposal is not None and original_proposal.status == "SUPERSEDED"
+    assert proposal.revised_terms == v2.approved_terms == handoff.approved_terms.model_dump(mode="json")
+    assert session.get(CommitmentRecord, (manager.tenant_id, plan.commitment_id)).terms == original_terms
+    assert DurableCommunicationHandoff().request(session, manager, key, plan.plan_id, command).source_event_id == handoff.source_event_id
+    with pytest.raises(DomainError) as old_confirmation:
+        CommunicationRequestService(session).read_current_basis(
+            RequestContext(manager.tenant_id, "user_manager_01", "MANAGER", "corr_stale_v1"),
+            CreateCommunicationRequest(source_event_id=v1_handoff.source_event_id),
+            datetime.now(UTC),
+        )
+    assert old_confirmation.value.code == "COMMITMENT_VERSION_CONFLICT"
+
+    revoked = approval_service.decide(
+        session, manager, key, plan.plan_id, decision="REVOKED",
+        expected_plan_version=2, expected_commitment_version=handoff.commitment_version,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="p3-v2-revocation", reason="Withdraw successor offer",
+    )
+    assert (revoked.proposal_id, revoked.proposal_version) == (v2.proposal_id, 2)
+    assert session.get(type(v1), (manager.tenant_id, v1.approval_id)).proposal_id == plan.plan_id
+    with pytest.raises(DomainError) as withdrawn:
+        DurableCommunicationHandoff().request(session, manager, key, plan.plan_id, command)
+    assert withdrawn.value.code == "APPROVAL_NOT_ACTIVE"
 
 
 def test_stale_response_is_reconciled_once_without_invalidating_newer_plan(session, monkeypatch):
