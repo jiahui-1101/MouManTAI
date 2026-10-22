@@ -812,6 +812,27 @@ def test_manager_approval_rejects_wrong_tenant_and_plan_payload_binding(
     assert session.query(AuditEventRecord).count() == audit_count
 
 
+def test_manager_approval_rejects_superseded_plan_without_writing_evidence(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    row = session.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 1))
+    assert row is not None
+    row.status = "SUPERSEDED"
+    session.commit()
+    audit_count = session.query(AuditEventRecord).count()
+    with pytest.raises(DomainError) as inactive:
+        ManagerApprovalService().decide(
+            session, manager, key, plan.plan_id, decision="APPROVED",
+            expected_plan_version=1, expected_commitment_version=2,
+            expected_snapshot_version=plan.snapshot_version,
+            idempotency_key="superseded-plan", reason="Must not revive old plan",
+        )
+    assert inactive.value.code == "PLAN_VERSION_NOT_ACTIVE"
+    assert session.query(ManagerApprovalRecord).count() == 0
+    assert session.query(AuditEventRecord).count() == audit_count
+
+
 def test_sqlite_alembic_0009_has_source_constraints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Portable migration check; this is not PostgreSQL verification."""
     backend = Path(__file__).resolve().parents[1]

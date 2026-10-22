@@ -142,6 +142,8 @@ class ManagerApprovalService:
         except ValidationError as exc:
             raise DomainError("RECOVERY_PLAN_BINDING_MISMATCH", "Persisted Recovery plan is invalid", status_code=409) from exc
         proposal_id, proposal_version = _recovery_proposal_binding(plan, typed)
+        if decision == "APPROVED" and plan.status != "PENDING_APPROVAL":
+            raise DomainError("PLAN_VERSION_NOT_ACTIVE", "Recovery plan version is no longer actionable", status_code=409)
         prior = db.scalar(select(ManagerApprovalRecord).where(
             ManagerApprovalRecord.tenant_id == context.tenant_id,
             ManagerApprovalRecord.idempotency_key == idempotency_key,
