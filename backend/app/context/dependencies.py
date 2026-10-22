@@ -56,4 +56,5 @@ def resolve_actor(
 
 @lru_cache(maxsize=1)
 def local_repository() -> MessageRepository:
-    return PostgresMessageRepository(create_p1_engine())
+    from .product_catalog import load_product_catalog
+    return PostgresMessageRepository(create_p1_engine(), catalog=load_product_catalog())
