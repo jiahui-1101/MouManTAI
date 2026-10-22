@@ -259,7 +259,6 @@ class OutboxDispatcher:
                         processed_at=_now(),
                     )
                     session.add(processed)
-                    session.commit()
                 except Exception as exc:
                     session.rollback()
                     event_failed = True

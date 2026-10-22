@@ -52,6 +52,7 @@ from app.core.schemas import (
     RecoveryState,
     RequestedItem,
     RiskState,
+    SolverStatus,
 )
 
 from app.core.service import CommitmentService
@@ -1252,29 +1253,43 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
     assert refreshed_c.agreement_state == "CONFIRMED"
 
     # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # Boundary B: Outbox Consumer Path Rollback & Atomic Case/Trigger/ProcessedEvent
     # -------------------------------------------------------------------------
-    # Emitting an at_risk outbox event to be dispatched to p3.recovery_trigger.v1
-    event_id = f"evt_risk_handshake_{_now().timestamp()}"
-    outbox_event = OutboxEventRecord(
-        event_id=event_id,
+    # Exercise genuine CommitmentService.assess() transition to AT_RISK
+    assessment_id = f"fa_hs_{int(_now().timestamp())}"
+    fa_assessment = FeasibilityAssessment(
+        assessment_id=assessment_id,
         tenant_id=context.tenant_id,
-        event_type=CoreEventType.COMMITMENT_AT_RISK.value,
         commitment_id=c.commitment_id,
         commitment_version=refreshed_c.commitment_version,
-        correlation_id=context.correlation_id,
-        occurred_at=_now(),
-        payload={
-            "tenant_id": context.tenant_id,
-            "commitment_id": c.commitment_id,
-            "risk_state": "AT_RISK",
-            "reason": "Supplier delivery delayed",
-        },
-        status=OutboxStatus.PENDING.value,
-        attempts=0,
+        snapshot_version=1,
+        status=FeasibilityState.INFEASIBLE,
+        solver_status=SolverStatus.COMPLETED,
+        constraints=[ConstraintReason(code="MATERIAL_SHORTAGE", resource_id="res_patty_01", severity="HARD")],
+        affected_commitment_ids=[],
+        evidence_refs=["ev_supplier_delay_01"],
+        assessed_at=_now(),
     )
-    session.add(outbox_event)
-    session.commit()
+    service_ctx = RequestContext(
+        tenant_id=context.tenant_id,
+        actor_id="service_p2_writer",
+        actor_role="SERVICE",
+        correlation_id=context.correlation_id,
+    )
+    facade.service.assess(session, service_ctx, c.commitment_id, fa_assessment, commit=True)
+
+    # Locate the genuine outbox event emitted by CommitmentService.assess
+    outbox_event = session.scalar(
+        select(OutboxEventRecord).where(
+            OutboxEventRecord.tenant_id == context.tenant_id,
+            OutboxEventRecord.commitment_id == c.commitment_id,
+            OutboxEventRecord.event_type == CoreEventType.COMMITMENT_AT_RISK.value,
+            OutboxEventRecord.status == OutboxStatus.PENDING.value,
+        ).order_by(OutboxEventRecord.occurred_at.desc())
+    )
+    assert outbox_event is not None
+    event_id = outbox_event.event_id
 
     dispatcher = OutboxDispatcher()
     # Satisfy D-017 policy for confirmed event
@@ -1294,12 +1309,13 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
 
     def mock_p3_consumer(db: Session, event: OutboxEventRecord) -> None:
         nonlocal should_fail
+        now_dt = _now()
         if has_recovery_tables:
             db.execute(
                 text(
                     "INSERT INTO recovery_cases (tenant_id, case_id, commitment_id, risk_episode_id, opening_event_id, "
                     "status, case_version, commitment_version, payload_schema_version, case_payload, resolution_refs, created_at, updated_at) "
-                    "VALUES (:tenant_id, :case_id, :commitment_id, :risk_ep, :open_evt, 'OPEN', 1, 1, 1, '{}', '[]', NOW(), NOW())"
+                    "VALUES (:tenant_id, :case_id, :commitment_id, :risk_ep, :open_evt, 'OPEN', 1, :commitment_version, 1, '{}', '[]', :now, :now)"
                 ),
                 {
                     "tenant_id": event.tenant_id,
@@ -1307,19 +1323,26 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
                     "commitment_id": event.commitment_id,
                     "risk_ep": f"ep_{case_id}",
                     "open_evt": event.event_id,
+                    "commitment_version": event.commitment_version,
+                    "now": now_dt,
                 },
             )
             db.execute(
                 text(
                     "INSERT INTO recovery_case_triggers (tenant_id, event_id, case_id, commitment_id, commitment_version, "
                     "assessment_id, assessment_provenance_status, snapshot_version, constraints, affected_commitment_ids, evidence_refs, correlation_id, occurred_at, event_digest) "
-                    "VALUES (:tenant_id, :event_id, :case_id, :commitment_id, 1, 'ass_01', 'INFEASIBLE', 1, '[]', '[]', '[]', 'corr_01', NOW(), 'digest_01')"
+                    "VALUES (:tenant_id, :event_id, :case_id, :commitment_id, :commitment_version, :assessment_id, 'INFEASIBLE', :snapshot_version, '[]', '[]', '[]', :correlation_id, :now, 'digest_01')"
                 ),
                 {
                     "tenant_id": event.tenant_id,
                     "event_id": trigger_id,
                     "case_id": case_id,
                     "commitment_id": event.commitment_id,
+                    "commitment_version": event.commitment_version,
+                    "assessment_id": event.payload.get("assessment_id", assessment_id),
+                    "snapshot_version": event.payload.get("snapshot_version", 1),
+                    "correlation_id": event.correlation_id or "corr_01",
+                    "now": now_dt,
                 },
             )
         if should_fail:

@@ -81,7 +81,8 @@ def test_complete_9_endpoint_surface_and_patch_forbidden(client: TestClient) -> 
     prop_body = proposal_res.json()
     assert prop_body["commitment"]["agreement_state"] == "OFFERED"
     assert prop_body["commitment"]["commitment_version"] == 2
-    assert prop_body["commitment"]["terms"]["quantity"] == "60"
+    # D-015: Offering a proposal preserves existing terms until explicit acceptance
+    assert prop_body["commitment"]["terms"]["quantity"] == "50"
 
     # 5. POST /v1/commitments/{commitment_id}/confirm-proposal
     confirm_res = client.post(
@@ -100,6 +101,8 @@ def test_complete_9_endpoint_surface_and_patch_forbidden(client: TestClient) -> 
     confirm_body = confirm_res.json()
     assert confirm_body["commitment"]["agreement_state"] == "CONFIRMED"
     assert confirm_body["commitment"]["commitment_version"] == 3
+    # D-015: Revised terms applied upon explicit customer acceptance
+    assert confirm_body["commitment"]["terms"]["quantity"] == "60"
     assert confirm_body["domain_event"]["event_type"] == "commitment.confirmed"
 
     # 6. POST /v1/commitments/{commitment_id}/record-fulfilment
