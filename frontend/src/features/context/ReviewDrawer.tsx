@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ContextReviewRequest, OrderContextRecord, RequestedItem } from './types';
-import { operationalApi } from './operationalApi';
+import { getReviewCatalog, operationalApi } from './operationalApi';
+import { reviewCandidates } from './reviewCandidates';
 
 export interface ReviewDrawerProps {
   context: OrderContextRecord;
@@ -10,10 +11,13 @@ export interface ReviewDrawerProps {
   onUpdated: (updated: OrderContextRecord) => void;
 }
 
-export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDrawerProps) {
-  if (!isOpen) return null;
+export function ReviewDrawer(props: ReviewDrawerProps) {
+  if (!props.isOpen) return null;
+  return <ReviewDrawerForm key={`${props.context.context_id}:${props.context.context_version}`} {...props} />;
+}
 
-  const evidenceSku = (context.field_evidence?.sku?.[0]?.normalized_value || context.field_evidence?.sku?.[0]?.quote || '') as string;
+function ReviewDrawerForm({ context, onClose, onUpdated }: ReviewDrawerProps) {
+
   const evidenceQty = (context.field_evidence?.quantity?.[0]?.normalized_value || context.field_evidence?.quantity?.[0]?.quote || '') as string;
   const evidenceUnit = (context.field_evidence?.unit?.[0]?.normalized_value || context.field_evidence?.unit?.[0]?.quote || '') as string;
   const evidenceDelivery = (context.field_evidence?.requested_delivery_at?.[0]?.normalized_value || context.field_evidence?.requested_delivery_at?.[0]?.quote || '') as string;
@@ -21,17 +25,33 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
 
   const initialItems: RequestedItem[] = (context.requested_items && context.requested_items.length > 0)
     ? context.requested_items.map(it => ({ sku: it.sku || '', quantity: it.quantity || '', unit: it.unit || '' }))
-    : [{ sku: evidenceSku || '', quantity: evidenceQty || '', unit: evidenceUnit || '' }];
+    : [{ sku: '', quantity: evidenceQty || '', unit: evidenceUnit || '' }];
 
   const [items, setItems] = useState<RequestedItem[]>(initialItems);
   const [deliveryAt, setDeliveryAt] = useState(
     context.requested_delivery_at || (evidenceDelivery.includes('T') ? evidenceDelivery : (evidenceDelivery && /^\d{4}-\d{2}-\d{2}$/.test(evidenceDelivery) ? evidenceDelivery : ''))
   );
-  const [qualifier, setQualifier] = useState(context.delivery_qualifier || evidenceQualifier || (evidenceDelivery && !evidenceDelivery.includes('T') ? 'DATE_ONLY' : ''));
+  const initialDelivery = context.requested_delivery_at || (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(evidenceDelivery) ? evidenceDelivery : '');
+  const initialQualifier = context.delivery_qualifier || evidenceQualifier || (/^\d{4}-\d{2}-\d{2}$/.test(evidenceDelivery) ? 'DATE_ONLY' : '');
+  const [qualifier, setQualifier] = useState(initialQualifier);
   const [specialInstructions, setSpecialInstructions] = useState(context.special_instructions || '');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<{ sku: string; unit: string }[]>([]);
+  const [catalogRequest] = useState(getReviewCatalog);
+  const [catalogState, setCatalogState] = useState('loading');
+  const [targetItem, setTargetItem] = useState('');
+  const [conflictsReviewed, setConflictsReviewed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    catalogRequest.then(products => {
+      if (!Array.isArray(products)) throw new Error('Invalid catalog');
+      if (active) { setCatalog(products); setCatalogState('ready'); }
+    }).catch(() => { if (active) setCatalogState('unavailable'); });
+    return () => { active = false; };
+  }, [catalogRequest]);
 
   const updateItem = (index: number, field: keyof RequestedItem, value: string) => {
     setItems(prev => {
@@ -42,7 +62,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
   };
 
   const addItem = () => {
-    setItems(prev => [...prev, { sku: '', quantity: '', unit: 'pcs' }]);
+    setItems(prev => [...prev, { sku: '', quantity: '', unit: '' }]);
   };
 
   const removeItem = (index: number) => {
@@ -50,22 +70,10 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
     setItems(prev => prev.filter((_, i) => i !== index));
   };
 
-  const candidateProposals: { field: string; label: string; value: string; method: string }[] = [];
-  if (context.field_evidence) {
-    for (const [key, evList] of Object.entries(context.field_evidence)) {
-      if (Array.isArray(evList)) {
-        for (const ev of evList) {
-          const val = String(ev.normalized_value || ev.quote || '');
-          if (val && (ev.method === 'MODEL' || ev.validation_status === 'UNRESOLVED')) {
-            const label = key === 'sku' ? 'SKU' : key === 'quantity' ? 'Quantity' : key === 'unit' ? 'Unit' : 'Delivery';
-            if (!candidateProposals.some(p => p.field === key && p.value === val)) {
-              candidateProposals.push({ field: key, label, value: val, method: String(ev.method || 'MODEL') });
-            }
-          }
-        }
-      }
-    }
-  }
+  const candidateProposals = reviewCandidates(context);
+  const hasUnsavedEdits = JSON.stringify(items) !== JSON.stringify(initialItems) ||
+    deliveryAt !== initialDelivery || qualifier !== initialQualifier ||
+    specialInstructions !== (context.special_instructions || '') || conflictsReviewed;
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -109,7 +117,13 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
           fieldEdits.special_instructions = specialInstructions;
         }
         // If editing to resolve conflicts, clear existing conflicts
-        fieldEdits.conflicts = [];
+        if (!context.conflicts?.length || conflictsReviewed) fieldEdits.conflicts = [];
+        const approved = await catalogRequest;
+        for (let i = 0; i < items.length; i++) {
+          if (!Array.isArray(approved) || !approved.some(p => p.sku === items[i].sku.trim() && p.unit === items[i].unit.trim())) {
+            throw new Error(`Item #${i + 1}: Map to an approved SKU and its supported unit. Unknown products must remain unresolved; no automatic unit conversion.`);
+          }
+        }
       }
 
       const req: ContextReviewRequest = {
@@ -185,27 +199,36 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                 <span style={{ fontSize: '12px', fontWeight: 700, color: '#166534' }}>Extraction Proposals (Model / Unresolved Candidates)</span>
                 <span style={{ fontSize: '10px', background: '#dcfce7', color: '#15803d', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>Provisional</span>
               </div>
-              <p style={{ margin: '4px 0 8px 0', fontSize: '11px', color: '#166534' }}>
-                Evidence-grounded observations extracted from text. Click to apply directly to review form:
-              </p>
+              <p>Unverified observations are not approved inventory items. Map product names to an approved SKU or mark unresolved. Quantity and unit conversions require staff verification.</p>
+              {items.length > 1 && <label>Apply candidates to item
+                <select aria-label="Apply candidates to item" value={targetItem} onChange={e => setTargetItem(e.target.value)}>
+                  <option value="">Choose an item</option>
+                  {items.map((_, i) => <option key={i} value={String(i)}>Item #{i + 1} — {items[i].sku || "unmapped"}</option>)}
+                </select>
+              </label>}
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {candidateProposals.map(cp => (
                   <button
-                    key={`${cp.field}-${cp.value}`}
+                    key={cp.key}
                     type="button"
+                    disabled={submitting || cp.unverifiedProduct || (items.length > 1 && targetItem === '') ||
+                      (cp.field === 'requested_delivery_at' && !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(cp.value))}
                     className="p1-secondary"
                     style={{ fontSize: '11px', padding: '3px 8px', background: '#ffffff', borderColor: '#86efac', color: '#166534' }}
                     onClick={() => {
-                      if (cp.field === 'sku') updateItem(0, 'sku', cp.value);
-                      else if (cp.field === 'quantity') updateItem(0, 'quantity', cp.value);
-                      else if (cp.field === 'unit') updateItem(0, 'unit', cp.value);
+                      const index = items.length === 1 ? 0 : Number(targetItem);
+                      if (!items[index]) return;
+                      if (cp.field === 'sku') updateItem(index, 'sku', cp.value);
+                      else if (cp.field === 'quantity') updateItem(index, 'quantity', cp.value);
+                      else if (cp.field === 'unit') updateItem(index, 'unit', cp.value);
                       else if (cp.field === 'requested_delivery_at') {
                         setDeliveryAt(cp.value);
-                        if (!cp.value.includes('T')) setQualifier('DATE_ONLY');
                       }
                     }}
                   >
-                    Apply {cp.label}: <strong>{cp.value}</strong> <span style={{ color: '#64748b', fontSize: '10px' }}>({cp.method})</span>
+                    {cp.unverifiedProduct ? 'Unverified product' : `Apply ${cp.field === 'sku' ? 'SKU' : cp.field === 'quantity' ? 'Quantity' : cp.field === 'unit' ? 'Unit' : 'Delivery'}`}: <strong>{cp.value}</strong>
+                    <span> ({cp.method}{cp.group ? `, item ${cp.group}` : ''})</span>
+                    <span> Source: {cp.source || 'unspecified'} [{String(cp.start ?? '?')}:{String(cp.end ?? '?')}] “{cp.quote}”</span>
                   </button>
                 ))}
               </div>
@@ -224,6 +247,9 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                 + Add Item
               </button>
             </div>
+            <p>{catalogState === 'ready' ? `Approved SKU/unit pairs: ${catalog.map(p => `${p.sku} / ${p.unit}`).join(', ') || 'none configured'}` : `Approved catalog ${catalogState}; product mapping cannot be verified.`}</p>
+            <datalist id="p1-approved-skus">{[...new Set(catalog.map(p => p.sku))].map(sku => <option key={sku} value={sku} />)}</datalist>
+            {!!context.conflicts?.length && <label><input type="checkbox" checked={conflictsReviewed} onChange={e => setConflictsReviewed(e.target.checked)} />I reviewed and resolved all listed conflicts</label>}
 
             {items.map((it, idx) => (
               <div
@@ -255,6 +281,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                   <label htmlFor={idx === 0 ? "p1-input-sku" : `p1-input-sku-${idx}`}>SKU / Product</label>
                   <input
                     id={idx === 0 ? "p1-input-sku" : `p1-input-sku-${idx}`}
+                    list="p1-approved-skus"
                     type="text"
                     value={it.sku}
                     placeholder="e.g. SOURDOUGH, BURGER"
@@ -380,11 +407,12 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
             <button
               type="button"
               className="p1-btn p1-btn-secondary"
-              disabled={submitting}
+              disabled={submitting || hasUnsavedEdits}
               onClick={() => handleSubmit('ACCEPT_EXTRACTION')}
             >
               Accept Extraction
             </button>
+            {hasUnsavedEdits && <span>Use Apply Field Edits to save your changes before accepting extraction.</span>}
           </div>
           <div className="p1-drawer-footer-row">
             <button

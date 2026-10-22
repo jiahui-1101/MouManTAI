@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReviewDrawer } from './ReviewDrawer';
 import { operationalApi } from './operationalApi';
+import * as reviewApi from './operationalApi';
 import type { OrderContextRecord } from './types';
 
 const baseContext: OrderContextRecord = {
@@ -21,7 +22,7 @@ const baseContext: OrderContextRecord = {
   conflicts: [],
   source_message_ids: ['msg_1'],
   field_evidence: {
-    sku: [{ quote: 'sourdough', normalized_value: 'SOURDOUGH', method: 'MODEL' }],
+    sku: [{ quote: 'sourdough', normalized_value: 'SOURDOUGH', method: 'MODEL', normalization_metadata: { domain_supported: 'true' } }],
     quantity: [{ quote: '50', normalized_value: '50', method: 'MODEL' }],
     unit: [{ quote: 'pcs', normalized_value: 'pcs', method: 'MODEL' }],
     requested_delivery_at: [{ quote: 'tomorrow 3pm', normalized_value: '2026-10-25T15:00:00+08:00', method: 'MODEL', qualifier: 'DEADLINE' }],
@@ -37,6 +38,9 @@ describe('ReviewDrawer component', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(reviewApi, 'getReviewCatalog').mockResolvedValue([
+      { sku: 'SOURDOUGH', unit: 'pcs' }, { sku: 'CROISSANT', unit: 'box' }, { sku: 'BAGEL', unit: 'pcs' },
+    ]);
     onClose.mockReset();
     onUpdated.mockReset();
   });

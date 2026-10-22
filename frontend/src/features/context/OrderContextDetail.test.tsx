@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrderContextDetail } from './OrderContextDetail';
 import { operationalApi } from './operationalApi';
+import * as reviewApi from './operationalApi';
 import type { ContextReviewRecord, OrderContextRecord, OrderContextVersionRecord } from './types';
 
 const timestamp = '2026-10-21T02:00:00Z';
@@ -79,6 +80,7 @@ const mockReviews: ContextReviewRecord[] = [
 describe('OrderContextDetail component', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(reviewApi, 'getReviewCatalog').mockResolvedValue([{ sku: 'BURGER', unit: 'pcs' }]);
     vi.spyOn(operationalApi, 'getContext').mockResolvedValue(mockContext);
     vi.spyOn(operationalApi, 'listContextVersions').mockResolvedValue(mockVersions);
     vi.spyOn(operationalApi, 'listContextReviews').mockResolvedValue(mockReviews);

@@ -27,6 +27,10 @@ export interface MessageQuery {
   limit?: number;
 }
 
+export function getReviewCatalog(): Promise<{ sku: string; unit: string }[]> {
+  return request('/v1/context-catalog');
+}
+
 export interface OperationalApi {
   config(): Promise<DevelopmentContext>;
   list(query: MessageQuery): Promise<MessagePage>;
