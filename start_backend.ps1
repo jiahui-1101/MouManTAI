@@ -2,7 +2,10 @@ param (
     [string]$ColabUrl = ""
 )
 
-$envFile = Join-Path $PSScriptRoot ".env"
+$RepoRoot = $PSScriptRoot
+Set-Location $RepoRoot
+
+$envFile = Join-Path $RepoRoot ".env"
 
 # If user provided a new Colab URL as argument, update .env
 if ($ColabUrl -ne "") {
@@ -21,6 +24,8 @@ P1_AI_ENABLED=true
 P1_AI_ENDPOINT_MODE=direct
 P1_AI_ENDPOINT_URL=$ColabUrl
 P1_AI_API_KEY=p1-colab-secret
+P1_DATABASE_URL=postgresql+psycopg://p1_local:d7ff8ea1c01a68bd3c5107338b375d1259a4693f2d7716c0@127.0.0.1:55432/monmantai_p1
+PYTHONPATH=backend
 "@ -Encoding utf8
     }
 }
@@ -29,11 +34,12 @@ P1_AI_API_KEY=p1-colab-secret
 if (-not (Test-Path $envFile)) {
     Write-Host "[P1 Launcher] Initializing default .env file..." -ForegroundColor Yellow
     Set-Content -Path $envFile -Value @"
-# P1 Context Intelligence AI Proposal Pipeline
 P1_AI_ENABLED=true
 P1_AI_ENDPOINT_MODE=direct
-P1_AI_ENDPOINT_URL=https://your-colab-url.trycloudflare.com/infer
+P1_AI_ENDPOINT_URL=http://127.0.0.1:8000/dev/p1/infer
 P1_AI_API_KEY=p1-colab-secret
+P1_DATABASE_URL=postgresql+psycopg://p1_local:d7ff8ea1c01a68bd3c5107338b375d1259a4693f2d7716c0@127.0.0.1:55432/monmantai_p1
+PYTHONPATH=backend
 "@ -Encoding utf8
 }
 
@@ -48,17 +54,57 @@ Get-Content $envFile | ForEach-Object {
     }
 }
 
+# Ensure database URL and pythonpath exist
+if (-not [System.Environment]::GetEnvironmentVariable("P1_DATABASE_URL", "Process")) {
+    [System.Environment]::SetEnvironmentVariable("P1_DATABASE_URL", "postgresql+psycopg://p1_local:d7ff8ea1c01a68bd3c5107338b375d1259a4693f2d7716c0@127.0.0.1:55432/monmantai_p1", "Process")
+}
+if (-not [System.Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")) {
+    [System.Environment]::SetEnvironmentVariable("PYTHONPATH", "backend", "Process")
+}
+
 $activeUrl = [System.Environment]::GetEnvironmentVariable("P1_AI_ENDPOINT_URL", "Process")
+
+# Test if remote Colab endpoint is alive; if offline, auto-switch to built-in local engine
+$usingColab = $false
+if ($activeUrl -and $activeUrl.StartsWith("https://")) {
+    try {
+        $healthUrl = $activeUrl.Replace("/infer", "/health")
+        $resp = Invoke-RestMethod -Uri $healthUrl -Method Get -TimeoutSec 3 -ErrorAction Stop
+        if ($resp.status -eq "ready") {
+            $usingColab = $true
+            Write-Host "[P1 Launcher] Remote Colab GPU is ONLINE ($($resp.device))!" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "[P1 Launcher] Colab URL unreachable or offline. Auto-switching to Built-in Local AI Engine!" -ForegroundColor Yellow
+        $activeUrl = "http://127.0.0.1:8000/dev/p1/infer"
+        [System.Environment]::SetEnvironmentVariable("P1_AI_ENDPOINT_URL", $activeUrl, "Process")
+    }
+} elseif (-not $activeUrl) {
+    $activeUrl = "http://127.0.0.1:8000/dev/p1/infer"
+    [System.Environment]::SetEnvironmentVariable("P1_AI_ENDPOINT_URL", $activeUrl, "Process")
+}
+
 Write-Host "==========================================================" -ForegroundColor Green
-Write-Host "  MouManTAI P1 Backend Launcher" -ForegroundColor Green
+Write-Host "  MouManTAI P1 Full-Stack Launcher" -ForegroundColor Green
 Write-Host "  P1_AI_ENABLED:       $([System.Environment]::GetEnvironmentVariable('P1_AI_ENABLED', 'Process'))" -ForegroundColor White
 Write-Host "  P1_AI_ENDPOINT_MODE: $([System.Environment]::GetEnvironmentVariable('P1_AI_ENDPOINT_MODE', 'Process'))" -ForegroundColor White
 Write-Host "  P1_AI_ENDPOINT_URL:  $activeUrl" -ForegroundColor White
+if ($usingColab) {
+    Write-Host "  AI Engine:           Google Colab (Cloud Tesla T4 / A100 GPU)" -ForegroundColor Cyan
+} else {
+    Write-Host "  AI Engine:           Built-in Local GPU/AI Pipeline" -ForegroundColor Cyan
+}
 Write-Host "==========================================================" -ForegroundColor Green
 
-$pythonExe = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+$pythonExe = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $pythonExe)) {
     $pythonExe = "python"
 }
+
+# Auto-open browser after 2 seconds in background
+Start-Job -ScriptBlock {
+    Start-Sleep -Seconds 2
+    Start-Process "http://localhost:5173/inbox"
+} | Out-Null
 
 & $pythonExe -m uvicorn app.context.dev_app:app --port 8000 --reload

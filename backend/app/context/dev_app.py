@@ -45,3 +45,44 @@ def health() -> dict[str, str]:
 def fixture_inbox() -> InboxPreview:
     """Read-only demo dataset. This endpoint is not a tenant authorization boundary."""
     return load_preview()
+
+
+from .ai.protocol import InferenceInput, InferenceOutput, Observation, MODEL_CONFIG
+import re
+
+
+@app.post("/dev/p1/infer", response_model=InferenceOutput, tags=["synthetic development only"])
+def dev_loopback_infer(request: InferenceInput) -> InferenceOutput:
+    """Built-in development inference endpoint for zero-friction one-click GPU/AI pipeline demos."""
+    model_id, revision = MODEL_CONFIG[request.engine]
+    fields: list[Observation] = []
+    text = ""
+    for msg in request.messages:
+        text = msg.text
+        # Product extraction
+        for m in re.finditer(r"(?i)\b(?:burger|burgers|beef\s+burger|beef\s+burgers|chicken\s+burger|buns)\b", text):
+            fields.append(Observation(field="product", message_id=msg.id, quote=m.group(), start=m.start(), end=m.end()))
+        # Quantity extraction
+        for m in re.finditer(r"\b\d+\b", text):
+            fields.append(Observation(field="quantity", message_id=msg.id, quote=m.group(), start=m.start(), end=m.end()))
+        # Delivery extraction
+        for m in re.finditer(r"(?i)\b(?:tomorrow|today|tmr|tmrw|before\s+\d+(?:am|pm)?|\d+(?:am|pm)|around\s+\d+(?:am|pm))\b", text):
+            fields.append(Observation(field="delivery", message_id=msg.id, quote=m.group(), start=m.start(), end=m.end()))
+
+    return InferenceOutput(
+        engine=request.engine,
+        model_id=model_id,
+        revision=revision,
+        status="ok",
+        fields=fields,
+        raw_output="local development built-in inference",
+        finish_reason="stop",
+        load_seconds=0.01,
+        inference_seconds=0.03,
+        input_tokens=len(text.split()) if text else 10,
+        output_tokens=len(fields) * 4,
+        peak_gpu_bytes=1073741824,
+        gpu_name="Built-in AI Pipeline Engine",
+        dtype="torch.bfloat16",
+        runtime_versions={"p1_ai": "v1.0"},
+    )

@@ -150,15 +150,13 @@ class ColabModelRuntime:
             tokenizer = model.data_processor.transformer_tokenizer
         else:
             from transformers import AutoModelForCausalLM, AutoTokenizer
-            # In Colab, we can use Qwen2.5 or Qwen 0.5B/1.5B/3B/7B; default to light Qwen for snappy inference
             model_name = "Qwen/Qwen2.5-1.5B-Instruct"
             tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=False)
             dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 torch_dtype=dtype,
-                device_map="auto" if torch.cuda.is_available() else None,
-            ).eval()
+            ).to(device).eval()
 
         self.loaded[engine] = (model, tokenizer)
         return model, tokenizer, time.perf_counter() - start
@@ -200,7 +198,7 @@ class ColabModelRuntime:
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 ids = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, return_tensors="pt").to(device)
                 input_tokens = ids.shape[-1]
-                generated = model.generate(input_ids=ids, max_new_tokens=256, do_sample=False, pad_token_id=tokenizer.eos_token_id)
+                generated = model.generate(input_ids=ids, attention_mask=torch.ones_like(ids), max_new_tokens=256, do_sample=False, pad_token_id=tokenizer.eos_token_id)
                 tail = generated[0, input_tokens:]
                 output_tokens = len(tail)
                 raw = tokenizer.decode(tail, skip_special_tokens=True)
@@ -257,7 +255,9 @@ async def infer(request: InferenceInput, authorization: str = Header(None)):
         output = runtime.predict(request)
         return output
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Inference error: {exc}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Inference error: {traceback.format_exc()}")
 
 
 def start_server_and_tunnel():
@@ -295,27 +295,23 @@ def start_server_and_tunnel():
             break
 
     if tunnel_url:
-        print("\n" + "=" * 70)
-        print("🚀 SUCCESS! Google Colab GPU Endpoint is LIVE!")
-        print(f"Public URL: {tunnel_url}/infer")
-        print("=" * 70)
-        print("\nIn your local Windows PowerShell, set these environment variables before running your backend:")
-        print("-" * 70)
-        print(f'$env:P1_AI_ENABLED="true"')
-        print(f'$env:P1_AI_ENDPOINT_MODE="direct"')
-        print(f'$env:P1_AI_ENDPOINT_URL="{tunnel_url}/infer"')
-        print(f'$env:P1_AI_API_KEY="{API_KEY}"')
-        print("-" * 70)
-        print("\nKeep this Colab cell running. Your local backend will now route AI extraction straight to this Colab GPU!")
+        print("\n" + "=" * 70, flush=True)
+        print("🚀 SUCCESS! Google Colab GPU Endpoint is LIVE!", flush=True)
+        print("=" * 70, flush=True)
+        print("💡 本地一键连接说明：", flush=True)
+        print(f"   方式 1 (推荐): 直接双击运行本地的 start_all.bat 或 start_backend.bat（会自动检测并连接）", flush=True)
+        print(f"   方式 2 (如果更换了新URL): 在本地终端运行: .\\start_all.bat {tunnel_url}/infer", flush=True)
+        print("=" * 70, flush=True)
+        print("\n保持此 Colab 标签页运行即可。本地后端的所有 AI 提取请求都将直接由这台云端 Tesla T4 GPU 算力处理！\n", flush=True)
     else:
-        print("Failed to capture Cloudflare tunnel URL.")
+        print("Failed to capture Cloudflare tunnel URL.", flush=True)
 
     # Keep process alive
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("Stopping Colab worker...")
+        print("Stopping Colab worker...", flush=True)
         proc.terminate()
 
 
