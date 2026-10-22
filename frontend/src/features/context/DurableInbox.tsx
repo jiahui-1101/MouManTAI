@@ -127,7 +127,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
     {resource.state === 'error' && <div role="alert" className="p1-state"><h2>{resource.error instanceof PreviewError && [401, 403].includes(resource.error.status) ? 'Access denied' : 'Inbox unavailable'}</h2><p>{resource.error.message}</p><button type="button" className="p1-secondary" onClick={() => setAttempt(n => n + 1)}>Retry Inbox</button></div>}
     {resource.state === 'ready' && <section className="p1-table-card" aria-label="Persisted messages"><div className="p1-table-scroll" role="region" aria-label="Persisted message table, scroll horizontally on small screens" tabIndex={0}>
       <table><caption className="p1-sr-only">Persisted original messages awaiting downstream work</caption><thead><tr><th scope="col">Received at</th><th scope="col">Original message</th><th scope="col">Source</th><th scope="col">Processing</th><th scope="col">Information</th><th scope="col">Identity</th><th scope="col">Review</th><th scope="col">Action</th></tr></thead>
-      <tbody>{resource.page.items.map(message => <tr key={message.message_id}><td className="p1-date"><time dateTime={message.ingested_at}>{formatTime(message.ingested_at)}</time></td><td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => select(message.message_id, event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary">{message.raw.provider_message_id}</span></td><td><span className="p1-badge p1-blue">SYNTHETIC</span><span className="p1-row-secondary">{message.raw.channel}</span></td><td><span className="p1-badge p1-neutral">{message.processing_status}</span></td><td className="p1-identity">{message.processing_status === 'PROCESSED' ? <span className="p1-badge p1-ready">Extracted (RULE)</span> : message.processing_status === 'PROCESSING' ? <span className="p1-badge p1-attention">Extracting…</span> : message.processing_status === 'PROCESSING_FAILED' ? <span className="p1-badge p1-attention">Extraction failed</span> : 'Not extracted'}</td><td className="p1-identity">Not associated</td><td className="p1-identity">Not started</td><td><button type="button" className="p1-action-btn" disabled={processingId === message.message_id} onClick={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')}>{processingId === message.message_id ? '…' : message.processing_status === 'PROCESSED' ? 'Reprocess' : 'Process'}</button><button type="button" className="p1-icon-button" aria-label={`View message ${message.raw.provider_message_id}`} onClick={event => select(message.message_id, event.currentTarget)}>↗</button></td></tr>)}</tbody></table>
+      <tbody>{resource.page.items.map(message => <tr key={message.message_id}><td className="p1-date"><time dateTime={message.ingested_at}>{formatTime(message.ingested_at)}</time></td><td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => select(message.message_id, event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary">{message.raw.provider_message_id}</span></td><td><span className="p1-badge p1-blue">SYNTHETIC</span><span className="p1-row-secondary">{message.raw.channel}</span></td><td><span className="p1-badge p1-neutral">{message.processing_status}</span></td><td className="p1-identity">{message.processing_status === 'PROCESSED' ? (message.extractor_version === 'p1-ai-pipeline-v1' ? <span className="p1-badge p1-gpu-badge" title="Extracted with GPU AI Pipeline (Tesla T4)">⚡ AI-ASSISTED (GPU)</span> : <span className="p1-badge p1-ready">Extracted (RULE)</span>) : message.processing_status === 'PROCESSING' ? <span className="p1-badge p1-attention">Extracting…</span> : message.processing_status === 'PROCESSING_FAILED' ? <span className="p1-badge p1-critical">Extraction failed</span> : <span className="p1-badge p1-neutral">Awaiting extraction</span>}</td><td className="p1-identity">Not associated</td><td className="p1-identity">Not started</td><td><button type="button" className="p1-action-btn" disabled={processingId === message.message_id} onClick={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')}>{processingId === message.message_id ? '…' : message.processing_status === 'PROCESSED' ? 'Reprocess' : 'Process'}</button><button type="button" className="p1-icon-button" aria-label={`View message ${message.raw.provider_message_id}`} onClick={event => select(message.message_id, event.currentTarget)}>↗</button></td></tr>)}</tbody></table>
     </div>{resource.page.items.length === 0 && <p role="status" className="p1-empty">No persisted messages match this view. Submit a synthetic message to begin.</p>}
       <footer className="p1-table-footer"><span>Showing {resource.page.items.length ? offset + 1 : 0}–{offset + resource.page.items.length} of {resource.page.total}</span><div className="p1-pagination"><button type="button" className="p1-secondary" disabled={offset === 0} onClick={() => setOffset(n => Math.max(0, n - 25))}>Previous</button><button type="button" className="p1-secondary" disabled={offset + 25 >= resource.page.total || offset + 25 > 10_000} onClick={() => setOffset(n => n + 25)}>Next</button></div></footer>
     </section>}
@@ -240,7 +240,9 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
     }
   }
 
-  return <section className="p1-detail" ref={panel} tabIndex={-1} aria-label="Persisted message details" onKeyDown={event => { if (event.key === 'Escape') onClose(); }}><header className="p1-detail-heading"><div><p className="p1-eyebrow">PERSISTED SOURCE · SYNTHETIC</p><h2>Original message</h2></div><button type="button" className="p1-icon-button" aria-label="Close message details" onClick={onClose}>×</button></header>
+  return <>
+    <div className="p1-drawer-backdrop" onClick={onClose} aria-label="Close message details" role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onClose(); }} />
+    <section className="p1-detail" ref={panel} tabIndex={-1} aria-label="Persisted message details" onKeyDown={event => { if (event.key === 'Escape') onClose(); }}><header className="p1-detail-heading"><div><p className="p1-eyebrow">PERSISTED SOURCE · SYNTHETIC</p><h2>Original message</h2></div><button type="button" className="p1-close-button" aria-label="Close message details" onClick={onClose}>✕ Close</button></header>
     {!data && !error && <p role="status">Loading original message…</p>}
     {error && <div role="alert"><p>{error}</p><button type="button" className="p1-secondary" onClick={() => setAttempt(n => n + 1)}>Retry message</button></div>}
     {data && <>
@@ -303,7 +305,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                   <p style={{ marginTop: '6px', marginBottom: '8px' }}>
                     <strong>Method:</strong>{' '}
                     {hasModel ? (
-                      <span className="p1-badge p1-blue">AI-ASSISTED ({extraction.extractor_version})</span>
+                      <span className="p1-badge p1-gpu-badge">⚡ AI-ASSISTED ({extraction.extractor_version})</span>
                     ) : isFallback ? (
                       <span className="p1-badge p1-attention">RULE (FALLBACK)</span>
                     ) : (
@@ -311,13 +313,22 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                     )}{' '}
                     <span className={`p1-badge ${extraction.status === 'PROCESSED' ? 'p1-ready' : 'p1-attention'}`}>{extraction.status}</span>
                   </p>
+                  {hasModel && (
+                    <div className="p1-gpu-banner">
+                      <span className="p1-gpu-icon">⚡</span>
+                      <div>
+                        <strong>GPU Acceleration Active</strong>
+                        <p>Inference served by Cloud Tesla T4 GPU (Google Colab) · Model: <code>urchade/gliner_multi-v2.1</code></p>
+                      </div>
+                    </div>
+                  )}
                   {isFallback && (
                     <p className="p1-muted" style={{ color: '#b45309', fontSize: '11px', marginTop: '-4px', marginBottom: '8px' }}>
                       Notice: AI model inference unavailable; fell back safely to deterministic rules.
                     </p>
                   )}
                   {hasModel && (
-                    <p className="p1-muted" style={{ color: '#2563eb', fontSize: '11px', marginTop: '-4px', marginBottom: '8px' }}>
+                    <p className="p1-muted" style={{ color: '#2563eb', fontSize: '11px', marginTop: '6px', marginBottom: '8px' }}>
                       Notice: Candidate terms generated by AI model proposal service. Manual review required.
                     </p>
                   )}
@@ -339,8 +350,8 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
                         <td><strong>{f.field_name}</strong></td>
                         <td>{f.value ?? <span className="p1-muted">—</span>}</td>
                         <td>
-                          <span className={`p1-badge ${method === 'MODEL' ? 'p1-attention' : method === 'HUMAN' ? 'p1-ready' : 'p1-blue'}`}>
-                            {method}
+                          <span className={`p1-badge ${method === 'MODEL' ? 'p1-gpu-badge' : method === 'HUMAN' ? 'p1-ready' : 'p1-blue'}`}>
+                            {method === 'MODEL' ? '⚡ MODEL (GPU)' : method}
                           </span>
                         </td>
                         <td><span className={`p1-badge ${f.validation_status === 'VALID' ? 'p1-ready' : f.validation_status === 'CONFLICT' ? 'p1-critical' : 'p1-attention'}`}>{f.validation_status}</span></td>
@@ -373,7 +384,23 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
         ) : data.processing_status === 'PROCESSING_FAILED' ? (
           <p className="p1-notice" role="alert">Extraction failed: {data.raw ? 'Processing failed' : ''}. Check diagnostic logs.</p>
         ) : (
-          <p className="p1-notice">Awaiting processing. Extraction is not implemented yet; no extracted fields or evidence are available.</p>
+          <div className="p1-pending-card">
+            <div className="p1-pending-content">
+              <span className="p1-pending-icon">⏳</span>
+              <div>
+                <strong>Awaiting Extraction</strong>
+                <p>This message has not been processed yet. Click the button below to trigger extraction using the connected GPU/AI pipeline.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="p1-primary p1-gpu-action-btn"
+              disabled={processing}
+              onClick={() => handleProcess(false)}
+            >
+              {processing ? 'Processing on GPU…' : '⚡ Process extraction with GPU (Tesla T4)'}
+            </button>
+          </div>
         )}
       </section>
 
@@ -593,5 +620,5 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
         />
       )}
     </>}
-  </section>;
+  </section></>;
 }

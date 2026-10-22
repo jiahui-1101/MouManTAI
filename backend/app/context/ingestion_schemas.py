@@ -13,6 +13,7 @@ class StoredMessage(P1Model):
     synthetic_provider: Literal["SYNTHETIC_WHATSAPP"]
     content_sha256: str
     processing_status: ProcessingStatus
+    extractor_version: Identifier | None = None
     ingested_at: Timestamp
     updated_at: Timestamp
 

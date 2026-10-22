@@ -245,10 +245,11 @@ def fingerprint(envelope: RawMessageEnvelope) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def stored(row: InboundMessage) -> StoredMessage:
+def stored(row: InboundMessage, extractor_version: str | None = None) -> StoredMessage:
     return StoredMessage(message_id=row.message_id, raw=RawMessageEnvelope(**row.raw),
                          synthetic_provider=row.synthetic_provider, content_sha256=row.content_sha256,
-                         processing_status=row.processing_status, ingested_at=row.ingested_at, updated_at=row.updated_at)
+                         processing_status=row.processing_status, extractor_version=extractor_version,
+                         ingested_at=row.ingested_at, updated_at=row.updated_at)
 
 
 def attempt_record(row: ExtractionAttempt) -> ExtractionAttemptRecord:
@@ -389,7 +390,15 @@ class PostgresMessageRepository:
         try:
             with Session(self.engine) as session:
                 row = session.scalar(select(InboundMessage).where(InboundMessage.tenant_id == tenant_id, InboundMessage.message_id == message_id))
-                return stored(row) if row else None
+                if not row:
+                    return None
+                ext_ver = session.scalar(
+                    select(ExtractionAttempt.extractor_version)
+                    .where(ExtractionAttempt.tenant_id == tenant_id, ExtractionAttempt.message_id == message_id, ExtractionAttempt.status == "PROCESSED")
+                    .order_by(ExtractionAttempt.started_at.desc())
+                    .limit(1)
+                )
+                return stored(row, extractor_version=ext_ver)
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
 
@@ -413,7 +422,19 @@ class PostgresMessageRepository:
                     total = session.scalar(select(func.count()).select_from(InboundMessage).where(*filters))
                     rows = session.scalars(select(InboundMessage).where(*filters).order_by(
                         InboundMessage.ingested_at.desc(), InboundMessage.message_id.desc()).limit(limit).offset(offset)).all()
-                    return MessagePage(items=[stored(row) for row in rows], total=total, limit=limit, offset=offset)
+                    versions = {}
+                    if rows:
+                        msg_ids = [r.message_id for r in rows]
+                        attempts = session.execute(
+                            select(ExtractionAttempt.message_id, ExtractionAttempt.extractor_version)
+                            .where(ExtractionAttempt.tenant_id == tenant_id, ExtractionAttempt.message_id.in_(msg_ids), ExtractionAttempt.status == "PROCESSED")
+                            .order_by(ExtractionAttempt.started_at.desc())
+                        ).all()
+                        for m_id, ext_ver in attempts:
+                            if m_id not in versions:
+                                versions[m_id] = ext_ver
+
+                    return MessagePage(items=[stored(row, extractor_version=versions.get(row.message_id)) for row in rows], total=total, limit=limit, offset=offset)
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
 
@@ -543,7 +564,7 @@ class PostgresMessageRepository:
 
                 session.flush()
                 return ProcessResponse(
-                    message=stored(row),
+                    message=stored(row, extractor_version=attempt.extractor_version),
                     attempt=attempt_record(attempt),
                     reprocessed=reprocess,
                 )

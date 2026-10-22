@@ -65,7 +65,7 @@
 .p1-state, .p1-empty { background: white; border: 1px solid var(--p1-border); border-radius: 5px; padding: 25px 16px; color: #697a93; }
 .p1-empty { border: 0; }
 .p1-state button { margin-top: 10px; }
-.p1-detail { position: fixed; z-index: 5; top: 0; right: 0; bottom: 0; width: min(560px, 100%); background: white; border-left: 1px solid #dce3ef; box-shadow: -8px 0 30px #1f3d6320; padding: 24px; overflow-y: auto; font-size: 13px; }
+.p1-detail { position: fixed; z-index: 50; top: 0; right: 0; bottom: 0; width: min(580px, 100%); background: white; border-left: 1px solid #dce3ef; box-shadow: -10px 0 40px rgba(0, 0, 0, 0.15); padding: 24px; overflow-y: auto; font-size: 13px; }
 .p1-detail:focus { outline: none; }
 .p1-detail-heading { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
 .p1-detail-heading h2 { margin: 6px 0 8px; }
@@ -292,5 +292,125 @@
 .evidence-quote { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; color: #0f172a; margin-bottom: 2px; }
 .evidence-bbox { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #94a3b8; font-size: 10px; }
 .no-extraction-placeholder { padding: 30px; text-align: center; color: #64748b; background: #f8fafc; border-radius: 6px; border: 1px dashed #cbd5e1; font-size: 13px; }
+
+/* Drawer Backdrop & Close Interactions */
+.p1-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 40;
+  cursor: pointer;
+  animation: p1-fade-in 0.15s ease-out;
+}
+@keyframes p1-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.p1-close-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  font-size: 12px !important;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.p1-close-button:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+/* GPU Badges & Banners */
+.p1-gpu-badge {
+  background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%) !important;
+  color: #3730a3 !important;
+  border: 1px solid #a5b4fc !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+  box-shadow: 0 1px 2px rgba(79, 70, 229, 0.15);
+}
+
+.p1-gpu-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, #f0fdf4 0%, #e0f2fe 100%);
+  border: 1px solid #7dd3fc;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 10px 0;
+  box-shadow: 0 1px 3px rgba(14, 165, 233, 0.1);
+}
+.p1-gpu-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+.p1-gpu-banner strong {
+  display: block;
+  font-size: 13px;
+  color: #0369a1;
+}
+.p1-gpu-banner p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: #0284c7;
+}
+
+/* Pending / Unextracted State Card */
+.p1-pending-card {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 18px;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.p1-pending-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.p1-pending-icon {
+  font-size: 24px;
+  line-height: 1.2;
+}
+.p1-pending-content strong {
+  display: block;
+  font-size: 13px;
+  color: #1e293b;
+  margin-bottom: 2px;
+}
+.p1-pending-content p {
+  margin: 0;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.4;
+}
+.p1-gpu-action-btn {
+  align-self: flex-start;
+  background: linear-gradient(135deg, #4f46e5 0%, #0284c7 100%) !important;
+  border: 0 !important;
+  color: white !important;
+  font-weight: 600 !important;
+  padding: 8px 16px !important;
+  box-shadow: 0 2px 5px rgba(79, 70, 229, 0.3) !important;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.p1-gpu-action-btn:hover {
+  opacity: 0.92;
+}
+
 
 
