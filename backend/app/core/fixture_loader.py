@@ -53,6 +53,22 @@ class DemoFixture(ContractModel):
         return self
 
 
-def load_demo_fixture() -> DemoFixture:
-    path = Path(__file__).resolve().parents[3] / "contracts" / "fixtures" / "demo_dataset.json"
+def resolve_fixture_path(relative_fixture: str = "demo_dataset.json") -> Path:
+    target_rel = Path("contracts") / "fixtures" / relative_fixture
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / target_rel
+        if candidate.is_file():
+            return candidate
+    for base in (Path.cwd(), Path("/app")):
+        candidate = base / target_rel
+        if candidate.is_file():
+            return candidate
+    fallback = Path("/") / "contracts" / "fixtures" / relative_fixture
+    if fallback.is_file():
+        return fallback
+    raise FileNotFoundError(f"Fixture not found: {relative_fixture}")
+
+
+def load_demo_fixture(relative_fixture: str = "demo_dataset.json") -> DemoFixture:
+    path = resolve_fixture_path(relative_fixture)
     return DemoFixture.model_validate(json.loads(path.read_text(encoding="utf-8")))

@@ -125,10 +125,10 @@ def test_feasibility_assessment_defaults_affected_commitments_to_empty_list() ->
 
 def test_feasible_assessment_example_fixture_validates() -> None:
     import json
-    from pathlib import Path
+    from app.core.fixture_loader import resolve_fixture_path
     from app.core.schemas import FeasibilityAssessment
 
-    fixture_path = Path(__file__).resolve().parents[2] / "contracts" / "fixtures" / "feasible_assessment_example.json"
+    fixture_path = resolve_fixture_path("feasible_assessment_example.json")
     data = json.loads(fixture_path.read_text(encoding="utf-8"))
 
     feasible = FeasibilityAssessment.model_validate(data["feasible_example"])
@@ -142,3 +142,23 @@ def test_feasible_assessment_example_fixture_validates() -> None:
     infeasible = FeasibilityAssessment.model_validate(data["infeasible_isolated_example"])
     assert infeasible.status.value == "INFEASIBLE"
     assert infeasible.affected_commitment_ids == []
+
+
+def test_resolve_fixture_path_and_missing_fixture() -> None:
+    from app.core.fixture_loader import resolve_fixture_path
+
+    path = resolve_fixture_path("demo_dataset.json")
+    assert path.is_file()
+
+    with pytest.raises(FileNotFoundError, match="Fixture not found"):
+        resolve_fixture_path("definitely_nonexistent_fixture_123.json")
+
+
+def test_recovery_planner_inputs_are_lazy() -> None:
+    from app.recovery.service import RecoveryPlanner
+
+    planner = RecoveryPlanner()
+    # Ensure planner instance was created and inputs property resolves on access
+    assert planner._inputs is None
+    assert planner.inputs.commitment.commitment_id == "com_001"
+    assert planner._inputs is not None

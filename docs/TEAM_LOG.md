@@ -1646,3 +1646,46 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - P5 Gan0117 approved the prior 212ff3a head; P2 meishuet16 and P4 Sheng554 had not yet approved that head. All approvals are stale after this Main merge. Request fresh P2/P4/P5 approvals on the reconciled head, including explicit P5 acceptance that production subscribers and live side effects remain disabled.
 - Prior-head GitHub CI passed all three checks; the reconciled-head CI is pending. Keep PR #16 Draft and unmerged until fresh owner approval, green CI, and the final current-Main mergeability check.
 - No production subscriber registration, outbound communication, or real recovery execution was enabled.
+
+## 2026-10-23 — Fix Container Startup Fixture Resolution & Lazy Planner Inputs
+
+- **Context**: Docker container `moumantai-api-1` failed on startup during `alembic -c alembic.ini upgrade head` with `FileNotFoundError: [Errno 2] No such file or directory: '/contracts/fixtures/demo_dataset.json'`.
+- **Root Cause**:
+  1. `backend/app/recovery/fixtures.py` and `backend/app/core/fixture_loader.py` used hardcoded `Path(__file__).resolve().parents[3]`, which resolved to `<repo_root>` on host, but inside Docker container (`WORKDIR /app`, where `backend/app` is copied to `/app/app`), resolved to `/` (filesystem root) instead of `/app`.
+  2. `migrations/env.py` imported `durable_plans.py` to register P3 ORM tables, which imported `trigger_persistence.py` and `service.py`, instantiating `default_recovery_planner = RecoveryPlanner(...)` at module load time. `RecoveryPlanner.__init__` eagerly read fixture JSON from disk during Alembic migration.
+- **Implemented Fix**:
+  1. `backend/app/core/fixture_loader.py`: Added dynamic `resolve_fixture_path()` which walks parent directories up to repo/container root and checks `cwd`, `/app`, and `/contracts`. Updated `load_demo_fixture()` to use it.
+  2. `backend/app/recovery/fixtures.py`: Updated `_fixture_path()` to use `resolve_fixture_path("demo_dataset.json")`.
+  3. `backend/app/recovery/service.py`: Made `RecoveryPlanner.inputs` a lazy property so instantiating `RecoveryPlanner` at module import does not trigger immediate disk I/O.
+  4. `backend/Dockerfile`: Added `RUN ln -s /app/contracts /contracts` and `ENV PYTHONPATH=/app` for container path safety.
+  5. `backend/migrations/versions/0007_recovery_case_constraints_alignment.py`: Handled PostgreSQL constraint drops and additions idempotently via SQLAlchemy inspector checks to avoid failure when database was previously initialized or pre-migrated.
+  6. `scripts/seed_demo.py`: Added `..` to `sys.path` so script resolves `app.*` inside `/app` in container.
+  7. `backend/tests/test_contracts.py`: Added tests for `resolve_fixture_path`, missing fixture handling (`FileNotFoundError`), and `RecoveryPlanner` lazy input loading.
+- **Validation**:
+  - `python -m pytest backend/tests/test_contracts.py` (10 passed in 0.03s).
+  - `python -m pytest backend/tests/test_recovery.py backend/tests/test_recovery_actions.py backend/tests/test_recovery_approvals.py backend/tests/test_recovery_persistence.py backend/tests/test_recovery_triggers.py backend/tests/test_seed_demo.py backend/tests/test_core_api.py backend/tests/test_smoke.py` (94 passed, 1 warning in 1.89s).
+  - `docker compose build api`: Image built cleanly with `/contracts` symlink and `ENV PYTHONPATH=/app`.
+  - `docker compose up -d`: `moumantai-api-1` Up and Healthy, `moumantai-worker-1` Up, Alembic migrations 0006 through 0014 executed cleanly, seed data loaded 5 commitments, and `GET /health` verified HTTP 200 OK.
+
+## 2026-10-23 — Outbox Unregistered Mandatory Subscriber Warning Throttling (P5 / D-017)
+
+- **Context**: The background outbox worker (`python -m app.worker`) logged `Mandatory subscriber 'p3.recovery_trigger.v1' for event 'commitment.at_risk' is not registered; leaving PENDING` every 1 second during its polling cycle, causing terminal log spam.
+- **Architectural Policy Check**:
+  - Decision **D-017** ([TEAM_LOG.md:L1144-L1146](file:///c:/Users/ganru/Documents/MouManTAI/docs/TEAM_LOG.md#L1144-L1146)) mandates that events with required named consumers (`commitment.at_risk` → `p3.recovery_trigger.v1`, `commitment.confirmed` → `p2_confirmed_evaluator`) must remain `PENDING` if unhandled; they must never be published prematurely.
+  - Team consensus on PR #16 ([TEAM_LOG.md:L1646-L1648](file:///c:/Users/ganru/Documents/MouManTAI/docs/TEAM_LOG.md#L1646-L1648)) explicitly keeps production subscribers and live background cascades disabled by default to protect canonical seed data (`com_001`, `com_delay_01`, etc.) from unreviewed background mutation.
+- **Implemented Fix**:
+  - `backend/app/core/outbox.py`: Added `self._warned_unregistered: set[tuple[str, str, str]]` to `OutboxDispatcher`.
+  - When an unregistered mandatory subscriber is encountered, `logger.warning(...)` is emitted once on the initial detection.
+  - Subsequent 1-second polling intervals log at `logger.debug(...)` while keeping the event safely in `PENDING` state.
+  - Tracking set is cleared upon subscriber registration/unregistration.
+  - `backend/tests/test_outbox_events.py`: Added `test_unregistered_mandatory_subscriber_warning_is_throttled` verifying warning is emitted on initial batch and suppressed from repeating on subsequent batches.
+- **Teammate Impact Analysis**:
+  - **P1 (Omni-Channel Context)**: ZERO impact. No inbound message, parser, or context routing changes.
+  - **P2 (Feasibility & Impact)**: ZERO impact. No changes to feasibility evaluator, ATP, BOM, snapshot storage, or assessment contracts.
+  - **P3 (Recovery & Action)**: ZERO impact. `commitment.at_risk` events safely remain in `PENDING` state until explicitly consumed in test suites or opt-in E2E runs.
+  - **P4 (Communication & Confirmation)**: ZERO impact. No communication drafts, templates, or proposal integration affected.
+  - **P5 (Core/DB/Shell)**: P5-internal log hygiene. Zero schema changes, zero database mutations, zero API contract changes. Canonical seeded commitments in PostgreSQL remain intact.
+- **Validation**:
+  - `python -m pytest backend/tests/test_outbox_events.py` (12 passed in 0.29s).
+  - `python -m pytest backend/tests/test_contracts.py backend/tests/test_recovery.py backend/tests/test_recovery_actions.py backend/tests/test_recovery_approvals.py backend/tests/test_recovery_persistence.py backend/tests/test_recovery_triggers.py backend/tests/test_seed_demo.py backend/tests/test_core_api.py backend/tests/test_smoke.py backend/tests/test_outbox_events.py` (116 passed in 2.15s).
+  - Rebuilt worker (`docker compose build worker && docker compose up -d`). Container logs confirmed warning logged once on startup, followed by clean, quiet operation.
