@@ -350,9 +350,13 @@
   margin: 10px 0;
   box-shadow: 0 1px 3px rgba(14, 165, 233, 0.1);
 }
-.p1-gpu-icon {
-  font-size: 22px;
-  line-height: 1;
+.p1-gpu-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.2);
+  flex-shrink: 0;
 }
 .p1-gpu-banner strong {
   display: block;
@@ -381,9 +385,14 @@
   align-items: flex-start;
   gap: 12px;
 }
-.p1-pending-icon {
-  font-size: 24px;
-  line-height: 1.2;
+.p1-pending-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+  flex-shrink: 0;
+  margin-top: 5px;
 }
 .p1-pending-content strong {
   display: block;
@@ -399,18 +408,56 @@
 }
 .p1-gpu-action-btn {
   align-self: flex-start;
-  background: linear-gradient(135deg, #4f46e5 0%, #0284c7 100%) !important;
+  background: #4f46e5 !important;
   border: 0 !important;
   color: white !important;
   font-weight: 600 !important;
   padding: 8px 16px !important;
-  box-shadow: 0 2px 5px rgba(79, 70, 229, 0.3) !important;
+  box-shadow: 0 2px 5px rgba(79, 70, 229, 0.25) !important;
   cursor: pointer;
   border-radius: 6px;
+  transition: background-color 0.15s ease;
 }
 .p1-gpu-action-btn:hover {
-  opacity: 0.92;
+  background: #4338ca !important;
 }
+
+/* Resizable Drawer Handle */
+.p1-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+.p1-resize-handle:hover,
+.p1-resize-handle.active {
+  background-color: rgba(79, 70, 229, 0.12);
+}
+.p1-resize-handle-bar {
+  width: 2px;
+  height: 32px;
+  border-radius: 1px;
+  background-color: #cbd5e1;
+  transition: all 0.15s ease;
+}
+.p1-resize-handle:hover .p1-resize-handle-bar,
+.p1-resize-handle.active .p1-resize-handle-bar {
+  background-color: var(--p1-accent);
+  height: 50px;
+}
+.p1-detail.p1-is-resizing {
+  transition: none !important;
+  user-select: none;
+}
+
 
 
 
