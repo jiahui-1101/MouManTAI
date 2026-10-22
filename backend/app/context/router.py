@@ -33,6 +33,7 @@ from .order_context_schemas import (
     OrderContextVersionRecord,
 )
 from .repository import ContextNotFound, MessageRepository, StaleContextVersion
+from .review_catalog import approved_review_products, review_item_errors
 from .schemas import Channel, ProcessingStatus, RawMessageEnvelope
 
 router = APIRouter(tags=["P1 synthetic ingestion — provisional"])
@@ -44,6 +45,19 @@ errors = {403: {"model": ApiError}, 503: {"model": ApiError}}
 @router.get("/dev/p1/config", response_model=DevelopmentContext)
 def local_config(tenant: Tenant) -> DevelopmentContext:
     return tenant
+
+
+@router.get("/v1/context-catalog", response_model=list[dict[str, str]])
+def review_catalog(tenant: Tenant, repository: Repository) -> list[dict[str, str]]:
+    return approved_review_products(tenant.tenant_id, getattr(repository, "catalog", ()))
+
+
+def _check_review_items(tenant_id, items, repository):
+    from .order_context_schemas import RequestedItem
+    reasons = review_item_errors(tenant_id, [RequestedItem.model_validate(i) for i in items],
+                                getattr(repository, "catalog", ()))
+    if reasons:
+        raise HTTPException(status_code=422, detail={"message": "Product mapping required", "reasons": reasons})
 
 
 @router.post("/v1/messages/ingest", response_model=IngestResponse, status_code=201,
@@ -177,6 +191,13 @@ def review_order_context(
     x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
 ) -> OrderContextRecord:
     actor_id, actor_role = resolve_actor(x_actor_id, x_actor_role)
+    if request.action in {"EDIT_FIELD", "ACCEPT_EXTRACTION"}:
+        current = repository.get_order_context(tenant.tenant_id, context_id)
+        if current is None:
+            raise HTTPException(status_code=404, detail="Order context not found")
+        if current.context_version != request.expected_context_version:
+            raise StaleContextVersion("Context changed before review; refresh and review")
+        _check_review_items(tenant.tenant_id, request.field_edits.get("requested_items", current.requested_items), repository)
     svc = ContextService(repository)
     return svc.review_context(tenant.tenant_id, context_id, request, actor_id=actor_id, actor_role=actor_role)
 
@@ -192,6 +213,8 @@ def update_order_context(
     x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
 ) -> OrderContextRecord:
     actor_id, actor_role = resolve_actor(x_actor_id, x_actor_role)
+    if request.requested_items is not None:
+        _check_review_items(tenant.tenant_id, request.requested_items, repository)
     svc = ContextService(repository)
     return svc.update_context(tenant.tenant_id, context_id, request, actor_id=actor_id, actor_role=actor_role)
 
@@ -228,6 +251,7 @@ def publish_order_context_to_core(
     if ctx is None:
         raise HTTPException(status_code=404, detail="Order context not found")
 
+    _check_review_items(tenant.tenant_id, ctx.requested_items, repository)
     publisher = CoreContextPublisher()
     is_eligible, reasons = publisher.check_eligibility(ctx)
     if not is_eligible:
