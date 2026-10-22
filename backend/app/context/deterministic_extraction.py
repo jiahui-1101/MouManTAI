@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .extraction import ExtractionResult
 from .ingestion_schemas import StoredMessage
 from .schemas import ExtractedField, FieldEvidence
+from .request_intent import request_intent
 
 VERSION = "p1-deterministic-v4"
 
@@ -45,8 +46,8 @@ UNIT_NORMALIZATION: dict[str, str] = {
     "件": "pcs",
     "biji": "pcs",
     "buah": "pcs",
-    "bungkus": "pcs",
-    "paket": "pcs",
+    "bungkus": "pack",
+    "paket": "pack",
     # box family (EN, ZH, MS)
     "box": "box",
     "boxes": "box",
@@ -758,6 +759,14 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
                     [prefix.span("unit")],
                     metadata={"raw_unit": raw_unit, "reason": f"Unit '{raw_unit}' unsupported for SKU '{product.sku}'"},
                 ))
+
+    intent = request_intent(text)
+    if intent != 'UNCLASSIFIED':
+        for observation in fields:
+            observation.metadata['request_intent'] = intent
+            if observation.field_name in {'quantity', 'requested_delivery_at'} and observation.validation_status == 'VALID':
+                observation.validation_status = 'UNRESOLVED'
+                observation.metadata['reason'] = f'{intent}: observed terms are not an established current request; review required'
 
     return ExtractionResult(
         status="AVAILABLE",

@@ -47,6 +47,11 @@ def test_model_cannot_replace_human_reviewed_value_or_original_message():
     assert all(set(r.model_dump()) == {"engine", "messages"} for r in endpoint.requests)
 
 
+def test_l2_requires_explicit_stage_configuration(monkeypatch):
+    monkeypatch.delenv('P1_AI_STAGES', raising=False)
+    assert prepare_model_proposal_service(FakeEndpoint(), enabled=True).stages == ('gliner',)
+
+
 def test_endpoint_failure_keeps_every_rule_result_and_reports_failure():
     message = stored("burgers tomorrow after 3pm")
     plain = asyncio.run(prepare_model_proposal_service().extract_stored(message, catalog=PROVISIONAL_PRODUCTS))

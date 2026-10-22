@@ -15,6 +15,7 @@ from ..deterministic_extraction import ProductAlias, UNIT_NORMALIZATION, extract
 from ..extraction import ExtractionResult
 from ..ingestion_schemas import StoredMessage
 from ..schemas import ExtractedField, FieldEvidence, P1Model
+from ..request_intent import request_intent
 from .protocol import InferenceFailure, InferenceInput, MODEL_CONFIG, Observation, SourceText, validate_evidence
 
 NON_ORDER_PATTERNS = re.compile(
@@ -97,7 +98,7 @@ class ModelProposalService:
         rule_qty_valid = any(f.field_name == "quantity" and f.validation_status == "VALID" for f in rules.fields)
         rule_del_valid = any(f.field_name == "requested_delivery_at" and f.validation_status == "VALID" for f in rules.fields)
         has_date_keywords = bool(DATE_TIME_PATTERNS.search(message.raw.text))
-        is_non_order = bool(NON_ORDER_PATTERNS.search(message.raw.text))
+        is_non_order = request_intent(message.raw.text) != 'UNCLASSIFIED' or bool(NON_ORDER_PATTERNS.search(message.raw.text))
         missing_tz_only = (rule_sku_valid and rule_qty_valid and not message.raw.business_timezone)
 
         # Evaluate deterministic sufficiency before calling any model
@@ -340,7 +341,7 @@ class ModelProposalService:
         status = "UNRESOLVED"
         supported = False
         subspan = None
-        is_non_order = bool(NON_ORDER_PATTERNS.search(message.raw.text))
+        is_non_order = request_intent(message.raw.text) != 'UNCLASSIFIED' or bool(NON_ORDER_PATTERNS.search(message.raw.text))
 
         if observation.field == "product":
             matches = []
