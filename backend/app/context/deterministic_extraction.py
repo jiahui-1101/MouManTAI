@@ -31,7 +31,7 @@ class ProductAlias:
 
 
 PROVISIONAL_PRODUCTS = tuple(
-    ProductAlias(tenant, "BURGER", ("burger", "burgers"), "pcs")
+    ProductAlias(tenant, "BURGER", ("burger", "burgers", "beef burger", "beef burgers", "chicken burger", "chicken burgers"), "pcs")
     for tenant in ("synthetic_tenant_a", "synthetic_tenant_b")
 )
 
@@ -83,7 +83,7 @@ AMBIGUOUS_DELIVERY_RE = re.compile(
 )
 
 # Relative dates
-REL_DATE_EN_RE = re.compile(r"\b(?P<rel>today|tomorrow)\b", re.IGNORECASE)
+REL_DATE_EN_RE = re.compile(r"\b(?P<rel>today|tomorrow|tmr|tmrw|2moro)\b", re.IGNORECASE)
 REL_DATE_ZH_RE = re.compile(r"(?P<rel>今天|明天|后天)")
 
 # ISO Date: YYYY-MM-DD
@@ -217,7 +217,7 @@ def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate
             tz_required.append((m.start(), m.end()))
         else:
             rel = m.group("rel").lower()
-            d = local_date + timedelta(days=1) if rel == "tomorrow" else local_date
+            d = local_date + timedelta(days=1) if rel in ("tomorrow", "tmr", "tmrw", "2moro") else local_date
             valid.append(ParsedDate(d, m.start(), m.end(), m.group()))
 
     for m in REL_DATE_ZH_RE.finditer(text):
@@ -601,11 +601,19 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     for product in catalog:
         if product.tenant_id != message.raw.tenant_id:
             continue
-        for alias in product.aliases:
+        sorted_aliases = sorted(product.aliases, key=len, reverse=True)
+        for alias in sorted_aliases:
             for match in re.finditer(ALIAS_BOUNDARY_PRE + re.escape(alias) + ALIAS_BOUNDARY_POST, text, re.IGNORECASE):
                 key = (match.start(), match.end(), product.sku, product.unit)
                 if not any(key == entry[0] for entry in mentions):
                     mentions.append((key, product, match))
+    pruned_mentions = []
+    for entry in mentions:
+        _, prod, m = entry
+        if any(other[1].sku == prod.sku and other[2].start() <= m.start() and m.end() <= other[2].end() and (other[2].end() - other[2].start()) > (m.end() - m.start()) for other in mentions):
+            continue
+        pruned_mentions.append(entry)
+    mentions = pruned_mentions
     mentions.sort(key=lambda entry: entry[0])
     for _, product, mention in mentions:
         ambiguous = any(
