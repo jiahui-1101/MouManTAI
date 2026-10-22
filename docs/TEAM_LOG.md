@@ -1477,4 +1477,28 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - P3: Rebase PR #16 incorporating verified proposal payload derivation.
   - P4: Map customer confirmation tokens to verified proposal identities.
 
+### 2026-10-22 — Task P5-MIGRATION-0014: P4 Handoff Triage & Alembic 0014 Merge Strategy (P5 / D-039 / Handoff #P4-1)
+- **Status**: Complete, Verified & Recorded by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `D-039` (Ratifying P4 Handoff #P4-1 requirements)
+  - **Owner**: P5 (Shared Core, Contracts & Integration Coordinator)
+  - **Impact**:
+    1. **Commit 08 Confirmation Workspace Scope Ratification**:
+       - Approved P4 proceeding with frontend-only Confirmation Workspace using shared OpenAPI-derived contracts in `contracts/types.ts`.
+       - Enforces strict proposal ID/version validation and fail-closed state rendering (never showing green success for unconfirmed or awaiting states).
+    2. **Alembic Merge Strategy (`0014_merge_p3_p4_confirmations`) Coordination**:
+       - Formally endorsed the additive merge migration strategy (`0014_merge_p3_p4_confirmations`) joining `0013_merge_p3_p4_heads` and `0011_p4_confirmations`.
+       - Strictly preserves existing published migrations `0001`–`0011` per AGENTS §4 ("never edit existing migrations") and resolves PR #16 and Commit 08 into a single linear head.
+- **Validation Test Evidence**:
+  - Core pytest suite: `107 passed, 1 warning` (`python -m pytest tests -q`).
+  - Real PostgreSQL dual-boundary handshake suite: `19 passed` on port 5433 (`engine.dialect.name == "postgresql"`).
+  - Frontend Vitest suite: `308 passed, 5 skipped (live smoke)`.
+  - Frontend TypeScript typecheck: Clean (0 errors).
+  - Frontend production build: Clean (`tsc -b && vite build`, 121 modules transformed, 0 errors).
+  - Current Alembic head on Main: `0010_p4_recipient_preferences (head)`.
+- **Pending Acknowledgements**:
+  - P3: Include `0014_merge_p3_p4_confirmations` in PR #16 rebase with `down_revision = ("0013_merge_p3_p4_heads", "0011_p4_confirmations")`.
+  - P4: Implement Commit 08 Confirmation Workspace UI against `contracts/types.ts`.
+
+
 
