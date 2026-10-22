@@ -84,7 +84,7 @@ AMBIGUOUS_DELIVERY_RE = re.compile(
 
 # Relative dates
 REL_DATE_EN_RE = re.compile(r"\b(?P<rel>today|tomorrow|tmr|tmrw|2moro)\b", re.IGNORECASE)
-REL_DATE_ZH_RE = re.compile(r"(?P<rel>今天|明天|后天)")
+REL_DATE_ZH_RE = re.compile(r"(?P<rel>今天|明天|大后天|后天)")
 
 # ISO Date: YYYY-MM-DD
 ISO_DATE_RE = re.compile(r"\b(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})\b")
@@ -125,7 +125,7 @@ TIME_24H_RE = re.compile(
     r"(?P<extra>(?::[0-9]+)*)(?P<suffix>[A-Za-z_]*)(?![A-Za-z0-9_:])"
 )
 TIME_ZH_RE = re.compile(
-    r"(?<![0-9])(?:(?P<meridiem>下午|晚上|上午|早上|中午)\s*)?"
+    r"(?<![0-9])(?:(?P<meridiem>下午|晚上|上午|早上|中午|傍晚)\s*)?"
     r"(?P<hour>[0-9]+)\s*(?:点|时)(?:(?P<minute>[0-9]+)分?|(?P<half>半))?(?P<extra>[0-9]+秒)?"
 )
 
@@ -225,7 +225,7 @@ def _find_all_dates(text: str, local_date: date | None) -> tuple[list[ParsedDate
             tz_required.append((m.start(), m.end()))
         else:
             rel = m.group("rel")
-            delta = 2 if rel == "后天" else 1 if rel == "明天" else 0
+            delta = 3 if rel == "大后天" else 2 if rel == "后天" else 1 if rel == "明天" else 0
             valid.append(ParsedDate(local_date + timedelta(days=delta), m.start(), m.end(), m.group()))
 
     # 2. ISO Date
@@ -304,7 +304,7 @@ def _find_all_times(text: str) -> tuple[list[ParsedTime], list[tuple[int, int]]]
             if bad_hour or not 0 <= mn <= 59 or ambiguous:
                 invalid.append(m.span())
                 continue
-            if mer in ("pm", "下午", "晚上") and hr < 12:
+            if mer in ("pm", "下午", "晚上", "傍晚") and hr < 12:
                 hr += 12
             elif mer in ("am", "上午", "早上") and hr == 12:
                 hr = 0
