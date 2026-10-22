@@ -290,6 +290,25 @@ def test_confirm_proposal_verifies_proposal_identity_and_derives_event_payload(d
     assert exc.value.details["active_proposal_id"] == "prop_deal_v1_canonical"
     assert exc.value.details["submitted_proposal_id"] == "prop_wrong_id"
 
+    # 1b. Specifically verify legacy 'prop_001' cannot bypass validation
+    with pytest.raises(DomainError) as exc_legacy:
+        service.confirm_proposal(
+            db_session,
+            ctx,
+            created.commitment_id,
+            ProposalConfirmRequest(
+                proposal_id="prop_001",
+                proposal_version=1,
+                expected_commitment_version=2,
+                decision="ACCEPT",
+                evidence_refs=["ev_signed"],
+                reason="Legacy prop_001 attempt",
+            ),
+        )
+    assert exc_legacy.value.status_code == 409
+    assert exc_legacy.value.code == "PROPOSAL_ID_MISMATCH"
+    assert exc_legacy.value.details["submitted_proposal_id"] == "prop_001"
+
     # 2. Confirm with correct proposal_id succeeds and outbox payload contains verified proposal identity
     res = service.confirm_proposal(
         db_session,
