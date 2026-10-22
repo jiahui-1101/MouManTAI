@@ -158,6 +158,7 @@
 | ADR-013 | Caller-Owned Unit-of-Work (D-032), D-017 Named Subscriber Policy, and Advisory Isolation (D-033) | `CommitmentService.assess()` supports `commit=False`/`flush()`; OutboxDispatcher verifies required subscriber `p2_confirmed_evaluator` on `commitment.confirmed` and `p3.recovery_trigger.v1` on `commitment.at_risk`; advisory feasibility is stored append-only in audit without mutating aggregate or terms. | Accepted | 2026-10-22 |
 | ADR-014 | Contract Relaxation: `FeasibilityAssessment.affected_commitment_ids` | `affected_commitment_ids` defaults to empty list `[]` (downstream impact set only). FEASIBLE and UNKNOWN pass cleanly with `[]`; INFEASIBLE with `[]` signals local constraint breach without downstream cascade. | Accepted | 2026-10-22 |
 | ADR-015 | Concurrency Lock Hierarchy & Deadlock Safety (D-041) | Canonical lock hierarchy: `CommitmentRecord` row lock (`with_for_update`) strictly precedes secondary entity updates. Feasibility snapshot evaluation uses lock-free MVCC reads (`get_resource_snapshot`), preventing AB-BA deadlocks between confirmed evaluation and operational disruptions. Verified with dual-session PostgreSQL concurrency test. | Accepted | 2026-10-22 |
+| ADR-016 | D-041 Scope Clarification: P2 OperationalSnapshot Row Locking (D-042) | Confirmed that P2's persisted OperationalSnapshotRecord row locks under the monotonic Commitment → OperationalSnapshot hierarchy are fully compatible with D-041. Distinguishes Core lock-free MVCC stock reads from P2 operational currentness serialization. | Accepted | 2026-10-22 |
 
 Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/files, agreed-by, time; never silently reverse a lock.
 
@@ -1606,15 +1607,26 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - P2: Complete Phase 7B-4G acceptance review against PR #16.
   - P5: PR #16 remains Draft until final P2 approval and trusted operational-source authority integration.
 
+## 2026-10-22 — P5 Decision D-042: Formal D-041 Scope Clarification on P2 OperationalSnapshotRecord Row Locking
+
+- **Context**: Person 2 and Person 3 requested formal P5 confirmation in Handoffs #P2-1 and #P3-1 regarding whether D-041 permits the P2 persisted-source adapter to retain row locks on `OperationalSnapshotRecord` under the unified `CommitmentRecord` → `OperationalSnapshotRecord` hierarchy.
+- **Scope Distinction & Architectural Ruling**:
+  1. **Core Domain (`backend/app/core/`)**: Core's built-in resource snapshot abstraction (`ResourceStockRecord`) relies on lock-free MVCC reads (`get_resource_snapshot()`) with optimistic concurrency checks (`expected_snapshot_version`). Core does not acquire row-level write locks on resource stock during assessment reads.
+  2. **P2 Feature Domain (`backend/app/feasibility/`)**: P2's persisted operational source model (`OperationalSnapshotRecord` in `persisted_sources.py`) manages operational snapshot currentness (`is_current`) and multi-commitment impact recalculations.
+  3. **Compatibility Confirmed (D-042)**: In PR #16 (commit `2913421e`), P3 and P2 aligned `PersistedSupplierDelayProcessor` to lock `CommitmentRecord` rows FIRST in deterministic ID order BEFORE locking `OperationalSnapshotRecord` rows in deterministic version order. Because both the confirmed-event path and supplier-delay path adhere strictly to the monotonic **Commitment → OperationalSnapshot** lock sequence, AB-BA deadlocks are impossible. Retaining `with_for_update()` on `OperationalSnapshotRecord` in P2 is **fully compatible with D-041**.
+- **Owner Actions**:
+  - P2: Technical review marked PASS; finalize GitHub P2 Owner Approval on PR #16 (HEAD `f3fbadd`).
+  - P3: Retain PR #16 in Draft until final P2/P5 GitHub approvals and operational-source integration.
+
+
+
+
 ## 2026-10-22 — P3 Recovery Route Rehearsal Read Surface (PR #28)
 
 - **Status**: IN_REVIEW. Contributor P3; P5 owner/reviewer `Gan0117` requested for the shared route registration. PR: https://github.com/jiahui-1101/MouManTAI/pull/28.
-- **Base and coordination**: Main base `6d24774002edf589224888cdc92641cd978abe7a`; reviewed P3 source `ae0e4db5b0426ed6aec69f9782976405546aa021`; PR #16 remains open and Draft at `f3fbadd6a434cde4dd23b070288e37e531964111` and was not modified.
+- **Base and coordination**: Main sync `3e77ba1c760710e6d828ab9719d7764bda5d7411` (P5 D-042; initial candidate base `6d24774002edf589224888cdc92641cd978abe7a`); reviewed P3 source `ae0e4db5b0426ed6aec69f9782976405546aa021`; PR #16 remains open and Draft at `f3fbadd6a434cde4dd23b070288e37e531964111` and was not modified.
 - **Scope**: Replace the `/recovery/:id` placeholder with a P3 read-only case view. It requests the canonical case endpoint, follows the trigger-history endpoint only for the explicit `RECOVERY_EVALUATION_INPUTS_PENDING` or `RECOVERY_CASE_COMPLETED` errors, displays persisted identity/version/provenance/evidence, and handles loading, 403, 404, 409 and retry states. `IN_MEMORY_SYNTHETIC` payloads are rejected. No approval or execution controls are exposed.
 - **Files**: `frontend/src/App.tsx` (P5 shared route integration); `frontend/src/features/recovery/RecoveryAppRoute.test.tsx`; `frontend/src/features/recovery/RecoveryCaseRoutePage.tsx`; `frontend/src/features/recovery/RecoveryCaseRoutePage.test.tsx`; `frontend/src/features/recovery/recoveryCaseApi.ts`; `frontend/src/features/recovery/recoveryCaseRoute.css`; `frontend/src/features/recovery/recoveryCaseView.ts`; `docs/TEAM_LOG.md`.
 - **Backend dependency / rehearsal blocker**: Main currently returns `404 NOT_FOUND` for `GET /v1/recovery/cases/{commitment_id}` and does not mount a Recovery API. PR #16 contains the P3 router and durable case reader, but its DB-backed GET path is gated by `MOUMANTAI_ISOLATED_E2E=1`; `backend/app/recovery/trigger_persistence.py` states there is no production subscriber binding or automatic activation. A P5/P3-approved durable reader and authorized event-to-case producer are still required before a real case can load in rehearsal. This PR deliberately adds no backend route, migration, fixture fallback, subscriber registration, or execution behavior.
 - **Validation**: `npm run test -- --run src/features/recovery/RecoveryCaseRoutePage.test.tsx src/features/recovery/RecoveryAppRoute.test.tsx src/features/communication/RouteIntegration.test.tsx` — 23 passed; `npm run typecheck` — passed; `npm run build` — passed (509.62 kB JavaScript chunk-size warning); from `backend/`, `Remove-Item Env:TEST_DATABASE_URL -ErrorAction SilentlyContinue; $env:DATABASE_URL='sqlite+pysqlite:///:memory:'; python -m pytest tests/test_core_api.py -q` — 5 passed. Direct TestClient lookup on Main returned 404. No PostgreSQL test was run; no backend source or migration changed.
 - **Commit / review**: code commits `f6da11a3e93d87125c1f3178bb74dd153cc26ec5` and `6e675eaa48263d854dbe312dfc4e77d5e8e530a6`; PR #28 is open against Main; P5 review requested and pending. No approval, merge, or rehearsal-ready backend claim is made.
-
-
-
