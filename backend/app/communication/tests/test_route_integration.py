@@ -45,6 +45,12 @@ def route_keys(routes):
 
 def test_main_registers_every_existing_p4_route_once_without_extra_prefix():
     expected = {
+        ("GET", "/v1/communications/runtime-capabilities"),
+        ("GET", "/v1/communications/recipient-preferences"),
+        ("POST", "/v1/communications/recipient-preferences"),
+        ("GET", "/v1/communications/{communication_id}/outbound"),
+        ("GET", "/v1/communications/{communication_id}/drafts/{draft_id}/send-eligibility"),
+        ("POST", "/v1/communications/{communication_id}/drafts/{draft_id}/send"),
         ("GET", "/v1/communications"),
         ("GET", "/v1/communications/summary"),
         ("GET", "/v1/communications/{communication_id}"),
@@ -76,7 +82,7 @@ def test_summary_dispatches_to_static_endpoint_not_communication_id(main_client)
     response = main_client.get(path, headers=HEADERS)
     assert response.status_code == 200, response.text
     assert response.json()["total"] == 0
-    assert response.json()["drafted"] is None and response.json()["sent"] is None
+    assert response.json()["drafted"] is None and response.json()["sent"] == 0
 
 
 def test_registered_openapi_exposes_existing_draft_retrieval_once():

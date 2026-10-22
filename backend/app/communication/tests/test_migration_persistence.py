@@ -44,11 +44,12 @@ from app.db.base import Base
 from app.main import app
 
 BACKEND = Path(__file__).resolve().parents[3]
-HEAD = "0008_p4_communication"
-PREVIOUS = "0007_recovery_case_constraints_alignment"
+HEAD = "0009_p4_outbound_messaging"
+PREVIOUS = "0008_p4_communication"
 TABLES = {
     "communication_requests", "communication_request_sources",
     "communication_drafts", "communication_draft_reviews",
+    "communication_outbound_messages", "communication_send_attempts",
 }
 
 
@@ -107,7 +108,7 @@ def test_single_head_and_real_parent():
     assert HEAD in {revision.revision for revision in scripts.iterate_revisions(heads[0], "base")}
     assert scripts.get_revision(HEAD).down_revision == PREVIOUS
     assert len(HEAD) <= 32
-    assert len(list(scripts.walk_revisions())) >= 8
+    assert len(list(scripts.walk_revisions())) >= 12
 
 
 def test_postgresql_offline_ddl_and_fresh_metadata_registration(monkeypatch):
@@ -132,7 +133,9 @@ def test_postgresql_offline_ddl_and_fresh_metadata_registration(monkeypatch):
     stream = StringIO()
     with redirect_stdout(stream):
         command.downgrade(config(), f"{HEAD}:{PREVIOUS}", sql=True)
-    assert stream.getvalue().count("DROP TABLE communication_") == 4
+    assert stream.getvalue().count("DROP TABLE communication_") == 2
+    assert "DROP TABLE communication_outbound_messages" in stream.getvalue()
+    assert "DROP TABLE communication_send_attempts" in stream.getvalue()
     assert "DROP TABLE commitments" not in stream.getvalue()
 
 
@@ -393,9 +396,9 @@ def test_registered_api_uses_migrated_database_without_authority_bypass(migrated
             assert summary.status_code == 200
             result = summary.json()
             assert result["total"] == int(populated) and result["needs_attention"] == 0
-            assert result["drafted"] is None and result["sent"] is None
+            assert result["drafted"] is None and result["sent"] == 0
             assert result["unavailable_reasons"] == {
-                "drafted": "DRAFT_REVALIDATION_UNAVAILABLE", "sent": "SENDING_RECORDS_UNAVAILABLE",
+                "drafted": "DRAFT_REVALIDATION_UNAVAILABLE",
             }
             blocked = client.post("/v1/communications/requests", headers=HEADERS, json=COMMAND.model_dump())
             assert blocked.status_code == 503 and blocked.json()["code"] == "COMMUNICATION_AUTHORITY_UNAVAILABLE"
@@ -423,11 +426,14 @@ def test_p4_downgrade_preserves_core_and_recovery_then_reupgrade(migrated):
             status="COMPLETED", case_version=1, commitment_version=11, payload_schema_version=1,
             case_payload={}, resolution_refs=[], created_at=NOW, updated_at=NOW))
     original_tables = set(inspect(engine).get_table_names()) - TABLES
+    base_p4_tables = TABLES - {"communication_outbound_messages", "communication_send_attempts"}
     with engine.connect() as connection:
         before = {name: connection.scalar(text(f'SELECT count(*) FROM "{name}"'))
                   for name in original_tables if name != "alembic_version"}
+        base_p4_before = {name: connection.scalar(text(f'SELECT count(*) FROM "{name}"'))
+                          for name in base_p4_tables}
     command.downgrade(cfg, PREVIOUS)
-    assert set(inspect(engine).get_table_names()) == original_tables
+    assert set(inspect(engine).get_table_names()) == original_tables | base_p4_tables
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == PREVIOUS
         for name, count in before.items():
@@ -438,4 +444,4 @@ def test_p4_downgrade_preserves_core_and_recovery_then_reupgrade(migrated):
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == HEAD
         assert connection.scalar(select(func.count()).select_from(recovery)) == 1
         for name in TABLES:
-            assert connection.scalar(text(f'SELECT count(*) FROM "{name}"')) == 0
+            assert connection.scalar(text(f'SELECT count(*) FROM "{name}"')) == base_p4_before.get(name, 0)

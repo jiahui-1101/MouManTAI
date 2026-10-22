@@ -39,6 +39,7 @@ export interface CommunicationRequestView {
   expires_at: ISO8601 | null;
   created_by: string;
   created_at: ISO8601;
+  outbound_status?: OutboundStatus | null;
 }
 
 export type DraftLanguage = "en" | "ms" | "zh";
@@ -50,7 +51,7 @@ export interface CommunicationSummary {
   sent: number | null;
   needs_attention: number;
   checked_at: ISO8601;
-  unavailable_reasons: Partial<Record<"drafted" | "sent", string>>;
+  unavailable_reasons: Partial<Record<"drafted" | "sent" | "needs_attention", string>>;
 }
 
 export interface PrepareDraftRequest {
@@ -96,6 +97,21 @@ created_at: ISO8601;
 }
 
 export type ReviewDecisionAction = "APPROVE_DRAFT" | "REJECT_DRAFT";
+export type OutboundStatus = Extract<MessageStatus, "QUEUED" | "SENT" | "FAILED" | "DELIVERY_UNKNOWN">;
+export interface SendEligibility {
+  tenant_id: string; communication_id: string; draft_id: string;
+  can_send: boolean; content_hash: string | null; approved_review_id: string | null;
+  expires_at: string | null; blocked_reason: string | null; checked_at: string;
+}
+export interface OutboundMessageView {
+  tenant_id: string; outbound_id: string; communication_id: string; draft_id: string;
+  approved_review_id: string; content_hash: string; channel: CommunicationChannel;
+  status: OutboundStatus; provider_reference: string | null; provider_confirmed: boolean;
+  created_at: string; updated_at: string; sent_at: string | null; failed_at: string | null;
+  last_error_code: string | null; retry_allowed: false; reconciliation_required: boolean;
+  attempts: { attempt_number: number; status: OutboundStatus; provider_reference: string | null;
+    error_code: string | null; started_at: string; finished_at: string | null }[];
+}
 export interface DraftReviewDecision extends Pick<MessageDraftView,
   "tenant_id" | "communication_id" | "draft_id" | "reference" | "content_hash" | "validation_hash" |
   "language" | "recipient_identity_id" | "channel" | "expires_at"> {

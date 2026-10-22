@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -602,7 +603,12 @@ def test_sqlite_alembic_0009_has_source_constraints(tmp_path: Path, monkeypatch:
                 "recovery_action_executions"} <= set(inspect(engine).get_table_names())
         with engine.begin() as connection:
             connection.execute(text("PRAGMA foreign_keys=ON"))
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0012_p3_internal_actions"
+            revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
+            scripts = ScriptDirectory.from_config(cfg)
+            assert scripts.get_heads() == [revision]
+            assert "0009_p2_operational_sources" in {
+                entry.revision for entry in scripts.iterate_revisions(revision, "base")
+            }
             connection.execute(text("""
                 INSERT INTO p2_operational_snapshots
                 (tenant_id,snapshot_version,snapshot_id,payload,is_current,created_at)

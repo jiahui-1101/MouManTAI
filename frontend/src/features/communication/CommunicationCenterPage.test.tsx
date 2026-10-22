@@ -64,7 +64,22 @@ beforeEach(() => {
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (input, init) => {
     const url = new URL(String(input));
+    if (url.pathname.endsWith("/runtime-capabilities")) return reply({
+      tenant_id: (init?.headers as Record<string, string>)["X-Tenant-ID"], mode: "CLOSED",
+      label: "Trusted authority unavailable", can_record_preferences: false, can_revoke_preferences: false,
+      integrated_demo_ready: false, blockers: ["PRODUCTION_AUTH_UNAVAILABLE"],
+    });
     if (url.pathname === "/v1/communications/summary") return summaryIntercept ? summaryIntercept(init) : reply(summaryData);
+    // Default read-only sending fixtures keep legacy drafting failure tests scoped
+    // to their intended endpoint. Sending behavior is exercised in OutboundPanel tests.
+    if (url.pathname.endsWith("/outbound")) return reply([]);
+    if (url.pathname.endsWith("/send-eligibility")) {
+      const parts = url.pathname.split("/");
+      return reply({ tenant_id: auth.tenantId, communication_id: decodeURIComponent(parts[3]),
+        draft_id: decodeURIComponent(parts[5]), can_send: false, content_hash: null,
+        approved_review_id: null, expires_at: null, blocked_reason: "SEND_AUTHORITY_UNAVAILABLE",
+        checked_at: "2026-10-22T10:00:00Z" });
+    }
     const override = intercept?.(url.pathname, init);
     if (override) return override;
     if (url.pathname === "/v1/communications") return reply(records);
@@ -114,6 +129,21 @@ async function prepare() {
 const posts = () => fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
 
 describe("Communication Center", () => {
+  it.each([
+    ["SENT", "Sent"], ["FAILED", "Blocked"], ["DELIVERY_UNKNOWN", "Blocked"], ["QUEUED", "Sending"],
+  ] as const)("uses backend outbound %s for the request display label", async (state, label) => {
+    records = [request("a", { outbound_status: state })];
+    mount();
+    expect(await within(await screen.findByRole("region", { name: "Communication requests" })).findByText(label)).toBeInTheDocument();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it("does not show a partial attention count as a complete metric when outbound storage is unavailable", async () => {
+    summaryData = { ...summaryData, unavailable_reasons: { ...summaryData.unavailable_reasons, needs_attention: "SENDING_RECORDS_UNAVAILABLE" } };
+    mount();
+    await screen.findByText(/Needs Attention — Not available/);
+    expect(within(screen.getByLabelText("Communication summary")).getByText("Needs Attention").nextSibling).toHaveTextContent("—");
+  });
   it("loads real API response with shared auth, four server metrics and Pending instead of fabricated Drafted", async () => {
     mount();
     expect(screen.getByText("Loading communication requests…")).toBeInTheDocument();

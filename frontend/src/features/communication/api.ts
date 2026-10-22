@@ -1,8 +1,12 @@
 import { ApiError, apiRequest, authHeaders, type RequestAuthHeaders } from "../../shared/api";
 import type { CommunicationRequestView, CommunicationSummary, DraftReference, DraftReviewCommand, DraftReviewView, MessageDraftView, PrepareDraftRequest } from "./types";
+import type { OutboundMessageView, SendEligibility } from "./types";
 
 const base = "/v1/communications";
 export const communicationKeys = {
+  outbound: (auth: RequestAuthHeaders, id: string) => [...communicationKeys.scope(auth), "outbound", id] as const,
+  eligibility: (auth: RequestAuthHeaders, draft: MessageDraftView) =>
+    [...communicationKeys.scope(auth), "send-eligibility", draft.communication_id, draft.draft_id, draft.content_hash, draft.validation_hash] as const,
   scope: (auth: RequestAuthHeaders) => ["p4-communications", auth.tenantId, auth.actorId] as const,
   list: (auth: RequestAuthHeaders) => [...communicationKeys.scope(auth), "list"] as const,
   summary: (auth: RequestAuthHeaders) => [...communicationKeys.scope(auth), "summary"] as const,
@@ -109,4 +113,35 @@ export async function submitDraftReview(draft: MessageDraftView, action: "approv
   return checkedReview(await apiRequest<DraftReviewView>(`${reviewPath(draft)}/${action}`, {
     method: "POST", headers: authHeaders(auth), body: JSON.stringify(command), signal,
   }), draft);
+}
+
+export async function getSendEligibility(draft: MessageDraftView, auth: RequestAuthHeaders, signal?: AbortSignal) {
+  if (draft.tenant_id !== auth.tenantId) throw mismatch();
+  const value = await apiRequest<SendEligibility>(`${reviewPath(draft)}/send-eligibility`, { headers: authHeaders(auth), signal });
+  if (value?.tenant_id !== auth.tenantId || value.communication_id !== draft.communication_id || value.draft_id !== draft.draft_id) throw mismatch();
+  if (typeof value.can_send !== "boolean" || !Number.isFinite(Date.parse(value.checked_at)) ||
+      (value.can_send && (value.content_hash !== draft.content_hash || !value.approved_review_id || !value.expires_at ||
+        !Number.isFinite(Date.parse(value.expires_at)) || value.blocked_reason !== null))) throw new ApiError(409, "UNSUPPORTED_RESPONSE", "Invalid send eligibility");
+  return value;
+}
+function checkedOutbound(value: OutboundMessageView, id: string, auth: RequestAuthHeaders) {
+  if (value?.tenant_id !== auth.tenantId || value.communication_id !== id) throw mismatch();
+  if (!["QUEUED", "SENT", "FAILED", "DELIVERY_UNKNOWN"].includes(value.status) || value.retry_allowed !== false ||
+      !Array.isArray(value.attempts) || typeof value.provider_confirmed !== "boolean" ||
+      (value.status === "SENT" && (!value.provider_confirmed || !value.provider_reference || !value.sent_at || !Number.isFinite(Date.parse(value.sent_at)))) ||
+      (value.status !== "SENT" && (value.provider_confirmed || value.sent_at !== null))) throw new ApiError(409, "UNSUPPORTED_RESPONSE", "Invalid outbound result");
+  return value;
+}
+export async function getOutboundHistory(id: string, auth: RequestAuthHeaders, signal?: AbortSignal) {
+  const values = await apiRequest<OutboundMessageView[]>(`${base}/${pathId(id)}/outbound`, { headers: authHeaders(auth), signal });
+  if (!Array.isArray(values)) throw new ApiError(409, "UNSUPPORTED_RESPONSE", "Invalid sending history");
+  return values.map(value => checkedOutbound(value, id, auth));
+}
+export async function sendMessage(draft: MessageDraftView, requestKey: string, auth: RequestAuthHeaders, signal?: AbortSignal) {
+  const value = checkedOutbound(await apiRequest<OutboundMessageView>(`${reviewPath(draft)}/send`, {
+    method: "POST", headers: authHeaders(auth), signal,
+    body: JSON.stringify({ request_key: requestKey, expected_content_hash: draft.content_hash }),
+  }), draft.communication_id, auth);
+  if (value.draft_id !== draft.draft_id || value.content_hash !== draft.content_hash || value.channel !== draft.channel) throw mismatch();
+  return value;
 }

@@ -1,16 +1,18 @@
-"""Explicit runtime authority boundaries for the CURRENT upstream capabilities.
+"""Closed production authority boundaries for the CURRENT upstream capabilities.
 
 Core exposes demo headers, current proposal facts and generic audit/outbox rows.
 It does NOT expose authenticated membership, P4 action grants or a persisted,
 revocable approval/expiry contract. P1's default directory is synthetic and lacks
-typed verified outbound identity/consent. No production adapter can honestly
+typed verified outbound identity. P4 owns durable outbound consent in preferences.py.
+No production adapter can honestly
 issue a positive grant from those sources. These boundaries report the missing
 capabilities and reject; they never silently use test fixtures or demo policies.
 
 Current Core facts are independently read by CommunicationRequestService's
 read_current_basis, shared by intake and draft revalidation. Such facts are NOT
 permission. Implement a positive adapter only after upstream authority exists;
-changing an environment flag or supplying an actor_role cannot enable one here.
+The separate explicitly scoped synthetic adapters never enable these production
+classes, and still reject the absent Core approval producer contract.
 """
 
 from typing import NoReturn
@@ -129,7 +131,7 @@ class RuntimeDraftAuthority:
                 "CORE_APPROVAL_AND_PROPOSAL_EXPIRY",
                 "CORE_P3_SOURCE_EVENT_PROVENANCE",
                 "P1_TYPED_IDENTITY_CHANNEL_CUSTOMER_BINDING_AND_VERIFICATION_EVIDENCE",
-                "P1_OUTBOUND_CHANNEL_CONSENT_CURRENTNESS_AND_REVOCATION",
+                "P4_RECIPIENT_CONSENT_CURRENTNESS_AND_REVOCATION",
             ))
 
     def revalidate_draft(self, db: Session, context: RequestContext,

@@ -94,6 +94,7 @@ class CommunicationRequestView(ContractModel):
     expires_at: OffsetAwareDatetime | None
     created_by: ReferenceId
     created_at: OffsetAwareDatetime
+    outbound_status: Literal["QUEUED", "SENT", "FAILED", "DELIVERY_UNKNOWN"] | None = None
 
 
 class PrepareDraftRequest(ContractModel):
@@ -110,7 +111,7 @@ class CommunicationSummary(ContractModel):
     sent: int | None = Field(default=None, ge=0)
     needs_attention: int = Field(ge=0)
     checked_at: OffsetAwareDatetime
-    unavailable_reasons: dict[Literal["drafted", "sent"], str] = Field(default_factory=dict)
+    unavailable_reasons: dict[Literal["drafted", "sent", "needs_attention"], str] = Field(default_factory=dict)
 
 
 class MessageDraftView(ContractModel):
@@ -205,3 +206,64 @@ class DraftReviewView(ContractModel):
     invalidation_code: str | None = None
     invalidation_audit_id: str | None = None
     checked_at: OffsetAwareDatetime
+
+
+class SendMessageRequest(ApproveDraftRequest):
+    pass
+
+
+class SendAuthorization(ContractModel):
+    """Server-only SEND_MESSAGE grant; never an HTTP body or a demo role."""
+    tenant_id: ReferenceId
+    actor_id: ReferenceId
+    actor_role: ReferenceId
+    communication_id: ReferenceId
+    draft_id: ReferenceId
+    review_id: ReferenceId
+    content_hash: str
+    validation_hash: str
+    action: Literal["SEND_MESSAGE"]
+    evidence_refs: list[ReferenceId] = Field(min_length=1)
+    expires_at: OffsetAwareDatetime
+
+
+class SendEligibility(ContractModel):
+    tenant_id: ReferenceId
+    communication_id: ReferenceId
+    draft_id: ReferenceId
+    can_send: bool
+    content_hash: str | None = None
+    approved_review_id: str | None = None
+    expires_at: OffsetAwareDatetime | None = None
+    blocked_reason: str | None = None
+    checked_at: OffsetAwareDatetime
+
+
+class SendAttemptView(ContractModel):
+    attempt_number: int
+    status: Literal["QUEUED", "SENT", "FAILED", "DELIVERY_UNKNOWN"]
+    provider_reference: str | None
+    error_code: str | None
+    started_at: OffsetAwareDatetime
+    finished_at: OffsetAwareDatetime | None
+
+
+class OutboundMessageView(ContractModel):
+    tenant_id: str
+    outbound_id: str
+    communication_id: str
+    draft_id: str
+    approved_review_id: str
+    content_hash: str
+    channel: CommunicationChannel
+    status: Literal["QUEUED", "SENT", "FAILED", "DELIVERY_UNKNOWN"]
+    provider_reference: str | None
+    provider_confirmed: bool
+    created_at: OffsetAwareDatetime
+    updated_at: OffsetAwareDatetime
+    sent_at: OffsetAwareDatetime | None
+    failed_at: OffsetAwareDatetime | None
+    last_error_code: str | None
+    retry_allowed: Literal[False] = False
+    reconciliation_required: bool
+    attempts: list[SendAttemptView]

@@ -13,6 +13,8 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.orm import Session
 
@@ -35,7 +37,12 @@ def _approved_engine():
     engine = create_engine(url, pool_pre_ping=True)
     assert engine.dialect.name == "postgresql"
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0012_p3_internal_actions"
+        revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
+        script = ScriptDirectory.from_config(Config(str(Path(__file__).resolve().parents[2] / "alembic.ini")))
+        assert script.get_heads() == [revision]
+        assert "0012_p3_internal_actions" in {
+            entry.revision for entry in script.iterate_revisions(revision, "base")
+        }
     return engine
 
 

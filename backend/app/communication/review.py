@@ -39,6 +39,7 @@ class ReviewAuthority(Protocol):
 # Only definite semantic invalidity is latched. Infrastructure/policy unavailability
 # fails closed without pretending that revocation has been established.
 INVALIDATING = {
+    "CONSENT_REVOKED", "CONSENT_EXPIRED", "CONSENT_RECIPIENT_CHANGED", "CONTACT_CHANGED",
     "STALE_PROPOSAL_VERSION", "COMMITMENT_VERSION_CONFLICT", "PROPOSAL_NOT_ELIGIBLE",
     "APPROVAL_EXPIRED", "PROPOSAL_EXPIRED", "DRAFT_EXPIRED", "PROPOSED_DEADLINE_PASSED",
     "APPROVAL_EVIDENCE_REQUIRED", "APPROVED_TERMS_MISMATCH", "AUTHORIZATION_SCOPE_MISMATCH",
@@ -66,6 +67,27 @@ class DraftReviewService:
 
     def reject(self, context, communication_id, draft_id, command: RejectDraftRequest, *, now=None):
         return self._run(context, communication_id, draft_id, "REJECT_DRAFT", command, now)
+
+    def validate_for_send(self, context, communication_id, draft_id, *, now):
+        """Revalidate inside Send's transaction; never commit/rollback or grant SEND_MESSAGE."""
+        _require_context(context)
+        if self.authority is None:
+            _fail("REVIEW_AUTHORITY_UNAVAILABLE", "Trusted review authority is unavailable", 503)
+        _check_authority_availability(self.authority)
+        if self.drafts.repository.get(context.tenant_id, communication_id, draft_id, lock=True) is None:
+            _fail("DRAFT_NOT_FOUND", "Draft not found in current scope", 404)
+        record = self.repository.get(context.tenant_id, communication_id, draft_id)
+        if record is None or record.invalidated_at is not None:
+            _fail("SEND_REVIEW_REQUIRED", "A current approved draft review is required")
+        decision = self.repository.view(record)
+        if decision.action != "APPROVE_DRAFT":
+            _fail("SEND_REVIEW_REQUIRED", "Rejected drafts cannot be sent")
+        audit = self.db.get(AuditEventRecord, decision.audit_id, populate_existing=True)
+        if not audit or audit.tenant_id != context.tenant_id or audit.new_state.get("review_hash") != fingerprint(decision.model_dump(mode="json")):
+            _fail("REVIEW_INTEGRITY_ERROR", "Review audit binding is invalid")
+        grant = self._authorize(context, communication_id, draft_id, "READ_REVIEW", decision, now)
+        draft = self._fresh(context, communication_id, draft_id, decision, grant, now)
+        return draft, decision
 
     def _authorize(self, context, communication_id, draft_id, action, decision, now):
         grant = self.authority.authorize_review(

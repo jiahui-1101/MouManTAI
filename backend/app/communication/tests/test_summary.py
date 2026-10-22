@@ -27,16 +27,16 @@ def summary(drafts, context=OWNER, **kwargs):
     return drafts.summary(context, now=NOW, **kwargs)
 
 
-def test_empty_database_reports_real_zero_counts_but_no_sending_source(drafts):
+def test_empty_database_reports_real_zero_counts_with_available_sending_storage(drafts):
     result = summary(drafts)
-    assert (result.total, result.drafted, result.sent, result.needs_attention) == (0, 0, None, 0)
-    assert result.unavailable_reasons == {"sent": "SENDING_RECORDS_UNAVAILABLE"}
+    assert (result.total, result.drafted, result.sent, result.needs_attention) == (0, 0, 0, 0)
+    assert result.unavailable_reasons == {}
 
 
 def test_empty_database_without_authority_is_explicitly_unavailable(db):
     result = summary(MessageDraftService(db))
     assert result.total == result.needs_attention == 0
-    assert result.drafted is None and result.sent is None
+    assert result.drafted is None and result.sent == 0
     assert result.unavailable_reasons["drafted"] == "DRAFT_REVALIDATION_UNAVAILABLE"
 
 
@@ -160,9 +160,9 @@ def test_snapshot_status_is_not_a_provider_confirmed_sending_source(db, service,
     row.snapshot = {**row.snapshot, "message_status": state}
     db.commit()
     result = summary(drafts)
-    assert result.sent is None
+    assert result.sent == 0
     assert result.needs_attention == 0  # No real persisted delivery exception exists.
-    assert result.unavailable_reasons["sent"] == "SENDING_RECORDS_UNAVAILABLE"
+    assert "sent" not in result.unavailable_reasons
 
 
 def test_tenant_isolation_for_requests_and_persisted_drafts(db, service, drafts, request_id):
@@ -226,7 +226,7 @@ def test_api_static_summary_route_precedes_dynamic_detail_and_uses_current_tenan
         assert response.status_code == 200, response.text
         result = response.json()
         assert result["tenant_id"] == "tenant_a"
-        assert result["total"] == 1 and result["drafted"] is None and result["sent"] is None
+        assert result["total"] == 1 and result["drafted"] is None and result["sent"] == 0
         assert "body" not in result and "approval_evidence_refs" not in result
         other = client.get("/v1/communications/summary", headers={**HEADERS, "X-Tenant-ID": "tenant_b"})
         assert other.status_code == 200 and other.json()["total"] == 0
