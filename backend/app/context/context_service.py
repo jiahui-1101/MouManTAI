@@ -32,6 +32,12 @@ class ContextService:
         message = self.repo.get(tenant_id, message_id)
         if message is None:
             raise MessageNotFound(f"Message {message_id} not found")
+        existing_lookup = getattr(self.repo, 'get_order_context_by_message', None)
+        existing_for_message = existing_lookup(tenant_id, message_id) if existing_lookup else None
+        if existing_for_message:
+            # Reprocessing changes extraction history, never the reviewed
+            # context automatically. Explicit review is the versioned edit path.
+            return existing_for_message
 
         # 1. Retrieve latest extraction attempt
         try:
@@ -59,6 +65,10 @@ class ContextService:
         extracted_delivery_at: datetime | None = None
         extracted_qualifier: str | None = None
         field_evidence: dict[str, list[dict[str, Any]]] = {}
+        uncertain_terms = sorted({f.field_name for f in attempt.fields
+            if f.validation_status in {'INVALID', 'UNRESOLVED', 'CONFLICT'}
+            and f.field_name in {'sku', 'quantity', 'unit', 'requested_delivery_at'}
+            and any(ev.method == 'RULE' for ev in f.evidence)})
 
         for f in attempt.fields:
             if f.validation_status != "VALID":
@@ -114,6 +124,8 @@ class ContextService:
             if message_id in existing_context.source_message_ids:
                 return existing_context
             conflicts = list(existing_context.conflicts)
+            for name in uncertain_terms:
+                conflicts.append(f"Incoming {name} from message {message_id} requires review; existing value preserved")
             # Detect item conflicts
             if new_items and existing_context.requested_items:
                 ex_it = existing_context.requested_items[0]

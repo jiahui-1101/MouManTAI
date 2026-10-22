@@ -486,7 +486,7 @@ class PostgresMessageRepository:
                     )
                     if existing_attempt is not None:
                         return ProcessResponse(
-                            message=stored(row),
+                            message=stored(row, existing_attempt.extractor_version),
                             attempt=attempt_record(existing_attempt),
                             reprocessed=False,
                         )
@@ -903,6 +903,17 @@ class PostgresMessageRepository:
             raise
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def get_order_context_by_message(self, tenant_id: str, message_id: str) -> OrderContextRecord | None:
+        try:
+            with Session(self.engine) as session:
+                rows = session.scalars(select(OrderContext).where(OrderContext.tenant_id == tenant_id,
+                    OrderContext.source_message_ids.contains([message_id])).limit(2)).all()
+                if len(rows) > 1:
+                    raise ProcessingConflict("Multiple historical contexts reference this message; select a context explicitly")
+                return order_context_record(rows[0]) if rows else None
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Context lookup temporarily unavailable") from None
 
     def update_order_context(
         self,
