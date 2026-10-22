@@ -383,7 +383,6 @@ class ModelProposalService:
 
         if observation.field == "product":
             matches = []
-            is_qwen = model_id == MODEL_CONFIG['qwen'][0]
             units = '|'.join(re.escape(u) for u in UNIT_NORMALIZATION)
             for p in catalog:
                 if p.tenant_id != message.raw.tenant_id:
@@ -392,10 +391,6 @@ class ModelProposalService:
                     m = re.fullmatch(
                         r'\s*(?:[0-9]+\s*(?:(?:' + units + r')\s*)?)?(?P<alias>' + re.escape(alias) + r')\s*',
                         quote, re.IGNORECASE,
-                    ) if is_qwen else re.search(
-                        r"(?:\b|(?<=[\u4e00-\u9fff]))(?P<alias>" + re.escape(alias) + r")(?:\b|(?=[\u4e00-\u9fff]))",
-                        quote,
-                        re.IGNORECASE,
                     )
                     if m:
                         matches.append((p, m.span("alias")))
@@ -443,13 +438,10 @@ class ModelProposalService:
                 status, reason = "UNRESOLVED", "Literal number only; existing valid or reviewed quantity takes precedence"
                 supported = False
             else:
-                if model_id == MODEL_CONFIG['qwen'][0]:
-                    units = '|'.join(re.escape(u) for u in UNIT_NORMALIZATION)
-                    aliases = '|'.join(re.escape(a) for p in catalog if p.tenant_id == message.raw.tenant_id for a in p.aliases)
-                    m = re.fullmatch(r'\s*([0-9]+)\s*(?:(?:' + units + r')\s*)?' +
-                                     (r'(?:(?:' + aliases + r')\s*)?' if aliases else '') + r'\s*', quote, re.I)
-                else:
-                    m = re.search(r"([0-9]+(?:\.[0-9]+)?)", quote)
+                units = '|'.join(re.escape(u) for u in UNIT_NORMALIZATION)
+                aliases = '|'.join(re.escape(a) for p in catalog if p.tenant_id == message.raw.tenant_id for a in p.aliases)
+                m = re.fullmatch(r'\s*([0-9]+)\s*(?:(?:' + units + r')\s*)?' +
+                                 (r'(?:(?:' + aliases + r')\s*)?' if aliases else '') + r'\s*', quote, re.I)
                 if m and Decimal(m.group(1)) > 0:
                     value = m.group(1)
                     subspan = (m.start(1), m.end(1))
@@ -502,6 +494,6 @@ class ModelProposalService:
                 "model_revision": revision,
                 "provisional": "true",
                 "domain_supported": str(supported).lower(),
-                "normalization": "catalog_and_l0_subspan_v2",
+                "normalization": "catalog_and_l0_subspan_v3",
             },
         )

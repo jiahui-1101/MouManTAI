@@ -46,8 +46,8 @@ def test_l0_sufficient_message_triggers_zero_worker_requests():
     assert "safely resolved" in result.routing_reasons["gliner"]
 
 
-def test_unresolved_sku_or_quantity_triggers_l1_gliner():
-    """When SKU or quantity cannot be resolved by L0, GLiNER is invoked."""
+def test_supported_malay_prefix_time_no_longer_needs_l1():
+    """Literal prefix meridiem is now fully resolved by L0, so no model call."""
     text = "nak tempah 25 roti burger esok petang pukul 3"
     start_prod = text.index("roti burger")
     end_prod = start_prod + len("roti burger")
@@ -69,13 +69,9 @@ def test_unresolved_sku_or_quantity_triggers_l1_gliner():
     msg = stored(text)
     result = asyncio.run(service.extract_stored(msg, catalog=PROVISIONAL_PRODUCTS))
 
-    assert len(spy.calls) == 1
-    assert spy.calls[0].engine == "gliner"
-    assert result.worker_request_count == 1
-    assert result.outcomes["gliner"] == "proposals_only"
-    # When GLiNER resolves the terms, Qwen is bypassed with l1_sufficient
-    assert result.outcomes["qwen"] == "l1_sufficient"
-    assert len(spy.calls) == 1
+    assert spy.calls == []
+    assert result.worker_request_count == 0
+    assert result.outcomes == {'gliner':'not_needed', 'qwen':'not_needed'}
 
 
 def test_reprocessing_unchanged_message_reuses_cache_without_network_calls():

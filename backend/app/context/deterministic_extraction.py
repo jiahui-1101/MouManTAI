@@ -17,7 +17,7 @@ from .ingestion_schemas import StoredMessage
 from .schemas import ExtractedField, FieldEvidence
 from .request_intent import request_intent
 
-VERSION = "p1-deterministic-v4"
+VERSION = "p1-deterministic-v5"
 
 # ---------------------------------------------------------------------------
 # Catalogs and Normalization Maps
@@ -136,13 +136,16 @@ TIME_24H_RE = re.compile(
 )
 TIME_ZH_RE = re.compile(
     r"(?<![0-9])(?:(?P<meridiem>下午|晚上|上午|早上|中午|傍晚)\s*)?"
-    r"(?P<hour>[0-9]+)\s*(?:点|时)(?:(?P<minute>[0-9]+)分?|(?P<half>半))?(?P<extra>[0-9]+秒)?"
+    r"(?P<hour>[0-9]+|[一二两三四五六七八九十]+)\s*(?:点|时)(?:(?P<minute>[0-9]+)分?|(?P<half>半))?(?P<extra>[0-9]+秒)?"
 )
 TIME_MS_RE = re.compile(
     r"\b(?:pukul|jam)\s+(?P<hour>[0-9]+)(?:[:.](?P<minute>[0-9]+))?"
     r"(?:\s*(?P<meridiem>pagi|tengah\s+hari|petang|malam))?\b",
     re.IGNORECASE
 )
+TIME_MS_PREFIX_RE = re.compile(
+    r'\b(?P<meridiem>pagi|petang|malam|tengah\s+hari)\s+(?:pukul|jam)\s+'
+    r'(?P<hour>[0-9]+)(?:[:.](?P<minute>[0-9]+))?\b', re.I)
 
 # These semantics cannot be represented by EXACT/DEADLINE/DATE_ONLY. Keep
 # the original expression unresolved rather than silently dropping a modifier.
@@ -338,12 +341,21 @@ def _find_all_times(text: str) -> tuple[list[ParsedTime], list[tuple[int, int]]]
     times: list[ParsedTime] = []
     invalid = []
     occupied = []
-    for pattern in (TIME_12H_RE, TIME_ZH_RE, TIME_MS_RE, TIME_24H_RE):
+    for pattern in (TIME_12H_RE, TIME_ZH_RE, TIME_MS_PREFIX_RE, TIME_MS_RE, TIME_24H_RE):
         for m in pattern.finditer(text):
             if any(m.start() < end and start < m.end() for start, end in occupied):
                 continue
             occupied.append(m.span())
             hour, minute = m.group("hour"), m.group("minute")
+            if not hour.isascii():
+                # Literal hour numerals only, preserving the original span.
+                numerals = {'一':1, '二':2, '两':2, '三':3, '四':4, '五':5, '六':6, '七':7, '八':8, '九':9, '十':10,
+                            **{'十'+c:10+n for c,n in zip('一二三四五六七八九',range(1,10))}, '二十':20,
+                            **{'二十'+c:20+n for c,n in zip('一二三',range(1,4))}}
+                if hour not in numerals:
+                    invalid.append(m.span())
+                    continue
+                hour = str(numerals[hour])
             groups = m.groupdict()
             mer = (groups.get("meridiem") or "").lower()
             if (len(hour) > 2 or (minute is not None and len(minute) != 2)
@@ -368,6 +380,9 @@ def _find_all_times(text: str) -> tuple[list[ParsedTime], list[tuple[int, int]]]
             elif mer in ("am", "上午", "早上", "pagi") and hr == 12:
                 hr = 0
             times.append(ParsedTime(hr, mn, m.start(), m.end(), m.group()))
+    for m in re.finditer(r'\bnoon\b', text, re.I):
+        if not any(m.start() < end and start < m.end() for start,end in occupied):
+            times.append(ParsedTime(12, 0, m.start(), m.end(), m.group()))
     times.sort(key=lambda x: x.start)
     return times, invalid
 
@@ -680,7 +695,7 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     pruned_mentions = []
     for entry in mentions:
         _, prod, m = entry
-        if any(other[1].sku == prod.sku and other[2].start() <= m.start() and m.end() <= other[2].end() and (other[2].end() - other[2].start()) > (m.end() - m.start()) for other in mentions):
+        if any(other[2].start() <= m.start() and m.end() <= other[2].end() and (other[2].end() - other[2].start()) > (m.end() - m.start()) for other in mentions):
             continue
         pruned_mentions.append(entry)
     mentions = pruned_mentions
@@ -719,7 +734,11 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
         _, product, mention = mentions[0]
         prefix = QUANTITY_PREFIX_RE.search(text[:mention.start()])
 
-        if len(mentions) != 1 or UNSAFE_ASSOCIATION_RE.search(text) or len(numbers) > 1:
+        association_text = text
+        explicit_amendment = bool(re.search(r'\b(?:change|amend|revise|update)\b.{0,45}\bto\s+[0-9]|\btukar\b.{0,30}\bkepada\s+[0-9]|(?:改为|改成)\s*[0-9]', text, re.I))
+        if explicit_amendment and len(numbers) == len(mentions) == 1:
+            association_text = re.sub(r'\binstead\b', '', text, flags=re.I)
+        if len(mentions) != 1 or UNSAFE_ASSOCIATION_RE.search(association_text) or len(numbers) > 1:
             fields.append(field("quantity", None, "UNRESOLVED", [m.span() for m in numbers]))
         elif prefix is None or len(numbers) != 1 or prefix.span("quantity") != numbers[0].span():
             fields.append(field("quantity", None, "UNRESOLVED" if numbers else "MISSING", [m.span() for m in numbers]))
