@@ -200,6 +200,7 @@ def test_expiration_blocks_prepare_and_retrieval(drafts, draft_authority, reques
     ("revised_terms", {**TERMS, "price": "999"}, "INVALID_PROPOSAL_TERMS"),
     ("revised_terms", {key: value for key, value in TERMS.items() if key != "quantity"}, "INVALID_PROPOSAL_TERMS"),
     ("revised_terms", {key: value for key, value in TERMS.items() if key != "deadline"}, "INVALID_PROPOSAL_TERMS"),
+    ("revised_terms", {**TERMS, "deadline": None}, "INVALID_PROPOSAL_TERMS"),
 ])
 def test_current_proposal_is_revalidated_not_trusted_from_snapshot(db, drafts, request_id, field, value, code):
     row = db.get(CommitmentProposalRecord, ("tenant_a", "proposal_001"))

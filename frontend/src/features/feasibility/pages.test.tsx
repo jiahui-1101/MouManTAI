@@ -57,6 +57,13 @@ describe("FE-01", () => {
     expect(screen.getAllByText(/synthetic/).length).toBeGreaterThan(0);
     expect(screen.getByRole("region", { name: "Evidence and assumptions" })).toHaveTextContent("synthetic-stock-patty-row");
   });
+  it("renders a nullable Core deadline as not provided", async () => {
+    const view = copy(previewFeasibility);
+    view.commitment.terms.deadline = null;
+    feasibility(source(view));
+    await screen.findByTestId("feasibility-status");
+    expect(screen.getByText("Not provided")).toBeInTheDocument();
+  });
   it.each(["version", "stale", "incomplete", "timeout", "unverified freshness"])("keeps %s cautious even with a FEASIBLE historical result", async (kind) => {
     const view = copy(previewFeasibility);
     view.assessment!.status = "FEASIBLE";

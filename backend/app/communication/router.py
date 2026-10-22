@@ -2,7 +2,8 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
+import os
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext, get_db, get_request_context
@@ -14,7 +15,9 @@ from .schemas import (
 from .drafting import DraftAuthority, MessageDraftService
 from .service import CommunicationRequestService, RequestAuthority
 from .review import DraftReviewService, ReviewAuthority
-from .authority_adapters import RuntimeDraftAuthority, RuntimeRequestAuthority, RuntimeReviewAuthority
+from .authority_adapters import (
+    IsolatedRecoveryRequestAuthority, RuntimeDraftAuthority, RuntimeRequestAuthority, RuntimeReviewAuthority,
+)
 from .outbound import OutboundService, RuntimeSendAuthority, SendAuthority
 from .providers import LocalMockProvider, OutboundProvider
 from .schemas import OutboundMessageView, SendEligibility, SendMessageRequest
@@ -30,7 +33,9 @@ from .synthetic_authorities import (
 router = APIRouter(prefix="/v1/communications", tags=["communications"])
 
 
-def get_request_authority() -> RequestAuthority:
+def get_request_authority(x_isolated_e2e_key: str | None = Header(default=None)) -> RequestAuthority:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
+        return IsolatedRecoveryRequestAuthority(x_isolated_e2e_key)
     scope = SyntheticScope.from_environment()
     if scope.enabled:
         return SyntheticRequestAuthority(scope)
@@ -120,7 +125,7 @@ def runtime_capabilities(context: Context, directory=Depends(get_customer_direct
     contact = DirectoryContactAdapter(directory).connected
     policies_ready = {"APPROVE_DRAFT", "REJECT_DRAFT", "SEND_MESSAGE"} <= CONSEQUENTIAL_ACTIONS
     return {"tenant_id": context.tenant_id, "mode": "SYNTHETIC" if in_scope else "CLOSED",
-        "label": "Synthetic Demo â€” No Real Messages Sent" if in_scope else "Trusted authority unavailable",
+        "label": "Synthetic Demo — No Real Messages Sent" if in_scope else "Trusted authority unavailable",
         "can_record_preferences": bool(manager and contact), "can_revoke_preferences": bool(manager),
         "integrated_demo_ready": False,
         "blockers": ["CORE_APPROVAL_PRODUCER_UNAVAILABLE"] +

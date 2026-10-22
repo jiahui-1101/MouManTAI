@@ -269,26 +269,56 @@ def test_confirm_proposal_verifies_proposal_identity_and_derives_event_payload(d
         ),
     )
 
-    # 1. Attempt confirmation with mismatching proposal_id on matching proposal_version
-    with pytest.raises(DomainError) as exc:
+    # 1. Neither an arbitrary ID nor the old prop_001 alias can confirm a
+    # different persisted proposal, even when the proposal version matches.
+    for submitted_id in ("prop_wrong_id", "prop_001"):
+        with pytest.raises(DomainError) as exc:
+            service.confirm_proposal(
+                db_session,
+                ctx,
+                created.commitment_id,
+                ProposalConfirmRequest(
+                    proposal_id=submitted_id,
+                    proposal_version=1,
+                    expected_commitment_version=2,
+                    decision="ACCEPT",
+                    evidence_refs=["ev_signed"],
+                    reason="Customer accepted",
+                ),
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.code == "PROPOSAL_ID_MISMATCH"
+        assert exc.value.details["active_proposal_id"] == "prop_deal_v1_canonical"
+        assert exc.value.details["submitted_proposal_id"] == submitted_id
+
+    unchanged = db_session.get(CommitmentRecord, (ctx.tenant_id, created.commitment_id))
+    assert unchanged.agreement_state == AgreementState.OFFERED
+    assert unchanged.commitment_version == 2
+    assert db_session.scalars(
+        select(OutboxEventRecord).where(
+            OutboxEventRecord.tenant_id == ctx.tenant_id,
+            OutboxEventRecord.commitment_id == created.commitment_id,
+            OutboxEventRecord.event_type == CoreEventType.COMMITMENT_CONFIRMED.value,
+        )
+    ).first() is None
+
+    # Stale version takes precedence over the ID mismatch, without authorizing it.
+    with pytest.raises(DomainError) as stale:
         service.confirm_proposal(
             db_session,
             ctx,
             created.commitment_id,
             ProposalConfirmRequest(
-                proposal_id="prop_wrong_id",
-                proposal_version=1,
+                proposal_id="prop_001",
+                proposal_version=99,
                 expected_commitment_version=2,
                 decision="ACCEPT",
                 evidence_refs=["ev_signed"],
-                reason="Customer accepted",
+                reason="Customer accepted a stale version",
             ),
         )
-
-    assert exc.value.status_code == 409
-    assert exc.value.code == "PROPOSAL_ID_MISMATCH"
-    assert exc.value.details["active_proposal_id"] == "prop_deal_v1_canonical"
-    assert exc.value.details["submitted_proposal_id"] == "prop_wrong_id"
+    assert stale.value.code == "STALE_PROPOSAL_VERSION"
 
     # 1b. Specifically verify legacy 'prop_001' cannot bypass validation
     with pytest.raises(DomainError) as exc_legacy:
@@ -339,3 +369,60 @@ def test_confirm_proposal_verifies_proposal_identity_and_derives_event_payload(d
     assert outbox.payload["proposal_version"] == 1
     assert outbox.payload["decision"] == "ACCEPT"
 
+
+def test_confirm_proposal_requires_a_persisted_active_proposal(db_session: Session) -> None:
+    """An OFFERED state or client proposal identity cannot replace a Core proposal row."""
+    from app.core.errors import DomainError
+
+    service = CommitmentService()
+    ctx = RequestContext(
+        tenant_id="tenant_missing_proposal",
+        actor_id="user_manager_01",
+        actor_role="MANAGER",
+        correlation_id="corr_missing_proposal",
+    )
+    created = service.create_request(
+        db_session,
+        ctx,
+        CommitmentCreateRequest(
+            order_id="ord_missing_proposal",
+            customer_id="cust_missing_proposal",
+            terms=CommitmentTerms(
+                sku="BURGER",
+                quantity=Decimal("10"),
+                unit="pcs",
+                deadline=_now() + timedelta(days=2),
+            ),
+            evidence_refs=["ev_create_missing_proposal"],
+        ),
+    )
+    record = db_session.get(CommitmentRecord, (ctx.tenant_id, created.commitment_id))
+    record.agreement_state = AgreementState.OFFERED.value
+    db_session.flush()
+
+    with pytest.raises(DomainError) as missing:
+        service.confirm_proposal(
+            db_session,
+            ctx,
+            created.commitment_id,
+            ProposalConfirmRequest(
+                proposal_id="prop_001",
+                proposal_version=1,
+                expected_commitment_version=1,
+                decision="ACCEPT",
+                evidence_refs=["ev_signed_claim_only"],
+                reason="Client supplied proposal identity without persisted proposal",
+            ),
+        )
+
+    assert missing.value.status_code == 409
+    assert missing.value.code == "PROPOSAL_NOT_FOUND"
+    assert record.agreement_state == AgreementState.OFFERED.value
+    assert record.commitment_version == 1
+    assert db_session.scalars(
+        select(OutboxEventRecord).where(
+            OutboxEventRecord.tenant_id == ctx.tenant_id,
+            OutboxEventRecord.commitment_id == created.commitment_id,
+            OutboxEventRecord.event_type == CoreEventType.COMMITMENT_CONFIRMED.value,
+        )
+    ).first() is None

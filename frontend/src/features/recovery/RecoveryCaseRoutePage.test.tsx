@@ -67,6 +67,7 @@ describe("RecoveryCaseRoutePage", () => {
     expect(screen.getByText(/Snapshot snapshot_42 · v42/)).toBeInTheDocument();
     expect(screen.getByText("evidence_stock_100")).toBeInTheDocument();
     expect(screen.getByRole("note")).toHaveTextContent(/does not approve plans or execute/i);
+    expect(screen.getByRole("link", { name: "Open planning workspace" })).toHaveAttribute("href", "/recovery/com_100/plans");
     expect(screen.queryByRole("button", { name: /approve|execute|run recovery/i })).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/v1/recovery/cases/com_100"),

@@ -1344,7 +1344,7 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
        - Denormalized schema for tenants/users/roles/customers/orders/commitment_versions/commitment_evidence is formally accepted under AGENTS §5 & §13.
        - Generic ERP bloat rejected to maintain lean, responsive SME footprint.
     8. **PostgreSQL Dual-Boundary Handshake Verification (W8)**:
-       - Executed against PostgreSQL on port 5433 (`TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5433/moumantai_test"`).
+       - Executed against PostgreSQL on port 5433 (`TEST_DATABASE_URL="postgresql://[credentials redacted]@localhost:5433/moumantai_test"`).
        - 19 passed in 2.79s. Engine dialect verified as `postgresql` (`test_feature_handshakes.py:L1181-L1183`).
        - Full test output logged to `docs/evidence/postgres_handshake_20261022.log`.
     9. **Teammate Handoff Replies Delivered**:

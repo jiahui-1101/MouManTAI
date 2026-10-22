@@ -101,7 +101,8 @@ describe("Real App communication route", () => {
 
   it.each([
     ["/", "Commitment Overview"], ["/overview", "Commitment Overview"],
-    ["/activity", "Activity & Audit History"], ["/recovery/recovery", "Recovery case"],
+    ["/activity", "Activity & Audit History"], ["/inbox", "Message Inbox"],
+    ["/recovery/recovery", "Recovery case not found"],
     ["/communications/follow-ups", "Follow-Up Queue"],
     ["/confirmations/confirmation", "Confirmation workspace"], ["/unknown-route", "Page not found"],
   ])("preserves the actual App route %s", async (path, heading) => {
@@ -121,6 +122,13 @@ describe("Real App communication route", () => {
       const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/v1/confirmations/confirmation"));
       expect(call?.[1]?.headers).toMatchObject({ "X-Tenant-ID": "tenant_route_test", "X-Actor-ID": "user_manager_01" });
     }
+  });
+
+  it("mounts Main's real order context route and preserves its unavailable state", async () => {
+    mount("/orders/order");
+    expect(await screen.findByRole("heading", { name: "Order Context Unavailable" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "MouManTAI" })).toBeInTheDocument();
   });
 
   it.each([

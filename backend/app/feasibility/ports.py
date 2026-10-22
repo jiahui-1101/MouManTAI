@@ -68,8 +68,14 @@ class AssessmentWriter(Protocol):
         *,
         snapshot: EvaluationSnapshot,
         result: EvaluationResult,
+        commit: bool = True,
     ) -> FeasibilityAssessment:
-        """Persist this exact P2 result or reject it if either version changed."""
+        """Persist the exact P2 result; with commit=False leave completion to caller.
+
+        A production implementation must preserve assessment/snapshot provenance,
+        enforce current Commitment and snapshot identity/version under the same
+        transaction, and never commit or roll back when commit=False.
+        """
 
 
 class AssessmentHistoryReader(Protocol):
