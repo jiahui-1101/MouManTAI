@@ -1,8 +1,7 @@
-"""Non-live, caller-session bridge from verified risk triggers to P3 SQL storage.
+"""Caller-session bridge from verified Core risk events to P3 SQL storage.
 
-No production Assessment lookup exists. Only explicitly enabled synthetic tests
-can provide evidence; this adapter is not a registered P5 subscriber. P5 owns
-the processed-event marker and transaction commit/rollback.
+The persisted lookup is explicit and this adapter is not registered at app
+startup. P5 owns subscriber activation, the processed marker and transaction.
 """
 
 from __future__ import annotations
@@ -11,10 +10,14 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
+from app.core.feasibility_adapters import AuthoritativeAssessmentHistoryReader
+from app.core.models import AuditEventRecord, OutboxEventRecord
+from app.core.outbox import to_domain_event
 from app.core.schemas import DomainEvent, FeasibilityAssessment, FeasibilityState
 
 from .integrations import CommitmentReader, P5CommitmentReader
@@ -48,11 +51,70 @@ class SyntheticAssessmentLookup(Protocol):
     ) -> SyntheticAssessmentProof | None: ...
 
 
+@dataclass(frozen=True)
+class PersistedAssessmentProof:
+    assessment: FeasibilityAssessment
+    snapshot_id: str
+    caused_event_id: str
+
+
+class PersistedCoreAssessmentLookup:
+    """Bind one Core risk outbox row to its persisted authoritative audit history."""
+
+    def lookup(
+        self, session: Session, tenant_id: str, commitment_id: str,
+        assessment_id: str, event_id: str,
+    ) -> PersistedAssessmentProof | None:
+        row = session.get(OutboxEventRecord, event_id)
+        if row is None or (
+            row.tenant_id != tenant_id
+            or row.commitment_id != commitment_id
+            or row.event_type != "commitment.at_risk"
+            or row.payload.get("assessment_id") != assessment_id
+        ):
+            return None
+        event = to_domain_event(row)
+        if event.event_id != event_id:
+            return None
+        context = RequestContext(
+            tenant_id=tenant_id, actor_id="service_core", actor_role="SERVICE",
+            correlation_id=row.correlation_id, causation_id=row.causation_id,
+        )
+        audits = session.scalars(select(AuditEventRecord).where(
+            AuditEventRecord.tenant_id == tenant_id,
+            AuditEventRecord.commitment_id == commitment_id,
+            AuditEventRecord.event_type == "commitment.at_risk",
+        )).all()
+        matching = [audit for audit in audits if (
+            isinstance(audit.new_state, dict)
+            and audit.new_state.get("assessment_id") == assessment_id
+            and audit.correlation_id == row.correlation_id
+            and audit.causation_id == row.causation_id
+            and audit.new_state.get("commitment_version") == row.commitment_version
+            and audit.new_state.get("assessment_commitment_version")
+                == row.payload.get("assessment_commitment_version")
+            and audit.new_state.get("snapshot_id") == row.payload.get("snapshot_id")
+            and audit.new_state.get("snapshot_version") == row.payload.get("snapshot_version")
+            and audit.evidence_refs == row.payload.get("evidence_refs")
+        )]
+        if len(matching) != 1:
+            return None
+        audit = matching[0]
+        assessment = AuthoritativeAssessmentHistoryReader().get_assessment(
+            session, context, commitment_id, assessment_id,
+        )
+        return PersistedAssessmentProof(
+            assessment=assessment,
+            snapshot_id=audit.new_state["snapshot_id"],
+            caused_event_id=event_id,
+        )
+
+
 class SessionScopedRecoveryTriggerAdapter:
     """Persist only verified trigger/case rows in a dispatcher-owned Session.
 
-This foundation deliberately has no authoritative Assessment lookup or live
-subscriber binding. A new trigger cannot be acknowledged in production.
+    An authoritative lookup can be supplied for isolated integration runs.
+    There is no production subscriber binding or automatic activation.
 """
 
     live_ready = False
@@ -62,11 +124,13 @@ subscriber binding. A new trigger cannot be acknowledged in production.
         *,
         repository: SqlAlchemyRecoveryRepository | None = None,
         commitment_reader: CommitmentReader | None = None,
+        authoritative_assessment_lookup: PersistedCoreAssessmentLookup | None = None,
         synthetic_assessment_lookup: SyntheticAssessmentLookup | None = None,
         allow_synthetic_for_tests: bool = False,
     ) -> None:
         self.repository = repository or SqlAlchemyRecoveryRepository()
         self.commitment_reader = commitment_reader or P5CommitmentReader()
+        self._authoritative_lookup = authoritative_assessment_lookup
         self._synthetic_lookup = synthetic_assessment_lookup
         self._allow_synthetic_for_tests = allow_synthetic_for_tests
 
@@ -79,7 +143,9 @@ subscriber binding. A new trigger cannot be acknowledged in production.
 
         # Even an existing fixture-backed row must never become a successful
         # production acknowledgment by accidental subscriber registration.
-        if not self._allow_synthetic_for_tests or self._synthetic_lookup is None:
+        if self._authoritative_lookup is None and (
+            not self._allow_synthetic_for_tests or self._synthetic_lookup is None
+        ):
             raise DomainError(
                 "AUTHORITATIVE_ASSESSMENT_LOOKUP_UNAVAILABLE",
                 "A trusted causal P2 Assessment lookup is required before consuming a trigger",
@@ -87,6 +153,14 @@ subscriber binding. A new trigger cannot be acknowledged in production.
             )
 
         digest = canonical_domain_event_digest(event)
+        if self._authoritative_lookup is not None:
+            stored = session.get(OutboxEventRecord, trigger.event_id)
+            if stored is None or canonical_domain_event_digest(to_domain_event(stored)) != digest:
+                raise DomainError(
+                    "RECOVERY_EVENT_IDENTITY_UNVERIFIABLE",
+                    "Trigger does not match the durable Core outbox event",
+                    status_code=409,
+                )
         prior = session.get(RecoveryCaseTriggerRecord, (trigger.tenant_id, trigger.event_id))
         if prior is not None:
             if prior.source_event_digest is None:
@@ -125,7 +199,9 @@ subscriber binding. A new trigger cannot be acknowledged in production.
         if not RecoveryTriggerConsumer._eligible(commitment):
             raise DomainError("RECOVERY_TRIGGER_INELIGIBLE", "Core Commitment is not eligible", status_code=409)
 
-        proof = self._synthetic_lookup.lookup(
+        lookup = self._authoritative_lookup or self._synthetic_lookup
+        assert lookup is not None
+        proof = lookup.lookup(
             session, trigger.tenant_id, trigger.commitment_id, trigger.payload.assessment_id,
             trigger.event_id,
         )
@@ -173,7 +249,10 @@ subscriber binding. A new trigger cannot be acknowledged in production.
             assessment_id=assessment.assessment_id,
             assessment_commitment_version=assessment.commitment_version,
             source_event_digest=digest,
-            assessment_provenance_status="SOURCE_COMMITMENT_VERSION_RECORDED_UNVERIFIED",
+            assessment_provenance_status=(
+                "VERIFIED_AUTHORITATIVE" if self._authoritative_lookup is not None
+                else "SOURCE_COMMITMENT_VERSION_RECORDED_UNVERIFIED"
+            ),
             snapshot_id=proof.snapshot_id,
             snapshot_version=assessment.snapshot_version,
             constraints=assessment.constraints,

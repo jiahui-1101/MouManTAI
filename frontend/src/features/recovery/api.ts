@@ -1,14 +1,28 @@
-import { apiRequest, authHeaders, type RequestAuthHeaders } from "../../shared/api";
+import { ApiError, apiRequest, authHeaders, type RequestAuthHeaders } from "../../shared/api";
 import type {
   GenerateRecoveryRequest,
   PlanEvaluation,
   RecoveryCase,
   RecoveryPlanList,
   RecoveryPlanVersion,
+  RecoveryTriggerCaseView,
 } from "./types";
 
 export function getRecoveryCase(commitmentId: string, auth: RequestAuthHeaders): Promise<RecoveryCase> {
   return apiRequest<RecoveryCase>(`/v1/recovery/cases/${commitmentId}`, { headers: authHeaders(auth) });
+}
+
+export async function getRecoveryCaseOrTrigger(
+  commitmentId: string, auth: RequestAuthHeaders,
+): Promise<RecoveryCase | RecoveryTriggerCaseView> {
+  try {
+    return await getRecoveryCase(commitmentId, auth);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.code !== "RECOVERY_EVALUATION_INPUTS_PENDING") throw error;
+    return apiRequest<RecoveryTriggerCaseView>(`/v1/recovery/cases/${commitmentId}/trigger`, {
+      headers: authHeaders(auth),
+    });
+  }
 }
 
 export function generateRecoveryPlans(

@@ -174,6 +174,28 @@ describe("P3 recovery page", () => {
     expect(await screen.findByTestId("recovery-permission-error")).toBeInTheDocument();
   });
 
+  it("shows the persisted trigger-only case while trusted planning inputs are pending", async () => {
+    const fetchMock = vi.fn((url: string | URL | Request) => {
+      if (url.toString().endsWith("/trigger")) return response({
+        case_id: "rc_trigger_01", tenant_id: "tenant_demo_01", commitment_id: "com_001",
+        case_version: 1, commitment_version: 3, status: "AWAITING_EVALUATION_INPUTS",
+        evaluation_readiness: "AWAITING_EVALUATION_INPUTS",
+        missing_evaluation_inputs: ["AUTHORITATIVE_OPERATIONAL_SNAPSHOT"],
+        trigger_events: [{ event_id: "evt_risk_01", assessment_id: "fa_risk_01" }],
+        resolution_events: [], storage_mode: "DURABLE_DATABASE",
+        created_at: "2026-10-22T10:00:00Z", updated_at: "2026-10-22T10:00:00Z",
+      });
+      return response({ code: "RECOVERY_EVALUATION_INPUTS_PENDING", message: "Inputs pending" }, 409);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+    expect(await screen.findByText(/Recovery evaluation inputs are pending/i)).toBeInTheDocument();
+    expect(screen.getByText(/evt_risk_01/)).toBeInTheDocument();
+    expect(screen.getByText(/AUTHORITATIVE_OPERATIONAL_SNAPSHOT/)).toBeInTheDocument();
+    expect(screen.queryByText(/execution succeeded/i)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => url.toString().endsWith("/plans"))).toBe(false);
+  });
+
   it("marks a stale infeasible option and prevents selecting it", async () => {
     const caseData = recoveryCase();
     const staleInvalid = plan({ plan_id: "plan_bad", option_id: "option_bad", feasibility_status: "INFEASIBLE", snapshot_version: 141 });

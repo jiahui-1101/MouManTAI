@@ -239,6 +239,22 @@ export interface RecoveryCase {
   updated_at: ISO8601;
 }
 
+export interface RecoveryTriggerCaseView {
+  case_id: string;
+  tenant_id: string;
+  commitment_id: string;
+  case_version: number;
+  commitment_version: number;
+  status: RecoveryCaseStatus;
+  evaluation_readiness: "AWAITING_EVALUATION_INPUTS" | "CASE_COMPLETED";
+  missing_evaluation_inputs: string[];
+  trigger_events: RecoveryTriggerReference[];
+  resolution_events: RecoveryResolutionReference[];
+  storage_mode: "IN_MEMORY_SYNTHETIC" | "DURABLE_DATABASE";
+  created_at: ISO8601;
+  updated_at: ISO8601;
+}
+
 export interface GenerateRecoveryRequest {
   expected_commitment_version: number;
   assessment_id?: string;

@@ -101,6 +101,7 @@ class RecoveryTriggerReference(ContractModel):
     assessment_provenance_status: Literal[
         "SOURCE_COMMITMENT_VERSION_MISSING",
         "SOURCE_COMMITMENT_VERSION_RECORDED_UNVERIFIED",
+        "VERIFIED_AUTHORITATIVE",
     ]
     snapshot_id: str | None = None
     snapshot_version: int = Field(ge=1)
@@ -116,8 +117,14 @@ class RecoveryTriggerReference(ContractModel):
         if self.assessment_commitment_version is None:
             if self.assessment_provenance_status != "SOURCE_COMMITMENT_VERSION_MISSING":
                 raise ValueError("missing assessment source version must be reported explicitly")
-        elif self.assessment_provenance_status != "SOURCE_COMMITMENT_VERSION_RECORDED_UNVERIFIED":
-            raise ValueError("provided assessment source version must remain labeled unverified")
+        elif self.assessment_provenance_status not in {
+            "SOURCE_COMMITMENT_VERSION_RECORDED_UNVERIFIED", "VERIFIED_AUTHORITATIVE",
+        }:
+            raise ValueError("provided assessment source version has an invalid provenance status")
+        if self.assessment_provenance_status == "VERIFIED_AUTHORITATIVE" and (
+            not self.snapshot_id or not self.source_event_digest
+        ):
+            raise ValueError("verified provenance requires exact snapshot and event digest")
         if (
             self.assessment_commitment_version is not None
             and self.assessment_commitment_version >= self.commitment_version

@@ -4,7 +4,7 @@ import { useParams } from "react-router-dom";
 
 import { ApiError } from "../../shared/api";
 import { useAuth } from "../../shared/auth";
-import { generateRecoveryPlans, getRecoveryCase, getRecoveryPlans } from "./api";
+import { generateRecoveryPlans, getRecoveryCaseOrTrigger, getRecoveryPlans } from "./api";
 import type { ApprovalDecision, RecoveryCase, RecoveryPlanVersion } from "./types";
 import { SyntheticRecoveryDemo } from "./SyntheticRecoveryDemo";
 import "./recovery.css";
@@ -343,12 +343,13 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
 
   const caseQuery = useQuery({
     queryKey: ["recovery-case", commitmentId, authHeaders.tenantId],
-    queryFn: () => getRecoveryCase(commitmentId, authHeaders),
+    queryFn: () => getRecoveryCaseOrTrigger(commitmentId, authHeaders),
   });
   const plansQuery = useQuery({
     queryKey: ["recovery-plans", commitmentId, authHeaders.tenantId],
     queryFn: () => getRecoveryPlans(commitmentId, authHeaders),
-    enabled: caseQuery.isSuccess && !!caseQuery.data?.trigger_assessment && !!caseQuery.data?.operational_snapshot,
+    enabled: caseQuery.isSuccess && !!caseQuery.data && "trigger_assessment" in caseQuery.data
+      && !!caseQuery.data.trigger_assessment && !!caseQuery.data.operational_snapshot,
   });
   const generateMutation = useMutation({
     mutationFn: (caseData: RecoveryCase) =>
@@ -368,7 +369,8 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
   });
 
   const caseData = caseQuery.data;
-  const plans = plansQuery.data?.plans ?? caseData?.plans ?? [];
+  const fullCase = caseData && "trigger_assessment" in caseData ? caseData : undefined;
+  const plans = plansQuery.data?.plans ?? fullCase?.plans ?? [];
   const selectedPlan = useMemo(() => plans.find((plan) => plan.plan_id === selectedPlanId), [plans, selectedPlanId]);
 
   useEffect(() => {
@@ -380,6 +382,19 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
   }
   if (caseQuery.isError) return <ErrorState error={caseQuery.error} onRetry={() => { void caseQuery.refetch(); }} />;
   if (!caseData) return <section className="empty-state-card"><h2>Recovery case not found</h2></section>;
+  if ("evaluation_readiness" in caseData) {
+    return (
+      <section className="recovery-panel" role="status">
+        <h2>Recovery evaluation inputs are pending</h2>
+        <p>Case {caseData.case_id} · Commitment {caseData.commitment_id} · version {caseData.commitment_version}</p>
+        <p>Missing: {caseData.missing_evaluation_inputs.join(", ") || "current evaluation inputs"}.</p>
+        <p>Risk event: {caseData.trigger_events.map((event) => event.event_id).join(", ") || "none recorded"}</p>
+        <p>Assessment: {caseData.trigger_events.map((event) => event.assessment_id).join(", ") || "not verified"}</p>
+        <p>Plans and consequential actions remain unavailable until trusted inputs are present.</p>
+        <button className="btn btn-outline btn-sm" type="button" onClick={() => { void caseQuery.refetch(); }}>Retry loading case</button>
+      </section>
+    );
+  }
   if (!caseData.trigger_assessment || !caseData.operational_snapshot) {
     return (
       <section className="recovery-panel" role="status">
