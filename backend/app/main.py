@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from fastapi import Request
@@ -16,6 +16,12 @@ from app.core.errors import DomainError
 from app.core.router import router as core_router
 from app.recovery.router import router as recovery_router
 from app.communication.router import router as communication_router
+from app.feasibility.router import (
+    feasibility_assessment_router,
+    feasibility_read_router,
+    feasibility_supplier_event_router,
+)
+from app.feasibility.api_dependencies import require_isolated_e2e_key
 
 
 class HealthResponse(BaseModel):
@@ -41,6 +47,11 @@ app.add_middleware(
 app.include_router(core_router)
 app.include_router(recovery_router)
 app.include_router(communication_router)
+app.include_router(feasibility_read_router)
+if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
+    isolated_dependencies = [Depends(require_isolated_e2e_key)]
+    app.include_router(feasibility_assessment_router, dependencies=isolated_dependencies)
+    app.include_router(feasibility_supplier_event_router, dependencies=isolated_dependencies)
 
 
 @app.exception_handler(DomainError)

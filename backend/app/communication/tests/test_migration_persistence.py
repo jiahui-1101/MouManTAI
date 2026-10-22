@@ -87,7 +87,8 @@ def migrated(request, tmp_path, monkeypatch):
             connection.execute("PRAGMA foreign_keys=ON")
     monkeypatch.setenv("DATABASE_URL", url)
     try:
-        command.upgrade(config(url), "head")
+        # Exercise P4's exact migration independent of later owner revisions.
+        command.upgrade(config(url), HEAD)
         yield engine, config(url)
     finally:
         engine.dispose()
@@ -101,10 +102,12 @@ def migrated(request, tmp_path, monkeypatch):
 
 def test_single_head_and_real_parent():
     scripts = ScriptDirectory.from_config(config())
-    assert scripts.get_heads() == [HEAD]
+    heads = scripts.get_heads()
+    assert len(heads) == 1
+    assert HEAD in {revision.revision for revision in scripts.iterate_revisions(heads[0], "base")}
     assert scripts.get_revision(HEAD).down_revision == PREVIOUS
     assert len(HEAD) <= 32
-    assert len(list(scripts.walk_revisions())) == 8
+    assert len(list(scripts.walk_revisions())) >= 8
 
 
 def test_postgresql_offline_ddl_and_fresh_metadata_registration(monkeypatch):
@@ -429,7 +432,7 @@ def test_p4_downgrade_preserves_core_and_recovery_then_reupgrade(migrated):
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == PREVIOUS
         for name, count in before.items():
             assert connection.scalar(text(f'SELECT count(*) FROM "{name}"')) == count
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD)
     assert TABLES <= set(inspect(engine).get_table_names())
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == HEAD
