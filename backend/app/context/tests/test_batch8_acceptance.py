@@ -139,6 +139,8 @@ def test_e2e_01_new_message_extraction_evidence_review_core_p2(pg_engine):
         expected_context_version=ctx.context_version,
         field_edits={
             "requested_items": [{"sku": "BURGER", "quantity": "50", "unit": "pcs"}],
+            "requested_delivery_at": "2026-10-23T15:00:00+08:00",
+            "delivery_qualifier": "DEADLINE",
             "customer_id": "cust_bk_01",
             "customer_identity_status": "LINK_VERIFIED",
             "missing_fields": [],
@@ -349,6 +351,9 @@ def test_e2e_06_confirmed_commitment_changes_become_proposals(pg_engine):
         context_version=1,
         requested_items=[RequestedItem(sku="BURGER", quantity="100", unit="pcs")],
         source_message_ids=["msg_01"],
+        requested_delivery_at=datetime(2026,10,24,7,tzinfo=timezone.utc),
+        delivery_qualifier="DEADLINE",
+        field_evidence={"terms": [{"evidence_id": "ev_synthetic_reviewed_terms"}]},
         created_at=NOW,
         updated_at=NOW,
     )
@@ -383,6 +388,9 @@ def test_e2e_06_confirmed_commitment_changes_become_proposals(pg_engine):
         context_version=2,
         requested_items=[RequestedItem(sku="BURGER", quantity="200", unit="pcs")],
         source_message_ids=["msg_02"],
+        requested_delivery_at=datetime(2026,10,24,7,tzinfo=timezone.utc),
+        delivery_qualifier="DEADLINE",
+        field_evidence={"terms": [{"evidence_id": "ev_synthetic_amended_terms"}]},
         created_at=NOW,
         updated_at=NOW,
     )
@@ -453,7 +461,7 @@ def test_e2e_08_stale_concurrent_updates_fail_safely(pg_engine):
     stale_req = ContextReviewRequest(
         action="EDIT_FIELD",
         expected_context_version=1,
-        field_edits={"requested_delivery_qualifier": "BEFORE"},
+        field_edits={"delivery_qualifier": "DEADLINE"},
         note="Stale operator edit",
     )
     with pytest.raises(StaleContextVersion) as exc:
@@ -489,7 +497,7 @@ def test_e2e_10_model_provider_outage_preserves_safe_operation(pg_engine):
     repo = PostgresMessageRepository(pg_engine, proposal_service=svc)
     tenant_id = "synthetic_tenant_a"
 
-    env = make_envelope("Need 40 burgers tomorrow", tenant_id=tenant_id)
+    env = make_envelope("Need burgers serving 40 guests tomorrow", tenant_id=tenant_id)
     ingested = repo.ingest(env, NOW).message
 
     # Extraction executes without crashing, falls back to deterministic rules
