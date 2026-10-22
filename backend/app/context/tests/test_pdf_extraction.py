@@ -53,7 +53,7 @@ def test_pdf_machine_readable_order_extraction():
 
     att = AttachmentRecord(
         attachment_id="att_pdf_01",
-        tenant_id="tenant_pdf_test",
+        tenant_id="synthetic_tenant_a",
         evidence_ref="ev_att_pdf_01",
         filename="order_po.pdf",
         media_type="application/pdf",
@@ -109,7 +109,7 @@ def test_pdf_payment_notice_flagging():
 
     att = AttachmentRecord(
         attachment_id="att_bank_slip",
-        tenant_id="tenant_pdf_test",
+        tenant_id="synthetic_tenant_a",
         evidence_ref="ev_att_bank_slip",
         filename="bank_slip.pdf",
         media_type="application/pdf",
@@ -140,7 +140,7 @@ def test_pdf_page_count_bounding():
 
     att = AttachmentRecord(
         attachment_id="att_long_pdf",
-        tenant_id="tenant_pdf_test",
+        tenant_id="synthetic_tenant_a",
         evidence_ref="ev_att_long_pdf",
         filename="long_catalog.pdf",
         media_type="application/pdf",
@@ -168,7 +168,7 @@ def test_pdf_scanned_or_empty_detection():
 
     att = AttachmentRecord(
         attachment_id="att_blank_pdf",
-        tenant_id="tenant_pdf_test",
+        tenant_id="synthetic_tenant_a",
         evidence_ref="ev_att_blank_pdf",
         filename="scanned.pdf",
         media_type="application/pdf",
@@ -241,7 +241,7 @@ def test_scanned_purchase_order_pdf_ocr_fallback():
 
     att = AttachmentRecord(
         attachment_id="att_scanned_po_01",
-        tenant_id="tenant_pdf_test",
+        tenant_id="synthetic_tenant_a",
         evidence_ref="ev_att_scanned_po_01",
         filename="promiseflow_p1_synthetic_scanned_purchase_order.pdf",
         media_type="application/pdf",

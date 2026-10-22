@@ -135,9 +135,8 @@ def extract_document_fields(
     for ev in evidence_items:
         quote_lower = ev.quote.lower()
         for prod in catalog:
-            if prod.tenant_id and tenant_id and prod.tenant_id != tenant_id:
-                if any(p.tenant_id == tenant_id for p in catalog):
-                    continue
+            if prod.tenant_id != tenant_id:
+                continue
             for alias in prod.aliases:
                 p1 = rf"\b(\d+)\s*(pcs|pieces|units?|pack|packs|box|boxes|sets?|kg)?\s+{re.escape(alias.lower())}\b"
                 m1 = re.search(p1, quote_lower)
@@ -165,9 +164,8 @@ def extract_document_fields(
         for i, ev in enumerate(evidence_items):
             quote_clean = ev.quote.strip()
             for prod in catalog:
-                if prod.tenant_id and tenant_id and prod.tenant_id != tenant_id:
-                    if any(p.tenant_id == tenant_id for p in catalog):
-                        continue
+                if prod.tenant_id != tenant_id:
+                    continue
                 if any(alias.lower() == quote_clean.lower() or f" {alias.lower()} " in f" {quote_clean.lower()} " for alias in prod.aliases):
                     for j in range(i + 1, min(i + 6, len(evidence_items))):
                         next_quote = evidence_items[j].quote.strip()
@@ -223,6 +221,29 @@ def extract_document_fields(
             "is_payment_evidence": True,
         })
 
+    # PDF/OCR observations have no trusted message timestamp/timezone and this
+    # parser does not validate line-item associations. Keep proposals explicit;
+    # document parsing success is not business validation or readiness.
+    by_id = {ev.evidence_id: ev for ev in evidence_items}
+    for candidate in extracted_fields:
+        if candidate.get("validation_status") == "VALID":
+            candidate["validation_status"] = "UNRESOLVED"
+        if candidate["field_name"] == "requested_delivery_at":
+            candidate["qualifier"] = "DATE_ONLY"
+            candidate["reason"] = "Document date observation; calendar/context/deadline review required"
+        if candidate["field_name"] == "item":
+            ev = by_id[candidate["evidence_id"]]
+            candidate["quote"] = ev.quote
+            candidate["source_evidence_ids"] = [other.evidence_id for other in evidence_items
+                if other.page_number == ev.page_number and (other.evidence_id == ev.evidence_id
+                or re.search(r"(?<![0-9])" + str(candidate['quantity']) + r"(?![0-9])", other.quote))]
+            candidate["reason"] = "Document item association is provisional; no implicit unit or authoritative terms"
+            # The old parser supplied pcs when no unit appeared in the source.
+            explicit_unit = re.search(r"\b(pcs|pieces|units?|pack|packs|box|boxes|sets?|kg)\b", ev.quote, re.IGNORECASE)
+            candidate["unit"] = explicit_unit.group().lower() if explicit_unit else None
+            candidate["value"] = f"{candidate['quantity']} {candidate['unit'] or '(unit unknown)'} {candidate['sku']}"
+            if candidate["quantity"] <= 0:
+                candidate["validation_status"] = "INVALID"
     return extracted_fields
 
 
