@@ -13,6 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.communication.router import router as communication_router
+from app.context.router import router as context_router
 from app.core.errors import DomainError
 from app.core.feasibility_adapters import (
     AuthoritativeAssessmentHistoryReader,
@@ -49,6 +50,7 @@ app.add_middleware(
 app.include_router(core_router)
 app.include_router(communication_router)
 app.include_router(feasibility_read_router)
+app.include_router(context_router)
 
 app.dependency_overrides[get_assessment_history] = lambda: AuthoritativeAssessmentHistoryReader()
 app.dependency_overrides[get_impact_reader] = lambda: AuthoritativeImpactReader()
