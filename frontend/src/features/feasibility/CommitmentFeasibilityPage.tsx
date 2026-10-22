@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import type { FeasibilityView, P2DataSource } from "./models";
 import { assessmentCaution, errorText, validateFeasibility, validateRecalculation } from "./data";
@@ -28,7 +28,7 @@ function FeasibilityContent({ initial, source, reload }: { initial: FeasibilityV
     const timer = window.setInterval(() => setDisplayTime(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     epoch.current += 1;
     setView(initial); setError(undefined); setPending(false); setReceived(false); submitting.current = false;
     return () => { epoch.current += 1; };
