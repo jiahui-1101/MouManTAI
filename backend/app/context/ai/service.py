@@ -16,7 +16,7 @@ from ..extraction import ExtractionResult
 from ..ingestion_schemas import StoredMessage
 from ..schemas import ExtractedField, FieldEvidence, P1Model
 from ..request_intent import request_intent
-from .protocol import InferenceFailure, InferenceInput, MODEL_CONFIG, Observation, SourceText, validate_evidence
+from .protocol import InferenceFailure, InferenceInput, InferenceOutput, MODEL_CONFIG, Observation, SourceText, validate_evidence
 
 NON_ORDER_PATTERNS = re.compile(
     r"\b(do you do delivery|do you deliver|available tak|what is the price|how much|can you send(?: the)? menu|"
@@ -60,9 +60,11 @@ class ProposalResult(P1Model):
 
 
 class ModelProposalService:
-    def __init__(self, endpoint=None, *, enabled=False, stages=("gliner", "qwen")):
+    def __init__(self, endpoint=None, *, enabled=False, stages=("gliner",)):
         if any(stage not in {"gliner", "qwen"} for stage in stages):
             raise ValueError("Unsupported model stage")
+        if len(set(stages)) != len(stages) or ("gliner" in stages and "qwen" in stages and stages.index("qwen") < stages.index("gliner")):
+            raise ValueError("Stages must be unique and run L1 before L2")
         self.endpoint = endpoint
         self.enabled = enabled
         self.stages = stages
@@ -71,11 +73,13 @@ class ModelProposalService:
         self.cache_ttl_seconds = 60.0
         self.cache_max_entries = 128
         self.worker_request_count: int = 0
+        self.request_timeout_seconds = min(180.0, getattr(getattr(endpoint, 'config', None), 'timeout_seconds', 125.0) + 3.0)
 
     async def extract_stored(self, message: StoredMessage, *, catalog: Sequence[ProductAlias],
                              reviewed_fields: Sequence[ExtractedField] = ()) -> ProposalResult:
         rules = extract_explicit_fields(message, catalog=catalog)
         reviewed = [f.model_copy(deep=True) for f in reviewed_fields]
+        reviewed_names = {f.field_name for f in reviewed}
         for field in reviewed:
             if not field.evidence or not all(e.method == "HUMAN" and e.message_id == message.message_id
                     and message.raw.text[e.start:e.end] == e.quote for e in field.evidence):
@@ -156,7 +160,7 @@ class ModelProposalService:
                         candidate.metadata["runtime_versions_reported"] = __import__('json').dumps(
                             answer.runtime_versions, sort_keys=True
                         )
-                        protected = [f for f in rules.fields if f.validation_status == "VALID"] + reviewed
+                        protected = [f for f in rules.fields if f.validation_status == "VALID" and f.field_name not in reviewed_names] + reviewed
                         same = [f for f in protected if f.field_name == candidate.field_name]
 
                         if candidate.metadata.get("domain_supported") != "true":
@@ -219,22 +223,14 @@ class ModelProposalService:
                     result.routing_reasons[engine] = l0_reason
                     continue
 
-                # Check if L1 resolved the required terms without ambiguity
-                has_sku = any(f.field_name == "sku" and f.validation_status == "VALID" for f in rules.fields) or any(
-                    c.field_name == "sku" and c.metadata.get("domain_supported") == "true" for c in result.candidates
-                )
-                has_qty = any(f.field_name == "quantity" and f.validation_status == "VALID" for f in rules.fields) or any(
-                    c.field_name == "quantity" and c.metadata.get("domain_supported") == "true" for c in result.candidates
-                )
-                has_unresolved_conflicts = bool(result.conflicts)
-
-                if has_sku and has_qty and not has_unresolved_conflicts:
+                reason = self._l2_escalation_reason(message, result)
+                if reason is None:
                     result.outcomes[engine] = "l1_sufficient"
-                    result.routing_reasons[engine] = "L1 GLiNER extraction safely resolved candidate terms without unresolved ambiguity"
+                    result.routing_reasons[engine] = "No remaining supported interpretation need; retain missing metadata and human review"
                     continue
 
                 # Qwen is invoked only when meaningful ambiguity remains
-                result.routing_reasons[engine] = "Meaningful ambiguity remains after L1 extraction; invoking L2 Qwen"
+                result.routing_reasons[engine] = reason
                 try:
                     answer = await self._infer_observations(engine, message, result)
 
@@ -250,7 +246,7 @@ class ModelProposalService:
                         candidate.metadata["runtime_versions_reported"] = __import__('json').dumps(
                             answer.runtime_versions, sort_keys=True
                         )
-                        protected = [f for f in rules.fields if f.validation_status == "VALID"] + reviewed
+                        protected = [f for f in rules.fields if f.validation_status == "VALID" and f.field_name not in reviewed_names] + reviewed
                         same = [f for f in protected if f.field_name == candidate.field_name]
                         if candidate.metadata.get("domain_supported") != "true":
                             candidate.metadata["disposition"] = "rejected"
@@ -272,6 +268,40 @@ class ModelProposalService:
                     result.routing_reasons[engine] = "Worker exception or validation error"
 
         return result
+
+    @staticmethod
+    def _l2_escalation_reason(message, result):
+        """Interpret literal ambiguity, never fill absent facts or trusted metadata."""
+        reviewed_names = {f.field_name for f in result.reviewed_fields}
+        protected = [f for f in result.rules.fields if f.validation_status == 'VALID' and f.field_name not in reviewed_names] + result.reviewed_fields
+        proposals = [c for c in result.candidates if c.metadata.get('domain_supported') == 'true'
+                     and c.metadata.get('disposition') in {'proposal', 'duplicate'}]
+        if result.conflicts:
+            return 'Meaningful source disagreement remains after L1; L2 proposals require review'
+        for name in ('sku', 'quantity'):
+            if len({f.value for f in protected if f.field_name == name}) > 1:
+                return 'Multiple explicit item/value associations require interpretation and human review'
+            if any(f.field_name == name for f in protected):
+                continue
+            observations = [f for f in result.rules.fields if f.field_name == name]
+            if any(f.validation_status == 'UNRESOLVED' and f.evidence for f in observations):
+                return f'Meaningful {name} association remains unresolved after L1'
+            values = {f.value for f in proposals if f.field_name == name}
+            if len(values) > 1:
+                return 'Multiple item/value associations remain after L1; never collapse to the first item'
+            if values:
+                continue
+            if name == 'sku' and re.search(r'\b(?:need|order|prepare|send|nak|pesan|hantar)\b|要|订', message.raw.text, re.I):
+                return 'Requested product is unknown or not grounded in the catalog; interpretation remains provisional'
+        # A delivery expression is meaningful only when it is not already an
+        # explicit metadata/calendar/DST problem that a model cannot solve.
+        for field in result.rules.fields:
+            if field.field_name != 'requested_delivery_at' or field.validation_status != 'UNRESOLVED' or not field.evidence:
+                continue
+            reason = field.metadata.get('reason', '')
+            if message.raw.business_timezone and not re.search(r'timezone|year|timestamp|past|DST|nonexistent|ambiguous local|lower.bound|after ', reason, re.I):
+                return 'Literal delivery association remains unresolved; L2 cannot invent a normalized instant'
+        return None
 
     async def _infer_observations(self, engine, message, result):
         """Cache raw, grounded observations only; current domain/review gates run again.
@@ -306,8 +336,16 @@ class ModelProposalService:
                 result.worker_request_count += 1
 
                 async def invoke():
-                    raw = await self.endpoint.infer(request)
-                    return validate_evidence(raw, request)
+                    try:
+                        async with asyncio.timeout(self.request_timeout_seconds):
+                            raw = await self.endpoint.infer(request)
+                        # Revalidate even injected/custom adapters, not just HTTP.
+                        answer = InferenceOutput.model_validate(raw.model_dump() if isinstance(raw, InferenceOutput) else raw)
+                        return validate_evidence(answer, request)
+                    except TimeoutError:
+                        raise InferenceFailure('timeout') from None
+                    except (ValueError, TypeError):
+                        raise InferenceFailure('invalid_structured_output') from None
 
                 task = asyncio.create_task(invoke())
                 self._inflight[flight_key] = task
@@ -345,11 +383,16 @@ class ModelProposalService:
 
         if observation.field == "product":
             matches = []
+            is_qwen = model_id == MODEL_CONFIG['qwen'][0]
+            units = '|'.join(re.escape(u) for u in UNIT_NORMALIZATION)
             for p in catalog:
                 if p.tenant_id != message.raw.tenant_id:
                     continue
                 for alias in p.aliases:
-                    m = re.search(
+                    m = re.fullmatch(
+                        r'\s*(?:[0-9]+\s*(?:(?:' + units + r')\s*)?)?(?P<alias>' + re.escape(alias) + r')\s*',
+                        quote, re.IGNORECASE,
+                    ) if is_qwen else re.search(
                         r"(?:\b|(?<=[\u4e00-\u9fff]))(?P<alias>" + re.escape(alias) + r")(?:\b|(?=[\u4e00-\u9fff]))",
                         quote,
                         re.IGNORECASE,
@@ -372,6 +415,12 @@ class ModelProposalService:
                 status, reason = "INVALID", "Unsupported unit token; no automatic conversion"
             else:
                 supported = not is_non_order
+                if model_id == MODEL_CONFIG['qwen'][0]:
+                    known = {f.value for f in extract_explicit_fields(message, catalog=catalog).fields
+                             if f.field_name == 'sku' and f.validation_status == 'VALID'}
+                    supported = supported and any(p.tenant_id == message.raw.tenant_id and p.sku in known and p.unit == norm for p in catalog)
+                    if not supported:
+                        reason = 'Unit/SKU compatibility is unverified or incompatible; human review required'
 
         elif observation.field == "quantity":
             # Delegate meaning/association to L0, then accept only its exact
@@ -394,7 +443,13 @@ class ModelProposalService:
                 status, reason = "UNRESOLVED", "Literal number only; existing valid or reviewed quantity takes precedence"
                 supported = False
             else:
-                m = re.search(r"([0-9]+(?:\.[0-9]+)?)", quote)
+                if model_id == MODEL_CONFIG['qwen'][0]:
+                    units = '|'.join(re.escape(u) for u in UNIT_NORMALIZATION)
+                    aliases = '|'.join(re.escape(a) for p in catalog if p.tenant_id == message.raw.tenant_id for a in p.aliases)
+                    m = re.fullmatch(r'\s*([0-9]+)\s*(?:(?:' + units + r')\s*)?' +
+                                     (r'(?:(?:' + aliases + r')\s*)?' if aliases else '') + r'\s*', quote, re.I)
+                else:
+                    m = re.search(r"([0-9]+(?:\.[0-9]+)?)", quote)
                 if m and Decimal(m.group(1)) > 0:
                     value = m.group(1)
                     subspan = (m.start(1), m.end(1))

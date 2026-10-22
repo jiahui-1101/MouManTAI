@@ -122,6 +122,8 @@ class ModelRuntime:
     def _load(self, engine):
         import torch
         target_device = self.device
+        if engine == 'qwen' and target_device != 'cuda':
+            raise RuntimeError('Qwen3 requires an explicitly available CUDA runtime; CPU inference is disabled')
         if target_device == "cuda" and not torch.cuda.is_available():
             raise RuntimeError("CUDA required for the proposed GPU deployment")
         if engine not in self.loaded:
