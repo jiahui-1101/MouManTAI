@@ -110,7 +110,7 @@ def _to_commitment(record: CommitmentRecord) -> Commitment:
         terms_dict = {
             k: v
             for k, v in terms_dict.items()
-            if k in {"sku", "quantity", "unit", "deadline", "special_instructions"}
+            if k in {"sku", "quantity", "unit", "deadline", "items", "special_instructions"}
         }
     return Commitment.model_validate(
         {

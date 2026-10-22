@@ -111,7 +111,8 @@ export interface CommitmentTerms {
   sku: string;
   quantity: DecimalString;
   unit: string;
-  deadline: ISO8601;
+  deadline?: ISO8601;
+  items?: RequestedItem[];
   special_instructions?: string | null;
 }
 
