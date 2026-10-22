@@ -7,6 +7,8 @@ import { FeaturePlaceholder } from "./pages/FeaturePlaceholder";
 import { OverviewPage } from "./features/overview/OverviewPage";
 import { ActivityPage } from "./features/activity/ActivityPage";
 import { CommunicationCenterPage } from "./features/communication/CommunicationCenterPage";
+import { ConfirmationWorkspacePage } from "./features/communication/ConfirmationWorkspacePage";
+import { FollowUpQueuePage } from "./features/communication/FollowUpQueuePage";
 import { DurableInbox } from "./features/context/DurableInbox";
 import { OrderContextDetail } from "./features/context/OrderContextDetail";
 import { AuthProvider, useAuth } from "./shared/auth";
@@ -86,7 +88,8 @@ export function App({ queryClient, initialTenantId, initialActorId }: AppProps =
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
               <Route path="/recovery/:id" element={<FeaturePlaceholder owner="P3 · Recovery" title="Recovery case" />} />
               <Route path="/communications" element={<CommunicationCenterPage />} />
-              <Route path="/confirmations/:id" element={<FeaturePlaceholder owner="P4 · Communication" title="Confirmation workspace" />} />
+              <Route path="/confirmations/:id" element={<ConfirmationWorkspacePage />} />
+              <Route path="/communications/follow-ups" element={<FollowUpQueuePage />}/>
               <Route path="*" element={<FeaturePlaceholder owner="Shared shell" title="Page not found" />} />
             </Route>
           </Routes>
