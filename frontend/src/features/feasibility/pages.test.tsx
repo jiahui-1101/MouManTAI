@@ -26,8 +26,9 @@ function impact(adapter?: P2DataSource) {
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => { resolve = r; });
-  return { promise, resolve };
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((r, fail) => { resolve = r; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 describe("FE-01", () => {
@@ -88,7 +89,7 @@ describe("FE-01", () => {
   it("preserves old result during recalculation and sends expected versions", async () => {
     const pending = deferred<FeasibilityView>();
     const adapter = source(); adapter.recalculate = vi.fn(() => pending.promise);
-    feasibility(adapter); await screen.findByTestId("feasibility-status");
+    await act(async () => { feasibility(adapter); }); await screen.findByTestId("feasibility-status");
     fireEvent.click(screen.getByRole("button", { name: "Recalculate" }));
     expect(screen.getByRole("button", { name: /Recalculating/ })).toBeDisabled();
     expect(screen.getByText(/Previous assessment retained/)).toBeInTheDocument();
@@ -99,8 +100,8 @@ describe("FE-01", () => {
   });
   it("accepts a deterministic unchanged recalculation response", async () => {
     const adapter = source(); adapter.recalculate = async () => copy(previewFeasibility);
-    feasibility(adapter); await screen.findByTestId("feasibility-status");
-    fireEvent.click(screen.getByRole("button", { name: "Recalculate" }));
+    await act(async () => { feasibility(adapter); }); await screen.findByTestId("feasibility-status");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Recalculate" })); });
     expect(await screen.findByText(/Assessment received/)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -111,8 +112,8 @@ describe("FE-01", () => {
       const next = copy(previewFeasibility); next.assessment!.assessed_at = "2026-10-22T12:30:30+08:00";
       return next;
     };
-    feasibility(adapter); await screen.findByTestId("feasibility-status");
-    fireEvent.click(screen.getByRole("button", { name: "Recalculate" }));
+    await act(async () => { feasibility(adapter); }); await screen.findByTestId("feasibility-status");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Recalculate" })); });
     await screen.findByText(/Assessment received/);
     expect(screen.getByTestId("feasibility-status")).toHaveTextContent("INFEASIBLE");
   });
@@ -125,16 +126,32 @@ describe("FE-01", () => {
   });
   it.each([403, 409, 503])("retains prior result after HTTP %s and supports safe retry", async (status) => {
     const adapter = source();
-    adapter.recalculate = vi.fn().mockRejectedValue(new FeatureDataError(status, "SERVER_REJECTED", "Request rejected"));
-    feasibility(adapter); await screen.findByTestId("feasibility-status");
-    fireEvent.click(screen.getByRole("button", { name: "Recalculate" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(String(status));
+    const first = deferred<FeasibilityView>(), retry = deferred<FeasibilityView>();
+    adapter.recalculate = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(retry.promise);
+    // Settle initial load and its effects before interacting. Control rejection
+    // explicitly so both requests exercise pending -> error, including on CI.
+    await act(async () => { feasibility(adapter); });
+    await screen.findByTestId("feasibility-status");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Recalculate" })); });
+    expect(screen.getByRole("button", { name: /Recalculating/ })).toBeDisabled();
+    expect(screen.getByText(previewFeasibility.assessment!.assessment_id)).toBeInTheDocument();
+    await act(async () => { first.reject(new FeatureDataError(status, "SERVER_REJECTED", "Request rejected")); });
+    const message = `${status === 403 ? "Permission denied" : status === 409 ? "Version conflict" : "Request failed"} (${status}, SERVER_REJECTED): Request rejected`;
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(screen.getByText(previewFeasibility.assessment!.assessment_id)).toBeInTheDocument();
     expect(screen.queryByText(/Assessment received/)).not.toBeInTheDocument();
     expect(screen.queryByRole("note")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Retry recalculation" }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry recalculation" })); });
     expect(adapter.recalculate).toHaveBeenCalledTimes(2);
-    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: /Recalculating/ })).toBeDisabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await act(async () => { retry.reject(new FeatureDataError(status, "SERVER_REJECTED", "Request rejected")); });
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.getByText(previewFeasibility.assessment!.assessment_id)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry recalculation" })).toBeEnabled();
+    expect(screen.queryByText(/Assessment received/)).not.toBeInTheDocument();
+    expect(adapter.recalculate).toHaveBeenNthCalledWith(1, "com-001", { expected_commitment_version: 1, expected_snapshot_version: 2 });
+    expect(adapter.recalculate).toHaveBeenNthCalledWith(2, "com-001", { expected_commitment_version: 1, expected_snapshot_version: 2 });
   });
   it.each(["stale", "foreign tenant", "changed terms"])("does not replace prior assessment with %s response", async (kind) => {
     const next = copy(previewFeasibility);
@@ -143,8 +160,8 @@ describe("FE-01", () => {
     if (kind === "foreign tenant") next.commitment.tenant_id = "foreign";
     if (kind === "changed terms") next.commitment.terms.quantity = "999";
     const adapter = source(); adapter.recalculate = async () => next;
-    feasibility(adapter); await screen.findByTestId("feasibility-status");
-    fireEvent.click(screen.getByRole("button", { name: "Recalculate" }));
+    await act(async () => { feasibility(adapter); }); await screen.findByTestId("feasibility-status");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Recalculate" })); });
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.getByText(previewFeasibility.assessment!.assessment_id)).toBeInTheDocument();
     expect(screen.queryByText("invalid-result")).not.toBeInTheDocument();
