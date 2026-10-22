@@ -112,14 +112,18 @@ class DurableActionService:
             plan_id, expected_plan_version,
         ):
             raise DomainError("ACTION_KEY_CONFLICT", "Idempotency key belongs to another plan", status_code=409)
+        plan = db.get(RecoveryPlanRecord, (context.tenant_id, plan_id, expected_plan_version))
+        if plan is None:
+            raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Recovery plan was not found", status_code=404)
+        if (expected_commitment_version, expected_snapshot_version) != (
+            plan.core_commitment_version, plan.snapshot_version,
+        ):
+            raise DomainError("ACTION_KEY_CONFLICT", "Action request differs from its plan version", status_code=409)
         if previous is not None and previous.status == "SUCCEEDED":
             task = db.get(InternalRecoveryTaskRecord, (context.tenant_id, previous.task_id))
             if task is None or task.status != "OPEN":
                 raise DomainError("ACTION_RECEIPT_UNVERIFIED", "Saved task is missing", status_code=500)
             return previous
-        plan = db.get(RecoveryPlanRecord, (context.tenant_id, plan_id, expected_plan_version))
-        if plan is None:
-            raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Recovery plan was not found", status_code=404)
         commitment = db.scalar(select(CommitmentRecord).where(
             CommitmentRecord.tenant_id == context.tenant_id,
             CommitmentRecord.commitment_id == plan.commitment_id,
@@ -156,6 +160,9 @@ class DurableActionService:
             plan.snapshot_id, plan.evaluated_commitment_version,
         ) or result.status not in {"FEASIBLE", "CONDITIONAL"}:
             raise DomainError("PLAN_REVALIDATION_FAILED", "P2 result changed or is not safe for review", status_code=409)
+        actual_constraints = {f"{item.code}:{item.resource_id}" for item in result.constraints}
+        if not actual_constraints.issubset(set(typed.evaluation.constraints)) or not set(result.evidence_refs).issubset(set(typed.evaluation.evidence_refs)):
+            raise DomainError("PLAN_REVALIDATION_FAILED", "P2 evidence or constraints changed", status_code=409)
         now = datetime.now(timezone.utc)
         execution = previous or RecoveryActionExecutionRecord(
             tenant_id=context.tenant_id, execution_id=f"act_{uuid4().hex[:16]}",

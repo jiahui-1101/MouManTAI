@@ -78,6 +78,8 @@ export interface PlanEvaluation {
 }
 
 export interface RecoveryPlanVersion extends Omit<RecoveryPlan, "execution_state"> {
+  snapshot_id?: string | null;
+  core_commitment_version?: number | null;
   // P3's response model currently allows any non-empty execution state string.
   execution_state: string;
   option_id: string;
@@ -143,7 +145,7 @@ export interface ApprovalDecision {
   actor_role: string;
   commitment_version?: number | null;
   action_scope: string[];
-  decision: "REQUESTED" | "APPROVED" | "REJECTED" | "PENDING" | "REVISION_REQUESTED" | "INVALIDATED" | "EXPIRED";
+  decision: "REQUESTED" | "APPROVED" | "REJECTED" | "PENDING" | "REVISION_REQUESTED" | "REVOKED" | "INVALIDATED" | "EXPIRED";
   approved_cost_limit?: DecimalString | null;
   reason: string;
   decided_at?: ISO8601 | null;
@@ -154,7 +156,24 @@ export interface ApprovalDecision {
   idempotency_key?: string | null;
   correlation_id?: string | null;
   causation_id?: string | null;
-  persistence_mode: "IN_MEMORY_NON_DURABLE";
+  persistence_mode: "IN_MEMORY_NON_DURABLE" | "DURABLE_DATABASE";
+}
+
+export interface DurableActionView {
+  execution_id: string;
+  tenant_id: string;
+  commitment_id: string;
+  plan_id: string;
+  plan_version: number;
+  approval_id: string;
+  status: string;
+  attempts: number;
+  task_id: string | null;
+  receipt_ref: string | null;
+  audit_id: string | null;
+  last_error: string | null;
+  created_at: ISO8601;
+  updated_at: ISO8601;
 }
 
 export interface RecoveryTriggerReference {

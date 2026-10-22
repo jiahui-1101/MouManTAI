@@ -229,6 +229,8 @@ class RecoveryPlanVersion(ContractModel):
     plan_version: int = Field(ge=1)
     commitment_id: str = Field(min_length=1)
     based_on_assessment_id: str = Field(min_length=1)
+    snapshot_id: str | None = None
+    core_commitment_version: int | None = Field(default=None, ge=1)
     snapshot_version: int = Field(ge=1)
     feasibility_status: FeasibilityState
     estimated_extra_cost: NonNegativeDecimal

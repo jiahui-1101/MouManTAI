@@ -217,6 +217,8 @@ class DurablePlanService:
                 tenant_id=context.tenant_id, recovery_case_id=case.case_id,
                 plan_id=plan_id, plan_version=1, commitment_id=commitment_id,
                 based_on_assessment_id=assessment.assessment_id,
+                snapshot_id=snapshot.operational.snapshot_id,
+                core_commitment_version=commitment.commitment_version,
                 snapshot_version=snapshot.operational.snapshot_version,
                 feasibility_status=result.status, estimated_extra_cost=cost, currency="MYR",
                 estimated_delay_minutes=delay, risks=constraints,

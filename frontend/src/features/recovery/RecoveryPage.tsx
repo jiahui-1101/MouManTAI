@@ -4,8 +4,8 @@ import { useParams } from "react-router-dom";
 
 import { ApiError } from "../../shared/api";
 import { useAuth } from "../../shared/auth";
-import { generateRecoveryPlans, getRecoveryCaseOrTrigger, getRecoveryPlans } from "./api";
-import type { ApprovalDecision, RecoveryCase, RecoveryPlanVersion } from "./types";
+import { decideRecoveryPlan, executeRecoveryTask, generateRecoveryPlans, getActionHistory, getApprovalHistory, getRecoveryCaseOrTrigger, getRecoveryPlans } from "./api";
+import type { ApprovalDecision, DurableActionView, RecoveryCase, RecoveryPlanVersion } from "./types";
 import { SyntheticRecoveryDemo } from "./SyntheticRecoveryDemo";
 import "./recovery.css";
 
@@ -82,7 +82,7 @@ function PlanCard({
     plan.recommended && plan.recommendation_label === "RECOMMENDED_UNDER_POLICY";
   const stale =
     plan.snapshot_version !== currentSnapshotVersion ||
-    plan.evaluation.commitment_version !== currentCommitmentVersion;
+    (plan.core_commitment_version ?? plan.evaluation.commitment_version) !== currentCommitmentVersion;
   return (
     <article className={`recovery-option-card ${selected ? "selected" : ""}`} data-testid={`recovery-plan-${plan.plan_id}`}>
       <div className="recovery-option-header">
@@ -174,7 +174,7 @@ function PlanDetail({ plan, stale }: { plan: RecoveryPlanVersion; stale: boolean
           <p className="eyebrow">Selected option</p>
           <h2>{plan.plan_id} · {plan.strategy.replaceAll("_", " ")}</h2>
         </div>
-        <span className="status-pill warning">Review only</span>
+        <span className="status-pill warning">Manager review</span>
       </div>
       <div className="recovery-detail-grid">
         <div>
@@ -204,22 +204,20 @@ function PlanDetail({ plan, stale }: { plan: RecoveryPlanVersion; stale: boolean
         {plan.customer_confirmation_required && <p className="recovery-inline-error">Customer confirmation is a separate dependency; approval does not change the customer commitment.</p>}
       </section>
       <div className="recovery-execution-gate" data-testid="execution-gate">
-        <strong>{invalid ? "This option is infeasible or unknown and cannot proceed." : stale ? "This option is stale; it cannot proceed without revalidation." : "Review only · no approval or execution action is available here."}</strong>
-        <span>Approval is separate from execution. The current P3 API has no public execute or action-history endpoint; this screen makes no execution claim.</span>
+        <strong>{invalid ? "This option is infeasible or unknown and cannot proceed." : stale ? "This option is stale; it cannot proceed without revalidation." : "Manager approval and internal action are separate steps."}</strong>
+        <span>Execution creates only an internal review task. Customer terms remain unchanged.</span>
       </div>
     </section>
   );
 }
 
-function ManagerReviewPanel({ caseData, actorRole }: { caseData: RecoveryCase; actorRole: string }) {
-  const durableDecisions: ApprovalDecision[] = caseData.storage_mode === "DURABLE_DATABASE"
-    ? caseData.approval_decisions.filter((decision) => decision.persistence_mode !== "IN_MEMORY_NON_DURABLE")
-    : [];
+function ManagerReviewPanel({ decisions, actorRole }: { decisions: ApprovalDecision[]; actorRole: string }) {
+  const durableDecisions = decisions.filter((decision) => decision.persistence_mode === "DURABLE_DATABASE");
 
   return (
     <section className="recovery-panel" aria-labelledby="recovery-manager-review-title">
       <div className="section-header">
-        <div><p className="eyebrow">Read-only governance view</p><h2 id="recovery-manager-review-title">Manager review</h2></div>
+        <div><p className="eyebrow">Durable decision history</p><h2 id="recovery-manager-review-title">Manager review</h2></div>
         <span className="recovery-status-pill">Workspace role: {actorRole}</span>
       </div>
       <p className="muted text-sm">The role shown is a UI context. The server remains the authority for approval permission.</p>
@@ -237,9 +235,7 @@ function ManagerReviewPanel({ caseData, actorRole }: { caseData: RecoveryCase; a
       ) : (
         <div className="recovery-execution-gate">
           <strong>No durable manager decision is available.</strong>
-          <span>{caseData.storage_mode === "IN_MEMORY_SYNTHETIC"
-            ? "In-memory seed decisions are intentionally omitted from this review view."
-            : "No durable approval request or decision was returned for this case."}</span>
+          <span>No durable approval decision was returned for the selected plan.</span>
         </div>
       )}
     </section>
@@ -277,7 +273,7 @@ function activityItems(caseData: RecoveryCase, plans: RecoveryPlanVersion[]): Re
     refs: event.causation_id ? [event.causation_id] : [],
   }));
   const evaluations: RecoveryActivityItem[] = plans.map((plan) => ({
-    key: `evaluation-${plan.evaluation.evaluation_id}`,
+    key: `evaluation-${plan.plan_id}-${plan.plan_version}`,
     occurredAt: plan.evaluation.evaluated_at,
     title: `Plan evaluated · ${plan.plan_id} v${plan.plan_version}`,
     detail: `${plan.feasibility_status} · ${plan.evaluation.validation_source === "REAL_P2_VALIDATED" ? "P2 evaluator result" : "test double result; not P2 proof"} · snapshot v${plan.snapshot_version}.`,
@@ -325,7 +321,7 @@ function RecoveryActivityTimeline({ caseData, plans }: { caseData: RecoveryCase;
           ))}
         </div>
       ) : <p className="muted text-sm">No timestamped trigger, evaluation, or durable decision records were returned.</p>}
-      <p className="recovery-inline-error">Action attempts and verified execution outcomes are not available from the current P3 read API.</p>
+      <p className="muted text-sm">Select a plan to load its durable manager and internal action history.</p>
     </section>
   );
 }
@@ -372,6 +368,35 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
   const fullCase = caseData && "trigger_assessment" in caseData ? caseData : undefined;
   const plans = plansQuery.data?.plans ?? fullCase?.plans ?? [];
   const selectedPlan = useMemo(() => plans.find((plan) => plan.plan_id === selectedPlanId), [plans, selectedPlanId]);
+  const approvalsQuery = useQuery({
+    queryKey: ["recovery-approvals", selectedPlanId, authHeaders.tenantId],
+    queryFn: () => getApprovalHistory(selectedPlanId!, authHeaders),
+    enabled: !!selectedPlanId && fullCase?.storage_mode === "DURABLE_DATABASE",
+    retry: false,
+  });
+  const actionsQuery = useQuery({
+    queryKey: ["recovery-actions", selectedPlanId, authHeaders.tenantId],
+    queryFn: () => getActionHistory(selectedPlanId!, authHeaders),
+    enabled: !!selectedPlanId && fullCase?.storage_mode === "DURABLE_DATABASE",
+    retry: false,
+  });
+  const refreshWorkflow = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["recovery-case", commitmentId, authHeaders.tenantId] }),
+      queryClient.invalidateQueries({ queryKey: ["recovery-plans", commitmentId, authHeaders.tenantId] }),
+      queryClient.invalidateQueries({ queryKey: ["recovery-approvals", selectedPlanId, authHeaders.tenantId] }),
+      queryClient.invalidateQueries({ queryKey: ["recovery-actions", selectedPlanId, authHeaders.tenantId] }),
+    ]);
+  };
+  const decisionMutation = useMutation({
+    mutationFn: ({ plan, decision, reason, version }: { plan: RecoveryPlanVersion; decision: "approve" | "reject" | "request-revision"; reason: string; version: number }) =>
+      decideRecoveryPlan(plan, decision, reason, version, authHeaders),
+    onSuccess: refreshWorkflow,
+  });
+  const executeMutation = useMutation({
+    mutationFn: ({ plan, version }: { plan: RecoveryPlanVersion; version: number }) => executeRecoveryTask(plan, version, authHeaders),
+    onSuccess: refreshWorkflow,
+  });
 
   useEffect(() => {
     if (selectedPlanId && !plans.some((plan) => plan.plan_id === selectedPlanId)) setSelectedPlanId(null);
@@ -507,13 +532,34 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
 
       {selectedPlan && <PlanDetail
         plan={selectedPlan}
-        stale={selectedPlan.snapshot_version !== snapshot.snapshot_version || selectedPlan.evaluation.commitment_version !== caseData.commitment_version}
+        stale={selectedPlan.snapshot_version !== snapshot.snapshot_version || (selectedPlan.core_commitment_version ?? selectedPlan.evaluation.commitment_version) !== caseData.commitment_version}
       />}
-      <ManagerReviewPanel caseData={caseData} actorRole={actorRole} />
+      {selectedPlan && !synthetic && <section className="recovery-panel" aria-label="Manager decisions and internal action">
+        <h2>Manager decision and internal task</h2>
+        <p className="muted text-sm">Plan {selectedPlan.plan_id} v{selectedPlan.plan_version} · assessment {selectedPlan.based_on_assessment_id} · snapshot {selectedPlan.snapshot_id ?? "not recorded"} v{selectedPlan.snapshot_version} · Core v{selectedPlan.core_commitment_version ?? "not recorded"}</p>
+        <p>Only a verified Manager can decide or create the synthetic internal review task. Approval does not change customer terms.</p>
+        {(approvalsQuery.isError || actionsQuery.isError) && <p className="recovery-inline-error" role="alert">{errorMessage(approvalsQuery.error ?? actionsQuery.error)} <button type="button" className="btn btn-outline btn-sm" onClick={() => { void approvalsQuery.refetch(); void actionsQuery.refetch(); }}>Retry history</button></p>}
+        <div className="recovery-option-meta">
+          {(["approve", "reject", "request-revision"] as const).map((decision) => <button key={decision} type="button" className="btn btn-outline btn-sm" disabled={actorRole !== "MANAGER" || decisionMutation.isPending || executeMutation.isPending || selectedPlan.feasibility_status === "INFEASIBLE" || selectedPlan.feasibility_status === "UNKNOWN" || selectedPlan.snapshot_version !== snapshot.snapshot_version || (selectedPlan.core_commitment_version ?? selectedPlan.evaluation.commitment_version) !== caseData.commitment_version} onClick={() => {
+            const reason = window.prompt(`Reason for ${decision.replaceAll("-", " ")}:`);
+            if (reason?.trim()) decisionMutation.mutate({ plan: selectedPlan, decision, reason: reason.trim(), version: caseData.commitment_version });
+          }}>{decision === "request-revision" ? "Request revision" : decision === "approve" ? "Manager approve" : "Reject"}</button>)}
+        </div>
+        {decisionMutation.isError && <p className="recovery-inline-error" role="alert">{errorMessage(decisionMutation.error)} <button type="button" className="btn btn-outline btn-sm" onClick={() => decisionMutation.reset()}>Dismiss</button></p>}
+        <ManagerReviewPanel decisions={approvalsQuery.data ?? []} actorRole={actorRole} />
+        <p>Verified internal review task: {actionsQuery.data?.find((action) => action.status === "SUCCEEDED")?.task_id ?? "none"}</p>
+        <button type="button" className="btn btn-primary btn-sm" disabled={actorRole !== "MANAGER" || executeMutation.isPending || decisionMutation.isPending || approvalsQuery.data?.at(-1)?.decision !== "APPROVED" || (approvalsQuery.data?.at(-1)?.expires_at ? Date.parse(approvalsQuery.data.at(-1)!.expires_at!) <= Date.now() : true) || selectedPlan.snapshot_version !== snapshot.snapshot_version || (selectedPlan.core_commitment_version ?? selectedPlan.evaluation.commitment_version) !== caseData.commitment_version} onClick={() => {
+          if (window.confirm("Create a synthetic internal review task for this approved plan? Customer terms will not change.")) executeMutation.mutate({ plan: selectedPlan, version: caseData.commitment_version });
+        }}>{executeMutation.isPending ? "Creating and verifying task…" : "Create internal review task"}</button>
+        {executeMutation.isError && <p className="recovery-inline-error" role="alert">{errorMessage(executeMutation.error)} <button type="button" className="btn btn-outline btn-sm" onClick={() => executeMutation.reset()}>Dismiss</button></p>}
+        <h3>Action history</h3>
+        {(actionsQuery.data ?? []).map((action: DurableActionView) => <p key={action.execution_id}>{action.status} · attempts {action.attempts} · task {action.task_id ?? "none"} · receipt {action.receipt_ref ?? "none"}{action.last_error ? ` · ${action.last_error}` : ""}</p>)}
+      </section>}
+      {!selectedPlan && <ManagerReviewPanel decisions={[]} actorRole={actorRole} />}
       <RecoveryActivityTimeline caseData={caseData} plans={plans} />
       <section className="recovery-audit-note">
         <strong>Evidence and assumptions stay visible.</strong>
-        <span>Approval decisions are version- and snapshot-scoped. This screen cannot approve, execute, communicate, or mutate the authoritative Core commitment.</span>
+        <span>Approval decisions are version- and snapshot-scoped. The internal task does not communicate externally or mutate the authoritative Core commitment.</span>
       </section>
     </div>
   );

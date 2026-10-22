@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -119,11 +119,11 @@ function recoveryCase(): RecoveryCase {
   };
 }
 
-function renderPage(path = "/recovery/com_001") {
+function renderPage(path = "/recovery/com_001", actorId = "user_owner_01") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
+      <AuthProvider initialActorId={actorId}>
         <MemoryRouter initialEntries={[path]}>
           <Routes><Route path="/recovery/:id" element={<RecoveryPage />} /></Routes>
         </MemoryRouter>
@@ -160,7 +160,7 @@ describe("P3 recovery page", () => {
     expect(screen.queryByText("Recommended under current preferences")).not.toBeInTheDocument();
     expect(screen.getAllByText("ev_supplier_003").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByTestId("select-plan_a"));
-    expect(screen.getByTestId("execution-gate")).toHaveTextContent(/no approval or execution action is available/i);
+    expect(screen.getByTestId("execution-gate")).toHaveTextContent(/manager approval and internal action are separate steps/i);
     expect(screen.queryByText(/execution succeeded/i)).not.toBeInTheDocument();
   });
 
@@ -258,8 +258,79 @@ describe("P3 recovery page", () => {
     }));
 
     renderPage();
-    expect(await screen.findByText(/in-memory seed decisions are intentionally omitted/i)).toBeInTheDocument();
+    expect(await screen.findByText(/No durable approval decision was returned/i)).toBeInTheDocument();
     expect(screen.queryByText(/APPROVED · plan_a/i)).not.toBeInTheDocument();
     expect(screen.getAllByText(/test[- ]double result/i).length).toBeGreaterThan(0);
+  });
+
+  it("loads durable decisions, posts a manager decision, and refreshes authoritative history", async () => {
+    const caseData = { ...recoveryCase(), storage_mode: "DURABLE_DATABASE" as const };
+    const livePlan = plan({ core_commitment_version: 3, snapshot_id: "snap_142", strategy: "RESCHEDULE_PARTIAL_FULFILMENT" });
+    const requests: string[] = [];
+    vi.stubGlobal("prompt", vi.fn(() => "Review partial delivery"));
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      const path = url.toString();
+      requests.push(`${init?.method ?? "GET"} ${path}`);
+      if (path.endsWith("/plans")) return response({ tenant_id: caseData.tenant_id, commitment_id: caseData.commitment_id, case_id: caseData.case_id, plans: [livePlan] });
+      if (path.endsWith("/approvals")) return response([]);
+      if (path.endsWith("/actions")) return response([]);
+      if (path.endsWith("/approve")) return response({ approval_id: "approval_1", decision: "APPROVED" });
+      return response(caseData);
+    }));
+    renderPage("/recovery/com_001", "user_manager_01");
+    fireEvent.click(await screen.findByTestId("select-plan_a"));
+    expect(screen.getByRole("button", { name: "Manager approve" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Manager approve" }));
+    await waitFor(() => expect(requests.some((request) => request.includes("POST /v1/recovery/plans/plan_a/approve"))).toBe(true));
+    await waitFor(() => expect(requests.filter((request) => request.endsWith("/approvals")).length).toBeGreaterThan(1));
+    expect(screen.getByRole("button", { name: "Create internal review task" })).toBeDisabled();
+  });
+
+  it("shows a 403 mutation error without claiming approval", async () => {
+    const caseData = { ...recoveryCase(), storage_mode: "DURABLE_DATABASE" as const };
+    vi.stubGlobal("prompt", vi.fn(() => "Review"));
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request) => {
+      const path = url.toString();
+      if (path.endsWith("/plans")) return response({ tenant_id: caseData.tenant_id, commitment_id: caseData.commitment_id, case_id: caseData.case_id, plans: [plan({ core_commitment_version: 3 })] });
+      if (path.endsWith("/approvals") || path.endsWith("/actions")) return response([]);
+      if (path.endsWith("/approve")) return response({ code: "MANAGER_APPROVAL_REQUIRED", message: "Verified manager required" }, 403);
+      return response(caseData);
+    }));
+    renderPage("/recovery/com_001", "user_manager_01");
+    fireEvent.click(await screen.findByTestId("select-plan_a"));
+    fireEvent.click(screen.getByRole("button", { name: "Manager approve" }));
+    expect(await screen.findByText("Verified manager required")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create internal review task" })).toBeDisabled();
+  });
+
+  it("confirms execution, reloads the verified task, and never claims fulfilment", async () => {
+    const caseData = { ...recoveryCase(), storage_mode: "DURABLE_DATABASE" as const };
+    const approved = { approval_id: "approval_1", tenant_id: caseData.tenant_id, commitment_id: caseData.commitment_id,
+      plan_id: "plan_a", plan_version: 1, snapshot_version: 142, actor_id: "user_manager_01", actor_role: "MANAGER",
+      action_scope: ["CREATE_INTERNAL_REVIEW_TASK"], decision: "APPROVED", reason: "Review partial delivery",
+      evidence_refs: [], audit_refs: [], persistence_mode: "DURABLE_DATABASE", expires_at: "2099-01-01T00:00:00Z" };
+    const verified = { execution_id: "act_1", tenant_id: caseData.tenant_id, commitment_id: caseData.commitment_id,
+      plan_id: "plan_a", plan_version: 1, approval_id: "approval_1", status: "SUCCEEDED", attempts: 1,
+      task_id: "task_1", receipt_ref: "receipt_1", audit_id: "audit_1", last_error: null,
+      created_at: "2026-10-22T00:00:00Z", updated_at: "2026-10-22T00:00:00Z" };
+    let executed = false;
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      const path = url.toString();
+      if (path.endsWith("/plans")) return response({ tenant_id: caseData.tenant_id, commitment_id: caseData.commitment_id, case_id: caseData.case_id, plans: [plan({ core_commitment_version: 3, snapshot_id: "snap_142", strategy: "RESCHEDULE_PARTIAL_FULFILMENT" })] });
+      if (path.endsWith("/approvals")) return response([approved]);
+      if (path.endsWith("/actions")) return response(executed ? [verified] : []);
+      if (path.endsWith("/execute") && init?.method === "POST") { executed = true; return response(verified); }
+      return response(caseData);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage("/recovery/com_001", "user_manager_01");
+    fireEvent.click(await screen.findByTestId("select-plan_a"));
+    const button = screen.getByRole("button", { name: "Create internal review task" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => url.toString().endsWith("/execute") && init?.method === "POST")).toBe(true));
+    expect(await screen.findByText(/Verified internal review task: task_1/)).toBeInTheDocument();
+    expect(screen.queryByText(/commitment fulfilled/i)).not.toBeInTheDocument();
   });
 });

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 import os
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
@@ -63,6 +64,11 @@ def get_approval_actor(
 ApprovalActor = Annotated[ActorContext, Depends(get_approval_actor)]
 
 
+def _stored_utc(value: datetime | None) -> datetime | None:
+    # The service writes UTC; SQLite drops tzinfo when it reloads DateTime rows.
+    return value.replace(tzinfo=timezone.utc) if value is not None and value.tzinfo is None else value
+
+
 def _approval_response(row: ManagerApprovalRecord) -> ApprovalDecision:
     return ApprovalDecision(
         approval_id=row.approval_id, tenant_id=row.tenant_id,
@@ -73,9 +79,9 @@ def _approval_response(row: ManagerApprovalRecord) -> ApprovalDecision:
         snapshot_id=row.snapshot_id, snapshot_version=row.snapshot_version,
         action_scope=row.action_scope, actor_id=row.actor_id, actor_role=row.actor_role,
         decision=row.decision, approved_cost_limit=row.approved_amount,
-        reason=row.reason, decided_at=row.decided_at,
-        approved_at=row.decided_at if row.decision == "APPROVED" else None,
-        expires_at=row.expires_at, evidence_refs=[row.snapshot_id], audit_refs=[row.audit_id],
+        reason=row.reason, decided_at=_stored_utc(row.decided_at),
+        approved_at=_stored_utc(row.decided_at) if row.decision == "APPROVED" else None,
+        expires_at=_stored_utc(row.expires_at), evidence_refs=[row.snapshot_id], audit_refs=[row.audit_id],
         idempotency_key=row.idempotency_key, persistence_mode="DURABLE_DATABASE",
     )
 
@@ -87,8 +93,8 @@ def _action_response(row: RecoveryActionExecutionRecord) -> DurableActionView:
         "plan_version": row.plan_version, "approval_id": row.approval_id,
         "status": row.status, "attempts": row.attempts, "task_id": row.task_id,
         "receipt_ref": row.receipt_ref, "audit_id": row.audit_id,
-        "last_error": row.last_error, "created_at": row.created_at,
-        "updated_at": row.updated_at,
+        "last_error": row.last_error, "created_at": _stored_utc(row.created_at),
+        "updated_at": _stored_utc(row.updated_at),
     })
 
 

@@ -349,6 +349,44 @@ def _prepared_review(session: Session, monkeypatch: pytest.MonkeyPatch):
     return next(plan for plan in plans if plan.option_id == "revised_schedule"), manager, key
 
 
+def test_live_recovery_http_decision_and_verified_task(
+    session: Session, client, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    headers = {"X-Tenant-ID": manager.tenant_id, "X-Actor-ID": manager.actor_id,
+               "X-Isolated-E2E-Key": key}
+    case_response = client.get("/v1/recovery/cases/com-001", headers=headers)
+    assert case_response.status_code == 200, case_response.text
+    assert case_response.json()["storage_mode"] == "DURABLE_DATABASE"
+    plans_response = client.get("/v1/recovery/cases/com-001/plans", headers=headers)
+    assert plans_response.status_code == 200, plans_response.text
+    assert any(item["plan_id"] == plan.plan_id for item in plans_response.json()["plans"])
+    request = {"expected_plan_version": plan.plan_version,
+               "expected_commitment_version": plan.core_commitment_version,
+               "expected_snapshot_version": plan.snapshot_version,
+               "idempotency_key": "http-manager-decision-1", "reason": "Review revised delivery"}
+    denied = client.post(f"/v1/recovery/plans/{plan.plan_id}/approve", json=request,
+                         headers={**headers, "X-Actor-ID": "untrusted_staff"})
+    assert denied.status_code == 403
+    approved = client.post(f"/v1/recovery/plans/{plan.plan_id}/approve", json=request, headers=headers)
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["decision"] == "APPROVED"
+    history = client.get(f"/v1/recovery/plans/{plan.plan_id}/approvals", headers=headers)
+    assert history.status_code == 200 and len(history.json()) == 1
+    action_request = {"expected_plan_version": plan.plan_version,
+                      "expected_commitment_version": plan.core_commitment_version,
+                      "expected_snapshot_version": plan.snapshot_version,
+                      "idempotency_key": "http-internal-action-1"}
+    executed = client.post(f"/v1/recovery/plans/{plan.plan_id}/execute", json=action_request, headers=headers)
+    assert executed.status_code == 200, executed.text
+    assert executed.json()["status"] == "SUCCEEDED" and executed.json()["task_id"]
+    assert executed.json()["receipt_ref"]
+    again = client.post(f"/v1/recovery/plans/{plan.plan_id}/execute", json=action_request, headers=headers)
+    assert again.status_code == 200 and again.json()["task_id"] == executed.json()["task_id"]
+    actions = client.get(f"/v1/recovery/plans/{plan.plan_id}/actions", headers=headers)
+    assert actions.status_code == 200 and len(actions.json()) == 1
+
+
 def test_durable_manager_approval_idempotency_restart_and_revocation(
     session: Session, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
