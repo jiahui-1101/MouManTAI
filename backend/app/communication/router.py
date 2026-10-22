@@ -125,7 +125,7 @@ def runtime_capabilities(context: Context, directory=Depends(get_customer_direct
     contact = DirectoryContactAdapter(directory).connected
     policies_ready = {"APPROVE_DRAFT", "REJECT_DRAFT", "SEND_MESSAGE"} <= CONSEQUENTIAL_ACTIONS
     return {"tenant_id": context.tenant_id, "mode": "SYNTHETIC" if in_scope else "CLOSED",
-        "label": "Synthetic Demo â€” No Real Messages Sent" if in_scope else "Trusted authority unavailable",
+        "label": "Synthetic Demo — No Real Messages Sent" if in_scope else "Trusted authority unavailable",
         "can_record_preferences": bool(manager and contact), "can_revoke_preferences": bool(manager),
         "integrated_demo_ready": False,
         "blockers": ["CORE_APPROVAL_PRODUCER_UNAVAILABLE"] +
