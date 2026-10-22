@@ -25,6 +25,11 @@ import sys
 backend_dir = str(Path(__file__).resolve().parent.parent.parent.parent)
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 from app.context.ai.endpoint import EndpointAdapter, EndpointConfig
 from app.context.ai.service import ModelProposalService
@@ -100,12 +105,13 @@ async def evaluate_l1(endpoint_url: str, api_key: str, mode: str = "direct"):
             business_timezone="Asia/Kuala_Lumpur",
             attachments=[],
         )
+        import hashlib
         stored_msg = StoredMessage(
             message_id=f"stored_{case_id}",
             raw=raw,
             synthetic_provider="SYNTHETIC_WHATSAPP",
             processing_status="RECEIVED",
-            content_sha256="abc",
+            content_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
             ingested_at=base_ts,
             updated_at=base_ts,
         )
@@ -142,6 +148,8 @@ async def evaluate_l1(endpoint_url: str, api_key: str, mode: str = "direct"):
 
         # Include L1 GLiNER candidates
         for cand in proposal.candidates:
+            if cand.metadata.get("disposition") == "rejected":
+                continue
             fname = {
                 "sku": "product",
                 "quantity": "quantity",

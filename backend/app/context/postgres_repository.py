@@ -554,6 +554,9 @@ class PostgresMessageRepository:
                             )
                             if getattr(proposal_res, "outcomes", None):
                                 diagnostics_dict["model_outcomes"] = proposal_res.outcomes
+                            if getattr(proposal_res, "routing_reasons", None):
+                                diagnostics_dict["routing_reasons"] = proposal_res.routing_reasons
+                            diagnostics_dict["worker_request_count"] = getattr(proposal_res, "worker_request_count", 0)
                             diagnostics_dict["runtime_reported"] = getattr(proposal_res, "telemetry", {})
 
                             candidates = getattr(proposal_res, "candidates", [])
