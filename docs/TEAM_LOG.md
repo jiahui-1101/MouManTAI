@@ -1706,3 +1706,40 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - `python -m pytest backend/tests/test_outbox_events.py` (12 passed in 0.29s).
   - `python -m pytest backend/tests/test_contracts.py backend/tests/test_recovery.py backend/tests/test_recovery_actions.py backend/tests/test_recovery_approvals.py backend/tests/test_recovery_persistence.py backend/tests/test_recovery_triggers.py backend/tests/test_seed_demo.py backend/tests/test_core_api.py backend/tests/test_smoke.py backend/tests/test_outbox_events.py` (116 passed in 2.15s).
   - Rebuilt worker (`docker compose build worker && docker compose up -d`). Container logs confirmed warning logged once on startup, followed by clean, quiet operation.
+
+## 2026-10-23 — Core Manager Approval Proposal ID Binding for Successor Plans (P5 / D-043 / Handoff #P3-1)
+
+- **Context**: Person 3 reported in Handoff #P3-1 (PR #32) that `ManagerApprovalService.decide()` recorded `proposal_id = plan_id` unconditionally. When successor recovery plans (V2+) were evaluated, this caused a mismatch against versioned proposal IDs (`f"{plan_id}_v{plan_version}"`) expected by Core and P4, causing P3 to fail closed with HTTP 409.
+- **Architectural Policy & Decision (D-043)**:
+  1. **Canonical Proposal ID Binding**: For successor recovery plans (version > 1), `ManagerApprovalService.decide()` binds `proposal_id` to `typed.proposal_id`, `plan.payload["proposal_id"]`, or dynamically derives `f"{plan_id}_v{expected_plan_version}"`.
+  2. **V1 Backward Compatibility**: For plan version 1, `proposal_id` defaults to `plan_id`, strictly preserving V1 compatibility and historical approval evidence.
+  3. **Revocation Lookup Alignment**: In `ManagerApprovalService.decide()`, when revoking an approval (`decision == "REVOKED"`), the proposal lookup checks `target_proposal_id = latest.proposal_id or ...`, correctly locating the active `CommitmentProposalRecord`.
+- **Delivered Changes**:
+  - `backend/app/core/manager_approval.py`: Implemented dynamic `derived_proposal_id` resolution and updated revocation proposal lookup.
+  - `backend/tests/test_p2_persisted_sources.py`: Added `test_manager_approval_binds_versioned_proposal_id_for_successor_plan` verifying V1 preserves `proposal_id == plan_id` and V2 binds to `f"{plan_id}_v2"`.
+- **Validation**:
+  - `python -m pytest backend/tests/test_p2_persisted_sources.py` (20 passed in 0.23s).
+  - Full backend pytest suite: `325 passed, 10 skipped, 8 warnings`.
+  - PostgreSQL dual-boundary handshake suite: `20 passed` on port 5433 (`engine.dialect.name == "postgresql"`).
+- **Owner Actions**:
+  - P3: Reconcile PR #32 with latest `feat/p5-core-integration`, verify regression tests, and re-request P5 GitHub review.
+
+## 2026-10-23 — Pure-Python SQLAlchemy Enforcement to Prevent Linux CI Segmentation Faults (P5 / D-044)
+
+- **Context**: In CI on Ubuntu (`python 3.12.15`), the test suite crashed with a native segmentation fault (`SIGSEGV` exit code 139) in `sqlalchemy/orm/loading.py` line 231 in `chunks` when transitioning from `backend/tests/test_registry.py` to `backend/tests/test_resource_reservations.py`.
+- **Root Cause**:
+  1. SQLAlchemy's Cython-accelerated modules (`_result_cy`, `_processors_cy`, `_row_cy`) have known ABI/memory management incompatibilities with Python 3.12's C-API during ORM result hydration and batch row fetching.
+  2. While `backend/tests/conftest.py` previously attempted `os.environ.setdefault("DISABLE_SQLALCHEMY_CEXT", "1")`, this had zero effect because:
+     - `DISABLE_SQLALCHEMY_CEXT` is only evaluated by `setup.py` at package build time, not at runtime when pre-compiled binary wheels (`.so`) are already installed.
+     - In `conftest.py`, `sqlalchemy` was already imported before `os.environ` was updated.
+- **Implemented Fix**:
+  1. `conftest.py` (root) & `backend/tests/conftest.py`: Implemented `PurePythonSQLAlchemyFinder(importlib.machinery.PathFinder)` and registered it into `sys.meta_path[0]`. This intercepts all imports of `sqlalchemy.*_cy` and transparently routes them to the pure-Python `.py` implementations (`_result_cy.py`, etc.), completely bypassing native Cython `.so` libraries at runtime.
+  2. `.github/workflows/ci.yml`:
+     - Added `env: DISABLE_SQLALCHEMY_CEXT: "1"` at the job level for `backend-tests`.
+     - Added `pip install --no-binary=sqlalchemy -e "./backend[dev]"` with `DISABLE_SQLALCHEMY_CEXT: "1"` so wheels do not install Cython extensions.
+     - Added `env: DISABLE_SQLALCHEMY_CEXT: "1"` to the test execution step.
+- **Validation**:
+  - `python -m pytest backend/tests`: 325 passed, 10 skipped in 8.16s.
+  - Verified pure-Python fallback execution with `sqlalchemy.util._has_cython.HAS_CYEXTENSION == False`.
+  - All resource reservation and registry tests execute cleanly without native memory faults.
+
