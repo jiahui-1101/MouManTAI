@@ -11,7 +11,7 @@ from app.context.order_context_schemas import ContextReviewRequest
 from app.context.postgres_repository import PostgresMessageRepository
 from app.context.tests.test_core_publisher import make_valid_context
 from app.core.dependencies import RequestContext
-from app.core.models import CommitmentRecord, AuditEventRecord
+from app.core.models import CommitmentRecord, AuditEventRecord, CommitmentProposalRecord
 from app.core.schemas import AgreementState
 
 
@@ -64,10 +64,16 @@ def test_generated_order_reference_cannot_bypass_confirmed_terms_guard(pg_engine
         ContextReviewRequest(expected_context_version=1, action='EDIT_FIELD',
             field_edits={'requested_items':[{'sku':'BURGER','quantity':'150','unit':'pcs'}]}), 'user_staff_01','STAFF')
     with Session(pg_engine) as session:
-        with pytest.raises(IneligibleContextError, match='P5 amendment integration required'):
-            publisher.publish_to_core(session, request, reviewed)
+        publisher.publish_to_core(session, request, reviewed)
         row = session.get(CommitmentRecord, (ctx.tenant_id, first.commitment_id))
         assert str(row.terms['quantity']) == '100'
+        proposals = session.scalars(select(CommitmentProposalRecord).where(
+            CommitmentProposalRecord.tenant_id == ctx.tenant_id,
+            CommitmentProposalRecord.commitment_id == first.commitment_id)).all()
+        assert len(proposals) == 1
+        assert str(proposals[0].revised_terms['quantity']) == '150'
+        publisher.publish_to_core(session, request, repo.get_order_context(ctx.tenant_id, ctx.context_id))
+        assert session.scalar(select(func.count()).select_from(CommitmentProposalRecord)) == 1
 
 
 def test_publisher_rejects_cross_tenant_before_any_io():
