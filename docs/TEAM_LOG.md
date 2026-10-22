@@ -1375,7 +1375,6 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Remaining limitation: local branch must receive real P1 routes through normal team integration for the new route tests to pass; no Git merge performed here. No remote GitHub CI rerun or production E2E claimed.
 - Suggested commit: fix(ci): align migration and integration regression tests. Stop after hotfix; no feature work.
 
-<<<<<<< HEAD
 ### 2026-10-22 — Task T-P2H2: Feasibility Read Router Mount, Session-Aware Resolver & No-Commit Writer (P5 / ADR-019 / D-036)
 - **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
 - **Decision / Impact / Owner**:
@@ -1406,3 +1405,10 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - **Cause/fix:** Vite serves `127.0.0.1:5173` while the shared API's default CORS setting allowed only `localhost:5173`, causing browser preflights to fail. The default permits both loopback spellings; an explicitly configured `CORS_ORIGINS` still takes precedence. The new test checks both origins' communication API preflight response and allowed-origin header. No migration, subscriber, identity, or consequential route change.
 - **Evidence:** `python -m pytest tests/test_local_frontend_cors.py tests/test_smoke.py -q -p no:cacheprovider --basetemp=.pytest-basetemp-cors-only --tb=short` → 2 passed. Scoped Ruff F/E4/E7/E9, compileall and `git diff --check` passed.
 
+### 2026-10-22 — P5 stale mandatory outbox guard (IN_REVIEW)
+
+- Contributor: P3 integration assistance. Owner/reviewer: P5 (`Gan0117`); approval pending. Source branch `fix/p5-stale-mandatory-outbox`, based on Main `c7a0f7d42a014cee94c1963e22e493207adcd121`. Extracted narrowly from draft integration PR #16; no migration, subscriber registration, P2 evaluator, P3 consumer or external action is enabled.
+- Root cause: Main's outbox reconciled a stale event to `PUBLISHED` solely because a newer Commitment Version existed, even if the named mandatory subscriber had never completed. This could silently discard a required prior P2 evaluation or P3 recovery transition.
+- Changed files: `backend/app/core/outbox.py`, `backend/tests/test_outbox_events.py`, `backend/tests/integration/test_feature_handshakes.py`, `docs/TEAM_LOG.md`. The dispatcher now checks the exact tenant/event/mandatory consumer `ProcessedEventRecord` before supersession; missing completion leaves the event `FAILED` with explicit reason and retry, or `DEAD_LETTER` at the configured attempt limit. Existing completed events retain supersession audit behavior. The handshake test verifies the newly visible stale P2 failure separately from a downstream P3 rollback. No test-only callback is wired into production.
+- Validation: `python -m pytest tests/test_outbox_events.py tests/test_transaction_ab_isolation.py tests/integration/test_feature_handshakes.py -q -p no:cacheprovider --basetemp=.pytest-basetemp-stale-check --tb=short` passed, 31 tests. `python -m pytest tests -q -p no:cacheprovider --basetemp=.pytest-basetemp-stale-all --tb=short` passed (exit 0). Scoped Ruff `F,E4,E7,E9`, compileall and `git diff --check` passed. These commands used portable SQLite fixtures; no PostgreSQL/migrated schema validation is claimed for this unit.
+- Review and integration: code commit `ae20793a94911b7b7f7ec6e6dc56885ad5b9d5a9` on draft PR #20; P5 reviewer `Gan0117` requested, approval pending; no merge to Main. Required production `p2_confirmed_evaluator` and P3 subscriber are still not registered; stale mandatory events require an authoritative reconciliation path. PR #16 remains draft and unmerged.

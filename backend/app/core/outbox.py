@@ -180,8 +180,41 @@ class OutboxDispatcher:
         for record in records:
             event = to_domain_event(record)
 
-            # Reconcile stale or superseded events through an explicit audit record (D-017 / H2-1-ITEM2)
+            # A newer aggregate version does not prove a required evaluation ran.
+            # Keep an unprocessed mandatory event available for explicit reconciliation;
+            # replaying its stale business update would also be unsafe.
             if self.is_stale_event(session, event):
+                required_consumer = self.MANDATORY_SUBSCRIBERS.get(event.event_type)
+                if required_consumer is not None:
+                    completed = session.scalar(
+                        select(ProcessedEventRecord).where(
+                            ProcessedEventRecord.tenant_id == event.tenant_id,
+                            ProcessedEventRecord.event_id == event.event_id,
+                            ProcessedEventRecord.consumer_name == required_consumer,
+                        )
+                    )
+                    if completed is None:
+                        logger.warning(
+                            "Stale mandatory event awaits subscriber reconciliation: event_id=%s consumer=%s",
+                            event.event_id,
+                            required_consumer,
+                        )
+                        record.attempts += 1
+                        record.last_error = "STALE_MANDATORY_SUBSCRIBER_INCOMPLETE"
+                        if record.attempts >= max_attempts:
+                            record.status = OutboxStatus.DEAD_LETTER.value
+                            record.next_retry_at = None
+                            result.dead_letter_count += 1
+                        else:
+                            record.status = OutboxStatus.FAILED.value
+                            delay = min(3600.0, backoff_base_seconds ** record.attempts)
+                            record.next_retry_at = _now() + timedelta(seconds=delay)
+                            result.failed_count += 1
+                        session.commit()
+                        continue
+
+                # The mandatory subscriber completed before the event became stale.
+                # Record supersession once, without reapplying old business state.
                 commitment = (
                     session.get(CommitmentRecord, (event.tenant_id, event.commitment_id))
                     if event.commitment_id
