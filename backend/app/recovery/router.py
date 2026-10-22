@@ -33,6 +33,7 @@ from .models import (
 from .service import default_recovery_planner, demo_recovery_planner
 from .durable_plans import DurablePlanService
 from .persistence import SqlAlchemyRecoveryRepository
+from app.core.manager_approval import ManagerApprovalRecord, ManagerApprovalService, trusted_isolated_manager
 
 router = APIRouter(prefix="/v1/recovery", tags=["recovery"])
 Context = Annotated[RequestContext, Depends(get_request_context)]
@@ -42,13 +43,56 @@ Db = Annotated[Session, Depends(get_db)]
 approval_actor_provider: VerifiedActorContextProvider = UnverifiedP5ContextAdapter()
 
 
-def get_approval_actor(context: Context) -> ActorContext:
+def get_approval_actor(
+    context: Context, x_isolated_e2e_key: str | None = Header(default=None),
+) -> ActorContext:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
+        manager_id = trusted_isolated_manager(context, x_isolated_e2e_key)
+        return ActorContext(
+            context.tenant_id, manager_id, "MANAGER", context.correlation_id,
+            context.causation_id, verified=True,
+        )
     actor = approval_actor_provider.get_verified_context(context)
     require_verified_actor(actor)
     return actor
 
 
 ApprovalActor = Annotated[ActorContext, Depends(get_approval_actor)]
+
+
+def _approval_response(row: ManagerApprovalRecord) -> ApprovalDecision:
+    return ApprovalDecision(
+        approval_id=row.approval_id, tenant_id=row.tenant_id,
+        recovery_case_id=row.case_id, commitment_id=row.commitment_id,
+        commitment_version=row.commitment_version,
+        plan_id=row.plan_id, plan_version=row.plan_version,
+        proposal_id=row.proposal_id, proposal_version=row.proposal_version,
+        snapshot_id=row.snapshot_id, snapshot_version=row.snapshot_version,
+        action_scope=row.action_scope, actor_id=row.actor_id, actor_role=row.actor_role,
+        decision=row.decision, approved_cost_limit=row.approved_amount,
+        reason=row.reason, decided_at=row.decided_at,
+        approved_at=row.decided_at if row.decision == "APPROVED" else None,
+        expires_at=row.expires_at, evidence_refs=[row.snapshot_id], audit_refs=[row.audit_id],
+        idempotency_key=row.idempotency_key, persistence_mode="DURABLE_DATABASE",
+    )
+
+
+def _isolated_decision(
+    db: Session, actor: ActorContext, key: str | None, plan_id: str,
+    request: ApprovalDecisionInput, decision: str,
+) -> ApprovalDecision:
+    context = CoreRequestContext(
+        tenant_id=actor.tenant_id, actor_id=actor.actor_id, actor_role=actor.actor_role,
+        correlation_id=actor.correlation_id, causation_id=actor.causation_id,
+    )
+    row = ManagerApprovalService().decide(
+        db, context, key, plan_id, decision=decision,
+        expected_plan_version=request.expected_plan_version,
+        expected_commitment_version=request.expected_commitment_version,
+        expected_snapshot_version=request.expected_snapshot_version,
+        idempotency_key=request.idempotency_key or "", reason=request.reason,
+    )
+    return _approval_response(row)
 
 
 def _current_commitment_version(db: Session, actor: ActorContext, commitment_id: str) -> int:
@@ -229,6 +273,12 @@ def get_recovery_plan(plan_id: str, context: Context, db: Db) -> RecoveryPlanVer
 @router.post("/plans/{plan_id}/approval-requests", response_model=ApprovalDecision)
 def request_plan_approval(plan_id: str, request: ApprovalRequestInput, actor: ApprovalActor,
                           db: Db) -> ApprovalDecision:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
+        raise DomainError(
+            "DURABLE_APPROVAL_REQUEST_UNAVAILABLE",
+            "Use a direct durable Manager decision for the exact isolated plan version",
+            status_code=503,
+        )
     plan = default_recovery_planner.get_plan(actor.tenant_id, plan_id)
     current_version = _current_commitment_version(db, actor, plan.commitment_id)
     return default_recovery_planner.request_approval(
@@ -243,7 +293,9 @@ def request_plan_approval(plan_id: str, request: ApprovalRequestInput, actor: Ap
 
 @router.post("/plans/{plan_id}/approve", response_model=ApprovalDecision)
 def approve_recovery_plan(plan_id: str, request: ApprovalDecisionInput, actor: ApprovalActor,
-                          db: Db) -> ApprovalDecision:
+                          db: Db, x_isolated_e2e_key: str | None = Header(default=None)) -> ApprovalDecision:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
+        return _isolated_decision(db, actor, x_isolated_e2e_key, plan_id, request, "APPROVED")
     plan = default_recovery_planner.get_plan(actor.tenant_id, plan_id)
     current_version = _current_commitment_version(db, actor, plan.commitment_id)
     return default_recovery_planner.approve_plan(
@@ -253,7 +305,9 @@ def approve_recovery_plan(plan_id: str, request: ApprovalDecisionInput, actor: A
 
 @router.post("/plans/{plan_id}/reject", response_model=ApprovalDecision)
 def reject_recovery_plan(plan_id: str, request: ApprovalDecisionInput, actor: ApprovalActor,
-                         db: Db) -> ApprovalDecision:
+                         db: Db, x_isolated_e2e_key: str | None = Header(default=None)) -> ApprovalDecision:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
+        return _isolated_decision(db, actor, x_isolated_e2e_key, plan_id, request, "REJECTED")
     plan = default_recovery_planner.get_plan(actor.tenant_id, plan_id)
     current_version = _current_commitment_version(db, actor, plan.commitment_id)
     return default_recovery_planner.reject_plan(
@@ -263,9 +317,32 @@ def reject_recovery_plan(plan_id: str, request: ApprovalDecisionInput, actor: Ap
 
 @router.post("/plans/{plan_id}/request-revision", response_model=ApprovalDecision)
 def request_recovery_plan_revision(plan_id: str, request: ApprovalDecisionInput, actor: ApprovalActor,
-                                   db: Db) -> ApprovalDecision:
+                                   db: Db, x_isolated_e2e_key: str | None = Header(default=None)) -> ApprovalDecision:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
+        return _isolated_decision(db, actor, x_isolated_e2e_key, plan_id, request, "REVISION_REQUESTED")
     plan = default_recovery_planner.get_plan(actor.tenant_id, plan_id)
     current_version = _current_commitment_version(db, actor, plan.commitment_id)
     return default_recovery_planner.request_plan_revision(
         actor, plan_id, request, current_commitment_version=current_version
     )
+
+
+@router.post("/plans/{plan_id}/revoke", response_model=ApprovalDecision)
+def revoke_recovery_plan_approval(
+    plan_id: str, request: ApprovalDecisionInput, actor: ApprovalActor, db: Db,
+    x_isolated_e2e_key: str | None = Header(default=None),
+) -> ApprovalDecision:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") != "1":
+        raise DomainError("APPROVAL_AUTHORITY_UNAVAILABLE", "Durable approval authority is unavailable", status_code=503)
+    return _isolated_decision(db, actor, x_isolated_e2e_key, plan_id, request, "REVOKED")
+
+
+@router.get("/plans/{plan_id}/approvals", response_model=list[ApprovalDecision])
+def get_recovery_plan_approval_history(plan_id: str, actor: ApprovalActor, db: Db) -> list[ApprovalDecision]:
+    if os.getenv("MOUMANTAI_ISOLATED_E2E") != "1":
+        raise DomainError("APPROVAL_AUTHORITY_UNAVAILABLE", "Durable approval history is unavailable", status_code=503)
+    context = CoreRequestContext(
+        tenant_id=actor.tenant_id, actor_id=actor.actor_id, actor_role=actor.actor_role,
+        correlation_id=actor.correlation_id, causation_id=actor.causation_id,
+    )
+    return [_approval_response(row) for row in ManagerApprovalService().history(db, context, plan_id)]

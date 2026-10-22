@@ -16,6 +16,7 @@ from app.core.feasibility_adapters import AuthoritativeAssessmentHistoryReader
 from app.core.service import CommitmentService
 from app.core.models import CommitmentRecord, OutboxEventRecord
 from app.core.models import ProcessedEventRecord
+from app.core.manager_approval import ManagerApprovalRecord, ManagerApprovalService
 from app.core.outbox import OutboxDispatcher
 from app.feasibility.api_schemas import FeasibilityEvaluateRequest
 from app.feasibility.api_dependencies import require_isolated_e2e_key
@@ -323,6 +324,87 @@ def test_case_generates_two_persisted_p2_checked_plans(
     assert error.value.code == "COMMITMENT_VERSION_CONFLICT"
 
 
+def _prepared_review(session: Session, monkeypatch: pytest.MonkeyPatch):
+    inputs, context = _seed_delay(session)
+    PersistedSupplierDelayProcessor().process(session, context, inputs.request)
+    dispatcher = OutboxDispatcher()
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E", "1")
+    key = "synthetic-private-key-with-at-least-32-chars"
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E_KEY", key)
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E_MANAGER_ID", "trusted_manager")
+    configure_isolated_subscribers(dispatcher)
+    assert dispatcher.process_outbox_batch(session).failed_count == 0
+    core = session.get(CommitmentRecord, (context.tenant_id, "com-001"))
+    plans = DurablePlanService().generate(
+        session, context, "com-001", expected_commitment_version=core.commitment_version,
+        assessment_id=None,
+    )
+    manager = RequestContext(
+        tenant_id=context.tenant_id, actor_id="trusted_manager", actor_role="STAFF",
+        correlation_id="corr_manager_review",
+    )
+    return next(plan for plan in plans if plan.option_id == "revised_schedule"), manager, key
+
+
+def test_durable_manager_approval_idempotency_restart_and_revocation(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    service = ManagerApprovalService()
+    params = dict(
+        expected_plan_version=plan.plan_version,
+        expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="approval-review-1", reason="Review internal reschedule task",
+    )
+    approved = service.decide(session, manager, key, plan.plan_id, decision="APPROVED", **params)
+    assert approved.actor_role == "MANAGER"
+    assert approved.approved_amount == plan.estimated_extra_cost
+    assert approved.snapshot_id
+    assert service.decide(session, manager, key, plan.plan_id, decision="APPROVED", **params).approval_id == approved.approval_id
+    with Session(session.bind) as restarted:
+        record = restarted.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 1))
+        assert ManagerApprovalService().require_active(restarted, manager, record).approval_id == approved.approval_id
+    revoked = service.decide(
+        session, manager, key, plan.plan_id, decision="REVOKED",
+        **{**params, "idempotency_key": "approval-revoke-1", "reason": "Approval withdrawn"},
+    )
+    assert revoked.decision == "REVOKED"
+    assert len(service.history(session, manager, plan.plan_id)) == 2
+    with pytest.raises(DomainError) as error:
+        service.require_active(session, manager, session.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 1)))
+    assert error.value.code == "APPROVAL_NOT_ACTIVE"
+    assert session.query(ManagerApprovalRecord).count() == 2
+
+
+def test_approval_rejects_staff_infeasible_plan_and_stale_version(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    staff = RequestContext(
+        tenant_id=manager.tenant_id, actor_id="staff_01", actor_role="MANAGER",
+        correlation_id="corr_spoof",
+    )
+    service = ManagerApprovalService()
+    params = dict(
+        decision="APPROVED", expected_plan_version=1,
+        expected_commitment_version=2, expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="approval-denied", reason="Try approval",
+    )
+    with pytest.raises(DomainError) as error:
+        service.decide(session, staff, key, plan.plan_id, **params)
+    assert error.value.code == "MANAGER_APPROVAL_REQUIRED"
+    with pytest.raises(DomainError) as error:
+        service.decide(session, manager, key, plan.plan_id,
+                       **{**params, "expected_commitment_version": 1})
+    assert error.value.code == "COMMITMENT_VERSION_CONFLICT"
+    alt_id = plan.recovery_case_id + "_alternative_supply"
+    with pytest.raises(DomainError) as error:
+        service.decide(session, manager, key, alt_id, **params)
+    assert error.value.code == "PLAN_NOT_APPROVABLE"
+    assert session.query(ManagerApprovalRecord).count() == 0
+
+
 def test_sqlite_alembic_0009_has_source_constraints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Portable migration check; this is not PostgreSQL verification."""
     backend = Path(__file__).resolve().parents[1]
@@ -334,10 +416,11 @@ def test_sqlite_alembic_0009_has_source_constraints(tmp_path: Path, monkeypatch:
     command.upgrade(cfg, "head")
     engine = create_engine(url)
     try:
-        assert {"p2_operational_snapshots", "p2_supplier_delay_events", "recovery_plan_versions"} <= set(inspect(engine).get_table_names())
+        assert {"p2_operational_snapshots", "p2_supplier_delay_events", "recovery_plan_versions",
+                "manager_approval_decisions"} <= set(inspect(engine).get_table_names())
         with engine.begin() as connection:
             connection.execute(text("PRAGMA foreign_keys=ON"))
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0010_p3_recovery_plans"
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0011_manager_approval"
             connection.execute(text("""
                 INSERT INTO p2_operational_snapshots
                 (tenant_id,snapshot_version,snapshot_id,payload,is_current,created_at)

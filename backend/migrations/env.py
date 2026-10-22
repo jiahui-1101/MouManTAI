@@ -10,6 +10,7 @@ from app.core import models as _core_models  # noqa: F401 - register ORM tables 
 from app.communication import models as _communication_models  # noqa: F401 - register P4 ORM tables
 from app.feasibility import persisted_sources as _p2_sources  # noqa: F401 - register P2 ORM tables
 from app.recovery import durable_plans as _p3_plans  # noqa: F401 - register P3 plan tables
+from app.core import manager_approval as _manager_approval  # noqa: F401 - register Core approval table
 from app.db.base import Base
 
 

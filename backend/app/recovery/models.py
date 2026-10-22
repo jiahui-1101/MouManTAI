@@ -55,6 +55,7 @@ class ApprovalDecisionState(StrEnum):
     REVISION_REQUESTED = "REVISION_REQUESTED"
     INVALIDATED = "INVALIDATED"
     EXPIRED = "EXPIRED"
+    REVOKED = "REVOKED"
 
 
 class ActionExecutionState(StrEnum):
@@ -322,6 +323,9 @@ class ApprovalDecision(ContractModel):
     commitment_version: int | None = Field(default=None, ge=1)
     plan_id: str = Field(min_length=1)
     plan_version: int = Field(ge=1)
+    proposal_id: str | None = None
+    proposal_version: int | None = Field(default=None, ge=1)
+    snapshot_id: str | None = None
     snapshot_version: int = Field(ge=1)
     action_scope: list[str] = Field(default_factory=list)
     actor_id: str = Field(min_length=1)
@@ -337,7 +341,7 @@ class ApprovalDecision(ContractModel):
     idempotency_key: str | None = None
     correlation_id: str | None = None
     causation_id: str | None = None
-    persistence_mode: Literal["IN_MEMORY_NON_DURABLE"] = "IN_MEMORY_NON_DURABLE"
+    persistence_mode: Literal["IN_MEMORY_NON_DURABLE", "DURABLE_DATABASE"] = "IN_MEMORY_NON_DURABLE"
 
 
 class ApprovalRequestInput(ContractModel):
@@ -358,6 +362,7 @@ class ApprovalDecisionInput(ContractModel):
     expected_snapshot_version: int = Field(ge=1)
     reason: str = Field(min_length=1)
     evidence_refs: list[str] = Field(default_factory=list)
+    idempotency_key: str | None = Field(default=None, min_length=1)
 
 
 class ActionAttempt(ContractModel):
