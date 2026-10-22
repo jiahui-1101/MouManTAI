@@ -1,6 +1,6 @@
 """Portable checks for P2's persisted source boundary; no PostgreSQL claim."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -11,19 +11,25 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.communication.authority_adapters import IsolatedRecoveryRequestAuthority
+from app.communication.schemas import CreateCommunicationRequest
+from app.communication.service import CommunicationRequestService
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
 from app.core.feasibility_adapters import AuthoritativeAssessmentHistoryReader
-from app.core.service import CommitmentService
-from app.core.models import CommitmentRecord, OutboxEventRecord
-from app.core.models import ProcessedEventRecord
 from app.core.manager_approval import ManagerApprovalRecord, ManagerApprovalService
-from app.recovery.durable_actions import (
-    DurableActionService, InternalRecoveryTaskRecord, RecoveryActionExecutionRecord,
+from app.core.models import (
+    AuditEventRecord,
+    CommitmentProposalRecord,
+    CommitmentRecord,
+    OutboxEventRecord,
+    ProcessedEventRecord,
 )
 from app.core.outbox import OutboxDispatcher
-from app.feasibility.api_schemas import FeasibilityEvaluateRequest
+from app.core.schemas import ProposalCreateRequest
+from app.core.service import CommitmentService
 from app.feasibility.api_dependencies import require_isolated_e2e_key
+from app.feasibility.api_schemas import FeasibilityEvaluateRequest
 from app.feasibility.persisted_sources import (
     OperationalSnapshotRecord,
     PersistedEvaluationAuthority,
@@ -32,16 +38,20 @@ from app.feasibility.persisted_sources import (
     read_snapshot,
     stage_snapshot,
 )
+from app.feasibility.pipeline_fixtures import build_pipeline_example
 from app.feasibility.production import EvaluationSnapshot
 from app.feasibility.production_fixtures import build_production_example
-from app.feasibility.pipeline_fixtures import build_pipeline_example
-from app.recovery.persistence import RecoveryCaseRecord, RecoveryCaseTriggerRecord
+from app.recovery.durable_actions import (
+    DurableActionService,
+    InternalRecoveryTaskRecord,
+    RecoveryActionExecutionRecord,
+)
+from app.recovery.durable_communication import (
+    DurableCommunicationHandoff,
+    RequestCommunicationInput,
+)
 from app.recovery.durable_plans import DurablePlanService, RecoveryPlanRecord
-from app.recovery.durable_communication import DurableCommunicationHandoff, RequestCommunicationInput
-from app.communication.service import CommunicationRequestService
-from app.communication.authority_adapters import IsolatedRecoveryRequestAuthority
-from app.communication.schemas import CreateCommunicationRequest
-from app.core.models import CommitmentProposalRecord
+from app.recovery.persistence import RecoveryCaseRecord, RecoveryCaseTriggerRecord
 from app.worker import configure_isolated_subscribers
 
 
@@ -54,7 +64,7 @@ def _seed(session: Session):
         agreement_state="CONFIRMED", feasibility_state="NOT_ASSESSED",
         risk_state="NORMAL", recovery_state="NONE", fulfilment_state="NOT_STARTED",
         commitment_version=commitment.commitment_version, evidence_refs=commitment.evidence_refs,
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(UTC),
     ))
     stage_snapshot(session, snapshot, current=True)
     session.commit()
@@ -430,7 +440,7 @@ def test_approved_revised_plan_creates_exact_core_proposal_and_p4_source(
     p4_context = RequestContext(manager.tenant_id, "user_manager_01", "MANAGER", "corr_p4_read")
     basis = CommunicationRequestService(session).read_current_basis(
         p4_context, CreateCommunicationRequest(source_event_id=first.source_event_id),
-        datetime.now(timezone.utc),
+        datetime.now(UTC),
     )
     assert basis.reference.plan_id == plan.plan_id
     assert basis.reference.proposal_version == plan.plan_version
@@ -460,12 +470,12 @@ def test_durable_manager_approval_idempotency_restart_and_revocation(
 ) -> None:
     plan, manager, key = _prepared_review(session, monkeypatch)
     service = ManagerApprovalService()
-    params = dict(
-        expected_plan_version=plan.plan_version,
-        expected_commitment_version=2,
-        expected_snapshot_version=plan.snapshot_version,
-        idempotency_key="approval-review-1", reason="Review internal reschedule task",
-    )
+    params = {
+        "expected_plan_version": plan.plan_version,
+        "expected_commitment_version": 2,
+        "expected_snapshot_version": plan.snapshot_version,
+        "idempotency_key": "approval-review-1", "reason": "Review internal reschedule task",
+    }
     approved = service.decide(session, manager, key, plan.plan_id, decision="APPROVED", **params)
     assert approved.actor_role == "MANAGER"
     assert approved.approved_amount == plan.estimated_extra_cost
@@ -495,11 +505,11 @@ def test_approval_rejects_staff_infeasible_plan_and_stale_version(
         correlation_id="corr_spoof",
     )
     service = ManagerApprovalService()
-    params = dict(
-        decision="APPROVED", expected_plan_version=1,
-        expected_commitment_version=2, expected_snapshot_version=plan.snapshot_version,
-        idempotency_key="approval-denied", reason="Try approval",
-    )
+    params = {
+        "decision": "APPROVED", "expected_plan_version": 1,
+        "expected_commitment_version": 2, "expected_snapshot_version": plan.snapshot_version,
+        "idempotency_key": "approval-denied", "reason": "Try approval",
+    }
     with pytest.raises(DomainError) as error:
         service.decide(session, staff, key, plan.plan_id, **params)
     assert error.value.code == "MANAGER_APPROVAL_REQUIRED"
@@ -525,11 +535,11 @@ def test_approved_internal_task_creates_verified_business_record_once(
         idempotency_key="approval-task", reason="Authorize internal review task",
     )
     service = DurableActionService()
-    kwargs = dict(
-        expected_plan_version=1, expected_commitment_version=2,
-        expected_snapshot_version=plan.snapshot_version,
-        idempotency_key="task-once",
-    )
+    kwargs = {
+        "expected_plan_version": 1, "expected_commitment_version": 2,
+        "expected_snapshot_version": plan.snapshot_version,
+        "idempotency_key": "task-once",
+    }
     first = service.execute(session, manager, key, plan.plan_id, **kwargs)
     assert first.status == "SUCCEEDED"
     assert first.receipt_ref and first.audit_id
@@ -558,17 +568,17 @@ def test_action_blocks_expired_approval_and_rolls_back_adapter_failure(
         expected_snapshot_version=plan.snapshot_version,
         idempotency_key="approval-failure", reason="Authorize internal review task",
     )
-    kwargs = dict(
-        expected_plan_version=1, expected_commitment_version=2,
-        expected_snapshot_version=plan.snapshot_version,
-        idempotency_key="task-failure",
-    )
-    approval.expires_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    kwargs = {
+        "expected_plan_version": 1, "expected_commitment_version": 2,
+        "expected_snapshot_version": plan.snapshot_version,
+        "idempotency_key": "task-failure",
+    }
+    approval.expires_at = datetime(2020, 1, 1, tzinfo=UTC)
     session.commit()
     with pytest.raises(DomainError) as error:
         DurableActionService().execute(session, manager, key, plan.plan_id, **kwargs)
     assert error.value.code == "APPROVAL_NOT_ACTIVE"
-    approval.expires_at = datetime(2099, 1, 1, tzinfo=timezone.utc)
+    approval.expires_at = datetime(2099, 1, 1, tzinfo=UTC)
     session.commit()
 
     def fail_adapter(*args, **kwargs):
@@ -592,6 +602,10 @@ def test_manager_approval_binds_versioned_proposal_id_for_successor_plan(
 ) -> None:
     plan, manager, key = _prepared_review(session, monkeypatch)
     # 1. Version 1 binds proposal_id == plan.plan_id
+    plan_v1_rec = session.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 1))
+    assert plan_v1_rec is not None
+    plan_v1_rec.payload = dict(plan_v1_rec.payload, proposal_id=plan.plan_id, proposal_version=1)
+    session.commit()
     appr_v1 = ManagerApprovalService().decide(
         session, manager, key, plan.plan_id, decision="APPROVED",
         expected_plan_version=1, expected_commitment_version=2,
@@ -602,8 +616,6 @@ def test_manager_approval_binds_versioned_proposal_id_for_successor_plan(
     assert appr_v1.proposal_version == 1
 
     # 2. Insert a V2 successor plan version in recovery_plan_versions
-    from app.recovery.durable_plans import RecoveryPlanRecord
-    plan_v1_rec = session.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 1))
     plan_v2_rec = RecoveryPlanRecord(
         tenant_id=plan_v1_rec.tenant_id,
         plan_id=plan_v1_rec.plan_id,
@@ -615,12 +627,17 @@ def test_manager_approval_binds_versioned_proposal_id_for_successor_plan(
         snapshot_version=plan_v1_rec.snapshot_version,
         core_commitment_version=plan_v1_rec.core_commitment_version,
         evaluated_commitment_version=plan_v1_rec.evaluated_commitment_version,
-        payload=dict(plan_v1_rec.payload, plan_version=2),
+        payload=dict(plan_v1_rec.payload, plan_version=2,
+                     proposal_id=f"{plan.plan_id}_v2", proposal_version=2,
+                     evaluation={**plan_v1_rec.payload["evaluation"], "plan_version": 2}),
         status=plan_v1_rec.status,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     session.add(plan_v2_rec)
     session.commit()
+    with pytest.raises(DomainError) as stale_approval:
+        ManagerApprovalService().require_active(session, manager, plan_v2_rec)
+    assert stale_approval.value.code == "APPROVAL_SCOPE_CONFLICT"
 
     # 3. Version 2 binds proposal_id == f"{plan_id}_v2"
     appr_v2 = ManagerApprovalService().decide(
@@ -631,6 +648,168 @@ def test_manager_approval_binds_versioned_proposal_id_for_successor_plan(
     )
     assert appr_v2.proposal_id == f"{plan.plan_id}_v2"
     assert appr_v2.proposal_version == 2
+    assert appr_v2.commitment_id == plan.commitment_id
+    assert appr_v2.actor_id == manager.actor_id
+    assert appr_v2.approved_amount == plan.estimated_extra_cost
+    assert session.get(ManagerApprovalRecord, (manager.tenant_id, appr_v1.approval_id)).proposal_id == plan.plan_id
+    assert ManagerApprovalService().decide(
+        session, manager, key, plan.plan_id, decision="APPROVED",
+        expected_plan_version=2, expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="approval-v2-proposal-id", reason="Authorize successor plan V2",
+    ).approval_id == appr_v2.approval_id
+    assert session.query(ManagerApprovalRecord).count() == 2
+    audit_count = session.query(AuditEventRecord).count()
+    plan_v2_rec.payload = dict(plan_v2_rec.payload, proposal_id=plan.plan_id)
+    session.commit()
+    with pytest.raises(DomainError) as changed_payload:
+        ManagerApprovalService().decide(
+            session, manager, key, plan.plan_id, decision="APPROVED",
+            expected_plan_version=2, expected_commitment_version=2,
+            expected_snapshot_version=plan.snapshot_version,
+            idempotency_key="approval-v2-proposal-id", reason="Authorize successor plan V2",
+        )
+    assert changed_payload.value.code == "PROPOSAL_PLAN_IDENTITY_CONFLICT"
+    assert session.query(ManagerApprovalRecord).count() == 2
+    assert session.query(AuditEventRecord).count() == audit_count
+
+
+def test_manager_approval_revokes_exact_versioned_offer_without_mutating_v1(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    service = ManagerApprovalService()
+    v1 = service.decide(
+        session, manager, key, plan.plan_id, decision="APPROVED",
+        expected_plan_version=1, expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="revocation-v1", reason="Authorize first offer",
+    )
+    core_manager = RequestContext(manager.tenant_id, manager.actor_id, "MANAGER", manager.correlation_id)
+    first = CommitmentService().create_proposal(
+        session, core_manager, plan.commitment_id,
+        ProposalCreateRequest(
+            proposal_id=plan.plan_id, proposal_version=1,
+            expected_commitment_version=2, revised_terms=v1.approved_terms,
+            reason="Approved recovery V1", evidence_refs=[v1.audit_id],
+        ),
+    )
+    original = session.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 1))
+    assert original is not None
+    offered_version = first.commitment.commitment_version
+    session.add(RecoveryPlanRecord(
+        tenant_id=original.tenant_id, plan_id=original.plan_id, plan_version=2,
+        case_id=original.case_id, commitment_id=original.commitment_id,
+        assessment_id=original.assessment_id, snapshot_id=original.snapshot_id,
+        snapshot_version=original.snapshot_version,
+        core_commitment_version=offered_version,
+        evaluated_commitment_version=original.evaluated_commitment_version,
+        payload=dict(original.payload, plan_version=2,
+                     core_commitment_version=offered_version,
+                     proposal_id=f"{plan.plan_id}_v2", proposal_version=2,
+                     evaluation={**original.payload["evaluation"], "plan_version": 2}),
+        status=original.status, created_at=datetime.now(UTC),
+    ))
+    session.commit()
+    v2 = service.decide(
+        session, manager, key, plan.plan_id, decision="APPROVED",
+        expected_plan_version=2, expected_commitment_version=offered_version,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="revocation-v2", reason="Authorize successor offer",
+    )
+    second = CommitmentService().create_proposal(
+        session, core_manager, plan.commitment_id,
+        ProposalCreateRequest(
+            proposal_id=v2.proposal_id, proposal_version=2,
+            expected_commitment_version=offered_version,
+            revised_terms=v2.approved_terms, reason="Approved recovery V2",
+            evidence_refs=[v2.audit_id],
+        ),
+    )
+    old_offer = session.get(CommitmentProposalRecord, (manager.tenant_id, v1.proposal_id))
+    new_offer = session.get(CommitmentProposalRecord, (manager.tenant_id, v2.proposal_id))
+    assert old_offer is not None and old_offer.status == "SUPERSEDED"
+    assert new_offer is not None and new_offer.status == "ACTIVE"
+    assert new_offer.revised_terms == v2.approved_terms
+    revoked = service.decide(
+        session, manager, key, plan.plan_id, decision="REVOKED",
+        expected_plan_version=2, expected_commitment_version=second.commitment.commitment_version,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="revoke-exact-v2", reason="Withdraw successor offer",
+    )
+    assert (revoked.proposal_id, revoked.proposal_version) == (v2.proposal_id, 2)
+    assert session.get(ManagerApprovalRecord, (manager.tenant_id, v1.approval_id)).decision == "APPROVED"
+    assert session.get(CommitmentProposalRecord, (manager.tenant_id, v1.proposal_id)).status == "SUPERSEDED"
+    with pytest.raises(DomainError) as inactive:
+        service.require_active(session, manager, session.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 2)))
+    assert inactive.value.code == "APPROVAL_NOT_ACTIVE"
+
+
+@pytest.mark.parametrize("identity", [
+    {"proposal_id": "v1", "proposal_version": 1},
+    {"proposal_id": "v2", "proposal_version": 1},
+    {"proposal_id": "v2", "proposal_version": None},
+])
+def test_manager_approval_rejects_malformed_v2_proposal_identity_without_evidence(
+    session: Session, monkeypatch: pytest.MonkeyPatch, identity: dict,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    original = session.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 1))
+    assert original is not None
+    payload = dict(original.payload, plan_version=2,
+                   evaluation={**original.payload["evaluation"], "plan_version": 2})
+    payload["proposal_id"] = plan.plan_id if identity["proposal_id"] == "v1" else f"{plan.plan_id}_v2"
+    payload["proposal_version"] = identity["proposal_version"]
+    session.add(RecoveryPlanRecord(
+        tenant_id=original.tenant_id, plan_id=original.plan_id, plan_version=2,
+        case_id=original.case_id, commitment_id=original.commitment_id,
+        assessment_id=original.assessment_id, snapshot_id=original.snapshot_id,
+        snapshot_version=original.snapshot_version,
+        core_commitment_version=original.core_commitment_version,
+        evaluated_commitment_version=original.evaluated_commitment_version,
+        payload=payload, status=original.status, created_at=datetime.now(UTC),
+    ))
+    session.commit()
+    approval_count = session.query(ManagerApprovalRecord).count()
+    audit_count = session.query(AuditEventRecord).count()
+    with pytest.raises(DomainError) as error:
+        ManagerApprovalService().decide(
+            session, manager, key, plan.plan_id, decision="APPROVED",
+            expected_plan_version=2, expected_commitment_version=2,
+            expected_snapshot_version=plan.snapshot_version,
+            idempotency_key="invalid-v2-binding", reason="Must fail closed",
+        )
+    assert error.value.code == "PROPOSAL_PLAN_IDENTITY_CONFLICT"
+    assert session.query(ManagerApprovalRecord).count() == approval_count
+    assert session.query(AuditEventRecord).count() == audit_count
+    assert session.get(CommitmentRecord, (manager.tenant_id, plan.commitment_id)).agreement_state == "CONFIRMED"
+
+
+def test_manager_approval_rejects_wrong_tenant_and_plan_payload_binding(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    service = ManagerApprovalService()
+    wrong_tenant = RequestContext("tenant_other", manager.actor_id, manager.actor_role, manager.correlation_id)
+    with pytest.raises(DomainError) as missing:
+        service.decide(session, wrong_tenant, key, plan.plan_id, decision="APPROVED",
+                       expected_plan_version=1, expected_commitment_version=2,
+                       expected_snapshot_version=plan.snapshot_version,
+                       idempotency_key="wrong-tenant", reason="Wrong tenant")
+    assert missing.value.code in {"MANAGER_APPROVAL_REQUIRED", "RECOVERY_PLAN_NOT_FOUND"}
+    row = session.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 1))
+    assert row is not None
+    row.payload = dict(row.payload, commitment_id="another_commitment")
+    session.commit()
+    audit_count = session.query(AuditEventRecord).count()
+    with pytest.raises(DomainError) as conflict:
+        service.decide(session, manager, key, plan.plan_id, decision="APPROVED",
+                       expected_plan_version=1, expected_commitment_version=2,
+                       expected_snapshot_version=plan.snapshot_version,
+                       idempotency_key="wrong-plan-binding", reason="Wrong plan binding")
+    assert conflict.value.code == "RECOVERY_PLAN_BINDING_MISMATCH"
+    assert session.query(ManagerApprovalRecord).count() == 0
+    assert session.query(AuditEventRecord).count() == audit_count
 
 
 def test_sqlite_alembic_0009_has_source_constraints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -667,11 +846,9 @@ def test_sqlite_alembic_0009_has_source_constraints(tmp_path: Path, monkeypatch:
                  impact_id,event_digest,impact_payload,occurred_at)
                 VALUES ('tenant_p2','event',1,2,'evidence','impact','digest','{}','2026-10-22T00:00:00Z')
             """))
-        with pytest.raises(IntegrityError):
-            with engine.begin() as connection:
-                connection.execute(text("DELETE FROM p2_operational_snapshots WHERE tenant_id='tenant_p2' AND snapshot_version=1"))
-        with pytest.raises(IntegrityError):
-            with engine.begin() as connection:
-                connection.execute(text("UPDATE p2_operational_snapshots SET is_current=1 WHERE tenant_id='tenant_p2' AND snapshot_version=2"))
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(text("DELETE FROM p2_operational_snapshots WHERE tenant_id='tenant_p2' AND snapshot_version=1"))
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(text("UPDATE p2_operational_snapshots SET is_current=1 WHERE tenant_id='tenant_p2' AND snapshot_version=2"))
     finally:
         engine.dispose()

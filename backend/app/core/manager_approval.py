@@ -6,21 +6,66 @@ Production authority stays closed until P5 supplies authenticated principals.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKeyConstraint, Integer, JSON, Numeric, String, UniqueConstraint, select
+from pydantic import ValidationError
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKeyConstraint,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    select,
+)
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
 from app.core.models import AuditEventRecord, CommitmentProposalRecord, CommitmentRecord
+from app.core.schemas import CommitmentTerms
 from app.db.base import Base
 from app.feasibility.api_dependencies import require_isolated_e2e_key
 from app.feasibility.persisted_sources import read_snapshot
 from app.recovery.durable_plans import RecoveryPlanRecord
-from app.core.schemas import CommitmentTerms
+
+
+def _recovery_proposal_binding(plan: RecoveryPlanRecord, typed: object) -> tuple[str, int]:
+    """Validate the persisted Recovery plan before binding approval evidence."""
+    if (
+        typed.tenant_id, typed.recovery_case_id, typed.commitment_id,
+        typed.plan_id, typed.plan_version, typed.based_on_assessment_id,
+        typed.snapshot_id, typed.snapshot_version, typed.core_commitment_version,
+        typed.evaluation.tenant_id, typed.evaluation.commitment_id,
+        typed.evaluation.plan_id, typed.evaluation.plan_version,
+        typed.evaluation.commitment_version, typed.evaluation.snapshot_version,
+        typed.evaluation.feasibility_status,
+    ) != (
+        plan.tenant_id, plan.case_id, plan.commitment_id,
+        plan.plan_id, plan.plan_version, plan.assessment_id,
+        plan.snapshot_id, plan.snapshot_version, plan.core_commitment_version,
+        plan.tenant_id, plan.commitment_id,
+        plan.plan_id, plan.plan_version,
+        plan.evaluated_commitment_version, plan.snapshot_version,
+        typed.feasibility_status,
+    ):
+        raise DomainError("RECOVERY_PLAN_BINDING_MISMATCH", "Persisted Recovery plan identity is inconsistent", status_code=409)
+    if (typed.score_breakdown is not None
+        and typed.score_breakdown.additional_cost_myr != typed.estimated_extra_cost):
+        raise DomainError("RECOVERY_PLAN_BINDING_MISMATCH", "Evaluated Recovery plan cost is inconsistent", status_code=409)
+    expected_id = plan.plan_id if plan.plan_version == 1 else f"{plan.plan_id}_v{plan.plan_version}"
+    payload = plan.payload if isinstance(plan.payload, dict) else {}
+    raw_binding = (payload.get("proposal_id"), payload.get("proposal_version"))
+    typed_binding = (getattr(typed, "proposal_id", None), getattr(typed, "proposal_version", None))
+    expected_binding = (expected_id, plan.plan_version)
+    if (raw_binding != (None, None) and raw_binding != expected_binding) or (
+        typed_binding != (None, None) and typed_binding != expected_binding
+    ):
+        raise DomainError("PROPOSAL_PLAN_IDENTITY_CONFLICT", "Proposal identity does not match the Recovery plan version", status_code=409)
+    return expected_binding
 
 
 class ManagerApprovalRecord(Base):
@@ -82,19 +127,33 @@ class ManagerApprovalService:
             raise DomainError("APPROVAL_DECISION_INVALID", "Unsupported approval decision", status_code=422)
         if not idempotency_key or not reason:
             raise DomainError("APPROVAL_EVIDENCE_REQUIRED", "Decision key and reason are required", status_code=422)
+        plan = db.get(RecoveryPlanRecord, (context.tenant_id, plan_id, expected_plan_version))
+        if plan is None:
+            raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Recovery plan was not found", status_code=404)
+        from app.recovery.models import RecoveryPlanVersion
+
+        payload_for_model = plan.payload
+        if isinstance(plan.payload, dict) and "proposal_id" not in RecoveryPlanVersion.model_fields:
+            # Main's P3 model predates explicit proposal fields; PR #32 adds them.
+            payload_for_model = {key: value for key, value in plan.payload.items()
+                                 if key not in {"proposal_id", "proposal_version"}}
+        try:
+            typed = RecoveryPlanVersion.model_validate(payload_for_model)
+        except ValidationError as exc:
+            raise DomainError("RECOVERY_PLAN_BINDING_MISMATCH", "Persisted Recovery plan is invalid", status_code=409) from exc
+        proposal_id, proposal_version = _recovery_proposal_binding(plan, typed)
         prior = db.scalar(select(ManagerApprovalRecord).where(
             ManagerApprovalRecord.tenant_id == context.tenant_id,
             ManagerApprovalRecord.idempotency_key == idempotency_key,
         ))
         if prior is not None:
-            if (prior.plan_id, prior.plan_version, prior.decision, prior.reason) != (
+            if (prior.plan_id, prior.plan_version, prior.decision, prior.reason,
+                prior.commitment_id, prior.case_id, prior.proposal_id, prior.proposal_version) != (
                 plan_id, expected_plan_version, decision, reason,
+                plan.commitment_id, plan.case_id, proposal_id, proposal_version,
             ):
                 raise DomainError("APPROVAL_KEY_CONFLICT", "Idempotency key has different content", status_code=409)
             return prior
-        plan = db.get(RecoveryPlanRecord, (context.tenant_id, plan_id, expected_plan_version))
-        if plan is None:
-            raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Recovery plan was not found", status_code=404)
         commitment = db.scalar(select(CommitmentRecord).where(
             CommitmentRecord.tenant_id == context.tenant_id,
             CommitmentRecord.commitment_id == plan.commitment_id,
@@ -127,9 +186,6 @@ class ManagerApprovalService:
             snapshot.operational.snapshot_version,
         ):
             raise DomainError("SNAPSHOT_DRIFT_CONFLICT", "Approval source is stale", status_code=409)
-        from app.recovery.models import RecoveryPlanVersion
-
-        typed = RecoveryPlanVersion.model_validate(plan.payload)
         if decision == "APPROVED" and (
             typed.feasibility_status not in {"FEASIBLE", "CONDITIONAL"}
             or typed.evaluation.validation_source != "REAL_P2_VALIDATED"
@@ -139,7 +195,7 @@ class ManagerApprovalService:
             raise DomainError("APPROVAL_NOT_ACTIVE", "There is no active approval to revoke", status_code=409)
         if decision == "APPROVED" and latest is not None and latest.decision == "APPROVED":
             raise DomainError("APPROVAL_ALREADY_ACTIVE", "Plan already has an active approval", status_code=409)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         approval_id = f"appr_{uuid4().hex[:16]}"
         audit_id = f"aud_{uuid4().hex[:16]}"
         scope = [action.type for action in typed.actions] if decision == "APPROVED" else []
@@ -152,16 +208,11 @@ class ManagerApprovalService:
             approved_terms.update({"quantity": proposal_action.parameters["partial_quantity"],
                                    "deadline": proposal_action.parameters["new_deadline"]})
             approved_terms = CommitmentTerms.model_validate(approved_terms).model_dump(mode="json")
-        derived_proposal_id = (
-            getattr(typed, "proposal_id", None)
-            or (plan.payload.get("proposal_id") if isinstance(plan.payload, dict) else None)
-            or (f"{plan_id}_v{expected_plan_version}" if expected_plan_version > 1 else plan_id)
-        )
         row = ManagerApprovalRecord(
             tenant_id=context.tenant_id, approval_id=approval_id, idempotency_key=idempotency_key,
             commitment_id=plan.commitment_id, case_id=plan.case_id,
             plan_id=plan_id, plan_version=expected_plan_version,
-            proposal_id=derived_proposal_id, proposal_version=expected_plan_version,
+            proposal_id=proposal_id, proposal_version=proposal_version,
             snapshot_id=plan.snapshot_id, snapshot_version=plan.snapshot_version,
             commitment_version=plan.core_commitment_version, decision=decision,
             action_scope=scope, approved_terms=approved_terms,
@@ -207,10 +258,10 @@ class ManagerApprovalService:
         if not rows:
             raise DomainError("MANAGER_APPROVAL_REQUIRED", "No durable approval exists", status_code=409)
         latest = rows[-1]
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expiry = latest.expires_at
         if expiry is not None and expiry.tzinfo is None:
-            expiry = expiry.replace(tzinfo=timezone.utc)
+            expiry = expiry.replace(tzinfo=UTC)
         if latest.decision != "APPROVED" or expiry is None or expiry <= now:
             raise DomainError("APPROVAL_NOT_ACTIVE", "Approval is expired or revoked", status_code=409)
         if (latest.plan_version, latest.snapshot_id, latest.snapshot_version,
