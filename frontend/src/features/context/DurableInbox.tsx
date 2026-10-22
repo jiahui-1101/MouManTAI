@@ -62,6 +62,31 @@ function renderHighlightedText(text: string, fields: ExtractedField[]): ReactNod
   return elements;
 }
 
+const PAGE_SIZE = 15;
+
+function formatChannel(channel: string | undefined): string {
+  if (!channel) return 'WhatsApp';
+  const clean = channel.replace(/^SYNTHETIC_/, '');
+  return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+}
+
+type SortKey = 'ingested_at' | 'text' | 'processing_status';
+type SortDir = 'asc' | 'desc';
+
+function sortMessages(items: StoredMessage[], by: SortKey, dir: SortDir): StoredMessage[] {
+  return [...items].sort((a, b) => {
+    let cmp = 0;
+    if (by === 'ingested_at') {
+      cmp = (a.ingested_at ?? '').localeCompare(b.ingested_at ?? '');
+    } else if (by === 'text') {
+      cmp = (a.raw?.text ?? '').localeCompare(b.raw?.text ?? '');
+    } else if (by === 'processing_status') {
+      cmp = (a.processing_status ?? '').localeCompare(b.processing_status ?? '');
+    }
+    return dir === 'asc' ? cmp : -cmp;
+  });
+}
+
 export function DurableInbox({ api = operationalApi }: { api?: OperationalApi }) {
   const [resource, setResource] = useState<Resource>({ state: 'loading' });
   const [tenantId, setTenantId] = useState<string | null>(null);
@@ -74,13 +99,24 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
   const [selected, setSelected] = useState<string | null>(null);
   const [saved, setSaved] = useState<IngestResponse | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<SortKey>('ingested_at');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const returnFocus = useRef<HTMLButtonElement | null>(null);
   const processLock = useRef(false);
+
+  function handleSort(key: SortKey) {
+    if (sortBy === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(key);
+      setSortDir('asc');
+    }
+  }
 
   useEffect(() => {
     let active = true;
     setResource({ state: 'loading' });
-    Promise.all([api.list({ channel, processing, search, offset }), api.config()]).then(([page, context]) => {
+    Promise.all([api.list({ channel, processing, search, offset, limit: PAGE_SIZE }), api.config()]).then(([page, context]) => {
       if (active) { setTenantId(context.tenant_id); setResource({ state: 'ready', page, context }); }
     }).catch(error => { if (active) setResource({ state: 'error', error: error instanceof Error ? error : new Error('Inbox unavailable') }); });
     return () => { active = false; };
@@ -110,7 +146,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
   return <div className="p1-inbox">
     <header className="p1-page-heading"><div><h1>Message Inbox</h1><p>Receive synthetic messages and inspect their original content.</p></div><button type="button" className="p1-primary" disabled={resource.state !== 'ready' || composing} onClick={() => { setSaved(null); setComposing(true); }}>+ New synthetic message</button></header>
-    <div className="p1-tabs"><span className="p1-active-label">Persisted messages</span><a href="/inbox/fixtures">Fixture preview ↗</a><span className="p1-demo-label">Local PostgreSQL · synthetic channel only</span></div>
+    <div className="p1-tabs"><span className="p1-active-label">Persisted messages</span><span className="p1-demo-label">Local PostgreSQL · synthetic channel only</span></div>
     {saved && <p role="status" className="p1-success">{saved.duplicate ? 'Duplicate delivery — original message retrieved.' : 'Message saved.'} ID: {saved.message.message_id}. Awaiting processing; extraction has not run.</p>}
     {composing && tenantId && (
       <SyntheticComposer
@@ -131,10 +167,16 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
     {resource.state === 'loading' && <p role="status" className="p1-state">Loading persisted messages…</p>}
     {resource.state === 'error' && <div role="alert" className="p1-state"><h2>{resource.error instanceof PreviewError && [401, 403].includes(resource.error.status) ? 'Access denied' : 'Inbox unavailable'}</h2><p>{resource.error.message}</p><button type="button" className="p1-secondary" onClick={() => setAttempt(n => n + 1)}>Retry Inbox</button></div>}
     {resource.state === 'ready' && <section className="p1-table-card" aria-label="Persisted messages"><div className="p1-table-scroll" role="region" aria-label="Persisted message table, scroll horizontally on small screens" tabIndex={0}>
-      <table><caption className="p1-sr-only">Persisted original messages awaiting downstream work</caption><thead><tr><th scope="col">Received at</th><th scope="col">Original message</th><th scope="col">Source</th><th scope="col">Processing</th><th scope="col">Information</th><th scope="col">Identity</th><th scope="col">Review</th><th scope="col">Action</th></tr></thead>
-      <tbody>{resource.page.items.map(message => <tr key={message.message_id}><td className="p1-date"><time dateTime={message.ingested_at}>{formatTime(message.ingested_at)}</time></td><td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => select(message.message_id, event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary">{message.raw.provider_message_id}</span></td><td><span className="p1-badge p1-blue">SYNTHETIC</span><span className="p1-row-secondary">{message.raw.channel}</span></td><td><span className="p1-badge p1-neutral">{message.processing_status}</span></td><td className="p1-identity">{message.processing_status === 'PROCESSED' ? (message.extractor_version?.startsWith('p1-ai-pipeline-') ? <span className="p1-badge p1-blue">Model observations · review</span> : <span className="p1-badge p1-ready">Extracted (RULE)</span>) : message.processing_status === 'PROCESSING' ? <span className="p1-badge p1-attention">Extracting…</span> : message.processing_status === 'PROCESSING_FAILED' ? <span className="p1-badge p1-critical">Extraction failed</span> : <span className="p1-badge p1-neutral">Awaiting extraction</span>}</td><td className="p1-identity">Not associated</td><td className="p1-identity">Not started</td><td><button type="button" className="p1-action-btn" disabled={processingId === message.message_id} onClick={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')}>{processingId === message.message_id ? '…' : message.processing_status === 'PROCESSED' ? 'Reprocess' : 'Process'}</button><button type="button" className="p1-icon-button" aria-label={`View message ${message.raw.provider_message_id}`} onClick={event => select(message.message_id, event.currentTarget)}>↗</button></td></tr>)}</tbody></table>
+      <table className="p1-orbyte-main-table"><caption className="p1-sr-only">Persisted original messages awaiting downstream work</caption><thead><tr>
+        <th scope="col" className={`p1-th-sortable${sortBy === 'ingested_at' ? ' is-active' : ''}`} aria-sort={sortBy === 'ingested_at' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} onClick={() => handleSort('ingested_at')}>Received At <span className="p1-th-arrows">{sortBy === 'ingested_at' ? (sortDir === 'asc' ? '↑' : '↓') : '↑↓'}</span></th>
+        <th scope="col" className={`p1-th-sortable${sortBy === 'text' ? ' is-active' : ''}`} aria-sort={sortBy === 'text' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} onClick={() => handleSort('text')}>Original Message <span className="p1-th-arrows">{sortBy === 'text' ? (sortDir === 'asc' ? '↑' : '↓') : '↑↓'}</span></th>
+        <th scope="col">Source</th>
+        <th scope="col" className={`p1-th-sortable${sortBy === 'processing_status' ? ' is-active' : ''}`} aria-sort={sortBy === 'processing_status' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} onClick={() => handleSort('processing_status')}>Processing <span className="p1-th-arrows">{sortBy === 'processing_status' ? (sortDir === 'asc' ? '↑' : '↓') : '↑↓'}</span></th>
+        <th scope="col">Information</th><th scope="col">Identity</th><th scope="col">Review</th><th scope="col" className="p1-th-actions">Actions</th>
+      </tr></thead>
+      <tbody>{sortMessages(resource.page.items, sortBy, sortDir).map(message => <tr key={message.message_id} className="p1-inbox-row"><td className="p1-date"><time dateTime={message.ingested_at}>{formatTime(message.ingested_at)}</time></td><td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => select(message.message_id, event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary p1-subtle-id">{message.raw.provider_message_id}</span></td><td className="p1-source-cell"><span className="p1-orbyte-source-badge">{formatChannel(message.raw.channel)}</span></td><td><span className={`p1-orbyte-status-badge is-${message.processing_status === 'PROCESSED' ? 'valid' : message.processing_status === 'PROCESSING' ? 'attention' : message.processing_status === 'PROCESSING_FAILED' ? 'conflict' : 'neutral'}`}>{message.processing_status}</span></td><td className="p1-identity">{message.processing_status === 'PROCESSED' ? (message.extractor_version?.startsWith('p1-ai-pipeline-') ? <span className="p1-orbyte-status-badge is-model">Model review</span> : <span className="p1-orbyte-status-badge is-valid">Extracted (RULE)</span>) : message.processing_status === 'PROCESSING' ? <span className="p1-orbyte-status-badge is-attention">Extracting…</span> : message.processing_status === 'PROCESSING_FAILED' ? <span className="p1-orbyte-status-badge is-conflict">Extraction failed</span> : <span className="p1-orbyte-status-badge is-neutral">Awaiting extraction</span>}</td><td className="p1-subtle-text">Not associated</td><td className="p1-subtle-text">Not started</td><td className="p1-actions-cell"><div className="p1-orbyte-actions-group"><button type="button" className="p1-orbyte-action-icon-btn" aria-label={`View message ${message.raw.provider_message_id}`} title="Inspect message details" onClick={event => select(message.message_id, event.currentTarget)}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button type="button" className="p1-orbyte-action-icon-btn is-sync" disabled={processingId === message.message_id} aria-label={`Reprocess message ${message.raw.provider_message_id}`} title={message.processing_status === 'PROCESSED' ? 'Reprocess extraction' : 'Run extraction'} onClick={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={processingId === message.message_id ? 'p1-spin' : ''}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button></div></td></tr>)}</tbody></table>
     </div>{resource.page.items.length === 0 && <p role="status" className="p1-empty">No persisted messages match this view. Submit a synthetic message to begin.</p>}
-      <footer className="p1-table-footer"><span>Showing {resource.page.items.length ? offset + 1 : 0}–{offset + resource.page.items.length} of {resource.page.total}</span><div className="p1-pagination"><button type="button" className="p1-secondary" disabled={offset === 0} onClick={() => setOffset(n => Math.max(0, n - 25))}>Previous</button><button type="button" className="p1-secondary" disabled={offset + 25 >= resource.page.total || offset + 25 > 10_000} onClick={() => setOffset(n => n + 25)}>Next</button></div></footer>
+      <footer className="p1-table-footer"><span className="p1-footer-count">Showing {resource.page.items.length ? offset + 1 : 0} to {Math.min(offset + resource.page.items.length, resource.page.total)} of {resource.page.total} entries</span><div className="p1-orbyte-pagination"><div className="p1-rows-per-page"><span>Rows per page:</span><span className="p1-rows-badge">15</span></div><div className="p1-pagination-controls"><button type="button" className="p1-page-btn" disabled={offset === 0} aria-label="Previous" onClick={() => setOffset(n => Math.max(0, n - PAGE_SIZE))}>‹</button><span className="p1-page-active">{Math.floor(offset / PAGE_SIZE) + 1}</span><button type="button" className="p1-page-btn" disabled={offset + PAGE_SIZE >= resource.page.total || offset + PAGE_SIZE > 10_000} aria-label="Next" onClick={() => setOffset(n => n + PAGE_SIZE)}>›</button></div></div></footer>
     </section>}
     <p className="p1-preview-note">Local development tenant only · no production authentication. Synthetic multi-channel adapters (WhatsApp, Email, Telegram) are implemented. Deterministic extraction is persisted with exact Unicode evidence spans.</p>
     {selected && <StoredMessageDetail id={selected} api={api} onUpdated={() => setAttempt(n => n + 1)} onClose={closeDetail} />}
@@ -310,9 +352,12 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
         <div className="p1-resize-handle-bar" />
       </div>
       <header className="p1-detail-heading">
-        <div>
+        <div className="p1-detail-heading-left">
           <p className="p1-eyebrow">PERSISTED SOURCE · SYNTHETIC</p>
-          <h2>Original message</h2>
+          <div className="p1-detail-title-row">
+            <h2>Original message</h2>
+            {data && <span className="p1-orbyte-source-badge">{formatChannel(data.raw?.channel)}</span>}
+          </div>
         </div>
         <button type="button" className="p1-close-button" aria-label="Close message details" onClick={onClose}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -327,36 +372,41 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
     {data && <>
       <div className="p1-detail-actions">
         {data.processing_status === 'RECEIVED' && (
-          <button type="button" className="p1-primary" disabled={processing} onClick={() => handleProcess(false)}>
-            {processing ? 'Processing…' : 'Process extraction'}
+          <button type="button" className="p1-btn p1-btn-primary p1-primary" disabled={processing} onClick={() => handleProcess(false)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span>{processing ? 'Processing…' : 'Process extraction'}</span>
           </button>
         )}
         {data.processing_status === 'PROCESSED' && (
           <>
             <button
               type="button"
-              className="p1-primary"
+              className="p1-btn p1-btn-primary p1-primary"
               disabled={contextLoading}
               onClick={handleDirectReview}
             >
-              {contextLoading ? 'Opening Review…' : 'Review & Amend'}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              <span>{contextLoading ? 'Opening Review…' : 'Review & Amend'}</span>
             </button>
             <button
               type="button"
-              className="p1-secondary"
+              className="p1-btn p1-btn-secondary p1-secondary"
               disabled={contextLoading}
               onClick={handleOpenOrderContext}
             >
-              {contextLoading ? 'Opening Context…' : 'View Order Context'}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              <span>{contextLoading ? 'Opening Context…' : 'View Order Context'}</span>
             </button>
-            <button type="button" className="p1-secondary" disabled={processing} onClick={() => handleProcess(true)}>
-              {processing ? 'Reprocessing…' : 'Reprocess extraction'}
+            <button type="button" className="p1-btn p1-btn-secondary p1-secondary" disabled={processing} onClick={() => handleProcess(true)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={processing ? 'p1-spin' : ''}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              <span>{processing ? 'Reprocessing…' : 'Reprocess extraction'}</span>
             </button>
           </>
         )}
         {data.processing_status === 'PROCESSING_FAILED' && (
-          <button type="button" className="p1-primary" disabled={processing} onClick={() => handleProcess(true)}>
-            {processing ? 'Retrying…' : 'Retry extraction'}
+          <button type="button" className="p1-btn p1-btn-primary p1-primary" disabled={processing} onClick={() => handleProcess(true)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            <span>{processing ? 'Retrying…' : 'Retry extraction'}</span>
           </button>
         )}
       </div>
@@ -370,63 +420,162 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
       <blockquote className="p1-original">
         {extraction?.fields?.length ? renderHighlightedText(data.raw.text, extraction.fields) : data.raw.text}
       </blockquote>
-      <dl className="p1-persisted-metadata"><div><dt>Sender display alias</dt><dd>{data.raw.sender_alias}</dd></div><div><dt>Platform identity (unverified)</dt><dd>{data.raw.sender_identity_id}</dd></div><div><dt>Provider</dt><dd>{data.synthetic_provider}</dd></div><div><dt>Provider message ID</dt><dd>{data.raw.provider_message_id}</dd></div><div><dt>Internal message ID</dt><dd>{data.message_id}</dd></div><div><dt>Message timestamp</dt><dd>{formatTime(data.raw.message_at)}</dd></div><div><dt>First envelope receipt</dt><dd>{formatTime(data.raw.received_at)}</dd></div><div><dt>Server persisted at</dt><dd>{formatTime(data.ingested_at)}</dd></div><div><dt>Last state update</dt><dd>{formatTime(data.updated_at)}</dd></div><div><dt>Business timezone</dt><dd>{data.raw.business_timezone ?? 'Missing — no trusted default'}</dd></div><div><dt>Thread / reply</dt><dd>{data.raw.thread_ref ?? 'None'} / {data.raw.reply_to_provider_message_id ?? 'None'}</dd></div></dl>
+      <details className="p1-metadata-accordion">
+        <summary className="p1-metadata-summary">
+          <span>Envelope & Ingestion Technical Metadata</span>
+          <span className="p1-metadata-pill">11 attributes</span>
+        </summary>
+        <dl className="p1-persisted-metadata">
+          <div><dt>Sender display alias</dt><dd>{data.raw.sender_alias}</dd></div>
+          <div><dt>Platform identity (unverified)</dt><dd>{data.raw.sender_identity_id}</dd></div>
+          <div><dt>Provider</dt><dd>{data.synthetic_provider}</dd></div>
+          <div><dt>Provider message ID</dt><dd>{data.raw.provider_message_id}</dd></div>
+          <div><dt>Internal message ID</dt><dd className="p1-mono">{data.message_id}</dd></div>
+          <div><dt>Message timestamp</dt><dd>{formatTime(data.raw.message_at)}</dd></div>
+          <div><dt>First envelope receipt</dt><dd>{formatTime(data.raw.received_at)}</dd></div>
+          <div><dt>Server persisted at</dt><dd>{formatTime(data.ingested_at)}</dd></div>
+          <div><dt>Last state update</dt><dd>{formatTime(data.updated_at)}</dd></div>
+          <div><dt>Business timezone</dt><dd>{data.raw.business_timezone ?? 'Missing — no trusted default'}</dd></div>
+          <div><dt>Thread / reply</dt><dd>{data.raw.thread_ref ?? 'None'} / {data.raw.reply_to_provider_message_id ?? 'None'}</dd></div>
+        </dl>
+      </details>
 
       <section className="p1-evidence">
-        <h3>Extraction evidence</h3>
+        <div className="p1-evidence-section-header">
+          <h3>Extraction evidence</h3>
+          {extraction && (
+            <span className="p1-attempt-indicator">
+              Attempt {extraction.attempt_id.slice(0, 8)} · Started {formatTime(extraction.started_at)}
+              {extraction.completed_at ? ` · Completed ${formatTime(extraction.completed_at)}` : ''}
+            </span>
+          )}
+        </div>
         {extraction ? (
           <>
             <ExtractionProvenance attempt={extraction} />
-            <p className="p1-muted" style={{ fontSize: '10px' }}>
-              Attempt {extraction.attempt_id.slice(0, 8)} · Started {formatTime(extraction.started_at)}
-              {extraction.completed_at ? ` · Completed ${formatTime(extraction.completed_at)}` : ''}
-            </p>
             {(extraction.fields ?? []).length > 0 ? (
-              <table className="p1-field-table" aria-label="Extracted candidate fields">
-                <thead><tr><th>Field</th><th>Value</th><th>Method</th><th>Status</th><th>Qualifier</th><th>Evidence quote</th></tr></thead>
-                <tbody>
-                  {(extraction.fields ?? []).filter(f => !['duplicate', 'rejected'].includes(f.metadata?.disposition ?? '')).map((f, idx) => {
-                    const method = f.evidence?.[0]?.method ?? 'RULE';
-                    return (
-                      <tr key={`${f.field_name}-${idx}`}>
-                        <td><strong>{f.field_name}</strong></td>
-                        <td>{f.value ?? <span className="p1-muted">—</span>}</td>
-                        <td>
-                          <span className={`p1-badge ${method === 'MODEL' ? 'p1-gpu-badge' : method === 'HUMAN' ? 'p1-ready' : 'p1-blue'}`} title={method === 'MODEL' ? 'Provisional model observation; review required' : undefined}>
-                            {method}
-                          </span>
-                        </td>
-                        <td><span className={`p1-badge ${f.validation_status === 'VALID' ? 'p1-ready' : f.validation_status === 'CONFLICT' ? 'p1-critical' : 'p1-attention'}`}>{f.validation_status}</span></td>
-                        <td>{f.qualifier ?? '—'}</td>
-                        <td>
-                          {f.evidence?.length ? f.evidence.map(ev => `"${ev.quote}" [${ev.start}:${ev.end}]`).join(' · ') : '—'}
-                          {f.metadata?.reason ? <div className="p1-muted" style={{ fontSize: '10px' }}>{f.metadata.reason}</div> : null}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <div className="p1-field-table-wrapper">
+                <table className="p1-field-table" aria-label="Extracted candidate fields">
+                  <thead>
+                    <tr>
+                      <th>Field</th>
+                      <th>Value</th>
+                      <th>Method</th>
+                      <th>Status</th>
+                      <th>Evidence quote</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(extraction.fields ?? []).filter(f => !['duplicate', 'rejected'].includes(f.metadata?.disposition ?? '')).map((f, idx) => {
+                      const method = f.evidence?.[0]?.method ?? 'RULE';
+                      return (
+                        <tr key={`${f.field_name}-${idx}`} className="p1-field-row">
+                          <td className="p1-field-name-cell">
+                            <strong>
+                              {f.field_name.split('_').map((part, i, arr) => (
+                                <span key={i}>
+                                  {part}
+                                  {i < arr.length - 1 ? '_\u200B' : ''}
+                                </span>
+                              ))}
+                            </strong>
+                          </td>
+                          <td className="p1-field-val-cell">
+                            {f.value ? (
+                              <span className="p1-val-text">{f.value}</span>
+                            ) : (
+                              <div className="p1-unresolved-stack">
+                                <span className="p1-muted">—</span>
+                                <span className="p1-pending-tag">Pending Review</span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="p1-method-cell">
+                            <div className="p1-orbyte-method-group">
+                              <span className={`p1-orbyte-source-badge is-${method.toLowerCase()}`}>
+                                {method}
+                              </span>
+                              {f.qualifier && (
+                                <span className="p1-orbyte-qualifier-badge">
+                                  {f.qualifier}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p1-status-cell">
+                            <span className={`p1-orbyte-status-badge is-${f.validation_status.toLowerCase()}`}>
+                              {f.validation_status}
+                            </span>
+                          </td>
+                          <td className="p1-evidence-quote-cell">
+                            {f.evidence?.length ? (
+                              <div className="p1-evidence-tokens">
+                                <span className="p1-quote-chip">
+                                  {f.evidence.map(ev => `"${ev.quote}" [${ev.start}:${ev.end}]`).join(' · ')}
+                                </span>
+                              </div>
+                            ) : '—'}
+                            {f.metadata?.reason ? <div className="p1-evidence-reason-note">{f.metadata.reason}</div> : null}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             ) : (
               <p className="p1-muted">No explicit order fields recognized by deterministic rules.</p>
             )}
-            {(extraction.fields ?? []).some(f => f.evidence?.some(e => e.method === 'MODEL')) && <details>
-              <summary>Raw model observations and normalization</summary>
-              {(extraction.fields ?? []).filter(f => f.evidence?.some(e => e.method === 'MODEL')).map((f, i) => <p key={i}>
-                {f.field_name}: {f.evidence?.map(e => `${e.method} "${e.quote}" [${e.start}:${e.end}]`).join(' → ')}
-                {' → '}{f.value ?? 'unresolved'} · {f.metadata?.disposition ?? f.validation_status} · {f.metadata?.reason}
-              </p>)}
-            </details>}
+            {(extraction.fields ?? []).some(f => f.evidence?.some(e => e.method === 'MODEL')) && (
+              <details className="p1-model-proposals-details">
+                <summary className="p1-model-proposals-summary">
+                  <span>Raw model observations and normalization</span>
+                  <span className="p1-counter-pill">
+                    {(extraction.fields ?? []).filter(f => f.evidence?.some(e => e.method === 'MODEL')).length} observations
+                  </span>
+                </summary>
+                <div className="p1-model-proposals-list">
+                  {(extraction.fields ?? []).filter(f => f.evidence?.some(e => e.method === 'MODEL')).map((f, i) => {
+                    const disposition = f.metadata?.disposition ?? f.validation_status;
+                    const isRejected = disposition === 'rejected' || disposition === 'INVALID';
+                    return (
+                      <div key={i} className="p1-proposal-item-card">
+                        <div className="p1-proposal-item-header">
+                          <span className="p1-proposal-field-badge">{f.field_name}</span>
+                          <span className="p1-proposal-trace">
+                            {f.evidence?.map(e => `${e.method} "${e.quote}" [${e.start}:${e.end}]`).join(' → ')}
+                          </span>
+                          <span className="p1-proposal-arrow">→</span>
+                          <span className="p1-proposal-target">{f.value ?? 'unresolved'}</span>
+                          <span className={`p1-disposition-pill ${isRejected ? 'is-rejected' : 'is-accepted'}`}>
+                            {disposition}
+                          </span>
+                        </div>
+                        {f.metadata?.reason && (
+                          <div className="p1-proposal-reason-box">
+                            <span className="p1-proposal-reason-title">Safety Rule:</span> {f.metadata.reason}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            )}
             {attempts.length > 1 && (
-              <div className="p1-attempt-history">
+              <div className="p1-attempt-history-card">
                 <h4>Attempt history ({attempts.length})</h4>
-                <ul>
-                  {attempts.map(att => (
-                    <li key={att.attempt_id}>
-                      {formatTime(att.started_at)} · {att.status} · {att.extractor_version} ({att.attempt_id.slice(0, 8)})
-                    </li>
+                <div className="p1-attempt-timeline">
+                  {attempts.map((att, idx) => (
+                    <div key={att.attempt_id} className={`p1-attempt-row ${idx === 0 ? 'is-active' : ''}`}>
+                      <span className="p1-attempt-seq">{idx === 0 ? 'Current' : `#${attempts.length - idx}`}</span>
+                      <span className="p1-attempt-time">{formatTime(att.started_at)}</span>
+                      <span className="p1-badge p1-neutral">{att.status}</span>
+                      <span className="p1-attempt-ver p1-mono">{att.extractor_version}</span>
+                      <span className="p1-attempt-hash p1-mono">({att.attempt_id.slice(0, 8)})</span>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </div>
             )}
           </>

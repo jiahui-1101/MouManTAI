@@ -24,6 +24,7 @@ export interface MessageQuery {
   search: string;
   processing: string;
   offset: number;
+  limit?: number;
 }
 
 export interface OperationalApi {
@@ -87,8 +88,8 @@ function processMessage(id: string, reprocess = false): Promise<ProcessResponse>
 
 export const operationalApi: OperationalApi = {
   config: () => request('/dev/p1/config'),
-  list: ({ channel, search, processing, offset }) => {
-    const params = new URLSearchParams({ limit: '25', offset: String(offset) });
+  list: ({ channel, search, processing, offset, limit = 25 }) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (channel !== 'ALL') params.set('channel', channel);
     if (search) params.set('search', search);
     if (processing !== 'ALL') params.set('processing_status', processing);

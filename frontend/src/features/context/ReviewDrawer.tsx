@@ -103,11 +103,14 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
         data-testid="review-drawer"
       >
         <div className="p1-drawer-header">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
             <h3 id="review-drawer-title" style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
               Context Review & Amendments
             </h3>
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <p className="p1-drawer-subtitle" style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>
+              Review extracted terms and submit audited field amendments.
+            </p>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px' }}>
               <span className="p1-dim-badge">v{context.context_version}</span>
               <span className={`status-badge status-${context.status.toLowerCase()}`}>{context.status}</span>
             </div>
@@ -135,9 +138,11 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                 id="p1-input-sku"
                 type="text"
                 value={sku}
+                placeholder="e.g. SOURDOUGH, BURGER"
                 onChange={e => setSku(e.target.value)}
                 disabled={submitting}
               />
+              <span className="p1-form-hint">Item identifier or product name recognized by inventory</span>
             </div>
 
             <div className="p1-form-row">
@@ -147,9 +152,11 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                   id="p1-input-qty"
                   type="text"
                   value={quantity}
+                  placeholder="e.g. 50"
                   onChange={e => setQuantity(e.target.value)}
                   disabled={submitting}
                 />
+                <span className="p1-form-hint">Positive numeric quantity</span>
               </div>
 
               <div className="p1-form-group">
@@ -165,6 +172,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                   <option value="box">box</option>
                   <option value="kg">kg</option>
                 </select>
+                <span className="p1-form-hint">Standard packaging unit</span>
               </div>
             </div>
           </section>
@@ -178,9 +186,11 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                   id="p1-input-delivery"
                   type="text"
                   value={deliveryAt}
+                  placeholder="e.g. 2026-10-23T15:00:00+08:00"
                   onChange={e => setDeliveryAt(e.target.value)}
                   disabled={submitting}
                 />
+                <span className="p1-form-hint">ISO 8601 with explicit timezone offset</span>
               </div>
 
               <div className="p1-form-group">
@@ -196,6 +206,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                   <option value="DEADLINE">DEADLINE</option>
                   <option value="DATE_ONLY">DATE_ONLY</option>
                 </select>
+                <span className="p1-form-hint">Delivery timing constraint precision</span>
               </div>
             </div>
 
@@ -209,6 +220,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                 placeholder="Customer delivery or dietary notes..."
                 disabled={submitting}
               />
+              <span className="p1-form-hint">Optional customer handling preferences</span>
             </div>
           </section>
 
@@ -224,6 +236,7 @@ export function ReviewDrawer({ context, isOpen, onClose, onUpdated }: ReviewDraw
                 placeholder="Reason for change, confirmation evidence, or clarification details..."
                 disabled={submitting}
               />
+              <span className="p1-form-hint">Audited business reason recorded in context timeline</span>
             </div>
           </section>
         </div>
