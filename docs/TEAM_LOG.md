@@ -157,6 +157,8 @@
 | ADR-012 | Server-Side Actor Role Resolution & Policy Enforcement (D-005) | Client-provided role headers or payloads cannot authorize consequential actions; server resolves actor_role via `backend/app/core/policy.py`. Consequential transitions reject unprivileged actors with HTTP 403 `APPROVAL_REQUIRED`. | Accepted | 2026-10-22 |
 | ADR-013 | Caller-Owned Unit-of-Work (D-032), D-017 Named Subscriber Policy, and Advisory Isolation (D-033) | `CommitmentService.assess()` supports `commit=False`/`flush()`; OutboxDispatcher verifies required subscriber `p2_confirmed_evaluator` on `commitment.confirmed` and `p3.recovery_trigger.v1` on `commitment.at_risk`; advisory feasibility is stored append-only in audit without mutating aggregate or terms. | Accepted | 2026-10-22 |
 | ADR-014 | Contract Relaxation: `FeasibilityAssessment.affected_commitment_ids` | `affected_commitment_ids` defaults to empty list `[]` (downstream impact set only). FEASIBLE and UNKNOWN pass cleanly with `[]`; INFEASIBLE with `[]` signals local constraint breach without downstream cascade. | Accepted | 2026-10-22 |
+| ADR-015 | Concurrency Lock Hierarchy & Deadlock Safety (D-041) | Canonical lock hierarchy: `CommitmentRecord` row lock (`with_for_update`) strictly precedes secondary entity updates. Feasibility snapshot evaluation uses lock-free MVCC reads (`get_resource_snapshot`), preventing AB-BA deadlocks between confirmed evaluation and operational disruptions. Verified with dual-session PostgreSQL concurrency test. | Accepted | 2026-10-22 |
+| ADR-016 | D-041 Scope Clarification: P2 OperationalSnapshot Row Locking (D-042) | Confirmed that P2's persisted OperationalSnapshotRecord row locks under the monotonic Commitment → OperationalSnapshot hierarchy are fully compatible with D-041. Distinguishes Core lock-free MVCC stock reads from P2 operational currentness serialization. | Accepted | 2026-10-22 |
 
 Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/files, agreed-by, time; never silently reverse a lock.
 
@@ -1344,7 +1346,7 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
        - Denormalized schema for tenants/users/roles/customers/orders/commitment_versions/commitment_evidence is formally accepted under AGENTS §5 & §13.
        - Generic ERP bloat rejected to maintain lean, responsive SME footprint.
     8. **PostgreSQL Dual-Boundary Handshake Verification (W8)**:
-       - Executed against PostgreSQL on port 5433 (`TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5433/moumantai_test"`).
+       - Executed against PostgreSQL on port 5433 (`TEST_DATABASE_URL="postgresql://[credentials redacted]@localhost:5433/moumantai_test"`).
        - 19 passed in 2.79s. Engine dialect verified as `postgresql` (`test_feature_handshakes.py:L1181-L1183`).
        - Full test output logged to `docs/evidence/postgres_handshake_20261022.log`.
     9. **Teammate Handoff Replies Delivered**:
@@ -1421,6 +1423,214 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Validation: `python -m pytest app/communication/tests -q -p no:cacheprovider --basetemp=.pytest-basetemp-p4-fix --tb=short` passed (exit 0; PostgreSQL cases skipped without URL). PowerShell `$env:P4_TEST_DATABASE_URL='postgresql+psycopg://postgres@127.0.0.1:15444/p4_test_final_reconcile'; python -m pytest app/communication/tests/test_migration_persistence.py app/communication/tests/test_route_integration.py -q -p no:cacheprovider --basetemp=.pytest-basetemp-p4-pg --tb=short -rA` passed (exit 0; fresh UUID schemas on authorized disposable PostgreSQL 16). Final route test rerun passed; scoped Ruff `F,E4,E7,E9`, compileall and `git diff --check` passed. No general backend/front-end suite claimed.
 - Review and integration: code commit `5dfa32cd4718ac6b4ec6714f7563ab1ad18ce544` on draft PR #19; P4 reviewer `Sheng554` requested, approval pending; no merge to Main. Outstanding integration work includes PR #16 migration/Core/P2/P3 dependencies, P2 required changes, P1 route, trusted authority and positive customer acceptance.
 
+## 2026-10-22 — P4 Commit 07: Durable Customer Confirmation & Response Handling
+
+- Status: P4 backend evidence workflow implemented and regression-tested in isolated copy; positive customer acceptance cross-module E2E remains BLOCKED, not production integrated.
+- Scope: durable session/attempt/decision, secure hashed challenge, exact tenant/customer/channel/outbound/proposal/version/terms binding, EN/MS/ZH conservative response rules, verified P1 ports, replay/concurrency controls, atomic P4 evidence + Audit/Outbox. No frontend, live sending, Core agreement/fulfilment writes or P3 Plan mutation.
+- Changed files:
+- `backend/app/communication/confirmation_authority.py`
+- `backend/app/communication/confirmation_router.py`
+- `backend/app/communication/confirmation_schemas.py`
+- `backend/app/communication/confirmations.py`
+- `backend/app/communication/models.py`
+- `backend/app/communication/response_rules.py`
+- `backend/app/communication/router.py`
+- `backend/app/communication/tests/test_confirmation_integration.py`
+- `backend/app/communication/tests/test_confirmations.py`
+- `backend/app/communication/tests/test_migration_persistence.py`
+- `backend/app/communication/tests/test_route_integration.py`
+- `backend/migrations/versions/0011_p4_confirmations.py`
+- Migration: new 0011_p4_confirmations -> actual 0010_p4_recipient_preferences; unique standalone Head. Historical migrations untouched. P5 Review required for new shared migration and events. Future P3 0013 coexistence requires a new merge revision after checking actual Heads, not rewriting existing files.
+- Tests: final P4 460 passed / 0 skipped; requested shared Backend + P4 563 passed / 1 existing P1 module skip; new rule/service tests 62, integration file 28; migrated=postgresql subset 49 passed (overlap; excludes offline/metadata/fake-bind tests). Compileall + heads pass. Frontend P4 141 passed; full FE 308 passed / 5 existing LIVE_API skips; typecheck, explicit App tsc and build pass.
+- Runtime: all new evidence explicitly SYNTHETIC_ONLY/P4_EVIDENCE_ONLY, Core transition false. Default new create/read/revoke restricted to explicit synthetic scope and actual disposable PostgreSQL bind. Respond default denies header-user impersonation; P1 source adapter never wired by default. No test trust fixtures installed in app.
+- BLOCK-P4-07-IDENTITY: P1/P5 authenticated processor principal and trusted normalized-message/identity composition pending. Typed P1 contracts/directory confirmed available; tests use source fixtures, not live ingress.
+- BLOCK-P4-07-CORE: trusted P5 confirmation.accepted consumer and idempotent version-safe Core transaction protocol pending. Existing Core confirm_proposal is not equivalent to a connected consumer. No automatic proposal confirmation.
+- P3 durable approval producer plus rejection/counteroffer handoff consumer absent in this baseline. Existing P4 authority still fails closed when necessary source is unavailable.
+- Evidence limitation: token minted once for issuer, not delivered to customer by this task; no token recovery/rotation/reissue; synthetic fixtures do not establish production acceptance. Counteroffer leaves approved proposal unchanged.
+- P5 Review: migration DDL/graph, router composition, identity/processor authorization contract, redacted events and Core consumer. P1/P3 review their integration boundaries.
+- Live safety: 353 baseline file hashes unchanged; P4-communication remains clean; no Git mutations.
+- Cleanup: dedicated test PostgreSQL UUID schemas verified absent after final suite; only this task's test containers/network removed after validation. No development database used.
+- Next milestone: P1/P5 trusted composition + P3 producer + Core consumer; then verify actual positive Customer Acceptance E2E before claiming full integration. Confirmation Workspace frontend remains deferred.
+- Suggested commit: feat(p4): add durable customer confirmation and response handling
+
+### 2026-10-22 — Task P5-TAIZEN: Audit Ratification, Amendment Protection, Zero-Guessing Deadline & Multi-Item Alignment (P5 / ADR-020 / D-037)
+- **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `ADR-020` (Decision `D-037`, ratifying PR #18, PR #20)
+  - **Owner**: P5 (Shared Core, Contracts & Integration)
+  - **Impact**:
+    1. **Audit Ratification of PR #18 & PR #20**:
+       - Ratified P3-submitted PR #18 (`41bfc58` / `aabf559`, default loopback CORS origins in `main.py`).
+       - Ratified P3-submitted PR #20 (`a367930` / `ae20793`, fail-closed stale mandatory outbox reconciliation requiring `ProcessedEventRecord` completion before supersession).
+    2. **Amendment Proposal Protection on Confirmed Commitments (D-037 / Handoff #P1-1)**:
+       - `CoreIntegrationFacade.handle_context_updated()` strictly protects agreed terms when `agreement_state` is `CONFIRMED` or `OFFERED`.
+       - Never directly overwrites `record.terms` (Invariant 3 / D-015); instead, stages an active `CommitmentProposalRecord` with `revised_terms`, marks prior active proposals `SUPERSEDED`, transitions agreement state to `OFFERED`, increments `commitment_version`, and emits `COMMITMENT_PROPOSAL_OFFERED` outbox and audit events atomically.
+    3. **Zero-Guessing Delivery Deadline**:
+       - Removed `or now` server timestamp defaulting on `business_context.requested_delivery_at`.
+       - When delivery time is missing, `deadline` is set to `None`, `requires_manual_review` is flagged `True`, and `"deadline"` is appended to `missing_fields`.
+    4. **Multi-Item CommitmentTerms Schema Alignment**:
+       - Extended `CommitmentTerms` in `backend/app/core/schemas.py` and `contracts/types.ts` with optional `items: list[RequestedItem] | None = None` and `deadline: OffsetAwareDatetime | None = None`.
+       - Updated `_to_commitment()` whitelist in `service.py` and `get_overview()` in `commitments.py` to preserve full item arrays across all order items.
+- **Validation Test Evidence**:
+  - New dedicated suite `tests/test_amendment_protection.py`: `2 passed in 0.06s` (amendment proposal creation, original terms preservation, multi-item array retention, zero-guessing deadline review flagging).
+  - Full backend core pytest suite: `106 passed, 1 warning` (`python -m pytest tests -q`).
+  - Real PostgreSQL dual-boundary handshake suite: `19 passed in 2.75s` against PostgreSQL on port 5433 (`engine.dialect.name == "postgresql"`).
+  - Feasibility backend suite: `239 passed`.
+  - Communication backend suite: `370 passed`.
+  - Frontend Vitest suite: `308 passed, 5 skipped (live smoke), 0 failed` (`npm test -- --run`).
+  - Frontend TypeScript typecheck: Clean (`tsc --noEmit`, 0 errors).
+  - Frontend production build: Clean (`tsc -b && vite build`, 121 modules transformed, 0 errors).
+  - Single Alembic head verified: `0010_p4_recipient_preferences (head)`.
+- **Pending Acknowledgements**:
+  - P1: Rebase context publisher on updated `handle_context_updated()` to route confirmed amendments via Core proposal workflow.
+  - P2: Verify multi-item compatibility in evaluation consumer.
+  - P4: Align confirmation responses to newly emitted amendment proposals.
+
+### 2026-10-22 — Task P5-PROPOSAL-ID: Core Proposal Identity Verification & Outbox Derivation (P5 / D-038 / Handoff #P2-1)
+- **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `D-038` (Ratifying P2 Handoff #P2-1 requirement 1)
+  - **Owner**: P5 (Shared Core, Contracts & Integration)
+  - **Impact**:
+    1. **Core Proposal Identity Verification (P0)**:
+       - `CommitmentService.confirm_proposal` now strictly validates that `request.proposal_id` matches the active persisted `CommitmentProposalRecord` row for the target commitment.
+       - Evaluated after version freshness check (`STALE_PROPOSAL_VERSION` taking precedence), raising HTTP 409 `PROPOSAL_ID_MISMATCH` on ID discrepancy.
+    2. **Authoritative Outbox Event Payload Derivation**:
+       - `COMMITMENT_CONFIRMED` outbox event payload now derives its `proposal_id` and `proposal_version` directly from the verified `latest_proposal` record row rather than echoing untrusted client arguments.
+- **Validation Test Evidence**:
+  - Dedicated regression test `test_confirm_proposal_verifies_proposal_identity_and_derives_event_payload` added to `backend/tests/test_amendment_protection.py` (3 passed in 0.08s).
+  - Full core backend suite: `107 passed, 1 warning` (`python -m pytest tests -q`).
+  - Real PostgreSQL dual-boundary handshake suite: `19 passed` on port 5433 (`engine.dialect.name == "postgresql"`).
+  - Frontend Vitest suite: `308 passed, 5 skipped (live smoke)`.
+  - Frontend TypeScript typecheck: Clean (0 errors).
+  - Frontend production build: Clean (121 modules transformed, 0 errors).
+- **Pending Acknowledgements**:
+  - P2: Integrate with canonical `backend/app/feasibility/consumer.py` on branch `feat/p2-7b4b-confirmed-consumer`.
+  - P3: Rebase PR #16 incorporating verified proposal payload derivation.
+  - P4: Map customer confirmation tokens to verified proposal identities.
+
+### 2026-10-22 — Task P5-MIGRATION-0014: P4 Handoff Triage & Alembic 0014 Merge Strategy (P5 / D-039 / Handoff #P4-1)
+- **Status**: Complete, Verified & Recorded by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `D-039` (Ratifying P4 Handoff #P4-1 requirements)
+  - **Owner**: P5 (Shared Core, Contracts & Integration Coordinator)
+  - **Impact**:
+    1. **Commit 08 Confirmation Workspace Scope Ratification**:
+       - Approved P4 proceeding with frontend-only Confirmation Workspace using shared OpenAPI-derived contracts in `contracts/types.ts`.
+       - Enforces strict proposal ID/version validation and fail-closed state rendering (never showing green success for unconfirmed or awaiting states).
+    2. **Alembic Merge Strategy (`0014_merge_p3_p4_confirmations`) Coordination**:
+       - Formally endorsed the additive merge migration strategy (`0014_merge_p3_p4_confirmations`) joining `0013_merge_p3_p4_heads` and `0011_p4_confirmations`.
+       - Strictly preserves existing published migrations `0001`–`0011` per AGENTS §4 ("never edit existing migrations") and resolves PR #16 and Commit 08 into a single linear head.
+- **Validation Test Evidence**:
+  - Core pytest suite: `107 passed, 1 warning` (`python -m pytest tests -q`).
+  - Real PostgreSQL dual-boundary handshake suite: `19 passed` on port 5433 (`engine.dialect.name == "postgresql"`).
+  - Frontend Vitest suite: `308 passed, 5 skipped (live smoke)`.
+  - Frontend TypeScript typecheck: Clean (0 errors).
+  - Frontend production build: Clean (`tsc -b && vite build`, 121 modules transformed, 0 errors).
+  - Current Alembic head on Main: `0010_p4_recipient_preferences (head)`.
+- **Pending Acknowledgements**:
+  - P3: Include `0014_merge_p3_p4_confirmations` in PR #16 rebase with `down_revision = ("0013_merge_p3_p4_heads", "0011_p4_confirmations")`.
+  - P4: Implement Commit 08 Confirmation Workspace UI against `contracts/types.ts`.
+
+### 2026-10-22 — Task P5-PROP-001-ELIMINATION: P2 Phase 7B-4F Alignment & Strict Proposal-ID Enforcement (P5 / D-040 / Handoff #P2-1)
+- **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `D-040` (Ratifying P2 Handoff #P2-1 compatibility checks)
+  - **Owner**: P5 (Shared Core, Contracts & Integration Coordinator)
+  - **Impact**:
+    1. **Strict Proposal-ID Equality Enforcement (Removal of Legacy `prop_001` Exemption)**:
+       - Removed the legacy `prop_001` exemption in `CommitmentService.confirm_proposal` ([service.py:540](file:///c:/Users/ganru/Documents/MouManTAI/backend/app/core/service.py#L540)).
+       - Proposal ID matching is now 100% strict exact equality: any mismatch between requested `proposal_id` and the active proposal's `proposal_id` unconditionally raises HTTP 409 `PROPOSAL_ID_MISMATCH`.
+       - Updated `backend/tests/test_core_api.py` to use dynamic proposal IDs.
+       - Added negative regression test in `test_amendment_protection.py` verifying `prop_001` cannot bypass validation.
+    2. **Multi-Item & Nullable Deadline Compatibility Ratification**:
+       - Verified P2 single-line evaluator (`backend/app/feasibility/service.py:119-125`) strictly fails closed with `ValueError` on `len(lines) != 1` or mismatched delivery deadline, ensuring zero guessing and preventing false `FEASIBLE` output.
+    3. **Strategy B Canonical Consumer Ratification**:
+       - Formally endorsed P2's canonical `backend/app/feasibility/consumer.py` from commit `638ffbec` on branch `feat/p2-7b4b-confirmed-consumer` as the sole evaluator subscriber for `p2_confirmed_evaluator`.
+- **Validation Test Evidence**:
+  - Core backend pytest suite: `107 passed, 1 warning` (`python -m pytest tests -q`).
+  - Proposal identity & amendment protection suite: `3 passed` (`python -m pytest tests/test_amendment_protection.py -q`).
+  - Real PostgreSQL dual-boundary handshake suite: `19 passed` on port 5433 (`engine.dialect.name == "postgresql"`).
+  - P2 Feasibility backend suite: `248 passed` (`python -m pytest backend/app/feasibility/tests -q`).
+  - Frontend Vitest suite: `308 passed, 5 skipped (live smoke)`.
+  - Frontend TypeScript typecheck: Clean (0 errors).
+  - Frontend production build: Clean (`tsc -b && vite build`, 121 modules transformed, 0 errors).
+  - Alembic single head verified: `0011_p4_confirmations (head)`.
+- **Pending Acknowledgements**:
+  - P2: Coordinate with P3 on PR #16 integration.
+  - P3: Rebase PR #16 on `main` (`185f919`) adopting canonical `consumer.py` from commit `638ffbec`.
+
+## 2026-10-22 — P4 Commit 09: Read-only Follow-Up & Escalation Queue
+
+- Baseline: remote Main/HEAD/origin-main verified at 37b8379f65cfc74df8a3ff54d8135ee58d17edb9, PR #25 merge including Commit 08. Isolated Git Archive; formal P4-communication clean and untouched. PR #16 not required.
+- Status: frontend queue implemented; positive Transport Fixture UI tests and real API fail-closed Browser smoke verified. No positive Customer Acceptance E2E, Reminder Sent or Escalation Completed claim.
+- Features: /communications/follow-ups; read-only/receipt time; loaded-record UI counts; exact proposal ID/version/backend state; 24-hour Expiring Soon and expired/revoked/stale/unresolved/clarification/manual-review display hints; local filters/search/numerical/time sort/reset; View Confirmation; on-demand latest attempts with ties/evidence; scoped cache/cancellation; honest loading/empty/error/retry.
+- APIs: existing GET /v1/confirmations, optional original communication_id filtering retained; per-item /attempts on demand; Commit 08 detail/history route reused. No write endpoints or invented server filters.
+- D-037: old-version acceptance stays on exact old proposal/version. UI Attention is not Lifecycle; terminal response does not imply fulfilment/replanning completion. No SENT -> ACCEPTED -> FULFILLED inference or client approval flags.
+- Ownership: only these 10 Frontend files changed/new:
+- `frontend/src/App.tsx`
+- `frontend/src/features/communication/CommunicationCenterPage.test.tsx`
+- `frontend/src/features/communication/CommunicationCenterPage.tsx`
+- `frontend/src/features/communication/FollowUpQueue.test.tsx`
+- `frontend/src/features/communication/FollowUpQueuePage.tsx`
+- `frontend/src/features/communication/FollowUpResponse.tsx`
+- `frontend/src/features/communication/RouteIntegration.test.tsx`
+- `frontend/src/features/communication/confirmationApi.ts`
+- `frontend/src/features/communication/follow-up.css`
+- `frontend/src/features/communication/followUp.ts`
+- P5 Review Required: App.tsx one Import and one Route, exact APP_ROUTE.patch supplied. Do not overwrite current Shared App.tsx. Shared navigation/Shell/Providers and other owners' routes unchanged. Center link is P4-owned.
+- Tests: new Queue 42 passed; complete FE 400 passed / 5 existing LIVE_API skips / 0 failed; typecheck, explicit App tsc and build pass, 130 modules. Commit 08 Workspace and P1/P2/P3/P5 route regression retained. Build only warns about ~504 kB main chunk; no shared build-config change.
+- Runtime evidence: unchanged Backend GET list returned actual PRODUCTION_AUTH_UNAVAILABLE 503, Browser Retry remained blocked with unavailable stats. No test authority installed in production, no database connection/write/migration required for this negative check.
+- Capability gaps: no reminder/escalation execution/history/task contract, current Proposal authority, current identity verdict or current Core result in this P4-only read DTO. Unknown required Schema -> unavailable; valid unknown restrictions -> Needs Review. Real positives require existing authorized records/runtime composition.
+- P5 Core Consumers/version guards reported implemented, not conflated with independently verified E2E. P1 verified inbound and full cross-module journey remain deployment verification dependencies. Do not modify Backend to make a UI demo pass.
+- Safety: 248 backend files/file-set and all Contracts unchanged; all 374 formal tracked-file hashes unchanged. No Shared Team Log overwrite or Git mutation. Temporary Browser/servers closed after smoke verification.
+- Next milestone: coordinated durable Reminder/Escalation contract/authorization, then real positive runtime journey; not implemented here.
+- Suggested commit: feat(p4): add read-only follow-up and escalation queue
+
+**No Backend Changes. No Database Changes. No New Alembic Migrations.**
+
+## 2026-10-22 — P5 Decision D-041: Concurrency Lock Hierarchy Standardization & Deadlock Safety Verification
+
+- **Context**: Person 2 raised a concurrency concern in Handoff #P2-1 regarding potential lock-order inversion between the confirmed-event evaluation path (`CommitmentRecord` locked before snapshot evaluation) and the supplier-delay path (`PersistedSupplierDelayProcessor.process()`).
+- **Decision & Lock Invariant**:
+  1. **Canonical Lock Hierarchy**: Core strictly standardizes that `CommitmentRecord` (`with_for_update()`) anchors the primary lock hierarchy. All multi-entity business transactions mutate commitments under this primary lock before performing secondary resource updates.
+  2. **Lock-Free Snapshot Reads**: Feasibility assessment reads via `get_resource_snapshot()` execute lock-free MVCC consistent queries (`select().order_by()`) without row-level write locks. Snapshot freshness is verified optimistically against authoritative `snapshot_version`.
+  3. **Absence of AB-BA Deadlock**: Because assessment never acquires row locks on `ResourceStockRecord` or `OperationalSnapshotRecord`, deadlock cycles (`DeadlockDetected`) are impossible under concurrent transactions.
+  4. **PostgreSQL Dual-Session Concurrency Test**: Added `test_postgresql_concurrency_lock_order_safety` in `backend/tests/integration/test_feature_handshakes.py`. Verifies overlapping transactions on real PostgreSQL (port 5433): Tx1 locks `CommitmentRecord`, concurrent Tx2 mutates `ResourceStockRecord` and bumps version; Tx1 evaluates freshness and safely fails closed with HTTP 409 `SNAPSHOT_DRIFT_CONFLICT` with zero deadlocks.
+- **Validation Test Evidence**:
+  - PostgreSQL Handshake Suite: `20 passed` on port 5433 (`engine.dialect.name == "postgresql"`).
+  - Core backend pytest suite: `108 passed, 6 warnings` (`python -m pytest tests -q`).
+  - P2 Feasibility backend suite: `248 passed` (`python -m pytest backend/app/feasibility/tests -q`).
+  - Frontend Vitest suite: `400 passed, 5 skipped (live smoke)`.
+  - Frontend production build: Clean (`tsc -b && vite build`, 130 modules transformed).
+- **Owner Actions**:
+  - P2: Complete Phase 7B-4G acceptance review against PR #16.
+  - P5: PR #16 remains Draft until final P2 approval and trusted operational-source authority integration.
+
+## 2026-10-22 — P5 Decision D-042: Formal D-041 Scope Clarification on P2 OperationalSnapshotRecord Row Locking
+
+- **Context**: Person 2 and Person 3 requested formal P5 confirmation in Handoffs #P2-1 and #P3-1 regarding whether D-041 permits the P2 persisted-source adapter to retain row locks on `OperationalSnapshotRecord` under the unified `CommitmentRecord` → `OperationalSnapshotRecord` hierarchy.
+- **Scope Distinction & Architectural Ruling**:
+  1. **Core Domain (`backend/app/core/`)**: Core's built-in resource snapshot abstraction (`ResourceStockRecord`) relies on lock-free MVCC reads (`get_resource_snapshot()`) with optimistic concurrency checks (`expected_snapshot_version`). Core does not acquire row-level write locks on resource stock during assessment reads.
+  2. **P2 Feature Domain (`backend/app/feasibility/`)**: P2's persisted operational source model (`OperationalSnapshotRecord` in `persisted_sources.py`) manages operational snapshot currentness (`is_current`) and multi-commitment impact recalculations.
+  3. **Compatibility Confirmed (D-042)**: In PR #16 (commit `2913421e`), P3 and P2 aligned `PersistedSupplierDelayProcessor` to lock `CommitmentRecord` rows FIRST in deterministic ID order BEFORE locking `OperationalSnapshotRecord` rows in deterministic version order. Because both the confirmed-event path and supplier-delay path adhere strictly to the monotonic **Commitment → OperationalSnapshot** lock sequence, AB-BA deadlocks are impossible. Retaining `with_for_update()` on `OperationalSnapshotRecord` in P2 is **fully compatible with D-041**.
+- **Owner Actions**:
+  - P2: Technical review marked PASS; finalize GitHub P2 Owner Approval on PR #16 (HEAD `f3fbadd`).
+  - P3: Retain PR #16 in Draft until final P2/P5 GitHub approvals and operational-source integration.
+
+
+
+
+## 2026-10-22 — P3 Recovery Route Rehearsal Read Surface (PR #28)
+
+- **Status**: MERGED through the normal GitHub PR mechanism. Contributor P3; P5 owner/reviewer Gan0117 approved the exact PR head. PR: https://github.com/jiahui-1101/MouManTAI/pull/28.
+- **Base and coordination**: Main sync `3e77ba1c760710e6d828ab9719d7764bda5d7411` (P5 D-042; initial candidate base `6d24774002edf589224888cdc92641cd978abe7a`); reviewed P3 source `ae0e4db5b0426ed6aec69f9782976405546aa021`; PR #16 remains open and Draft at `f3fbadd6a434cde4dd23b070288e37e531964111` and was not modified.
+- **Scope**: Replace the `/recovery/:id` placeholder with a P3 read-only case view. It requests the canonical case endpoint, follows the trigger-history endpoint only for the explicit `RECOVERY_EVALUATION_INPUTS_PENDING` or `RECOVERY_CASE_COMPLETED` errors, displays persisted identity/version/provenance/evidence, and handles loading, 403, 404, 409 and retry states. `IN_MEMORY_SYNTHETIC` payloads are rejected. No approval or execution controls are exposed.
+- **Files**: `frontend/src/App.tsx` (P5 shared route integration); `frontend/src/features/recovery/RecoveryAppRoute.test.tsx`; `frontend/src/features/recovery/RecoveryCaseRoutePage.tsx`; `frontend/src/features/recovery/RecoveryCaseRoutePage.test.tsx`; `frontend/src/features/recovery/recoveryCaseApi.ts`; `frontend/src/features/recovery/recoveryCaseRoute.css`; `frontend/src/features/recovery/recoveryCaseView.ts`; `docs/TEAM_LOG.md`.
+- **Accepted backend limitation**: At merge time, Main returned 404 NOT_FOUND for GET /v1/recovery/cases/{commitment_id} because Recovery API integration was still in PR #16. P5 approved this frontend route as a standalone, read-only, fail-closed surface; the 404 was not a blocker. This PR added no backend route, migration, fixture fallback, subscriber registration, or execution behavior.
+- **Validation**: `npm run test -- --run src/features/recovery/RecoveryCaseRoutePage.test.tsx src/features/recovery/RecoveryAppRoute.test.tsx src/features/communication/RouteIntegration.test.tsx` — 23 passed; `npm run typecheck` — passed; `npm run build` — passed (509.62 kB JavaScript chunk-size warning); from `backend/`, `Remove-Item Env:TEST_DATABASE_URL -ErrorAction SilentlyContinue; $env:DATABASE_URL='sqlite+pysqlite:///:memory:'; python -m pytest tests/test_core_api.py -q` — 5 passed. Direct TestClient lookup on Main returned 404. No PostgreSQL test was run; no backend source or migration changed.
+- **Commit / review**: code commits f6da11a3e93d87125c1f3178bb74dd153cc26ec5 and 6e675eaa48263d854dbe312dfc4e77d5e8e530a6; P5 Gan0117 approved head 734d931728e8cabdfaa593d63c833107f5a82068; Frontend, Backend, and Hygiene CI checks succeeded. Normal merge commit afbc6b23fe70c8e6f934ef29e64e3520f5d979ac at 2026-10-22 15:59:39 UTC. No P3 author self-approval was required.
+
 ### 2026-10-22 — Incremental Main merge verification: PR #18 and PR #20 (MERGED); PR #19 (IN_REVIEW)
 
 - Contributor: P3 integration assistance. P5 owner `Gan0117` submitted formal `APPROVED` reviews for PR #18 and PR #20; each had three successful GitHub CI checks and no unresolved review threads at merge. Both were merged through GitHub's normal merge API without admin override or direct Main push. PR #18 merge SHA `41bfc581b2b926694d847b06b5beb42c0645b165`; PR #20 merge SHA `a3679308e0f675da07aff6f6510e4c4532fc9e2f`. Verified `origin/main=a3679308e0f675da07aff6f6510e4c4532fc9e2f` after the second merge. P5 also advanced Main independently with feasibility read-router / assessment-writer change `78ce8b0c194461290175947849f80b4a96138707`, retained during PR #20 conflict resolution.
@@ -1434,3 +1644,10 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Changed by PR #19: `backend/app/communication/tests/test_migration_persistence.py`, `backend/app/communication/tests/test_route_integration.py`, and prior IN_REVIEW TEAM_LOG entry. No P4 production logic or migration changed. Main's sole Alembic head remains `0010_p4_recipient_preferences`.
 - Actual post-merge Main validation at `5bd4041`: `python -m pytest app/communication/tests -q -p no:cacheprovider --basetemp=.pytest-basetemp-pr19-merged --tb=short` passed (exit 0; PostgreSQL cases skipped without URL). The four formerly failing checks were rerun with `P4_TEST_DATABASE_URL` pointing to the authorized disposable local PostgreSQL 16 database `p4_test_final_reconcile`: six selected parametrized tests passed, including PostgreSQL migrated-schema comparison and downgrade/re-upgrade in fresh UUID schemas. `python -m alembic heads` returned only `0010_p4_recipient_preferences`; `git diff --check` passed. The disposable PostgreSQL container was stopped afterward. No full application E2E or concurrency validation is claimed from this run.
 - Coordination: PR #22 contains this consolidated record on a docs-only review branch and still requires P5 approval before merge. Draft PR #16 and #10 remain unmerged. Remaining integration blockers include P2 evaluator/currentness and provenance, Recovery schema reconciliation, production P3 subscriber activation, trusted Manager and P4 customer authority, and positive customer acceptance E2E.
+## 2026-10-23 — Repository-wide merge and review inventory (IN_REVIEW)
+
+- Starting Main for this continuation was cfc26d7bbd480e3095c1512448a7ef150ca04a49, the externally merged PR #29 commit. Current Main is afbc6b23fe70c8e6f934ef29e64e3520f5d979ac after PR #28 merged normally; P5 approved its exact head, and its three CI checks succeeded. The recovery API 404 remains an accepted limitation of that standalone read-only PR.
+- PR #16 is open and Draft at 212ff3a98a677c5afaa138e2112809e2493f5694. It is clean against current Main and all three CI checks pass. Fresh P2, P4 and P5 approvals are requested on the reconciled head; old approvals are on f3fbadd6 and do not satisfy this request.
+- PR #30 is open and Draft at 378acc2c2f640cf0132ce453bbee23649ffbf201. Its backend, frontend and hygiene CI checks pass; P4 and P5 approvals are requested. Do not merge the deadline guard or CI change before both approve the current head.
+- PR #10 remains conflicted and is superseded by the integration work in PR #16. PR #22 remains a docs-only Draft; this update preserves the existing PR #18/#20/#19 merge record and corrects the stale PR #28 status. P4/P5 review and successful current-head CI are required before any PR #22 merge.
+- No production P3 subscriber, outbound communication, or real recovery execution was enabled. PR #16 remains the integration dependency for backend Recovery routes and migration/model alignment.

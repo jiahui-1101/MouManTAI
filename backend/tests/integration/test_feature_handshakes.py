@@ -17,7 +17,7 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
@@ -1430,4 +1430,109 @@ def test_postgresql_dual_boundary_transaction_rollback_and_atomic_persistence(
                 {"tenant_id": context.tenant_id, "case_id": case_id},
             )
         session.rollback()
+
+
+def test_postgresql_concurrency_lock_order_safety(test_engine) -> None:
+    """Verify concurrent overlapping transactions between confirmed evaluation and supplier-delay stock updates.
+
+    Verifies that lock acquisition order (CommitmentRecord before OperationalSnapshot/Stock)
+    does not deadlock under concurrent execution, and that optimistic snapshot drift check
+    fails closed safely with SNAPSHOT_DRIFT_CONFLICT without PostgreSQL deadlock exception.
+    """
+    from app.core.feasibility_adapters import AuthoritativeAssessmentWriter
+    from app.core.models import ResourceStockRecord
+    from app.core.reservations import seed_resource_stock
+    from app.feasibility.adapters import AuthoritativeEvaluationAuthority
+    from app.feasibility.api_schemas import AssessCommitmentRequest
+    from app.feasibility.service import evaluate
+
+    SessionLocal = sessionmaker(bind=test_engine, autoflush=False, autocommit=False)
+    setup_session = SessionLocal()
+    tenant = "tenant-synthetic-p2"
+    facade = CoreIntegrationFacade()
+    ctx = _ctx(tenant=tenant)
+
+    # Seed initial stock with snapshot_version = 1
+    seed_resource_stock(setup_session, tenant, "RES_LOCK_01", Decimal("100"), "kg", snapshot_version=1)
+
+    # Seed confirmed commitment matching AuthoritativeEvaluationAuthority
+    c_rec = CommitmentRecord(
+        tenant_id=tenant,
+        commitment_id="com_drift_001",
+        order_id="ord_drift_001",
+        customer_id="cust_drift_001",
+        terms={
+            "sku": "BURGER_TEST",
+            "quantity": "50",
+            "unit": "pcs",
+            "deadline": (_now() + timedelta(days=2)).isoformat(),
+        },
+        agreement_state=AgreementState.CONFIRMED.value,
+        feasibility_state=FeasibilityState.NOT_ASSESSED.value,
+        risk_state=RiskState.NORMAL.value,
+        recovery_state=RecoveryState.NONE.value,
+        fulfilment_state="NOT_STARTED",
+        commitment_version=1,
+        evidence_refs=["ev_init_001"],
+        updated_at=_now(),
+    )
+    setup_session.add(c_rec)
+    setup_session.commit()
+    setup_session.close()
+
+    # Tx1: Confirmed-event evaluation transaction (locks CommitmentRecord first)
+    s1 = SessionLocal()
+    rec1 = s1.scalar(
+        select(CommitmentRecord)
+        .where(CommitmentRecord.tenant_id == tenant, CommitmentRecord.commitment_id == "com_drift_001")
+        .with_for_update()
+    )
+    assert rec1 is not None
+
+    # Tx2: Concurrent supplier-delay / stock mutation transaction
+    # Locks ResourceStockRecord and bumps snapshot_version to 2
+    s2 = SessionLocal()
+    stock2 = s2.scalar(
+        select(ResourceStockRecord)
+        .where(ResourceStockRecord.tenant_id == tenant, ResourceStockRecord.resource_id == "RES_LOCK_01")
+        .with_for_update()
+    )
+    assert stock2 is not None
+    stock2.snapshot_version += 1
+    stock2.total_quantity = Decimal("80")
+    s2.commit()
+    s2.close()
+
+    # Tx1 now attempts assessment expecting snapshot_version = 1
+    writer = AuthoritativeAssessmentWriter(facade.service)
+    authority = AuthoritativeEvaluationAuthority()
+    snapshot, commitment = authority.resolve_current(ctx, "com_drift_001", rec1.commitment_version)
+    base_result = evaluate(snapshot, None, commitment)
+
+    req = AssessCommitmentRequest(
+        expected_commitment_version=rec1.commitment_version,
+        expected_snapshot_version=1,  # Stale: Tx2 already committed version 2
+    )
+
+    # Invariant: Must raise SNAPSHOT_DRIFT_CONFLICT 409 cleanly without deadlock
+    with pytest.raises(DomainError) as exc_info:
+        writer.assess(
+            s1,
+            ctx,
+            commitment,
+            req,
+            snapshot=snapshot,
+            result=base_result,
+            commit=False,
+        )
+
+    assert exc_info.value.code == "SNAPSHOT_DRIFT_CONFLICT"
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.details["expected_snapshot_version"] == 1
+    assert exc_info.value.details["current_snapshot_version"] == 2
+
+    s1.rollback()
+    s1.close()
+
+
 

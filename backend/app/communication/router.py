@@ -120,7 +120,7 @@ def runtime_capabilities(context: Context, directory=Depends(get_customer_direct
     contact = DirectoryContactAdapter(directory).connected
     policies_ready = {"APPROVE_DRAFT", "REJECT_DRAFT", "SEND_MESSAGE"} <= CONSEQUENTIAL_ACTIONS
     return {"tenant_id": context.tenant_id, "mode": "SYNTHETIC" if in_scope else "CLOSED",
-        "label": "Synthetic Demo — No Real Messages Sent" if in_scope else "Trusted authority unavailable",
+        "label": "Synthetic Demo â€” No Real Messages Sent" if in_scope else "Trusted authority unavailable",
         "can_record_preferences": bool(manager and contact), "can_revoke_preferences": bool(manager),
         "integrated_demo_ready": False,
         "blockers": ["CORE_APPROVAL_PRODUCER_UNAVAILABLE"] +
@@ -206,3 +206,13 @@ def communication_summary(service: DraftService, context: Context):
 @router.get("/{communication_id}", response_model=CommunicationRequestView)
 def get_request(communication_id: str, service: Service, context: Context):
     return service.get(context, communication_id)
+
+
+# Keep the application's existing P4 registration. Both owned API prefixes are
+# composed here exactly once, so no shared main.py replacement is necessary.
+communications_router = router
+from .confirmation_router import build_confirmation_router
+confirmation_router = build_confirmation_router(get_draft_authority, get_review_authority)
+router = APIRouter()
+router.include_router(communications_router)
+router.include_router(confirmation_router)

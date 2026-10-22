@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../shared/auth";
 import type { RequestAuthHeaders } from "../../shared/api";
 import { formatKLTimestamp } from "../../shared/date";
@@ -9,6 +10,7 @@ import { CommunicationDetails } from "./CommunicationDetails";
 import { RecipientPreferences } from "./RecipientPreferences";
 import type { MessageDraftView } from "./types";
 import "./communication.css";
+import { P4Loading } from "./P4Feedback";
 
 export function CommunicationCenterPage() {
   const { authHeaders } = useAuth();
@@ -64,7 +66,8 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
     <header className="page-heading">
       <div><p className="eyebrow">Customer communication</p><h2>Communication Center</h2>
         <p className="muted">Review revised promises and prepare customer message drafts.</p></div>
-      <button className="btn btn-secondary" onClick={refresh} disabled={list.isFetching}>Refresh</button>
+      <div className="cc-actions"><Link className="btn btn-secondary" to="/communications/follow-ups">Follow-Up Queue</Link>
+        <button className="btn btn-secondary" onClick={refresh} disabled={list.isFetching}>Refresh</button></div>
     </header>
     <RecipientPreferences auth={auth} />
     <section aria-label="Dashboard statistics">
@@ -82,7 +85,7 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
           {summary.data.unavailable_reasons.needs_attention && <p className="muted text-sm">Needs Attention — Not available: sending failures could not be reliably counted.</p>}
         </> : null}
     </section>
-    {list.isFetching ? <p role="status" className="cc-state">Loading communication requests…</p> : list.isError ?
+    {list.isFetching ? <P4Loading>Loading communication requests…</P4Loading> : list.isError ?
       <ErrorNotice error={list.error} resource="list" onRetry={refresh} /> : <>
       <form className="cc-filters" onSubmit={event => event.preventDefault()} aria-label="Request filters">
         <label>Search references<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Commitment, communication or proposal" /></label>
@@ -112,7 +115,7 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
           </section>
           <section className="cc-panel" aria-label="Communication details">
             {!selected ? <div className="cc-state"><h3>Select a request</h3><p className="muted">Review its proposal and prepare a draft.</p></div> :
-              detail.isFetching ? <p role="status">Loading communication details…</p> :
+              detail.isFetching ? <P4Loading>Loading communication details…</P4Loading> :
               detail.isError ? <ErrorNotice error={detail.error} resource="detail" onRetry={() => { void detail.refetch(); }} /> : detail.data ?
               <CommunicationDetails key={selected} request={detail.data} auth={auth} knownIds={known[selected] ?? []}
                 remember={remember} checked={checked} now={now} /> : null}

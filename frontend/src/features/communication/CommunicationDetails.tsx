@@ -7,6 +7,8 @@ import { channelText, communicationLabel, DisplayBadge, ErrorNotice, errorText, 
 import { DraftPreview } from "./DraftPreview";
 import { ManagerReview } from "./ManagerReview";
 import { OutboundPanel } from "./OutboundPanel";
+import { LinkedConfirmations } from "./LinkedConfirmations";
+import { ApiErrorReference } from "./P4Feedback";
 import type { CommunicationRequestView, DraftLanguage, MessageDraftView } from "./types";
 
 interface Props {
@@ -129,6 +131,7 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
       <p className="muted text-sm">Preparation creates a preview. It does not approve or send a message.</p>
       {prepare.isPending && <p role="status">Preparing your draft…</p>}
       {prepare.isError && <div className="cc-error" role="alert"><p>{errorText(prepare.error, "draft")}</p>
+        <ApiErrorReference error={prepare.error} />
         <button className="btn btn-secondary" onClick={runPrepare} disabled={blocked || prepare.isPending}>Retry preparation</button></div>}
     </section>
     <section className="cc-section" aria-label="Saved drafts"><h4>Saved drafts</h4>
@@ -156,6 +159,7 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
     </section>
     <OutboundPanel key={`${auth.tenantId}:${auth.actorId}:${id}:${validDraft?.draft_id ?? ""}:${validDraft?.content_hash ?? ""}`}
       communicationId={id} draft={validDraft} auth={auth} now={now} />
+    <LinkedConfirmations communicationId={id} auth={auth} />
   </>;
 }
 

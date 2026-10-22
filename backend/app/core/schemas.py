@@ -189,7 +189,8 @@ class CommitmentTerms(ContractModel):
     sku: str = Field(min_length=1)
     quantity: PositiveDecimal
     unit: str = Field(min_length=1)
-    deadline: OffsetAwareDatetime
+    deadline: OffsetAwareDatetime | None = None
+    items: list[RequestedItem] | None = None
     special_instructions: str | None = None
 
 

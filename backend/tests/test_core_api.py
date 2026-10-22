@@ -202,6 +202,7 @@ def test_confirm_proposal_guards(client: TestClient) -> None:
         f"/v1/commitments/{com_id}/proposals",
         headers=_headers(),
         json={
+            "proposal_id": "prop_offer_001",
             "expected_commitment_version": 1,
             "reason": "Offer sent",
         },
@@ -212,7 +213,7 @@ def test_confirm_proposal_guards(client: TestClient) -> None:
         f"/v1/commitments/{com_id}/confirm-proposal",
         headers=_headers(actor="user_staff_01"),
         json={
-            "proposal_id": "prop_001",
+            "proposal_id": "prop_offer_001",
             "proposal_version": 1,
             "expected_commitment_version": 2,
             "decision": "ACCEPT",
@@ -228,7 +229,7 @@ def test_confirm_proposal_guards(client: TestClient) -> None:
         f"/v1/commitments/{com_id}/confirm-proposal",
         headers=_headers(actor="user_manager_01"),
         json={
-            "proposal_id": "prop_001",
+            "proposal_id": "prop_offer_001",
             "proposal_version": 1,
             "expected_commitment_version": 2,
             "decision": "ACCEPT",

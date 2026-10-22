@@ -4,6 +4,7 @@ import { ApiError, apiRequest, authHeaders, type RequestAuthHeaders } from "../.
 import { communicationKeys } from "./api";
 import { reasonText } from "./presentation";
 import { formatKLTimestamp } from "../../shared/date";
+import { ApiErrorReference } from "./P4Feedback";
 
 export interface RuntimeCapabilities {
   tenant_id: string; mode: "SYNTHETIC" | "CLOSED"; label: string;
@@ -83,7 +84,7 @@ export function RecipientPreferences({ auth }: { auth: RequestAuthHeaders }) {
   };
   return <section className="cc-preferences" aria-label="Authority and recipient preferences">
     {capabilities.isFetching ? <p role="status">Checking communication authority…</p> : capabilities.isError ?
-      <div role="alert"><p>{problem(capabilities.error)}</p><button className="btn btn-secondary" onClick={() => void capabilities.refetch()}>Retry authority status</button></div> :
+      <div role="alert" className="cc-error p4-authority-notice"><p>{problem(capabilities.error)}</p><ApiErrorReference error={capabilities.error} /><button className="btn btn-secondary" onClick={() => void capabilities.refetch()}>Retry authority status</button></div> :
       capabilities.data ? <>
         <p className="cc-demo-label">{capabilities.data.mode === "SYNTHETIC" ? "Synthetic Demo — No Real Messages Sent" : "Production authority unavailable — actions remain blocked"}</p>
         {!capabilities.data.integrated_demo_ready && <details><summary>Integration dependencies pending</summary>
@@ -95,7 +96,7 @@ export function RecipientPreferences({ auth }: { auth: RequestAuthHeaders }) {
       <p className="muted">Transactional revised terms only. Verified contact does not imply consent. Synthetic fixture permissions expire and never authorize real sending.</p>
       {capabilities.data?.mode !== "SYNTHETIC" ? <p>Explicit synthetic scope or trusted production authorization is required.</p> : <>
         {preferences.isFetching ? <p role="status">Loading recipient preferences…</p> : preferences.isError ?
-          <div role="alert"><p>{problem(preferences.error)}</p><button className="btn btn-secondary" onClick={() => void preferences.refetch()}>Retry preferences</button></div> :
+          <div role="alert" className="cc-error"><p>{problem(preferences.error)}</p><ApiErrorReference error={preferences.error} /><button className="btn btn-secondary" onClick={() => void preferences.refetch()}>Retry preferences</button></div> :
           preferences.data?.length ? <ul className="cc-preference-list">{preferences.data.map(row => <li key={`${row.customer_id}:${row.channel}`}>
             <strong>{row.customer_id}</strong> · {row.channel} · {row.consent_status}<br />
             <span>{row.consent_purpose} · Evidence: {row.consent_evidence_ref}</span><br />
@@ -121,7 +122,7 @@ export function RecipientPreferences({ auth }: { auth: RequestAuthHeaders }) {
             onClick={() => save.mutate(pending)}>Confirm preference change</button>
           <button className="btn btn-secondary" disabled={save.isPending} onClick={() => { setPending(null); save.reset(); }}>Cancel preference change</button>
         </div>}
-        {save.isError && <p role="alert">{problem(save.error)} Refresh preferences after a conflict. Retrying this confirmation uses the same request key.</p>}
+        {save.isError && <div role="alert" className="cc-error"><p>{problem(save.error)} Refresh preferences after a conflict. Retrying this confirmation uses the same request key.</p><ApiErrorReference error={save.error} /></div>}
         {save.isSuccess && <p role="status">Preference change persisted. Sending still requires current approval and eligibility.</p>}
       </>}
     </div>}
