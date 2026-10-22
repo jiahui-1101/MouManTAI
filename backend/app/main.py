@@ -12,9 +12,18 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core.errors import DomainError
-from app.core.router import router as core_router
 from app.communication.router import router as communication_router
+from app.core.errors import DomainError
+from app.core.feasibility_adapters import (
+    AuthoritativeAssessmentHistoryReader,
+    AuthoritativeImpactReader,
+)
+from app.core.router import router as core_router
+from app.feasibility.api_dependencies import (
+    get_assessment_history,
+    get_impact_reader,
+)
+from app.feasibility.router import feasibility_read_router
 
 
 class HealthResponse(BaseModel):
@@ -27,7 +36,7 @@ app = FastAPI(title="MouManTAI API", version="0.1.0")
 
 origins = [
     origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
     if origin.strip()
 ]
 app.add_middleware(
@@ -39,6 +48,10 @@ app.add_middleware(
 )
 app.include_router(core_router)
 app.include_router(communication_router)
+app.include_router(feasibility_read_router)
+
+app.dependency_overrides[get_assessment_history] = lambda: AuthoritativeAssessmentHistoryReader()
+app.dependency_overrides[get_impact_reader] = lambda: AuthoritativeImpactReader()
 
 
 @app.exception_handler(DomainError)
