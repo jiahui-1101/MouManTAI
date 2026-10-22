@@ -1,4 +1,4 @@
-"""Unregistered P4 router. P5 owns application registration and authority wiring."""
+"""P4 routes. Application registration and trusted authority wiring remain P5-owned."""
 
 from typing import Annotated
 
@@ -8,24 +8,55 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import RequestContext, get_db, get_request_context
 
 from .schemas import (
-    CommunicationRequestView, CreateCommunicationRequest, MessageDraftView,
-    PrepareDraftRequest, RequestStatus,
+    CommunicationRequestView, CommunicationSummary, CreateCommunicationRequest, MessageDraftView,
+    ApproveDraftRequest, DraftReviewView, PrepareDraftRequest, RejectDraftRequest, RequestStatus,
 )
 from .drafting import DraftAuthority, MessageDraftService
 from .service import CommunicationRequestService, RequestAuthority
+from .review import DraftReviewService, ReviewAuthority
+from .authority_adapters import RuntimeDraftAuthority, RuntimeRequestAuthority, RuntimeReviewAuthority
+from .outbound import OutboundService, RuntimeSendAuthority, SendAuthority
+from .providers import LocalMockProvider, OutboundProvider
+from .schemas import OutboundMessageView, SendEligibility, SendMessageRequest
+from .demo_policy import SyntheticScope
+from .contacts import DirectoryContactAdapter, get_customer_directory
+from .preferences import PreferenceCommand, PreferenceService, PreferenceView
+from .synthetic_authorities import (
+    SyntheticRequestAuthority, SyntheticDraftAuthority, SyntheticReviewAuthority,
+    SyntheticSendAuthority, ConsentBoundDraftAuthority,
+)
 
 
 router = APIRouter(prefix="/v1/communications", tags=["communications"])
 
 
-def get_request_authority() -> RequestAuthority | None:
-    # Intentionally unconfigured: no guessed role policy or hardcoded demo approval.
-    return None
+def get_request_authority() -> RequestAuthority:
+    scope = SyntheticScope.from_environment()
+    if scope.enabled:
+        return SyntheticRequestAuthority(scope)
+    return RuntimeRequestAuthority()
 
 
-def get_draft_authority() -> DraftAuthority | None:
-    # Separate action-specific revalidation; do not reuse client claims or old snapshots.
-    return None
+def get_draft_authority(directory=Depends(get_customer_directory)) -> DraftAuthority:
+    scope = SyntheticScope.from_environment()
+    if scope.enabled:
+        return ConsentBoundDraftAuthority(SyntheticDraftAuthority(scope), scope, directory)
+    return RuntimeDraftAuthority()
+
+
+def get_review_authority() -> ReviewAuthority:
+    scope = SyntheticScope.from_environment()
+    if scope.enabled:
+        return SyntheticReviewAuthority(scope)
+    return RuntimeReviewAuthority()
+
+
+def get_review_service(
+    db: Annotated[Session, Depends(get_db)],
+    drafts: Annotated[DraftAuthority | None, Depends(get_draft_authority)],
+    authority: Annotated[ReviewAuthority | None, Depends(get_review_authority)],
+) -> DraftReviewService:
+    return DraftReviewService(db, drafts, authority)
 
 
 def get_draft_service(
@@ -45,6 +76,99 @@ def get_service(
 Service = Annotated[CommunicationRequestService, Depends(get_service)]
 Context = Annotated[RequestContext, Depends(get_request_context)]
 DraftService = Annotated[MessageDraftService, Depends(get_draft_service)]
+ReviewService = Annotated[DraftReviewService, Depends(get_review_service)]
+
+
+def get_send_authority() -> SendAuthority:
+    scope = SyntheticScope.from_environment()
+    if scope.enabled:
+        return SyntheticSendAuthority(scope)
+    return RuntimeSendAuthority()
+
+
+def get_outbound_provider() -> OutboundProvider:
+    return LocalMockProvider()
+
+
+def get_outbound_service(db: Annotated[Session, Depends(get_db)],
+    drafts: Annotated[DraftAuthority | None, Depends(get_draft_authority)],
+    reviews: Annotated[ReviewAuthority | None, Depends(get_review_authority)],
+    authority: Annotated[SendAuthority, Depends(get_send_authority)],
+    provider: Annotated[OutboundProvider, Depends(get_outbound_provider)]) -> OutboundService:
+    return OutboundService(db, drafts, reviews, authority, provider)
+
+
+Outbound = Annotated[OutboundService, Depends(get_outbound_service)]
+
+
+def get_preference_service(db: Annotated[Session, Depends(get_db)],
+                           directory=Depends(get_customer_directory)) -> PreferenceService:
+    return PreferenceService(db, SyntheticScope.from_environment(), directory)
+
+
+Preferences = Annotated[PreferenceService, Depends(get_preference_service)]
+
+
+@router.get("/runtime-capabilities")
+def runtime_capabilities(context: Context, directory=Depends(get_customer_directory)):
+    from .service import _require_context
+    from app.core.policy import CONSEQUENTIAL_ACTIONS
+    _require_context(context)
+    scope = SyntheticScope.from_environment()
+    in_scope = scope.enabled and context.tenant_id in scope.tenants
+    manager = in_scope and context.actor_role in {"OWNER", "MANAGER"}
+    contact = DirectoryContactAdapter(directory).connected
+    policies_ready = {"APPROVE_DRAFT", "REJECT_DRAFT", "SEND_MESSAGE"} <= CONSEQUENTIAL_ACTIONS
+    return {"tenant_id": context.tenant_id, "mode": "SYNTHETIC" if in_scope else "CLOSED",
+        "label": "Synthetic Demo — No Real Messages Sent" if in_scope else "Trusted authority unavailable",
+        "can_record_preferences": bool(manager and contact), "can_revoke_preferences": bool(manager),
+        "integrated_demo_ready": False,
+        "blockers": ["CORE_APPROVAL_PRODUCER_UNAVAILABLE"] +
+            ([] if policies_ready else ["CORE_ACTION_POLICY_UNAVAILABLE"]) +
+            ([] if contact else ["P1_CONTACT_CONTRACT_UNAVAILABLE"]) +
+            ([] if in_scope else ["PRODUCTION_AUTH_UNAVAILABLE"])}
+
+
+@router.get("/recipient-preferences", response_model=list[PreferenceView])
+def recipient_preferences(service: Preferences, context: Context):
+    return service.list(context)
+
+
+@router.post("/recipient-preferences", response_model=PreferenceView)
+def save_recipient_preference(command: PreferenceCommand, service: Preferences, context: Context):
+    return service.save(context, command)
+
+
+@router.get("/{communication_id}/outbound", response_model=list[OutboundMessageView])
+def outbound_history(communication_id: str, service: Outbound, context: Context):
+    return service.history(context, communication_id)
+
+
+@router.get("/{communication_id}/drafts/{draft_id}/send-eligibility", response_model=SendEligibility)
+def send_eligibility(communication_id: str, draft_id: str, service: Outbound, context: Context):
+    return service.eligibility(context, communication_id, draft_id)
+
+
+@router.post("/{communication_id}/drafts/{draft_id}/send", response_model=OutboundMessageView)
+def send_message(communication_id: str, draft_id: str, command: SendMessageRequest, service: Outbound, context: Context):
+    return service.send(context, communication_id, draft_id, command)
+
+
+@router.get("/{communication_id}/drafts/{draft_id}/review", response_model=DraftReviewView)
+def read_draft_review(communication_id: str, draft_id: str, service: ReviewService, context: Context):
+    return service.get(context, communication_id, draft_id)
+
+
+@router.post("/{communication_id}/drafts/{draft_id}/approve", response_model=DraftReviewView)
+def approve_message_draft(communication_id: str, draft_id: str, command: ApproveDraftRequest,
+                          service: ReviewService, context: Context):
+    return service.approve(context, communication_id, draft_id, command)
+
+
+@router.post("/{communication_id}/drafts/{draft_id}/reject", response_model=DraftReviewView)
+def reject_message_draft(communication_id: str, draft_id: str, command: RejectDraftRequest,
+                         service: ReviewService, context: Context):
+    return service.reject(context, communication_id, draft_id, command)
 
 
 @router.post("/{communication_id}/prepare", response_model=MessageDraftView)
@@ -71,6 +195,12 @@ def list_requests(
     request_status: RequestStatus | None = None,
 ):
     return service.list(context, commitment_id=commitment_id, request_status=request_status)
+
+
+# Static path must precede the dynamic /{communication_id} route.
+@router.get("/summary", response_model=CommunicationSummary)
+def communication_summary(service: DraftService, context: Context):
+    return service.summary(context)
 
 
 @router.get("/{communication_id}", response_model=CommunicationRequestView)
