@@ -832,7 +832,20 @@ class CommitmentService:
             record.recovery_state = RecoveryState.RECOVERY_REQUIRED.value
             record.commitment_version += 1
             record.updated_at = _now()
-            new_state = _commitment_snapshot(record)
+            assessment_state = {
+                **_commitment_snapshot(record),
+                "assessment_id": assessment.assessment_id,
+                "snapshot_version": assessment.snapshot_version,
+                "feasibility_state": assessment.status.value,
+                "constraints": [
+                    c.model_dump(mode="json") if hasattr(c, "model_dump") else c
+                    for c in assessment.constraints
+                ],
+                "affected_commitment_ids": assessment.affected_commitment_ids,
+                "evidence_refs": assessment.evidence_refs,
+                "assessed_at": _aware(assessment.assessed_at).isoformat(),
+            }
+            new_state = assessment_state
 
             if is_new_risk_edge:
                 # Single-edge risk transition: emit COMMITMENT_AT_RISK only on edge entering AT_RISK
@@ -895,7 +908,19 @@ class CommitmentService:
         elif assessment.status == FeasibilityState.UNKNOWN:
             record.commitment_version += 1
             record.updated_at = _now()
-            new_state = _commitment_snapshot(record)
+            new_state = {
+                **_commitment_snapshot(record),
+                "assessment_id": assessment.assessment_id,
+                "snapshot_version": assessment.snapshot_version,
+                "feasibility_state": assessment.status.value,
+                "constraints": [
+                    c.model_dump(mode="json") if hasattr(c, "model_dump") else c
+                    for c in assessment.constraints
+                ],
+                "affected_commitment_ids": assessment.affected_commitment_ids,
+                "evidence_refs": assessment.evidence_refs,
+                "assessed_at": _aware(assessment.assessed_at).isoformat(),
+            }
 
             audit = self._audit(
                 context=context,
@@ -929,7 +954,19 @@ class CommitmentService:
                 record.recovery_state = RecoveryState.COMPLETED.value
             record.commitment_version += 1
             record.updated_at = _now()
-            new_state = _commitment_snapshot(record)
+            new_state = {
+                **_commitment_snapshot(record),
+                "assessment_id": assessment.assessment_id,
+                "snapshot_version": assessment.snapshot_version,
+                "feasibility_state": assessment.status.value,
+                "constraints": [
+                    c.model_dump(mode="json") if hasattr(c, "model_dump") else c
+                    for c in assessment.constraints
+                ],
+                "affected_commitment_ids": assessment.affected_commitment_ids,
+                "evidence_refs": assessment.evidence_refs,
+                "assessed_at": _aware(assessment.assessed_at).isoformat(),
+            }
 
             audit = self._audit(
                 context=context,
