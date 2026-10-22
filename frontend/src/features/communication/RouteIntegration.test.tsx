@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../App";
@@ -23,7 +23,8 @@ beforeEach(() => {
   p4Status = 200;
   fetchMock.mockReset();
   fetchMock.mockImplementation(async input => {
-    const path = new URL(String(input)).pathname;
+    // P1's operational API uses relative URLs; P2/P4 use the shared absolute URL.
+    const path = new URL(String(input), "http://localhost").pathname;
     if (path.startsWith("/v1/communications")) {
       if (path.endsWith("/runtime-capabilities")) return reply({ tenant_id: "tenant_route_test", mode: "CLOSED",
         label: "Trusted authority unavailable", can_record_preferences: false, can_revoke_preferences: false,
@@ -100,13 +101,34 @@ describe("Real App communication route", () => {
 
   it.each([
     ["/", "Commitment Overview"], ["/overview", "Commitment Overview"],
-    ["/activity", "Activity & Audit History"], ["/inbox", "Smart inbox"],
-    ["/orders/order", "Order context"], ["/recovery/recovery", "Recovery case"],
+    ["/activity", "Activity & Audit History"], ["/recovery/recovery", "Recovery case"],
     ["/confirmations/confirmation", "Confirmation workspace"], ["/unknown-route", "Page not found"],
   ])("preserves the actual App route %s", async (path, heading) => {
     mount(path);
     expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MouManTAI" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["/inbox", "Message Inbox", ".p1-inbox", "Retry Inbox", "/v1/messages"],
+    ["/orders/order", "Order Context Unavailable", ".p1-context-error-card", "Retry", "/v1/contexts/by-order/order"],
+  ])("preserves the actual App route %s", async (path, heading, pageSelector, retryLabel, apiPath) => {
+    mount(path);
+    expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("Message request failed (404).");
+    expect(error.closest(pageSelector)).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "MouManTAI" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeInTheDocument();
+    expect(screen.queryByText(/owner module pending/i)).not.toBeInTheDocument();
+    const calls = () => fetchMock.mock.calls.filter(([url]) =>
+      new URL(String(url), "http://localhost").pathname === apiPath);
+    expect(calls()).toHaveLength(1);
+    fireEvent.click(within(error).getByRole("button", { name: retryLabel }));
+    await waitFor(() => expect(calls()).toHaveLength(2));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Message request failed (404).");
+    expect(screen.getByRole("button", { name: retryLabel })).toBeEnabled();
+    expect(window.location.pathname).toBe(path);
   });
 
   it.each([
