@@ -6,6 +6,7 @@ import { formatKLTimestamp } from "../../shared/date";
 import { communicationKeys, getCommunication, getCommunicationSummary, listCommunications } from "./api";
 import { communicationLabel, channelText, DisplayBadge, ErrorNotice } from "./presentation";
 import { CommunicationDetails } from "./CommunicationDetails";
+import { RecipientPreferences } from "./RecipientPreferences";
 import type { MessageDraftView } from "./types";
 import "./communication.css";
 
@@ -65,6 +66,7 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
         <p className="muted">Review revised promises and prepare customer message drafts.</p></div>
       <button className="btn btn-secondary" onClick={refresh} disabled={list.isFetching}>Refresh</button>
     </header>
+    <RecipientPreferences auth={auth} />
     <section aria-label="Dashboard statistics">
       <div className="cc-metrics" aria-label="Communication summary" aria-busy={summary.isFetching}>
         <Metric title="Total" count={summary.isSuccess && !summary.isFetching ? summary.data.total : null} />

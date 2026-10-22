@@ -15,20 +15,39 @@ from .drafting import DraftAuthority, MessageDraftService
 from .service import CommunicationRequestService, RequestAuthority
 from .review import DraftReviewService, ReviewAuthority
 from .authority_adapters import RuntimeDraftAuthority, RuntimeRequestAuthority, RuntimeReviewAuthority
+from .outbound import OutboundService, RuntimeSendAuthority, SendAuthority
+from .providers import LocalMockProvider, OutboundProvider
+from .schemas import OutboundMessageView, SendEligibility, SendMessageRequest
+from .demo_policy import SyntheticScope
+from .contacts import DirectoryContactAdapter, get_customer_directory
+from .preferences import PreferenceCommand, PreferenceService, PreferenceView
+from .synthetic_authorities import (
+    SyntheticRequestAuthority, SyntheticDraftAuthority, SyntheticReviewAuthority,
+    SyntheticSendAuthority, ConsentBoundDraftAuthority,
+)
 
 
 router = APIRouter(prefix="/v1/communications", tags=["communications"])
 
 
 def get_request_authority() -> RequestAuthority:
+    scope = SyntheticScope.from_environment()
+    if scope.enabled:
+        return SyntheticRequestAuthority(scope)
     return RuntimeRequestAuthority()
 
 
-def get_draft_authority() -> DraftAuthority:
+def get_draft_authority(directory=Depends(get_customer_directory)) -> DraftAuthority:
+    scope = SyntheticScope.from_environment()
+    if scope.enabled:
+        return ConsentBoundDraftAuthority(SyntheticDraftAuthority(scope), scope, directory)
     return RuntimeDraftAuthority()
 
 
 def get_review_authority() -> ReviewAuthority:
+    scope = SyntheticScope.from_environment()
+    if scope.enabled:
+        return SyntheticReviewAuthority(scope)
     return RuntimeReviewAuthority()
 
 
@@ -58,6 +77,81 @@ Service = Annotated[CommunicationRequestService, Depends(get_service)]
 Context = Annotated[RequestContext, Depends(get_request_context)]
 DraftService = Annotated[MessageDraftService, Depends(get_draft_service)]
 ReviewService = Annotated[DraftReviewService, Depends(get_review_service)]
+
+
+def get_send_authority() -> SendAuthority:
+    scope = SyntheticScope.from_environment()
+    if scope.enabled:
+        return SyntheticSendAuthority(scope)
+    return RuntimeSendAuthority()
+
+
+def get_outbound_provider() -> OutboundProvider:
+    return LocalMockProvider()
+
+
+def get_outbound_service(db: Annotated[Session, Depends(get_db)],
+    drafts: Annotated[DraftAuthority | None, Depends(get_draft_authority)],
+    reviews: Annotated[ReviewAuthority | None, Depends(get_review_authority)],
+    authority: Annotated[SendAuthority, Depends(get_send_authority)],
+    provider: Annotated[OutboundProvider, Depends(get_outbound_provider)]) -> OutboundService:
+    return OutboundService(db, drafts, reviews, authority, provider)
+
+
+Outbound = Annotated[OutboundService, Depends(get_outbound_service)]
+
+
+def get_preference_service(db: Annotated[Session, Depends(get_db)],
+                           directory=Depends(get_customer_directory)) -> PreferenceService:
+    return PreferenceService(db, SyntheticScope.from_environment(), directory)
+
+
+Preferences = Annotated[PreferenceService, Depends(get_preference_service)]
+
+
+@router.get("/runtime-capabilities")
+def runtime_capabilities(context: Context, directory=Depends(get_customer_directory)):
+    from .service import _require_context
+    from app.core.policy import CONSEQUENTIAL_ACTIONS
+    _require_context(context)
+    scope = SyntheticScope.from_environment()
+    in_scope = scope.enabled and context.tenant_id in scope.tenants
+    manager = in_scope and context.actor_role in {"OWNER", "MANAGER"}
+    contact = DirectoryContactAdapter(directory).connected
+    policies_ready = {"APPROVE_DRAFT", "REJECT_DRAFT", "SEND_MESSAGE"} <= CONSEQUENTIAL_ACTIONS
+    return {"tenant_id": context.tenant_id, "mode": "SYNTHETIC" if in_scope else "CLOSED",
+        "label": "Synthetic Demo — No Real Messages Sent" if in_scope else "Trusted authority unavailable",
+        "can_record_preferences": bool(manager and contact), "can_revoke_preferences": bool(manager),
+        "integrated_demo_ready": False,
+        "blockers": ["CORE_APPROVAL_PRODUCER_UNAVAILABLE"] +
+            ([] if policies_ready else ["CORE_ACTION_POLICY_UNAVAILABLE"]) +
+            ([] if contact else ["P1_CONTACT_CONTRACT_UNAVAILABLE"]) +
+            ([] if in_scope else ["PRODUCTION_AUTH_UNAVAILABLE"])}
+
+
+@router.get("/recipient-preferences", response_model=list[PreferenceView])
+def recipient_preferences(service: Preferences, context: Context):
+    return service.list(context)
+
+
+@router.post("/recipient-preferences", response_model=PreferenceView)
+def save_recipient_preference(command: PreferenceCommand, service: Preferences, context: Context):
+    return service.save(context, command)
+
+
+@router.get("/{communication_id}/outbound", response_model=list[OutboundMessageView])
+def outbound_history(communication_id: str, service: Outbound, context: Context):
+    return service.history(context, communication_id)
+
+
+@router.get("/{communication_id}/drafts/{draft_id}/send-eligibility", response_model=SendEligibility)
+def send_eligibility(communication_id: str, draft_id: str, service: Outbound, context: Context):
+    return service.eligibility(context, communication_id, draft_id)
+
+
+@router.post("/{communication_id}/drafts/{draft_id}/send", response_model=OutboundMessageView)
+def send_message(communication_id: str, draft_id: str, command: SendMessageRequest, service: Outbound, context: Context):
+    return service.send(context, communication_id, draft_id, command)
 
 
 @router.get("/{communication_id}/drafts/{draft_id}/review", response_model=DraftReviewView)

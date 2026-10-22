@@ -19,7 +19,7 @@ from app.core.models import (
 from app.core.outbox import to_domain_event
 from app.core.schemas import CommitmentTerms, CommunicationChannel, DomainEvent
 
-from .repository import CommunicationRequestRepository
+from .repository import CommunicationRequestRepository, OutboundRepository
 from .schemas import (
     CommunicationRequestView, CreateCommunicationRequest, RecoveryCommunicationReference,
     RequestAuthorization, RequestStatus,
@@ -364,7 +364,7 @@ class CommunicationRequestService:
             record = self.repository.get(context.tenant_id, communication_id)
             if record is None:
                 _fail("COMMUNICATION_NOT_FOUND", "Communication request not found", 404)
-            return self.repository.view(record)
+            return self._with_outbound(self.repository.view(record))
         except SQLAlchemyError as exc:
             self.db.rollback()
             raise DomainError(
@@ -377,7 +377,7 @@ class CommunicationRequestService:
     ) -> list[CommunicationRequestView]:
         _require_context(context)
         try:
-            return [self.repository.view(record) for record in self.repository.list(
+            return [self._with_outbound(self.repository.view(record)) for record in self.repository.list(
                 context.tenant_id, commitment_id, request_status,
             )]
         except SQLAlchemyError as exc:
@@ -385,3 +385,14 @@ class CommunicationRequestService:
             raise DomainError(
                 "COMMUNICATION_PERSISTENCE_UNAVAILABLE", "Communication storage unavailable", status_code=503,
             ) from exc
+
+    def _with_outbound(self, view: CommunicationRequestView) -> CommunicationRequestView:
+        # Read-only display projection; intake's immutable snapshot is untouched.
+        try:
+            with self.db.begin_nested():
+                statuses = {row.status for row in OutboundRepository(self.db).list(
+                    view.reference.tenant_id, view.communication_id)}
+            status = next((s for s in ("SENT", "FAILED", "DELIVERY_UNKNOWN", "QUEUED") if s in statuses), None)
+            return view.model_copy(update={"outbound_status": status})
+        except SQLAlchemyError:
+            return view.model_copy(update={"outbound_status": None})

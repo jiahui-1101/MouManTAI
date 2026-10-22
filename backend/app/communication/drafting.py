@@ -15,7 +15,7 @@ from app.core.models import AuditEventRecord, OutboxEventRecord
 from app.core.schemas import CommitmentTerms, CommunicationChannel
 
 from . import templates
-from .repository import MessageDraftRepository
+from .repository import MessageDraftRepository, OutboundRepository
 from .schemas import (
     CommunicationSummary, CreateCommunicationRequest, MessageDraftView, PrepareDraftRequest,
     RecoveryCommunicationReference, RequestAuthorization,
@@ -65,7 +65,15 @@ class MessageDraftService:
                 "COMMUNICATION_SUMMARY_UNAVAILABLE", "Communication statistics storage is unavailable", status_code=503,
             ) from exc
         try:
-            reasons = {"sent": "SENDING_RECORDS_UNAVAILABLE"}
+            reasons = {}
+            sent = None
+            attention = blocked
+            try:
+                with self.db.begin_nested():
+                    sent, attention = OutboundRepository(self.db).summary(context.tenant_id)
+            except SQLAlchemyError:
+                reasons["sent"] = "SENDING_RECORDS_UNAVAILABLE"
+                reasons["needs_attention"] = "SENDING_RECORDS_UNAVAILABLE"
             drafted = None
             if self.authority is None:
                 reasons["drafted"] = "DRAFT_REVALIDATION_UNAVAILABLE"
@@ -85,8 +93,8 @@ class MessageDraftService:
                 except ValidationError:
                     reasons["drafted"] = "DRAFT_VALIDITY_UNAVAILABLE"
             return CommunicationSummary(
-                tenant_id=context.tenant_id, total=total, drafted=drafted, sent=None,
-                needs_attention=blocked, checked_at=checked_at, unavailable_reasons=reasons,
+                tenant_id=context.tenant_id, total=total, drafted=drafted, sent=sent,
+                needs_attention=attention, checked_at=checked_at, unavailable_reasons=reasons,
             )
         finally:
             self.db.rollback()  # Release currentness locks; summary writes nothing.
@@ -104,7 +112,13 @@ class MessageDraftService:
             "REQUEST_REFERENCE_CONFLICT", "DRAFT_REVALIDATION_REQUIRED", "DRAFT_INTEGRITY_ERROR",
         }
         valid_requests: set[str] = set()
+        sent_drafts = OutboundRepository(self.db).sent_drafts(context.tenant_id)
         for record in self.repository.for_tenant(context.tenant_id):
+            if record.draft_id in sent_drafts:
+                continue
+            request = self.requests.repository.get(context.tenant_id, record.communication_id)
+            if request is None or request.request_status != "READY_FOR_DRAFTING" or self.requests.repository.view(request).request_status != "READY_FOR_DRAFTING":
+                continue
             if record.communication_id in valid_requests:
                 continue
             # Invalid persisted shape cannot be treated as a reliable numeric count.

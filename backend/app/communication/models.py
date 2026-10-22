@@ -1,12 +1,68 @@
-"""P4-owned persistence. P5 must register metadata and supply the Alembic migration."""
+"""P4-owned durable persistence, registered by Alembic migrations 0008 and 0009."""
 
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKeyConstraint, Index, Integer, JSON, String, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKeyConstraint, Index, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+
+
+class RecipientPreferenceRecord(Base):
+    __tablename__ = "communication_recipient_preferences"
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    customer_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    channel: Mapped[str] = mapped_column(String(32), primary_key=True)
+    consent_purpose: Mapped[str] = mapped_column(String(64), primary_key=True)
+    recipient_identity_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    consent_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    consent_evidence_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    consent_recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consent_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    allowed_contact_hours: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    last_audit_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_by_actor_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    __table_args__ = (
+        CheckConstraint("consent_status IN ('OPTED_IN','OPTED_OUT')", name="ck_preference_status"),
+        CheckConstraint("version >= 1", name="ck_preference_version"),
+        CheckConstraint("channel IN ('MOCK_EMAIL','MOCK_WHATSAPP','MOCK_TELEGRAM')", name="ck_preference_channel"),
+        CheckConstraint("consent_purpose = 'TRANSACTIONAL_REVISED_TERMS'", name="ck_preference_purpose"),
+        CheckConstraint("source = 'SYNTHETIC_FIXTURE'", name="ck_preference_source"),
+        CheckConstraint("consent_expires_at > consent_recorded_at", name="ck_preference_expiry"),
+        CheckConstraint("(consent_status = 'OPTED_OUT' AND revoked_at IS NOT NULL) OR (consent_status = 'OPTED_IN' AND revoked_at IS NULL)", name="ck_preference_revocation"),
+    )
+
+
+class RecipientPreferenceChangeRecord(Base):
+    """Append-only service journal; this is consent history, never plan approval."""
+    __tablename__ = "communication_recipient_preference_changes"
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    audit_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    request_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    command_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    customer_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    consent_purpose: Mapped[str] = mapped_column(String(64), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_state: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    new_state: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "request_key", name="uq_preference_change_key"),
+        UniqueConstraint("tenant_id", "customer_id", "channel", "consent_purpose", "version", name="uq_preference_change_version"),
+        ForeignKeyConstraint(["tenant_id", "customer_id", "channel", "consent_purpose"],
+            ["communication_recipient_preferences.tenant_id", "communication_recipient_preferences.customer_id", "communication_recipient_preferences.channel", "communication_recipient_preferences.consent_purpose"], name="fk_preference_change_scope"),
+    )
 
 
 class CommunicationRequestRecord(Base):
@@ -102,5 +158,60 @@ class DraftReviewRecord(Base):
         ),
         UniqueConstraint("tenant_id", "communication_id", "draft_id", name="uq_review_terminal_draft"),
         UniqueConstraint("tenant_id", "request_key", name="uq_review_request_key"),
+        UniqueConstraint("tenant_id", "communication_id", "draft_id", "review_id", name="uq_review_exact_identity"),
         Index("ix_review_tenant_request", "tenant_id", "communication_id"),
+    )
+
+
+class OutboundMessageRecord(Base):
+    __tablename__ = "communication_outbound_messages"
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    outbound_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    communication_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    draft_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    approved_review_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    validation_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    recipient_identity_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_reference: Mapped[str | None] = mapped_column(String(128))
+    provider_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    authorization_evidence: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(String(128))
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "communication_id", "draft_id", "approved_review_id"],
+            ["communication_draft_reviews.tenant_id", "communication_draft_reviews.communication_id",
+             "communication_draft_reviews.draft_id", "communication_draft_reviews.review_id"], name="fk_outbound_exact_review"),
+        UniqueConstraint("tenant_id", "draft_id", name="uq_outbound_one_draft"),
+        UniqueConstraint("tenant_id", "request_key", name="uq_outbound_request_key"),
+        UniqueConstraint("channel", "provider_reference", name="uq_outbound_provider_reference"),
+        CheckConstraint("status IN ('QUEUED','SENT','FAILED','DELIVERY_UNKNOWN')", name="ck_outbound_status"),
+        CheckConstraint("(status = 'SENT' AND provider_confirmed AND provider_reference IS NOT NULL AND sent_at IS NOT NULL) OR (status <> 'SENT' AND NOT provider_confirmed AND sent_at IS NULL)", name="ck_outbound_confirmed_sent"),
+        Index("ix_outbound_tenant_request", "tenant_id", "communication_id"),
+        Index("ix_outbound_tenant_status", "tenant_id", "status"),
+    )
+
+
+class SendAttemptRecord(Base):
+    __tablename__ = "communication_send_attempts"
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    outbound_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    attempt_number: Mapped[int] = mapped_column(Integer, primary_key=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_reference: Mapped[str | None] = mapped_column(String(128))
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "outbound_id"],
+            ["communication_outbound_messages.tenant_id", "communication_outbound_messages.outbound_id"], name="fk_attempt_outbound"),
+        CheckConstraint("attempt_number = 1", name="ck_attempt_one_submission"),
+        CheckConstraint("status IN ('QUEUED','SENT','FAILED','DELIVERY_UNKNOWN')", name="ck_attempt_status"),
     )

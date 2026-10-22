@@ -44,11 +44,12 @@ from app.db.base import Base
 from app.main import app
 
 BACKEND = Path(__file__).resolve().parents[3]
-HEAD = "0008_p4_communication"
+HEAD = "0009_p4_outbound_messaging"
 PREVIOUS = "0007_recovery_case_constraints_alignment"
 TABLES = {
     "communication_requests", "communication_request_sources",
     "communication_drafts", "communication_draft_reviews",
+    "communication_outbound_messages", "communication_send_attempts",
 }
 
 
@@ -102,9 +103,9 @@ def migrated(request, tmp_path, monkeypatch):
 def test_single_head_and_real_parent():
     scripts = ScriptDirectory.from_config(config())
     assert scripts.get_heads() == [HEAD]
-    assert scripts.get_revision(HEAD).down_revision == PREVIOUS
+    assert scripts.get_revision(HEAD).down_revision == "0008_p4_communication"
     assert len(HEAD) <= 32
-    assert len(list(scripts.walk_revisions())) == 8
+    assert len(list(scripts.walk_revisions())) == 9
 
 
 def test_postgresql_offline_ddl_and_fresh_metadata_registration(monkeypatch):
@@ -129,7 +130,7 @@ def test_postgresql_offline_ddl_and_fresh_metadata_registration(monkeypatch):
     stream = StringIO()
     with redirect_stdout(stream):
         command.downgrade(config(), f"{HEAD}:{PREVIOUS}", sql=True)
-    assert stream.getvalue().count("DROP TABLE communication_") == 4
+    assert stream.getvalue().count("DROP TABLE communication_") == 6
     assert "DROP TABLE commitments" not in stream.getvalue()
 
 
@@ -390,9 +391,9 @@ def test_registered_api_uses_migrated_database_without_authority_bypass(migrated
             assert summary.status_code == 200
             result = summary.json()
             assert result["total"] == int(populated) and result["needs_attention"] == 0
-            assert result["drafted"] is None and result["sent"] is None
+            assert result["drafted"] is None and result["sent"] == 0
             assert result["unavailable_reasons"] == {
-                "drafted": "DRAFT_REVALIDATION_UNAVAILABLE", "sent": "SENDING_RECORDS_UNAVAILABLE",
+                "drafted": "DRAFT_REVALIDATION_UNAVAILABLE",
             }
             blocked = client.post("/v1/communications/requests", headers=HEADERS, json=COMMAND.model_dump())
             assert blocked.status_code == 503 and blocked.json()["code"] == "COMMUNICATION_AUTHORITY_UNAVAILABLE"

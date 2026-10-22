@@ -25,6 +25,9 @@ beforeEach(() => {
   fetchMock.mockImplementation(async input => {
     const path = new URL(String(input)).pathname;
     if (path.startsWith("/v1/communications")) {
+      if (path.endsWith("/runtime-capabilities")) return reply({ tenant_id: "tenant_route_test", mode: "CLOSED",
+        label: "Trusted authority unavailable", can_record_preferences: false, can_revoke_preferences: false,
+        integrated_demo_ready: false, blockers: ["PRODUCTION_AUTH_UNAVAILABLE"] });
       if (p4Status !== 200) return reply({ code: "COMMUNICATION_SUMMARY_UNAVAILABLE", message: "Internal diagnostics not for UI" }, p4Status);
       if (path.endsWith("/summary")) return reply({ tenant_id: "tenant_route_test", total: 0, drafted: null,
         sent: null, needs_attention: 0, checked_at: "2026-10-22T10:00:00+08:00",

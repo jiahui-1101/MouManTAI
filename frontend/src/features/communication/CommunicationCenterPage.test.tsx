@@ -64,6 +64,11 @@ beforeEach(() => {
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (input, init) => {
     const url = new URL(String(input));
+    if (url.pathname.endsWith("/runtime-capabilities")) return reply({
+      tenant_id: (init?.headers as Record<string, string>)["X-Tenant-ID"], mode: "CLOSED",
+      label: "Trusted authority unavailable", can_record_preferences: false, can_revoke_preferences: false,
+      integrated_demo_ready: false, blockers: ["PRODUCTION_AUTH_UNAVAILABLE"],
+    });
     if (url.pathname === "/v1/communications/summary") return summaryIntercept ? summaryIntercept(init) : reply(summaryData);
     // Default read-only sending fixtures keep legacy drafting failure tests scoped
     // to their intended endpoint. Sending behavior is exercised in OutboundPanel tests.

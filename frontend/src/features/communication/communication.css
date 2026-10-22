@@ -61,3 +61,10 @@
 .cc-outbound { min-width: 0; overflow-wrap: anywhere; }
 .cc-outbound button { max-width: 100%; white-space: normal; }
 @media (max-width: 640px) { .cc-outbound fieldset { display: grid; gap: .5rem; min-width: 0; } }
+.cc-preferences { border: 1px solid var(--border, #dbe2ea); border-radius: 10px; padding: 1rem; margin-bottom: 1rem; overflow-wrap: anywhere; }
+.cc-demo-label { font-weight: 600; }
+.cc-preference-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: .8rem; margin-top: 1rem; }
+.cc-preference-form label { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.cc-preference-form input, .cc-preference-form select { width: 100%; min-width: 0; padding: .5rem; }
+.cc-preference-list { padding-left: 1.2rem; }
+.cc-preference-list li { margin-bottom: .8rem; }

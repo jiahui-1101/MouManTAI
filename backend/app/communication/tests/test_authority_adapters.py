@@ -269,7 +269,7 @@ def test_approved_history_is_not_reviewer_authorization(db, drafts, request_id, 
 def test_unavailable_runtime_authority_keeps_empty_summary_unavailable(db):
     result = MessageDraftService(db, get_draft_authority()).summary(OWNER, now=NOW)
     assert result.total == 0 and result.needs_attention == 0
-    assert result.drafted is None and result.sent is None
+    assert result.drafted is None and result.sent == 0
     assert result.unavailable_reasons["drafted"] == "DRAFT_REVALIDATION_UNAVAILABLE"
 
 
@@ -309,7 +309,7 @@ def test_postgresql_http_runtime_denies_missing_evidence_without_core_mutations(
             assert summary.status_code == 200
             result = summary.json()
             assert result["total"] == int(populated) and result["needs_attention"] == 0
-            assert result["drafted"] is None and result["sent"] is None
+            assert result["drafted"] is None and result["sent"] == 0
             assert result["unavailable_reasons"]["drafted"] == "DRAFT_REVALIDATION_UNAVAILABLE"
             if populated:
                 assert client.get(f"/v1/communications/{request.communication_id}", headers=HEADERS).status_code == 200
