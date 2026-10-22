@@ -1,0 +1,553 @@
+{
+  "snapshot_sha256": "22c046f519c78894b4aab785ae81e845776e8b0ea7ddd65740f4cb9018acf39d",
+  "expected_records": 177,
+  "review_method": "Assistant-assisted source annotation checked by deterministic quote, arithmetic and timezone checks; not independent human intent gold",
+  "labels": [
+    {
+      "text_sha256": "ffe38701567e2377bc64c55199e057ee8e55c6d6edf876c1cca1d8405c5f37e4",
+      "group": 0,
+      "sku": "BURGER",
+      "quantity": 100,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 15,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "1c68f58770e50079dd2fae0469836079b06a4be2deecbc6a31d27804d6751944",
+      "group": 1,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 15,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "713963dd64a1e3d4ab03f41d987e55a9d63fdaf17f3d764d16a627151fe26ffc",
+      "group": 2,
+      "sku": null,
+      "quantity": null,
+      "unit": null,
+      "quantity_required": false,
+      "delivery": {
+        "unresolved": true
+      },
+      "ambiguity": "Afternoon has no exact hour",
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "7ab3f932914285d0eb0ee769417578bd35b5cf6a32b64d144c6ef556b27a90e3",
+      "group": 3,
+      "sku": "BURGER",
+      "quantity": 30,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": null,
+        "minute": 0,
+        "qualifier": "DATE_ONLY"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "9f6bd6095c64608ab6090a79fc4d4780e9b1a2d5967f5cdca3fe2dea27b1f73f",
+      "group": 4,
+      "sku": "BURGER",
+      "quantity": 20,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": null,
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "ad009980c24f9ff1615ca1a8affe69179a4a33b9929ea482736a4825b2ec4877",
+      "group": 5,
+      "sku": "BURGER",
+      "quantity": 10,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": null,
+        "minute": 0,
+        "qualifier": "DATE_ONLY"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "4cfbe6b95d7b1406cd4a1cc4423c89893e6e8f146830ab40f726d3aeba1e3be9",
+      "group": 6,
+      "sku": "BURGER",
+      "quantity": 60,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": null,
+        "minute": 0,
+        "qualifier": "DATE_ONLY"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "fff4242c8fa86f9f5c7a4898ce9af2d03ca9055fdf8566246af5583c02b71f6f",
+      "group": 7,
+      "sku": "BURGER",
+      "quantity": 15,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": null,
+        "minute": 0,
+        "qualifier": "DATE_ONLY"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "c12300825e3c37d371e3fd0c21a096e317abbd0252667ebd5b9351f50da574a9",
+      "group": 8,
+      "sku": "BURGER",
+      "quantity": 40,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": null,
+        "minute": 0,
+        "qualifier": "DATE_ONLY"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "15754d80e6c7249a213bb56a9a8e25121c6c685930baa47548a87a10566f5365",
+      "group": 9,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 15,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "2eb77df6a388d0b58d148c13a38518dc6e1f5a4392b29fd4094a7483fb98adfd",
+      "group": 10,
+      "sku": "BURGER",
+      "quantity": 30,
+      "unit": "pcs",
+      "quantity_required": true,
+      "delivery": null,
+      "ambiguity": "Request plus operational urgency; no fixed delivery instant",
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "32962d063a1edd5c9c833942f42a689c4dae952973e0c628603dd6aba0de4727",
+      "group": 11,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": null,
+      "quantity_required": false,
+      "delivery": {
+        "unresolved": true
+      },
+      "ambiguity": "Standalone quoted request lacks surrounding attribution",
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "81af843e70dfd25bcbd0da286baf39ccd6c97da3984e8e963a8d9cbb179f7526",
+      "group": 12,
+      "sku": "BURGER",
+      "quantity": 40,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 15,
+        "minute": 0,
+        "qualifier": "EXACT"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "0b16410972475facad43c9648cddf1f2e11f4d9496774adae0529d925882c735",
+      "group": 13,
+      "sku": "BURGER",
+      "quantity": 20,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 15,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "a8fbd764f89e654e030dd0a1182cddaf8cb0ae6773a7f5ac91d6ba8013fca92b",
+      "group": 14,
+      "sku": "BURGER",
+      "quantity": null,
+      "unit": null,
+      "quantity_required": false,
+      "delivery": {
+        "days": 1,
+        "hour": null,
+        "minute": 0,
+        "qualifier": "DATE_ONLY"
+      },
+      "ambiguity": "Guest count is not an ordered item quantity",
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "1ae6e9ef756515008597f5c93980c4363557537f2caec23129486f84751c4a6c",
+      "group": 15,
+      "sku": "BURGER",
+      "quantity": 40,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "unresolved": true
+      },
+      "ambiguity": "Around lunchtime is approximate, not an exact commitment",
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "56dd12bb76dc06f39e54c676ba2dbe6ca0e886035b2b5de05144dbc6d6eabbf9",
+      "group": 16,
+      "sku": "BURGER",
+      "quantity": null,
+      "unit": null,
+      "quantity_required": false,
+      "delivery": {
+        "days": 1,
+        "hour": null,
+        "minute": 0,
+        "qualifier": "DATE_ONLY"
+      },
+      "ambiguity": "Alternative quantities 40 or 50",
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "784398b712ebb918fe7484c97bf1c488f7554b11d1c8e2cb5ec33f97cb1ffaa3",
+      "group": 17,
+      "sku": "BURGER",
+      "quantity": null,
+      "unit": null,
+      "quantity_required": false,
+      "delivery": null,
+      "ambiguity": "Guest count is not an ordered item quantity",
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "b22a32eb4812016f11e75101346dcaddedc0116fca86d24a858f72a21d1573ba",
+      "group": 18,
+      "sku": null,
+      "quantity": 50,
+      "unit": null,
+      "quantity_required": false,
+      "delivery": {
+        "days": 1,
+        "hour": 15,
+        "minute": 0,
+        "qualifier": "EXACT"
+      },
+      "ambiguity": "Product/unit absent from approved provisional catalog",
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "bd82cd0699777f6fa09803da9800dba78cb2986c43b015d22f72a752aa7619f9",
+      "group": 19,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 15,
+        "minute": 0,
+        "qualifier": "EXACT"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "1e939b9da148f8a07791878d5c973bf795c8c0e92e2e3aa1cef3308e40fdf52f",
+      "group": 20,
+      "sku": "BURGER",
+      "quantity": 40,
+      "unit": "pcs",
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 15,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "eace9f56444c921226f5d9fb1d29f840b82642adf12a3eb4d9ab839df960d5e9",
+      "group": 21,
+      "sku": null,
+      "quantity": 50,
+      "unit": null,
+      "quantity_required": false,
+      "delivery": {
+        "days": 1,
+        "hour": 17,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": "Unknown product",
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "46590c1838cac5ca4fc7479da50527e6d98d451fa30fc8db3064005d4d33e63d",
+      "group": 22,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 17,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "dc3511d425b6136d74b6a7e61547befa72a694c07f67fecf458ccca45486be17",
+      "group": 23,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": "pcs",
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 17,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "2595f52741d89ece48cd70bfa04bbd6aac178886faafec4dff78d2e7347744ab",
+      "group": 24,
+      "sku": "BURGER",
+      "quantity": 30,
+      "unit": "pcs",
+      "quantity_required": true,
+      "delivery": {
+        "days": 2,
+        "hour": 15,
+        "minute": 0,
+        "qualifier": "EXACT"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "7b08945df6430230eeff5264afaef2c48654eccc49f9fdcfab4df98387f9ef20",
+      "group": 25,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": "pcs",
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 17,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "e1ea16eb97eed7d31576fabd3979113786e580cff084fae78944e3a0cd34ae5c",
+      "group": 26,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": "pcs",
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 17,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "b6c40496ddd9c8d5b12a88ee87974b94a9b63dd2463782ab73cc1971c6ff1643",
+      "group": 27,
+      "sku": null,
+      "quantity": 50,
+      "unit": null,
+      "quantity_required": false,
+      "delivery": {
+        "unresolved": true
+      },
+      "ambiguity": "Unknown product and ambiguous next Friday",
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "9214111be982a5467bad4c938ecd2bebceadd5e8315a1ba10f7f835a9a99d8e3",
+      "group": 28,
+      "sku": "BURGER",
+      "quantity": 40,
+      "unit": "pcs",
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 16,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "b406a4a8da7b3cb32719c5637b82aac7fc5b4c8a0ab48a45152a6186444529f4",
+      "group": 29,
+      "sku": "BURGER",
+      "quantity": 25,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 2,
+        "hour": null,
+        "minute": 0,
+        "qualifier": "DATE_ONLY"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "23b439d01e9e620d57bd77661d998e145e8f04a94e1bf6f4d05b4fd0a203a2cd",
+      "group": 30,
+      "sku": null,
+      "quantity": 20,
+      "unit": null,
+      "quantity_required": false,
+      "delivery": {
+        "unresolved": true
+      },
+      "ambiguity": "Unspecified items and vague next week",
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "27d7e449bc3f15bbe475452df690f31d8530b571424c971777710c68daa1d87e",
+      "group": 31,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": "pcs",
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 17,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "cac501f02fe05666d37121302b650ba23f4a7805a2101f188aef582331206295",
+      "group": 32,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": "pcs",
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 17,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "cd20351254b62f7b7d94e6c73e9c0ac6ec19d768caaa2fd62b521948d9df1b6f",
+      "group": 33,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": "pcs",
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 17,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "4ede1803814abe680c8d9a53893c7c9212b53078b59a334292f970e0c0cca2a7",
+      "group": 34,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": "pcs",
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 17,
+        "minute": 0,
+        "qualifier": "DEADLINE"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    },
+    {
+      "text_sha256": "30b2c5fa000dd7cee584f6191a725e03b660b053fb239a9e3af387fad04ec68e",
+      "group": 35,
+      "sku": "BURGER",
+      "quantity": 50,
+      "unit": null,
+      "quantity_required": true,
+      "delivery": {
+        "days": 1,
+        "hour": 15,
+        "minute": 0,
+        "qualifier": "EXACT"
+      },
+      "ambiguity": null,
+      "review_basis": "Literal request, approved provisional alias, stated quantities/time only; no inferred unit or identity"
+    }
+  ]
+}
