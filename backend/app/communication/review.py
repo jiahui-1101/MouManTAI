@@ -19,7 +19,7 @@ from .schemas import (
     ApproveDraftRequest, DraftReviewDecision, DraftReviewView,
     RejectDraftRequest, ReviewAction, ReviewAuthorization, RequestStatus,
 )
-from .service import _fail, _require_context
+from .service import _check_authority_availability, _fail, _require_context
 
 
 class ReviewAuthority(Protocol):
@@ -109,6 +109,7 @@ class DraftReviewService:
         current_time = self.drafts._time(now)
         if self.authority is None:
             _fail("REVIEW_AUTHORITY_UNAVAILABLE", "Trusted manager-review policy is not configured", 503)
+        _check_authority_availability(self.authority)
         for attempt in range(2):
             try:
                 # Lock order is identical for GET/approve/reject. The SQL unique

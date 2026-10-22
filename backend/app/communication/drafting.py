@@ -20,7 +20,7 @@ from .schemas import (
     CommunicationSummary, CreateCommunicationRequest, MessageDraftView, PrepareDraftRequest,
     RecoveryCommunicationReference, RequestAuthorization,
 )
-from .service import CommunicationRequestService, _fail, _require_context
+from .service import CommunicationRequestService, _check_authority_availability, _fail, _require_context
 
 
 class DraftAuthority(Protocol):
@@ -71,13 +71,17 @@ class MessageDraftService:
                 reasons["drafted"] = "DRAFT_REVALIDATION_UNAVAILABLE"
             else:
                 try:
+                    _check_authority_availability(self.authority)
                     drafted = self._count_current_drafts(context, checked_at)
                 except SQLAlchemyError:
                     reasons["drafted"] = "DRAFT_STORAGE_UNAVAILABLE"
-                except DomainError:
+                except DomainError as exc:
                     # Includes actor READ_DRAFT denial or an unavailable adapter.
                     # A partial count must never masquerade as a complete total.
-                    reasons["drafted"] = "DRAFT_VALIDITY_UNAVAILABLE"
+                    reasons["drafted"] = (
+                        "DRAFT_REVALIDATION_UNAVAILABLE" if exc.code == "DRAFT_REVALIDATION_UNAVAILABLE"
+                        else "DRAFT_VALIDITY_UNAVAILABLE"
+                    )
                 except ValidationError:
                     reasons["drafted"] = "DRAFT_VALIDITY_UNAVAILABLE"
             return CommunicationSummary(
@@ -124,6 +128,7 @@ class MessageDraftService:
         now: datetime, action: Literal["PREPARE_DRAFT", "READ_DRAFT"],
     ) -> MessageDraftView:
         _require_context(context)
+        _check_authority_availability(self.authority)
         request = self.requests.get(context, communication_id)
         if request.reference.tenant_id != context.tenant_id or request.communication_id != communication_id:
             _fail("REQUEST_REFERENCE_CONFLICT", "Persisted request target is inconsistent")
@@ -257,6 +262,7 @@ class MessageDraftService:
                          *, now: datetime) -> MessageDraftView:
         """Same checks as GET, inside the caller-owned transaction; no commit/rollback."""
         _require_context(context)
+        _check_authority_availability(self.authority)
         record = self.repository.get(context.tenant_id, communication_id, draft_id, lock=True)
         if record is None:
             _fail("DRAFT_NOT_FOUND", "Draft not found in current tenant/request", 404)

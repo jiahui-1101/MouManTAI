@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.communication.router import (
     router, get_request_authority, get_draft_authority,
 )
+from app.communication.authority_adapters import RuntimeDraftAuthority, RuntimeRequestAuthority
 from app.communication.tests.test_requests import db, authority, service, create, HEADERS
 from app.core.dependencies import get_db
 from app.core.router import router as core_router
@@ -105,7 +106,8 @@ def test_auth_headers_and_known_actor_validation_remain_enforced(main_client):
 
 
 def test_registration_does_not_configure_fake_authority(main_client):
-    assert get_request_authority() is None and get_draft_authority() is None
+    assert isinstance(get_request_authority(), RuntimeRequestAuthority)
+    assert isinstance(get_draft_authority(), RuntimeDraftAuthority)
     response = main_client.post("/v1/communications/requests", headers=HEADERS, json={"source_event_id": "evt_001"})
     assert response.status_code == 503
     assert response.json()["code"] == "COMMUNICATION_AUTHORITY_UNAVAILABLE"

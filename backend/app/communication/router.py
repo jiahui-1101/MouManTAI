@@ -14,23 +14,22 @@ from .schemas import (
 from .drafting import DraftAuthority, MessageDraftService
 from .service import CommunicationRequestService, RequestAuthority
 from .review import DraftReviewService, ReviewAuthority
+from .authority_adapters import RuntimeDraftAuthority, RuntimeRequestAuthority, RuntimeReviewAuthority
 
 
 router = APIRouter(prefix="/v1/communications", tags=["communications"])
 
 
-def get_request_authority() -> RequestAuthority | None:
-    # Intentionally unconfigured: no guessed role policy or hardcoded demo approval.
-    return None
+def get_request_authority() -> RequestAuthority:
+    return RuntimeRequestAuthority()
 
 
-def get_draft_authority() -> DraftAuthority | None:
-    # Separate action-specific revalidation; do not reuse client claims or old snapshots.
-    return None
+def get_draft_authority() -> DraftAuthority:
+    return RuntimeDraftAuthority()
 
 
-def get_review_authority() -> ReviewAuthority | None:
-    return None  # No inferred OWNER/MANAGER grant from simulated headers.
+def get_review_authority() -> ReviewAuthority:
+    return RuntimeReviewAuthority()
 
 
 def get_review_service(

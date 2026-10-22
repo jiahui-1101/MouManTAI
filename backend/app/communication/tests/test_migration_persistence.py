@@ -379,7 +379,7 @@ def test_registered_api_uses_migrated_database_without_authority_bypass(migrated
     def session_override():
         with Session(engine) as db:
             yield db
-    # Only replace the database dependency; all production authority ports remain None.
+    # Only replace the database dependency; production authority boundaries must deny.
     previous = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = session_override
     try:
