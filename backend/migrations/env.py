@@ -7,6 +7,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.core import models as _core_models  # noqa: F401 - register ORM tables for Alembic metadata
+from app.communication import models as _communication_models  # noqa: F401 - register P4 ORM tables
 from app.db.base import Base
 
 

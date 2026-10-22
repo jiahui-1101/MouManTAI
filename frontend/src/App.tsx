@@ -6,6 +6,7 @@ import { AppShell } from "./layout/AppShell";
 import { FeaturePlaceholder } from "./pages/FeaturePlaceholder";
 import { OverviewPage } from "./features/overview/OverviewPage";
 import { ActivityPage } from "./features/activity/ActivityPage";
+import { CommunicationCenterPage } from "./features/communication/CommunicationCenterPage";
 import { AuthProvider, useAuth } from "./shared/auth";
 import { apiRequest, authHeaders } from "./shared/api";
 import { createP2PublicApiSource } from "./features/feasibility/apiSource";
@@ -83,7 +84,7 @@ export function App({ queryClient, initialTenantId, initialActorId }: AppProps =
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
               <Route path="/recovery/:id" element={<RecoveryPage />} />
-              <Route path="/communications" element={<FeaturePlaceholder owner="P4 · Communication" title="Communication center" />} />
+              <Route path="/communications" element={<CommunicationCenterPage />} />
               <Route path="/confirmations/:id" element={<FeaturePlaceholder owner="P4 · Communication" title="Confirmation workspace" />} />
               <Route path="*" element={<FeaturePlaceholder owner="Shared shell" title="Page not found" />} />
             </Route>

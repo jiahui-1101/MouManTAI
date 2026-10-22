@@ -11,12 +11,18 @@ export function DraftPreview({ draft, onReload }: { draft: MessageDraftView; onR
     <dl className="cc-facts">
       <div><dt>Draft ID</dt><dd>{draft.draft_id}</dd></div>
       <div><dt>Order reference</dt><dd>{draft.order_id}</dd></div>
+      <div><dt>Recipient identity</dt><dd>{draft.recipient_identity_id}</dd></div>
       <div><dt>Template</dt><dd>{draft.template_key}</dd></div>
       <div><dt>Status</dt><dd>{draft.status}</dd></div>
       <div><dt>Created</dt><dd>{formatKLTimestamp(draft.created_at)}</dd></div>
       <div><dt>Expires</dt><dd>{formatKLTimestamp(draft.expires_at)}</dd></div>
     </dl>
-    <p className="muted text-sm">This preview is read-only. Sending and message approval are not available in this milestone.</p>
+    <details><summary>Approved proposal terms at validation</summary>
+      <p>{draft.approved_terms.sku} · {draft.approved_terms.quantity} {draft.approved_terms.unit}</p>
+      <p>Deadline: {formatKLTimestamp(draft.approved_terms.deadline)}</p>
+      {draft.approved_terms.special_instructions && <p>{draft.approved_terms.special_instructions}</p>}
+    </details>
+    <p className="muted text-sm">This preview is read-only. Preparing or reviewing it does not send a message.</p>
     <button className="btn btn-secondary" onClick={onReload}>Recheck draft</button>
   </article>;
 }

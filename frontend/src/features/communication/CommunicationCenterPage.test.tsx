@@ -3,11 +3,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider, useAuth } from "../../shared/auth";
 import { ApiError } from "../../shared/api";
-import type { CommunicationRequestView, MessageDraftView, MessageStatus } from "./types";
+import type { CommunicationRequestView, CommunicationSummary, MessageDraftView, MessageStatus } from "./types";
 import { CommunicationCenterPage } from "./CommunicationCenterPage";
 import {
   communicationKeys,
   getCommunication,
+  getCommunicationSummary,
   getDraft,
   listCommunications,
 } from "./api";
@@ -48,6 +49,8 @@ const failure = (code: string, status: number) => reply({ code, message: "INTERN
 let records: CommunicationRequestView[];
 let saved: Record<string, MessageDraftView>;
 let intercept: ((url: string, init?: RequestInit) => Response | Promise<Response> | undefined) | undefined;
+let summaryData: CommunicationSummary;
+let summaryIntercept: ((init?: RequestInit) => Response | Promise<Response>) | undefined;
 const fetchMock = vi.fn<typeof fetch>();
 const clients: QueryClient[] = [];
 
@@ -55,9 +58,13 @@ beforeEach(() => {
   records = [request(), request("b", { request_status: "BLOCKED", blocking_reasons: ["VERIFIED_RECIPIENT_REQUIRED"],
     recipient_identity_id: null, recipient_evidence_refs: [], channel: null, channel_evidence_refs: [] })];
   saved = {}; intercept = undefined;
+  summaryData = { tenant_id: auth.tenantId, total: 12, drafted: 4, sent: null, needs_attention: 2,
+    checked_at: "2026-10-22T10:00:00+08:00", unavailable_reasons: { sent: "SENDING_RECORDS_UNAVAILABLE" } };
+  summaryIntercept = undefined;
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (input, init) => {
     const url = new URL(String(input));
+    if (url.pathname === "/v1/communications/summary") return summaryIntercept ? summaryIntercept(init) : reply(summaryData);
     const override = intercept?.(url.pathname, init);
     if (override) return override;
     if (url.pathname === "/v1/communications") return reply(records);
@@ -70,6 +77,10 @@ beforeEach(() => {
       saved[value.draft_id] = value;
       return reply(value);
     }
+    if (parts[4] === "drafts" && parts[6] === "review") return reply({ tenant_id: req.reference.tenant_id,
+      communication_id: req.communication_id, draft_id: decodeURIComponent(parts[5]), review_state: "PENDING",
+      effective_approval: false, send_authorized: false, allowed_actions: [], decision: null,
+      invalidated_at: null, invalidation_code: null, invalidation_audit_id: null, checked_at: "2026-10-22T10:00:00+08:00" });
     if (parts[4] === "drafts") return saved[decodeURIComponent(parts[5])] ? reply(saved[decodeURIComponent(parts[5])]) : failure("DRAFT_NOT_FOUND", 404);
     return reply(req);
   });
@@ -103,16 +114,17 @@ async function prepare() {
 const posts = () => fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
 
 describe("Communication Center", () => {
-  it("loads real API response with shared auth, three metrics and Pending instead of fabricated Drafted", async () => {
+  it("loads real API response with shared auth, four server metrics and Pending instead of fabricated Drafted", async () => {
     mount();
-    expect(screen.getByRole("status")).toHaveTextContent("Loading communication requests");
+    expect(screen.getByText("Loading communication requests…")).toBeInTheDocument();
     await screen.findByText("Select a request");
     expect(within(listRegion()).getByText("Pending")).toBeInTheDocument();
     const summary = screen.getByLabelText("Communication summary");
-    expect(summary.children).toHaveLength(3);
-    expect(within(summary).getByText("Total").nextSibling).toHaveTextContent("2");
-    expect(within(summary).getByText("Drafted").nextSibling).toHaveTextContent("0");
-    expect(within(summary).getByText("Needs Attention").nextSibling).toHaveTextContent("1");
+    expect(summary.children).toHaveLength(4);
+    await waitFor(() => expect(within(summary).getByText("Total").nextSibling).toHaveTextContent("12"));
+    expect(within(summary).getByText("Drafted").nextSibling).toHaveTextContent("4");
+    expect(within(summary).getByText("Sent").nextSibling).toHaveTextContent("—");
+    expect(within(summary).getByText("Needs Attention").nextSibling).toHaveTextContent("2");
     expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({ "X-Tenant-ID": auth.tenantId, "X-Actor-ID": auth.actorId });
     expect(posts()).toHaveLength(0);
   });
@@ -168,6 +180,7 @@ describe("Communication Center", () => {
     expect(preview).toHaveTextContent("Backend text: 10.250 pcs. Please review the proposed terms.");
     expect(preview).toHaveTextContent("Draft Only — Not Sent");
     expect(preview).toHaveTextContent("DRAFT");
+    expect(await screen.findByRole("region", { name: "Manager Review" })).toBeInTheDocument();
     expect(within(preview).queryByRole("button", { name: /send|approve/i })).not.toBeInTheDocument();
     expect(within(listRegion()).getByText("Drafted")).toBeInTheDocument();
   });
@@ -405,5 +418,111 @@ describe("API boundaries", () => {
     const value = draft(request(), { draft_id: "draft/id?test" }); intercept = () => reply(value);
     await getDraft(request(), value.draft_id, auth);
     expect(fetchMock.mock.calls.at(-1)![0]).toContain("/drafts/draft%2Fid%3Ftest");
+  });
+});
+
+const metric = (title: string) => within(screen.getByLabelText("Communication summary")).getByText(title).nextSibling;
+const statistics = () => screen.getByRole("region", { name: "Dashboard statistics" });
+
+describe("Database dashboard summary", () => {
+  it("uses tenant-wide database numbers before any draft is opened and ignores filters/session cache", async () => {
+    mount(); await screen.findByText("Select a request");
+    await waitFor(() => expect(metric("Drafted")).toHaveTextContent("4"));
+    expect(metric("Total")).toHaveTextContent("12");
+    fireEvent.change(screen.getByLabelText("Search references"), { target: { value: "not-a-reference" } });
+    expect(screen.getByText(/No search results/)).toBeInTheDocument();
+    expect(metric("Drafted")).toHaveTextContent("4");
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    await select(); await prepare();
+    await waitFor(() => expect(screen.getByLabelText("Communication summary")).toHaveAttribute("aria-busy", "false"));
+    expect(metric("Drafted")).toHaveTextContent("4"); // no optimistic session-derived +1
+  });
+
+  it("shows actual zero counts and unavailable counts differently", async () => {
+    summaryData = { ...summaryData, total: 0, drafted: null, sent: null, needs_attention: 0,
+      unavailable_reasons: { drafted: "DRAFT_REVALIDATION_UNAVAILABLE", sent: "SENDING_RECORDS_UNAVAILABLE" } };
+    mount(); await screen.findByText("Select a request");
+    await waitFor(() => expect(metric("Total")).toHaveTextContent("0"));
+    expect(metric("Needs Attention")).toHaveTextContent("0");
+    expect(metric("Drafted")).toHaveTextContent("—"); expect(metric("Sent")).toHaveTextContent("—");
+    expect(within(statistics()).getByText(/current drafts could not be reliably verified/)).toBeInTheDocument();
+    expect(within(statistics()).getByText(/verified sending records are not connected/)).toBeInTheDocument();
+  });
+
+  it("displays a reliable Drafted zero when the backend actually returns zero", async () => {
+    summaryData.drafted = 0; mount();
+    await waitFor(() => expect(metric("Drafted")).toHaveTextContent("0"));
+    expect(within(statistics()).queryByText(/current drafts could not/)).not.toBeInTheDocument();
+  });
+
+  it("loads statistics independently without blocking the list", async () => {
+    let finish!: (value: Response) => void;
+    summaryIntercept = () => new Promise(resolve => { finish = resolve; });
+    mount(); await screen.findByText("Select a request");
+    expect(within(statistics()).getByRole("status")).toHaveTextContent("Loading dashboard statistics");
+    for (const title of ["Total", "Drafted", "Sent", "Needs Attention"]) expect(metric(title)).toHaveTextContent("—");
+    expect(within(listRegion()).getByText("commitment-a")).toBeInTheDocument();
+    await act(async () => finish(reply(summaryData)));
+    await waitFor(() => expect(metric("Total")).toHaveTextContent("12"));
+  });
+
+  it.each([401, 403, 404, 503, 500])("handles summary HTTP %s alone and retries only statistics", async status => {
+    summaryIntercept = () => failure("COMMUNICATION_SUMMARY_UNAVAILABLE", status);
+    mount(); await screen.findByText("Select a request");
+    expect(await within(statistics()).findByRole("alert")).not.toHaveTextContent("INTERNAL SECRET");
+    expect(metric("Total")).toHaveTextContent("—");
+    const listCalls = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/v1/communications")).length;
+    summaryIntercept = undefined;
+    fireEvent.click(within(statistics()).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(metric("Total")).toHaveTextContent("12"));
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/v1/communications"))).toHaveLength(listCalls);
+  });
+
+  it("keeps a verified preview available when only statistics fail, hiding cached numbers", async () => {
+    const client = mount(); await select(); await prepare();
+    summaryIntercept = () => Promise.reject(new TypeError("private DNS error"));
+    await act(async () => { await client.invalidateQueries({ queryKey: communicationKeys.summary(auth) }); });
+    expect(await within(statistics()).findByRole("alert")).toHaveTextContent("Cannot reach the server");
+    expect(metric("Drafted")).toHaveTextContent("—");
+    expect(screen.getByRole("article", { name: "Message draft preview" })).toHaveTextContent("Backend text");
+    expect(within(listRegion()).getByText("commitment-a")).toBeInTheDocument();
+  });
+
+  it("refetches server statistics after Prepare without incrementing locally", async () => {
+    mount(); await select();
+    const before = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/summary")).length;
+    summaryData = { ...summaryData, drafted: 5 };
+    await prepare();
+    await waitFor(() => expect(metric("Drafted")).toHaveTextContent("5"));
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/summary")).length).toBeGreaterThan(before);
+  });
+
+  it.each(["Switch tenant", "Switch actor"])("hides previous summary immediately during %s", async action => {
+    mount(); await waitFor(() => expect(metric("Drafted")).toHaveTextContent("4"));
+    let finish!: (value: Response) => void;
+    summaryIntercept = () => new Promise(resolve => { finish = resolve; });
+    intercept = url => url === "/v1/communications" ? reply([]) : undefined;
+    fireEvent.click(screen.getByRole("button", { name: action }));
+    await screen.findByText("No communication requests");
+    expect(metric("Drafted")).toHaveTextContent("—");
+    const tenant = action === "Switch tenant" ? "tenant-other" : auth.tenantId;
+    await act(async () => finish(reply({ ...summaryData, tenant_id: tenant, total: 0, drafted: 0, needs_attention: 0 })));
+    await waitFor(() => expect(metric("Drafted")).toHaveTextContent("0"));
+  });
+
+  it("rejects summary responses for another tenant", async () => {
+    summaryData.tenant_id = "wrong-tenant";
+    await expect(getCommunicationSummary(auth)).rejects.toMatchObject({ code: "RESPONSE_SCOPE_MISMATCH" });
+  });
+
+  it.each([{ total: -1 }, { drafted: 99 }, { drafted: undefined }, { needs_attention: -1 }, { sent: "2" }])(
+    "rejects malformed summary counts %s", async change => {
+      summaryIntercept = () => reply({ ...summaryData, ...change });
+      await expect(getCommunicationSummary(auth)).rejects.toMatchObject({ code: "UNSUPPORTED_RESPONSE" });
+    });
+
+  it("isolates summary query keys by tenant and actor", () => {
+    expect(communicationKeys.summary(auth)).not.toEqual(communicationKeys.summary({ ...auth, tenantId: "other" }));
+    expect(communicationKeys.summary(auth)).not.toEqual(communicationKeys.summary({ ...auth, actorId: "other" }));
   });
 });
