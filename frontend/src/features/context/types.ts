@@ -33,3 +33,5 @@ export type DocumentExtractionResult = components['schemas']['DocumentExtraction
 export type DocumentEvidence = components['schemas']['DocumentEvidence'];
 export type BoundingBox = components['schemas']['BoundingBox'];
 
+export type Channel = 'WHATSAPP' | 'EMAIL' | 'TELEGRAM';
+

@@ -208,6 +208,7 @@ function fakeApi(): OperationalApi {
     extractAttachment: vi.fn(),
     getAttachmentExtraction: vi.fn(),
     getAttachmentMetadata: vi.fn(),
+    getAttachmentPageCount: vi.fn().mockResolvedValue({ total_pages: 1, media_type: 'application/pdf' }),
   };
 }
 
