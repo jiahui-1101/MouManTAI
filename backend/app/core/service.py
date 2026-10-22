@@ -865,6 +865,8 @@ class CommitmentService:
                 "affected_commitment_ids": assessment.affected_commitment_ids,
                 "evidence_refs": assessment.evidence_refs,
                 "assessed_at": _aware(assessment.assessed_at).isoformat(),
+                "solver_status": assessment.solver_status.value if hasattr(assessment.solver_status, "value") else assessment.solver_status,
+                "assumptions": assessment.assumptions,
             }
             new_state = assessment_state
 
@@ -946,6 +948,8 @@ class CommitmentService:
                 "affected_commitment_ids": assessment.affected_commitment_ids,
                 "evidence_refs": assessment.evidence_refs,
                 "assessed_at": _aware(assessment.assessed_at).isoformat(),
+                "solver_status": assessment.solver_status.value if hasattr(assessment.solver_status, "value") else assessment.solver_status,
+                "assumptions": assessment.assumptions,
             }
 
             audit = self._audit(
@@ -994,6 +998,8 @@ class CommitmentService:
                 "affected_commitment_ids": assessment.affected_commitment_ids,
                 "evidence_refs": assessment.evidence_refs,
                 "assessed_at": _aware(assessment.assessed_at).isoformat(),
+                "solver_status": assessment.solver_status.value if hasattr(assessment.solver_status, "value") else assessment.solver_status,
+                "assumptions": assessment.assumptions,
             }
 
             audit = self._audit(

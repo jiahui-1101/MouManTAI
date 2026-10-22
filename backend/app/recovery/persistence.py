@@ -132,6 +132,12 @@ class RecoveryCaseTriggerRecord(Base):
 
     __table_args__ = (
         ForeignKeyConstraint(
+            ["tenant_id", "commitment_id"],
+            ["commitments.tenant_id", "commitments.commitment_id"],
+            name="fk_recovery_case_triggers_commitment_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
             ["tenant_id", "case_id", "commitment_id"],
             [
                 "recovery_cases.tenant_id",

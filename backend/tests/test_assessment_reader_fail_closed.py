@@ -230,6 +230,7 @@ def test_reader_returns_complete_provenance_when_valid(session: Session) -> None
             "evidence_refs": ["ev_maint_log_05"],
             "solver_status": "COMPLETED",
             "assumptions": ["Grill offline for 24h"],
+            "assessed_at": exact_time.isoformat(),
         },
         evidence_refs=["ev_maint_log_05"],
         reason="Maintenance delay",
@@ -254,6 +255,7 @@ def test_reader_returns_complete_provenance_when_valid(session: Session) -> None
     assert fa.affected_commitment_ids == ["com_downstream_01"]
     assert fa.evidence_refs == ["ev_maint_log_05"]
     assert fa.assumptions == ["Grill offline for 24h"]
+    assert fa.assessed_at == exact_time
 
     # Direct lookup
     fetched = reader.get_assessment(session, ctx, com_id, "asm_exact_05")

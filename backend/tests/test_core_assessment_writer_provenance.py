@@ -15,6 +15,7 @@ from app.core.feasibility_adapters import (
 from app.core.models import AuditEventRecord, CommitmentRecord
 from app.feasibility.api_schemas import AssessCommitmentRequest
 from app.feasibility.production_fixtures import build_production_example
+from app.feasibility.persisted_sources import stage_snapshot
 from app.feasibility.service import evaluate
 
 
@@ -36,6 +37,7 @@ def test_core_writer_preserves_p2_identity_without_fallback(session: Session) ->
         evidence_refs=[],
         updated_at=datetime.now(timezone.utc),
     ))
+    stage_snapshot(session, snapshot, current=True)
     session.commit()
     context = RequestContext(
         tenant_id=commitment.tenant_id,
@@ -72,6 +74,9 @@ def test_core_writer_preserves_p2_identity_without_fallback(session: Session) ->
     assert history.assessment_id == result.assessment_id
     assert history.commitment_version == result.commitment_version
     assert history.snapshot_version == result.snapshot_version
+    assert history.assessed_at == result.assessed_at
+    assert history.solver_status == result.solver_status
+    assert history.assumptions == list(result.assumptions)
 
     audit = session.scalar(select(AuditEventRecord).where(
         AuditEventRecord.tenant_id == commitment.tenant_id,
@@ -83,3 +88,36 @@ def test_core_writer_preserves_p2_identity_without_fallback(session: Session) ->
     assert audit.new_state["commitment_version"] == result.commitment_version + 1
     assert audit.new_state["snapshot_id"] == result.snapshot_id
     assert audit.new_state["snapshot_version"] == result.snapshot_version
+
+
+def test_writer_does_not_commit_dispatcher_session(session: Session) -> None:
+    snapshot, commitment = build_production_example()
+    session.add(CommitmentRecord(
+        tenant_id=commitment.tenant_id, commitment_id=commitment.commitment_id,
+        order_id=commitment.order_id, customer_id=commitment.customer_id,
+        terms=commitment.terms.model_dump(mode="json"), agreement_state="CONFIRMED",
+        feasibility_state="NOT_ASSESSED", risk_state="NORMAL", recovery_state="NONE",
+        fulfilment_state="NOT_STARTED", commitment_version=commitment.commitment_version,
+        evidence_refs=list(commitment.evidence_refs), updated_at=datetime.now(timezone.utc),
+    ))
+    stage_snapshot(session, snapshot, current=True)
+    session.commit()
+    result = evaluate(snapshot, None, commitment)
+    context = RequestContext(
+        tenant_id=commitment.tenant_id, actor_id="service_p2_writer", actor_role="SERVICE",
+        correlation_id="corr_writer_rollback", causation_id="evt_writer_rollback",
+    )
+    AuthoritativeAssessmentWriter().assess(
+        session, context, commitment,
+        AssessCommitmentRequest(expected_commitment_version=commitment.commitment_version,
+                                expected_snapshot_version=snapshot.operational.snapshot_version),
+        snapshot=snapshot, result=result, commit=False,
+    )
+    assert session.get(CommitmentRecord, (commitment.tenant_id, commitment.commitment_id)).commitment_version == 2
+    session.rollback()
+    session.expire_all()
+    assert session.get(CommitmentRecord, (commitment.tenant_id, commitment.commitment_id)).commitment_version == 1
+    assert session.scalars(select(AuditEventRecord).where(
+        AuditEventRecord.tenant_id == commitment.tenant_id,
+        AuditEventRecord.new_state["assessment_id"].as_string() == result.assessment_id,
+    )).all() == []

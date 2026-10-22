@@ -24,6 +24,7 @@ from app.core.errors import DomainError
 from app.core.events import CoreEventType, OutboxStatus, validate_event_payload
 from app.core.integration import CoreIntegrationFacade
 from app.core.models import (
+    AuditEventRecord,
     CommitmentProposalRecord,
     CommitmentRecord,
     OutboxEventRecord,

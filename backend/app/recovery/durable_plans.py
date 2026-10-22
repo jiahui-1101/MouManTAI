@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKeyConstraint, Integer, JSON, String, select
+from sqlalchemy import DateTime, ForeignKeyConstraint, Index, Integer, JSON, String, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.dependencies import RequestContext
@@ -45,6 +45,7 @@ class RecoveryPlanRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
+        Index("ix_recovery_plan_case", "tenant_id", "case_id"),
         ForeignKeyConstraint(
             ["tenant_id", "case_id", "commitment_id"],
             ["recovery_cases.tenant_id", "recovery_cases.case_id", "recovery_cases.commitment_id"],

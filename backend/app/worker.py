@@ -9,7 +9,7 @@ from app.db.session import SessionLocal
 
 
 def configure_isolated_subscribers(dispatcher: OutboxDispatcher) -> None:
-    """Enable persisted P3 risk consumption only in an explicitly keyed E2E worker."""
+    """Enable persisted mandatory consumers only in an explicitly keyed E2E worker."""
     if os.getenv("MOUMANTAI_ISOLATED_E2E") != "1":
         return
     if len(os.getenv("MOUMANTAI_ISOLATED_E2E_KEY", "")) < 32:
@@ -17,6 +17,11 @@ def configure_isolated_subscribers(dispatcher: OutboxDispatcher) -> None:
     from app.recovery.trigger_persistence import (
         PersistedCoreAssessmentLookup,
         SessionScopedRecoveryTriggerAdapter,
+    )
+    from app.feasibility.confirmed_consumer import PersistedConfirmedEvaluator
+
+    dispatcher.register_subscriber(
+        "commitment.confirmed", "p2_confirmed_evaluator", PersistedConfirmedEvaluator().persist,
     )
 
     adapter = SessionScopedRecoveryTriggerAdapter(
