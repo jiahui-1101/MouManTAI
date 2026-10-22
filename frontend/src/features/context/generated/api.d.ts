@@ -244,6 +244,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/contexts/{context_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Order Context To Core */
+        post: operations["publish_order_context_to_core_v1_contexts__context_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/attachments/upload": {
         parameters: {
             query?: never;
@@ -1159,9 +1176,9 @@ export interface components {
             raw: components["schemas"]["RawMessageEnvelope"];
             /**
              * Synthetic Provider
-             * @constant
+             * @enum {string}
              */
-            synthetic_provider: "SYNTHETIC_WHATSAPP";
+            synthetic_provider: "SYNTHETIC_WHATSAPP" | "SYNTHETIC_EMAIL" | "SYNTHETIC_TELEGRAM" | "SYNTHETIC_UNKNOWN";
             /** Content Sha256 */
             content_sha256: string;
             /**
@@ -2176,6 +2193,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    publish_order_context_to_core_v1_contexts__context_id__publish_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Actor-ID"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Correlation-ID"?: string | null;
+            };
+            path: {
+                context_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderContextRecord"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
             /** @description Service Unavailable */
