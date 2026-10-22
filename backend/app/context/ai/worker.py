@@ -184,7 +184,9 @@ class ModelRuntime:
             inference_seconds=time.perf_counter() - before, input_tokens=input_tokens, output_tokens=output_tokens,
             peak_gpu_bytes=torch.cuda.max_memory_allocated(), gpu_name=torch.cuda.get_device_name(),
             dtype=str(next(model.parameters()).dtype),
-            runtime_versions={name: importlib.metadata.version(name) for name in ("torch", "transformers", "gliner", "huggingface-hub")})
+            runtime_versions={**{name: importlib.metadata.version(name) for name in ("torch", "transformers", "gliner", "huggingface-hub")},
+                "p1_worker": "p1-cuda-v2", "parameter_device": str(next(model.parameters()).device),
+                "cuda_runtime": str(torch.version.cuda)})
 
 
 _runtime = None

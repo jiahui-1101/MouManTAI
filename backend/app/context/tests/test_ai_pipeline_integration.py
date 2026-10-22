@@ -111,7 +111,7 @@ def test_pipeline_invokes_qwen_for_ambiguous_fields(pg_engine):
 
     res = repo.process("synthetic_tenant_a", ingested.message_id)
     assert res.attempt.status == "PROCESSED"
-    assert res.attempt.extractor_version == "p1-ai-pipeline-v1"
+    assert res.attempt.extractor_version == "p1-ai-pipeline-v2"
     assert len(endpoint.requests) == 1
 
     # Check candidates

@@ -552,7 +552,7 @@ class PostgresMessageRepository:
 
                             candidates = getattr(proposal_res, "candidates", [])
                             if candidates:
-                                actual_extractor_version = "p1-ai-pipeline-v1"
+                                actual_extractor_version = "p1-ai-pipeline-v2"
                                 for c in candidates:
                                     for ev in c.evidence:
                                         if ev.start < 0 or ev.end > len(raw_text) or ev.start >= ev.end or raw_text[ev.start:ev.end] != ev.quote:

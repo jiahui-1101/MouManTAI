@@ -1,7 +1,7 @@
-"""Prepared P1 service seam. Model stages remain disabled until evaluation.
+"""Optional P1 observation service; never publishes authoritative terms.
 
-This module does not publish BusinessContext, mutate persisted messages or bind
-an operational route. No successful GPU integration is implied by its existence.
+Operational repositories may invoke this service when explicitly configured.
+Schema/source validity does not prove correct semantics or GPU execution.
 """
 from typing import Literal, Sequence
 from decimal import Decimal
@@ -63,6 +63,7 @@ class ModelProposalService:
                     inference_seconds=answer.inference_seconds, load_seconds=answer.load_seconds)
                 for observation in answer.fields:
                     candidate = self._candidate(observation, message, catalog, answer.model_id, answer.revision)
+                    candidate.metadata["runtime_versions_reported"] = __import__('json').dumps(answer.runtime_versions, sort_keys=True)
                     protected = [f for f in rules.fields if f.validation_status == "VALID"] + reviewed
                     same = [f for f in protected if f.field_name == candidate.field_name]
                     if candidate.metadata.get("domain_supported") != "true":
