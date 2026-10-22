@@ -1,5 +1,7 @@
 # P1 phase 2 checkpoint
 
+Latest workstreams 4–5: [ADVANCED_ACCURACY_AUDIT.md](ADVANCED_ACCURACY_AUDIT.md). `4e5ba29` multilingual/domain fixes (205 tests passed), one final GLiNER benchmark: Product/Quantity/Delivery F1 94.3/94.5/100%, overall/Malay case pass 90%, SKU false accept 0; recall 89.2/89.7% misses 90% targets. `3c4ac2d` offline historical verification (7 tests passed): 177 classified, 30 correct / 13 incorrect / 26 ambiguous / 108 insufficient / 0 not reviewed. Literal evidence scope only, not 177 complete customer-intent proofs. Read `.local/advanced-historical-semantics-final.json`; don't rescan/rebenchmark. Fetch only missing flagged-context review/version lineage if continuing Workstream 5. No Qwen or historical writes; remaining workstreams untouched.
+
 Latest L2-only continuation: [L2_PHASE1_CHECKPOINT.md](L2_PHASE1_CHECKPOINT.md), implementation `75b5c87`, 85 targeted tests passed. L2 remains default-disabled; no real inference performed. Stop awaiting the user's GPU endpoint. The earlier six integration/accuracy items below are not silently marked complete by this L2 task.
 
 Branch: `feat/p1-phase2-refinement`. Starting checkout `a3b2ba3` already contains Main/P5 changes; preserve them. No push/merge/PR, provider provisioning, L2 inference, historical reprocess/edit/publication, or shared migration changes performed.
