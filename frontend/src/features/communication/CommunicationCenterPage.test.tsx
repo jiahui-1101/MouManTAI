@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider, useAuth } from "../../shared/auth";
 import { ApiError } from "../../shared/api";
@@ -113,7 +114,7 @@ function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0, refetchOnWindowFocus: false }, mutations: { retry: false } } });
   clients.push(client);
   render(<QueryClientProvider client={client}><AuthProvider initialTenantId={auth.tenantId} initialActorId={auth.actorId}>
-    <ScopeControls /><CommunicationCenterPage /></AuthProvider></QueryClientProvider>);
+    <MemoryRouter><ScopeControls /><CommunicationCenterPage /></MemoryRouter></AuthProvider></QueryClientProvider>);
   return client;
 }
 const listRegion = () => screen.getByRole("region", { name: "Communication requests" });

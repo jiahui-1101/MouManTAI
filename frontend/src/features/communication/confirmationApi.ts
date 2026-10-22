@@ -6,6 +6,7 @@ import type { DraftReference } from "./types";
 const base = "/v1/confirmations";
 export const confirmationKeys = {
   scope: (auth: RequestAuthHeaders) => ["p4-confirmations", auth.tenantId, auth.actorId] as const,
+  queue: (auth: RequestAuthHeaders) => [...confirmationKeys.scope(auth), "follow-up-queue"] as const,
   list: (auth: RequestAuthHeaders, id: string) => [...confirmationKeys.scope(auth), "communication", id] as const,
   detail: (auth: RequestAuthHeaders, id: string) => [...confirmationKeys.scope(auth), "detail", id] as const,
   attempts: (auth: RequestAuthHeaders, id: string) => [...confirmationKeys.scope(auth), "attempts", id] as const,
@@ -58,8 +59,9 @@ function checkedView(raw: unknown, auth: RequestAuthHeaders, id?: string, commun
 export async function getConfirmation(id: string, auth: RequestAuthHeaders, signal?: AbortSignal) {
   return checkedView(await apiRequest<unknown>(`${base}/${encodeURIComponent(id)}`, { headers: authHeaders(auth), signal }), auth, id);
 }
-export async function listConfirmations(communicationId: string, auth: RequestAuthHeaders, signal?: AbortSignal) {
-  const result = await apiRequest<unknown>(`${base}?${new URLSearchParams({ communication_id: communicationId })}`, {
+export async function listConfirmations(communicationId: string | undefined, auth: RequestAuthHeaders, signal?: AbortSignal) {
+  const query = communicationId === undefined ? "" : `?${new URLSearchParams({ communication_id: communicationId })}`;
+  const result = await apiRequest<unknown>(`${base}${query}`, {
     headers: authHeaders(auth), signal,
   });
   if (!Array.isArray(result)) return invalid();
