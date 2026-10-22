@@ -911,3 +911,89 @@ def test_variant_boxes_with_pieces_per_box_breakdown(pg_engine):
     assert f_map["quantity"].validation_status == "UNRESOLVED"
     assert f_map["unit"].value == "box"
     assert f_map["unit"].validation_status == "UNRESOLVED"
+
+def test_l2_delivery_rescheduling_rejects_superseded_date():
+    """When a model proposes the moved-from date in a rescheduling request, it is marked INVALID."""
+    from app.context.ai.service import ModelProposalService
+    from app.context.ai.protocol import Observation, InferenceOutput, MODEL_CONFIG
+    import asyncio
+
+    text = "Regarding PO-DEMO-2026-1042, moving delivery from 26 October 2026 to 27 October 2026 before 3:00 PM."
+    msg = make_test_message(text)
+
+    # Simulate model proposing the wrong superseded date: "26 October 2026"
+    start_old = text.index("26 October 2026")
+    end_old = start_old + len("26 October 2026")
+
+    class EndpointOldDate:
+        async def infer(self, request):
+            return InferenceOutput(
+                engine=request.engine,
+                model_id=MODEL_CONFIG[request.engine][0],
+                revision=MODEL_CONFIG[request.engine][1],
+                status="ok",
+                fields=[
+                    Observation(field="delivery", message_id="m1", quote="26 October 2026", start=start_old, end=end_old)
+                ],
+                raw_output="{}",
+                finish_reason="stop",
+                load_seconds=0.1,
+                inference_seconds=0.2,
+                input_tokens=10,
+                output_tokens=10,
+                gpu_name="mock",
+                dtype="float16",
+                runtime_versions={},
+            )
+
+    svc = ModelProposalService(EndpointOldDate(), enabled=True, stages=("gliner",))
+    res = asyncio.run(svc.extract_stored(msg, catalog=PROVISIONAL_CATALOG))
+    assert len(res.candidates) == 1
+    cand = res.candidates[0]
+    assert cand.validation_status == "INVALID"
+    assert "Superseded or cancelled delivery date" in cand.metadata.get("reason", "")
+    assert cand.metadata.get("disposition") == "rejected"
+
+
+def test_l2_delivery_rescheduling_accepts_target_date_as_deadline():
+    """When a model proposes the new target date in a rescheduling request, it is accepted as DEADLINE."""
+    from app.context.ai.service import ModelProposalService
+    from app.context.ai.protocol import Observation, InferenceOutput, MODEL_CONFIG
+    import asyncio
+
+    text = "Regarding PO-DEMO-2026-1042, moving delivery from 26 October 2026 to 27 October 2026 before 3:00 PM."
+    msg = make_test_message(text)
+
+    # Simulate model proposing the correct new target date: "27 October 2026 before 3:00 PM"
+    start_new = text.index("27 October 2026 before 3:00 PM")
+    end_new = start_new + len("27 October 2026 before 3:00 PM")
+
+    class EndpointNewDate:
+        async def infer(self, request):
+            return InferenceOutput(
+                engine=request.engine,
+                model_id=MODEL_CONFIG[request.engine][0],
+                revision=MODEL_CONFIG[request.engine][1],
+                status="ok",
+                fields=[
+                    Observation(field="delivery", message_id="m1", quote="27 October 2026 before 3:00 PM", start=start_new, end=end_new)
+                ],
+                raw_output="{}",
+                finish_reason="stop",
+                load_seconds=0.1,
+                inference_seconds=0.2,
+                input_tokens=10,
+                output_tokens=10,
+                gpu_name="mock",
+                dtype="float16",
+                runtime_versions={},
+            )
+
+    svc = ModelProposalService(EndpointNewDate(), enabled=True, stages=("gliner",))
+    res = asyncio.run(svc.extract_stored(msg, catalog=PROVISIONAL_CATALOG))
+    assert len(res.candidates) == 1
+    cand = res.candidates[0]
+    assert cand.validation_status != "INVALID"
+    assert cand.qualifier == "DEADLINE"
+    assert cand.evidence[0].quote == "27 October 2026 before 3:00 PM"
+

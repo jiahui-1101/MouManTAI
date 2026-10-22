@@ -517,8 +517,14 @@ class ModelProposalService:
                     status, reason = "INVALID", "Quantity must be an explicit positive ASCII decimal"
 
         elif observation.field == "delivery":
+            # Guard against model proposing the superseded moved-from date in a rescheduling clause
+            preceding = message.raw.text[max(0, observation.start - 25):observation.start].lower()
+            is_superseded_date = bool(re.search(r'\b(?:from|dari|not\s+on|instead\s+of|bukan|daripada|sebelum ini)\s*$', preceding)) or bool(re.search(r'\s*(?:从)\s*$', preceding))
             if is_non_order or PAST_DATE_PATTERNS.search(quote):
                 status, reason = "INVALID", "Time expression mentioned in non-order inquiry or past context"
+                supported = False
+            elif is_superseded_date:
+                status, reason = "INVALID", "Superseded or cancelled delivery date in rescheduling clause; model proposal rejected"
                 supported = False
             else:
                 supported = True
