@@ -157,6 +157,7 @@
 | ADR-012 | Server-Side Actor Role Resolution & Policy Enforcement (D-005) | Client-provided role headers or payloads cannot authorize consequential actions; server resolves actor_role via `backend/app/core/policy.py`. Consequential transitions reject unprivileged actors with HTTP 403 `APPROVAL_REQUIRED`. | Accepted | 2026-10-22 |
 | ADR-013 | Caller-Owned Unit-of-Work (D-032), D-017 Named Subscriber Policy, and Advisory Isolation (D-033) | `CommitmentService.assess()` supports `commit=False`/`flush()`; OutboxDispatcher verifies required subscriber `p2_confirmed_evaluator` on `commitment.confirmed` and `p3.recovery_trigger.v1` on `commitment.at_risk`; advisory feasibility is stored append-only in audit without mutating aggregate or terms. | Accepted | 2026-10-22 |
 | ADR-014 | Contract Relaxation: `FeasibilityAssessment.affected_commitment_ids` | `affected_commitment_ids` defaults to empty list `[]` (downstream impact set only). FEASIBLE and UNKNOWN pass cleanly with `[]`; INFEASIBLE with `[]` signals local constraint breach without downstream cascade. | Accepted | 2026-10-22 |
+| ADR-015 | Concurrency Lock Hierarchy & Deadlock Safety (D-041) | Canonical lock hierarchy: `CommitmentRecord` row lock (`with_for_update`) strictly precedes secondary entity updates. Feasibility snapshot evaluation uses lock-free MVCC reads (`get_resource_snapshot`), preventing AB-BA deadlocks between confirmed evaluation and operational disruptions. Verified with dual-session PostgreSQL concurrency test. | Accepted | 2026-10-22 |
 
 Change a decision using: `ADR-ID`, alternatives, pros/cons, affected contract/files, agreed-by, time; never silently reverse a lock.
 
@@ -1586,5 +1587,24 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Suggested commit: feat(p4): add read-only follow-up and escalation queue
 
 **No Backend Changes. No Database Changes. No New Alembic Migrations.**
+
+## 2026-10-22 — P5 Decision D-041: Concurrency Lock Hierarchy Standardization & Deadlock Safety Verification
+
+- **Context**: Person 2 raised a concurrency concern in Handoff #P2-1 regarding potential lock-order inversion between the confirmed-event evaluation path (`CommitmentRecord` locked before snapshot evaluation) and the supplier-delay path (`PersistedSupplierDelayProcessor.process()`).
+- **Decision & Lock Invariant**:
+  1. **Canonical Lock Hierarchy**: Core strictly standardizes that `CommitmentRecord` (`with_for_update()`) anchors the primary lock hierarchy. All multi-entity business transactions mutate commitments under this primary lock before performing secondary resource updates.
+  2. **Lock-Free Snapshot Reads**: Feasibility assessment reads via `get_resource_snapshot()` execute lock-free MVCC consistent queries (`select().order_by()`) without row-level write locks. Snapshot freshness is verified optimistically against authoritative `snapshot_version`.
+  3. **Absence of AB-BA Deadlock**: Because assessment never acquires row locks on `ResourceStockRecord` or `OperationalSnapshotRecord`, deadlock cycles (`DeadlockDetected`) are impossible under concurrent transactions.
+  4. **PostgreSQL Dual-Session Concurrency Test**: Added `test_postgresql_concurrency_lock_order_safety` in `backend/tests/integration/test_feature_handshakes.py`. Verifies overlapping transactions on real PostgreSQL (port 5433): Tx1 locks `CommitmentRecord`, concurrent Tx2 mutates `ResourceStockRecord` and bumps version; Tx1 evaluates freshness and safely fails closed with HTTP 409 `SNAPSHOT_DRIFT_CONFLICT` with zero deadlocks.
+- **Validation Test Evidence**:
+  - PostgreSQL Handshake Suite: `20 passed` on port 5433 (`engine.dialect.name == "postgresql"`).
+  - Core backend pytest suite: `108 passed, 6 warnings` (`python -m pytest tests -q`).
+  - P2 Feasibility backend suite: `248 passed` (`python -m pytest backend/app/feasibility/tests -q`).
+  - Frontend Vitest suite: `400 passed, 5 skipped (live smoke)`.
+  - Frontend production build: Clean (`tsc -b && vite build`, 130 modules transformed).
+- **Owner Actions**:
+  - P2: Complete Phase 7B-4G acceptance review against PR #16.
+  - P5: PR #16 remains Draft until final P2 approval and trusted operational-source authority integration.
+
 
 
