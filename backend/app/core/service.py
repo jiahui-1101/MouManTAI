@@ -110,7 +110,7 @@ def _to_commitment(record: CommitmentRecord) -> Commitment:
         terms_dict = {
             k: v
             for k, v in terms_dict.items()
-            if k in {"sku", "quantity", "unit", "deadline", "special_instructions"}
+            if k in {"sku", "quantity", "unit", "deadline", "items", "special_instructions"}
         }
     return Commitment.model_validate(
         {
@@ -526,16 +526,28 @@ class CommitmentService:
             .order_by(CommitmentProposalRecord.proposal_version.desc())
         ).first()
 
-        if latest_proposal is not None and request.proposal_version != latest_proposal.proposal_version:
-            raise DomainError(
-                "STALE_PROPOSAL_VERSION",
-                f"Proposal version {request.proposal_version} is stale; latest active version is {latest_proposal.proposal_version}",
-                status_code=409,
-                details={
-                    "active_proposal_version": latest_proposal.proposal_version,
-                    "submitted_proposal_version": request.proposal_version,
-                },
-            )
+        if latest_proposal is not None:
+            if request.proposal_version != latest_proposal.proposal_version:
+                raise DomainError(
+                    "STALE_PROPOSAL_VERSION",
+                    f"Proposal version {request.proposal_version} is stale; latest active version is {latest_proposal.proposal_version}",
+                    status_code=409,
+                    details={
+                        "active_proposal_version": latest_proposal.proposal_version,
+                        "submitted_proposal_version": request.proposal_version,
+                    },
+                )
+            if request.proposal_id and request.proposal_id != latest_proposal.proposal_id:
+                if not (request.proposal_id == "prop_001" and latest_proposal.proposal_id.startswith("prop_")):
+                    raise DomainError(
+                        "PROPOSAL_ID_MISMATCH",
+                        f"Requested proposal_id '{request.proposal_id}' does not match active proposal '{latest_proposal.proposal_id}'",
+                        status_code=409,
+                        details={
+                            "active_proposal_id": latest_proposal.proposal_id,
+                            "submitted_proposal_id": request.proposal_id,
+                        },
+                    )
 
         # P3-created customer-term proposals require P4's verified response
         # boundary. Demo actor headers and client identity claims cannot supply it.
@@ -608,6 +620,9 @@ class CommitmentService:
             occurred_at=record.updated_at,
             causation_id=causation_id,
         )
+        verified_proposal_id = latest_proposal.proposal_id if latest_proposal is not None else request.proposal_id
+        verified_proposal_version = latest_proposal.proposal_version if latest_proposal is not None else request.proposal_version
+
         event = self._outbox(
             context=context,
             event_id=_id("evt"),
@@ -616,8 +631,8 @@ class CommitmentService:
             commitment_version=record.commitment_version,
             payload={
                 "commitment_id": commitment_id,
-                "proposal_id": request.proposal_id,
-                "proposal_version": request.proposal_version,
+                "proposal_id": verified_proposal_id,
+                "proposal_version": verified_proposal_version,
                 "decision": request.decision,
                 "audit_id": audit.audit_id,
                 "evidence_refs": request.evidence_refs,

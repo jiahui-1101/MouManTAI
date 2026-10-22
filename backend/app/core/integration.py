@@ -117,9 +117,9 @@ class CoreIntegrationFacade:
         order_id = business_context.order_id or f"ord_{business_context.context_id}"
         customer_id = business_context.customer_id or "cust_unverified"
 
-        # Build terms from first requested item
+        # Build terms from requested items
         first_item = business_context.requested_items[0]
-        delivery_at = business_context.requested_delivery_at or now
+        delivery_at = business_context.requested_delivery_at
 
         # Aggregate evidence refs from field_evidence
         evidence_refs: list[str] = []
@@ -132,23 +132,45 @@ class CoreIntegrationFacade:
             "sku": first_item.sku,
             "quantity": str(first_item.quantity),
             "unit": first_item.unit,
-            "deadline": delivery_at.isoformat(),
+            "deadline": delivery_at.isoformat() if delivery_at else None,
+            "items": [
+                {
+                    "sku": item.sku,
+                    "quantity": str(item.quantity),
+                    "unit": item.unit,
+                }
+                for item in business_context.requested_items
+            ],
             "special_instructions": business_context.special_instructions,
         }
 
-        # Check existing commitment for this order
-        record = db.scalar(
-            select(CommitmentRecord).where(
-                CommitmentRecord.tenant_id == context.tenant_id,
-                CommitmentRecord.order_id == order_id,
+        # Check existing commitment for this order (or commitment_id if provided)
+        record = None
+        if business_context.commitment_id:
+            record = db.scalar(
+                select(CommitmentRecord).where(
+                    CommitmentRecord.tenant_id == context.tenant_id,
+                    CommitmentRecord.commitment_id == business_context.commitment_id,
+                )
             )
-        )
+        if record is None:
+            record = db.scalar(
+                select(CommitmentRecord).where(
+                    CommitmentRecord.tenant_id == context.tenant_id,
+                    CommitmentRecord.order_id == order_id,
+                )
+            )
 
-        requires_review = has_conflicts or has_missing_fields or not is_verified or not is_ready
+        has_missing_delivery = delivery_at is None
+        effective_missing = list(business_context.missing_fields)
+        if has_missing_delivery and "requested_delivery_at" not in effective_missing and "deadline" not in effective_missing:
+            effective_missing.append("deadline")
+
+        requires_review = has_conflicts or bool(effective_missing) or not is_verified or not is_ready
         if requires_review:
             terms_dict["requires_manual_review"] = True
             terms_dict["conflicts"] = business_context.conflicts
-            terms_dict["missing_fields"] = business_context.missing_fields
+            terms_dict["missing_fields"] = effective_missing
             terms_dict["customer_identity_status"] = business_context.customer_identity_status.value
 
         if record is None:
@@ -206,41 +228,117 @@ class CoreIntegrationFacade:
             )
             db.add_all([record, audit, event])
         else:
-            # Update existing draft
-            previous_state = _commitment_snapshot(record)
-            record.terms = terms_dict
-            record.evidence_refs = list(dict.fromkeys([*record.evidence_refs, *evidence_refs]))
-            record.commitment_version += 1
-            record.updated_at = now
-            new_state = _commitment_snapshot(record)
+            if record.agreement_state in {AgreementState.CONFIRMED.value, AgreementState.OFFERED.value}:
+                # Invariant 3 (D-015): Cannot directly overwrite agreed customer terms on a CONFIRMED commitment.
+                # Instead, create a versioned amendment proposal.
+                previous_state = _commitment_snapshot(record)
 
-            audit = self.service._audit(
-                context=context,
-                commitment_id=record.commitment_id,
-                event_type=CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value,
-                dimension="agreement",
-                previous_state=previous_state,
-                new_state=new_state,
-                evidence_refs=evidence_refs,
-                reason=f"Business context updated: conflicts={business_context.conflicts}",
-                occurred_at=now,
-                causation_id=business_context.context_id,
-            )
-            event = self.service._outbox(
-                context=context,
-                event_id=_id("evt"),
-                event_type=CoreEventType.COMMITMENT_CONTEXT_READY.value if not requires_review else CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value,
-                commitment_id=record.commitment_id,
-                commitment_version=record.commitment_version,
-                payload={
-                    "commitment_id": record.commitment_id,
-                    "order_id": record.order_id,
-                    "context_id": business_context.context_id,
-                },
-                occurred_at=now,
-                causation_id=business_context.context_id,
-            )
-            db.add_all([audit, event])
+                latest_proposal = db.scalars(
+                    select(CommitmentProposalRecord)
+                    .where(
+                        CommitmentProposalRecord.tenant_id == context.tenant_id,
+                        CommitmentProposalRecord.commitment_id == record.commitment_id,
+                    )
+                    .order_by(CommitmentProposalRecord.proposal_version.desc())
+                ).first()
+                next_prop_version = (latest_proposal.proposal_version + 1) if latest_proposal else 1
+
+                existing_active = db.scalars(
+                    select(CommitmentProposalRecord).where(
+                        CommitmentProposalRecord.tenant_id == context.tenant_id,
+                        CommitmentProposalRecord.commitment_id == record.commitment_id,
+                        CommitmentProposalRecord.status == "ACTIVE",
+                    )
+                ).all()
+                for p in existing_active:
+                    p.status = "SUPERSEDED"
+                    p.updated_at = now
+
+                proposal_id = _id("prop")
+                proposal_record = CommitmentProposalRecord(
+                    tenant_id=context.tenant_id,
+                    proposal_id=proposal_id,
+                    commitment_id=record.commitment_id,
+                    proposal_version=next_prop_version,
+                    revised_terms=terms_dict,
+                    status="ACTIVE",
+                    reason=f"Amendment requested from business context {business_context.context_id}",
+                    evidence_refs=evidence_refs,
+                    created_at=now,
+                    updated_at=now,
+                )
+
+                record.agreement_state = AgreementState.OFFERED.value
+                record.commitment_version += 1
+                record.updated_at = now
+                record.evidence_refs = list(dict.fromkeys([*record.evidence_refs, *evidence_refs]))
+                new_state = _commitment_snapshot(record)
+
+                audit = self.service._audit(
+                    context=context,
+                    commitment_id=record.commitment_id,
+                    event_type=CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value,
+                    dimension="agreement",
+                    previous_state=previous_state,
+                    new_state=new_state,
+                    evidence_refs=evidence_refs,
+                    reason=f"Amendment proposal offered from context {business_context.context_id}",
+                    occurred_at=now,
+                    causation_id=business_context.context_id,
+                )
+                event = self.service._outbox(
+                    context=context,
+                    event_id=_id("evt"),
+                    event_type=CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value,
+                    commitment_id=record.commitment_id,
+                    commitment_version=record.commitment_version,
+                    payload={
+                        "commitment_id": record.commitment_id,
+                        "proposal_id": proposal_id,
+                        "proposal_version": next_prop_version,
+                        "audit_id": audit.audit_id,
+                        "evidence_refs": evidence_refs,
+                    },
+                    occurred_at=now,
+                    causation_id=business_context.context_id,
+                )
+                db.add_all([proposal_record, audit, event])
+            else:
+                # Update existing draft
+                previous_state = _commitment_snapshot(record)
+                record.terms = terms_dict
+                record.evidence_refs = list(dict.fromkeys([*record.evidence_refs, *evidence_refs]))
+                record.commitment_version += 1
+                record.updated_at = now
+                new_state = _commitment_snapshot(record)
+
+                audit = self.service._audit(
+                    context=context,
+                    commitment_id=record.commitment_id,
+                    event_type=CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value,
+                    dimension="agreement",
+                    previous_state=previous_state,
+                    new_state=new_state,
+                    evidence_refs=evidence_refs,
+                    reason=f"Business context updated: conflicts={business_context.conflicts}",
+                    occurred_at=now,
+                    causation_id=business_context.context_id,
+                )
+                event = self.service._outbox(
+                    context=context,
+                    event_id=_id("evt"),
+                    event_type=CoreEventType.COMMITMENT_CONTEXT_READY.value if not requires_review else CoreEventType.COMMITMENT_LIFECYCLE_CHANGED.value,
+                    commitment_id=record.commitment_id,
+                    commitment_version=record.commitment_version,
+                    payload={
+                        "commitment_id": record.commitment_id,
+                        "order_id": record.order_id,
+                        "context_id": business_context.context_id,
+                    },
+                    occurred_at=now,
+                    causation_id=business_context.context_id,
+                )
+                db.add_all([audit, event])
 
         if commit:
             db.commit()

@@ -1640,3 +1640,58 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Final diff review restored the proper em dash in `backend/app/communication/router.py`'s synthetic-mode label after detecting merge-time mojibake. The same full PostgreSQL-enabled backend command reran on that exact code tree with `--basetemp=../.pytest-pr16-p4-final` and passed through 100%, exit 0, no failures. Scoped Ruff on reconciliation tests/migration and compileall passed; broader Ruff on the pre-existing router composition still reports E402 for its bottom import, which this focused merge leaves for owner review.
 - Review publication: normal fast-forward push updated draft PR #16 to `12fad7fe4d520b2662f3fc7da0320aecac2cd42b`; P4 `Sheng554` and P5 `Gan0117` review requests were renewed, P2 `meishuet16` remained requested, and the PR description was refreshed. P4's prior `CHANGES_REQUESTED` review at `0c966d4` specifically requested this 0011 lineage, confirmation-table/route, and downgrade reconciliation; its review remains outstanding. GitHub CI was running at the time of this note.
 - Remaining review blockers: P4/P5 must review the combined migration and confirmation/authority route contracts; P2 must reconcile the existing single `p2_confirmed_evaluator` before production registration. Production subscriber registration remains disabled; no customer acceptance, consent, manager authority or response evidence was fabricated. PR #16 stays draft and must not merge to Main until owner approvals and required CI are complete.
+### 2026-10-22 — Task P5-TAIZEN: Audit Ratification, Amendment Protection, Zero-Guessing Deadline & Multi-Item Alignment (P5 / ADR-020 / D-037)
+- **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `ADR-020` (Decision `D-037`, ratifying PR #18, PR #20)
+  - **Owner**: P5 (Shared Core, Contracts & Integration)
+  - **Impact**:
+    1. **Audit Ratification of PR #18 & PR #20**:
+       - Ratified P3-submitted PR #18 (`41bfc58` / `aabf559`, default loopback CORS origins in `main.py`).
+       - Ratified P3-submitted PR #20 (`a367930` / `ae20793`, fail-closed stale mandatory outbox reconciliation requiring `ProcessedEventRecord` completion before supersession).
+    2. **Amendment Proposal Protection on Confirmed Commitments (D-037 / Handoff #P1-1)**:
+       - `CoreIntegrationFacade.handle_context_updated()` strictly protects agreed terms when `agreement_state` is `CONFIRMED` or `OFFERED`.
+       - Never directly overwrites `record.terms` (Invariant 3 / D-015); instead, stages an active `CommitmentProposalRecord` with `revised_terms`, marks prior active proposals `SUPERSEDED`, transitions agreement state to `OFFERED`, increments `commitment_version`, and emits `COMMITMENT_PROPOSAL_OFFERED` outbox and audit events atomically.
+    3. **Zero-Guessing Delivery Deadline**:
+       - Removed `or now` server timestamp defaulting on `business_context.requested_delivery_at`.
+       - When delivery time is missing, `deadline` is set to `None`, `requires_manual_review` is flagged `True`, and `"deadline"` is appended to `missing_fields`.
+    4. **Multi-Item CommitmentTerms Schema Alignment**:
+       - Extended `CommitmentTerms` in `backend/app/core/schemas.py` and `contracts/types.ts` with optional `items: list[RequestedItem] | None = None` and `deadline: OffsetAwareDatetime | None = None`.
+       - Updated `_to_commitment()` whitelist in `service.py` and `get_overview()` in `commitments.py` to preserve full item arrays across all order items.
+- **Validation Test Evidence**:
+  - New dedicated suite `tests/test_amendment_protection.py`: `2 passed in 0.06s` (amendment proposal creation, original terms preservation, multi-item array retention, zero-guessing deadline review flagging).
+  - Full backend core pytest suite: `106 passed, 1 warning` (`python -m pytest tests -q`).
+  - Real PostgreSQL dual-boundary handshake suite: `19 passed in 2.75s` against PostgreSQL on port 5433 (`engine.dialect.name == "postgresql"`).
+  - Feasibility backend suite: `239 passed`.
+  - Communication backend suite: `370 passed`.
+  - Frontend Vitest suite: `308 passed, 5 skipped (live smoke), 0 failed` (`npm test -- --run`).
+  - Frontend TypeScript typecheck: Clean (`tsc --noEmit`, 0 errors).
+  - Frontend production build: Clean (`tsc -b && vite build`, 121 modules transformed, 0 errors).
+  - Single Alembic head verified: `0010_p4_recipient_preferences (head)`.
+- **Pending Acknowledgements**:
+  - P1: Rebase context publisher on updated `handle_context_updated()` to route confirmed amendments via Core proposal workflow.
+  - P2: Verify multi-item compatibility in evaluation consumer.
+  - P4: Align confirmation responses to newly emitted amendment proposals.
+
+### 2026-10-22 — Task P5-PROPOSAL-ID: Core Proposal Identity Verification & Outbox Derivation (P5 / D-038 / Handoff #P2-1)
+- **Status**: Complete, Verified & Delivered by Person 5 (Core Architecture, Registry, Shell & Contracts).
+- **Decision / Impact / Owner**:
+  - **Decision ID**: `D-038` (Ratifying P2 Handoff #P2-1 requirement 1)
+  - **Owner**: P5 (Shared Core, Contracts & Integration)
+  - **Impact**:
+    1. **Core Proposal Identity Verification (P0)**:
+       - `CommitmentService.confirm_proposal` now strictly validates that `request.proposal_id` matches the active persisted `CommitmentProposalRecord` row for the target commitment.
+       - Evaluated after version freshness check (`STALE_PROPOSAL_VERSION` taking precedence), raising HTTP 409 `PROPOSAL_ID_MISMATCH` on ID discrepancy.
+    2. **Authoritative Outbox Event Payload Derivation**:
+       - `COMMITMENT_CONFIRMED` outbox event payload now derives its `proposal_id` and `proposal_version` directly from the verified `latest_proposal` record row rather than echoing untrusted client arguments.
+- **Validation Test Evidence**:
+  - Dedicated regression test `test_confirm_proposal_verifies_proposal_identity_and_derives_event_payload` added to `backend/tests/test_amendment_protection.py` (3 passed in 0.08s).
+  - Full core backend suite: `107 passed, 1 warning` (`python -m pytest tests -q`).
+  - Real PostgreSQL dual-boundary handshake suite: `19 passed` on port 5433 (`engine.dialect.name == "postgresql"`).
+  - Frontend Vitest suite: `308 passed, 5 skipped (live smoke)`.
+  - Frontend TypeScript typecheck: Clean (0 errors).
+  - Frontend production build: Clean (121 modules transformed, 0 errors).
+- **Pending Acknowledgements**:
+  - P2: Integrate with canonical `backend/app/feasibility/consumer.py` on branch `feat/p2-7b4b-confirmed-consumer`.
+  - P3: Rebase PR #16 incorporating verified proposal payload derivation.
+  - P4: Map customer confirmation tokens to verified proposal identities.
