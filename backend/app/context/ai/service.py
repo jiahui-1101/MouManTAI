@@ -20,6 +20,7 @@ class ProposalResult(P1Model):
     candidates: list[ExtractedField]
     outcomes: dict[str, str]
     conflicts: list[str]
+    telemetry: dict[str, dict] = {}
     manual_review_required: Literal[True] = True
 
 
@@ -43,28 +44,37 @@ class ModelProposalService:
         if not self.enabled or self.endpoint is None:
             result.outcomes["models"] = "disabled"
             return result
-        needs_interpretation = any(
-            f.validation_status in {"UNRESOLVED", "CONFLICT", "INVALID"} and f.field_name != "order_id"
-            for f in rules.fields
-        ) or any(
-            f.field_name in {"sku", "quantity"} and f.validation_status == "MISSING"
-            for f in rules.fields
-        )
+        # Metadata/identity requirements cannot be solved by guessing with a
+        # model. Missing units alone also do not authorize unit invention.
+        needs_interpretation = any(f.field_name in {"sku", "quantity"}
+            and f.validation_status != "VALID" for f in rules.fields)
         for engine in self.stages:
-            if engine == "qwen" and not needs_interpretation:
+            if not needs_interpretation:
                 result.outcomes[engine] = "not_needed"
                 continue
             # One persisted message/tenant only; no identities, attachments,
             # raw envelope, customer data, headers or credentials leave P1.
             try:
                 request = InferenceInput(engine=engine, messages=[SourceText(id="m1", text=message.raw.text)])
+                result.telemetry[engine] = {"attempted": True, "succeeded": False}
                 answer = validate_evidence(await self.endpoint.infer(request), request)
+                result.telemetry[engine].update(succeeded=True, model=answer.model_id, revision=answer.revision,
+                    device=answer.gpu_name, dtype=answer.dtype, peak_gpu_bytes=answer.peak_gpu_bytes,
+                    inference_seconds=answer.inference_seconds, load_seconds=answer.load_seconds)
                 for observation in answer.fields:
                     candidate = self._candidate(observation, message, catalog, answer.model_id, answer.revision)
                     protected = [f for f in rules.fields if f.validation_status == "VALID"] + reviewed
-                    if any(f.field_name == candidate.field_name and f.value != candidate.value for f in protected):
+                    same = [f for f in protected if f.field_name == candidate.field_name]
+                    if candidate.metadata.get("domain_supported") != "true":
+                        candidate.metadata["disposition"] = "rejected"
+                    elif any(f.value == candidate.value for f in same):
+                        candidate.metadata["disposition"] = "duplicate"
+                    elif same:
                         candidate.validation_status = "CONFLICT"
                         result.conflicts.append(candidate.evidence[0].evidence_id)
+                        candidate.metadata["disposition"] = "conflict"
+                    else:
+                        candidate.metadata["disposition"] = "proposal"
                     result.candidates.append(candidate)
                 result.outcomes[engine] = "proposals_only"
             except InferenceFailure as error:
@@ -81,20 +91,49 @@ class ModelProposalService:
         value = quote
         reason = "Model proposal only; independent semantic/domain review required"
         status = "UNRESOLVED"
+        supported = False
+        subspan = None
         if observation.field == "product":
-            matches = {p.sku for p in catalog if p.tenant_id == message.raw.tenant_id
-                       and quote.casefold() in {a.casefold() for a in p.aliases}}
-            if len(matches) == 1:
-                value = next(iter(matches))
+            matches = []
+            for p in catalog:
+                if p.tenant_id != message.raw.tenant_id:
+                    continue
+                for alias in p.aliases:
+                    m = re.fullmatch(r"(?:[0-9]+(?:\s+(?:pcs|pieces|个))?\s+)?(?P<alias>" + re.escape(alias) + r")", quote, re.IGNORECASE)
+                    if m:
+                        matches.append((p, m.span("alias")))
+            if len({(p.sku, p.unit) for p, _ in matches}) == 1:
+                value = matches[0][0].sku
+                subspan = matches[0][1]
+                supported = True
             else:
                 reason = "Unknown or ambiguous SKU alias; model cannot establish catalog membership"
         elif observation.field == "unit":
             value = UNIT_NORMALIZATION.get(quote.lower(), quote)
             if quote.lower() not in UNIT_NORMALIZATION:
                 status, reason = "INVALID", "Unsupported unit token; no automatic conversion"
+            else:
+                sku_fields = [f.value for f in extract_explicit_fields(message, catalog=catalog).fields
+                              if f.field_name == "sku" and f.validation_status == "VALID"]
+                supported = len(set(sku_fields)) == 1 and any(p.sku == sku_fields[0] and p.unit == value
+                    and p.tenant_id == message.raw.tenant_id for p in catalog)
+                if not supported:
+                    status, reason = "INVALID", "Unit/SKU compatibility is unproven"
         elif observation.field == "quantity":
-            if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", quote) or Decimal(quote) <= 0:
+            # Delegate meaning/association to L0, then accept only its exact
+            # quantity subspan inside this observation. Never pick first digit.
+            quantities = [f for f in extract_explicit_fields(message, catalog=catalog).fields
+                if f.field_name == "quantity" and f.validation_status == "VALID" and f.evidence
+                and observation.start <= f.evidence[0].start < f.evidence[0].end <= observation.end]
+            if len(quantities) == 1:
+                q = quantities[0]
+                value = q.value
+                subspan = (q.evidence[0].start - observation.start, q.evidence[0].end - observation.start)
+                supported = True
+            elif not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", quote) or Decimal(quote) <= 0:
                 status, reason = "INVALID", "Quantity must be an explicit positive ASCII decimal"
+            else:
+                reason = "Literal number only; item association is unproven"
         elif observation.field == "delivery":
             reason = "Raw delivery expression only; model cannot normalize or override date safety rules"
         evidence = FieldEvidence(evidence_id=f"model:{message.message_id}:{observation.start}:{observation.end}:{observation.field}",
@@ -102,6 +141,14 @@ class ModelProposalService:
                                  method="MODEL", method_version=f"{model_id}@{revision}")
         # Do not mark numeric/unit/model associations VALID just because they
         # pass schema or quote checks. TASK 2B validators remain authoritative.
-        return ExtractedField(field_name=name, value=value, validation_status=status, evidence=[evidence],
+        evidence_list = [evidence]
+        if subspan and subspan != (0, len(quote)):
+            start, end = observation.start + subspan[0], observation.start + subspan[1]
+            evidence_list.append(FieldEvidence(evidence_id=f"normalized:{message.message_id}:{start}:{end}",
+                message_id=message.message_id, quote=message.raw.text[start:end], start=start, end=end,
+                method="MODEL", method_version=f"{model_id}@{revision}"))
+        return ExtractedField(field_name=name, value=value, validation_status=status, evidence=evidence_list,
                               metadata={"reason": reason, "group_id": observation.group_id or "", "model_id": model_id,
-                                        "model_revision": revision, "provisional": "true"})
+                                        "model_revision": revision, "provisional": "true",
+                                        "domain_supported": str(supported).lower(),
+                                        "normalization": "catalog_and_l0_subspan_v1"})
