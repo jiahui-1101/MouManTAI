@@ -2,37 +2,39 @@
 
 ### Protect the promise, even when the plan changes.
 
-**SDC Hackathon 2026 · Domain 2 · Orbyte Smart SME Challenge · Alpha Red Solutions mentorship**
+**SDC Hackathon 2026 · Domain 2 · Orbyte Smart SME Challenge · Alpha Red Solutions**
 
-An SME can promise a customer a delivery in one conversation, discover a supplier delay in another, and keep the stock and production plan in a spreadsheet. **PromiseFlow connects those fragments around the customer commitment:** it identifies risk, compares realistic recovery choices, asks for human approval, and tracks customer agreement and actual delivery as separate outcomes.
+PromiseFlow turns fragmented business communication into **actionable customer-commitment recovery**. From a WhatsApp order to a supplier delay, then stock and capacity checks, recovery options and human approval, it helps SMEs protect what they promised customers, without replacing the spreadsheets, chats and systems they already use.
 
-> **Prototype, 23 October 2026:** F1–F4 APIs and screens exist, with synthetic data and selected passing tests. The complete browser → worker → database → approval → customer-response → outcome journey has **not** been independently verified. WhatsApp, Email, Telegram, outbound delivery and Orbyte connections are **synthetic, mock or proposed**, as detailed below.
+An SME can promise a delivery in one conversation, learn about a supplier delay in another, and keep stock and production plans in a spreadsheet. **PromiseFlow connects those fragments around the customer commitment**: it finds the promises that are really at risk, compares realistic recovery choices, asks an authorized person to approve, and tracks customer agreement and actual delivery as separate outcomes.
 
-The repository and application still use the engineering name **MouManTAI**. PromiseFlow is the product name for this presentation; API names have not been changed.
+> **Prototype note (23 Oct 2026):** F1–F4 APIs and screens run on **synthetic data**. WhatsApp, Email, Telegram, outbound messages and Orbyte connections are simulated or proposed. See [Project status](#project-status-and-validation) for exactly what has and has not been verified.
+>
+> The repository and application still use the engineering name **MouManTAI** (database, package and API names). **MouManTAI = PromiseFlow**; names were not changed to avoid breaking APIs.
 
-**Explore:** [Problem](#the-problem) · [Scenario](#one-sme-story) · [Capabilities](#four-connected-capabilities) · [AI](#selective-ai-ml-and-llm-architecture) · [Architecture](#system-architecture) · [Demo](#prototype-demo) · [Run locally](#run-locally) · [Status](#project-status-and-validation)
+**Explore:** [Problem](#the-problem) · [Story](#one-sme-story) · [Capabilities](#four-connected-capabilities) · [Why different](#why-promiseflow-is-different) · [Control](#people-stay-in-control) · [AI](#selective-ai-ml-and-llm-architecture) · [Architecture](#system-architecture) · [Demo](#prototype-demo) · [Market](#first-market-and-business-model-hypotheses) · [Privacy](#privacy-and-pdpa-in-a-real-deployment) · [Risks](#hardest-risks-and-fallbacks) · [Run](#run-locally) · [Status](#project-status-and-validation)
 
 ## The problem
 
 Small businesses already work across disconnected tools:
 
-- **Customer and supplier conversations:** WhatsApp, Email, Telegram and follow-up messages.
-- **Operational records:** inventory, incoming supply, existing orders, production schedules and spreadsheets.
-- **Human decisions:** an owner deciding whether to pay more, rearrange work or ask a customer to accept new terms.
+- **Conversations:** customers and suppliers on WhatsApp, Email and Telegram.
+- **Operational records:** inventory, incoming supply, existing orders, production schedules, spreadsheets.
+- **Human decisions:** an owner deciding whether to pay more, rearrange work, or ask a customer to accept new terms.
 
-When a supplier is late, a reminder alone does not answer **which promises are affected**, **which alternatives are feasible**, or **whether a revised promise was accepted and delivered**. The owner often has to reconcile all of this manually.
+When a supplier is late, a reminder does not answer **which promises are affected**, **which alternatives are feasible**, or **whether the customer accepted a revised promise and it was actually delivered**. The owner reconciles all of this by hand, often in the evening.
 
 ## Our solution
 
-PromiseFlow is a **commitment-centered automation layer**. It is designed to:
+PromiseFlow is a **commitment-centered automation layer** that:
 
-1. Connect incoming business information to the right order, keeping its source and uncertainty.
-2. Recheck stock, supplier timing and capacity when an operational fact changes.
-3. Show affected promises and compare recovery choices against constraints.
-4. Require authorized human approval for consequential action or changed customer terms.
-5. Track communication, explicit customer response and operational fulfilment with separate evidence.
+1. Connects incoming business information to the right order, keeping its source and uncertainty.
+2. Rechecks stock, supplier timing and capacity when an operational fact changes.
+3. Shows affected promises and compares recovery options against hard constraints.
+4. Requires authorized human approval for consequential action or changed customer terms.
+5. Tracks communication, explicit customer response and operational fulfilment with separate evidence.
 
-**Change → Impact → Action → Confirmation → Verified outcome** is the product story. The working prototype covers parts of this chain; the [status table](#project-status-and-validation) states the integration limits.
+**Change → Impact → Action → Confirmation → Verified outcome.**
 
 ## One SME story
 
@@ -40,54 +42,72 @@ PromiseFlow is a **commitment-centered automation layer**. It is designed to:
 
 | Moment | Normal manual work | PromiseFlow's intended response |
 |---|---|---|
-| Customer request | Find the original chat and write down quantity and deadline. | Associate the message with a reviewable order context and a versioned commitment. |
-| Supplier delay | Check stock and ask which orders need the same packaging. | Recalculate affected commitments against a fresh operational snapshot. |
-| Recovery decision | Call another supplier or negotiate a new deadline. | Compare alternative supply with a revised delivery offer, including cost, assumptions and uncertainty. |
-| Authorization | Decide verbally and follow up later. | Obtain a manager decision bound to the current plan and snapshot. |
-| Customer and outcome | Send a message, interpret the reply, check delivery separately. | Track a mock outbound message, exact proposal response, operational action and fulfilment evidence as different states. |
+| Customer request | Find the original chat, write down quantity and deadline. | Link the message to a reviewable order context and a versioned commitment. |
+| Supplier delay | Check stock; work out which other orders use the same packaging. | Recalculate only the commitments truly affected, against a fresh operational snapshot. |
+| Recovery decision | Phone another supplier or negotiate a new deadline. | Compare alternative supply with a revised delivery offer, showing cost, assumptions and uncertainty. |
+| Authorization | Decide verbally, follow up later. | Manager decision bound to the current plan and snapshot version. |
+| Customer and outcome | Send a message, interpret the reply, check delivery separately. | Track the message, the exact proposal response, the operational action and fulfilment evidence as different states. |
 
-**In today's demo**, `/recovery/demo` is a **read-only synthetic** supplier-delay walkthrough. It shows the two trade-offs but does not approve a plan, buy packaging, contact a real customer or prove delivery. The persisted seed records and APIs are separate evidence, not a replay of this entire story.
+**In today's demo**, `/recovery/demo` is a **read-only synthetic walkthrough** of this supplier-delay trade-off. It does not approve a plan, buy packaging, contact a customer or prove delivery. Persisted seed records and APIs are separate evidence, not a replay of the whole story.
 
 ## Four connected capabilities
 
 | Capability | Business value | Current prototype |
 |---|---|---|
-| **F1 · Business Context Intelligence** | Understand customer and supplier messages, preserving source evidence and unresolved fields. | Synthetic inbox, message processing and order-context review routes. The UI can compose **mock WhatsApp, Email and Telegram envelopes**; official provider webhooks are not connected. |
+| **F1 · Business Context Intelligence** | Understand customer and supplier messages while preserving source evidence and unresolved fields. | Synthetic inbox, message processing, order-context review. UI composes **mock WhatsApp, Email and Telegram envelopes**; no official provider webhooks. |
 | **F2 · Commitment Feasibility & Impact** | Check materials, timing and affected promises when conditions change. | Deterministic evaluation, impact code and pages. Supplier-event mutation and key worker subscriptions are gated to isolated E2E mode. |
-| **F3 · Intelligent Recovery & Change-to-Action** | Compare constrained options, ask for approval and track permitted action. | Case, plan, approval and action code/pages. Normal actor authority fails closed; isolated mode requires a server-owned key. Current action is a synthetic internal review task, not procurement. |
-| **F4 · Closed-Loop Communication & Confirmation** | Prepare a changed offer, track delivery and resolve an explicit reply. | Communication, confirmation and follow-up code/pages with a local mock provider. A sent message is not acceptance; acceptance is not fulfilment. |
+| **F3 · Intelligent Recovery & Change-to-Action** | Compare constrained options, ask for approval, track permitted action. | Case, plan, approval and action code/pages. Normal actor authority fails closed; isolated mode needs a server-owned key. Current action is a synthetic internal review task, not procurement. |
+| **F4 · Closed-Loop Communication & Confirmation** | Prepare a changed offer, track delivery, resolve an explicit reply. | Communication, confirmation and follow-up code/pages with a local mock provider. |
 
-The **Shared Commitment Registry (P5)** is the backbone of these four capabilities, **not a fifth feature**. It holds one tenant/commitment identity, versioned terms, distinct agreement/feasibility/risk/recovery/fulfilment states, audit records and outbox events.
+The **Shared Commitment Registry (P5)** is the backbone, **not a fifth feature**: one tenant/commitment identity, versioned terms, separate agreement / feasibility / risk / recovery / fulfilment states, audit records and outbox events.
 
-## What makes PromiseFlow different
+## Why PromiseFlow is different
 
-- **Commitment-centered:** follow a specific customer promise instead of treating every chat as an isolated task.
-- **Change to impact:** re-evaluate affected orders rather than merely announce a supplier delay.
-- **Constrained recovery:** expose whether an option is feasible, conditional or unknown, with cost and customer impact.
-- **Governed action:** approval binds the current plan and versions; stale or missing authority blocks action.
-- **Closed-loop evidence:** `REQUESTED ≠ CONFIRMED`, `APPROVED ≠ EXECUTED`, and `SENT ≠ ACCEPTED ≠ FULFILLED`.
+A fair question is: *isn't this just an order system plus AI?* The table compares **design intent**, not measured superiority over any product.
 
-This design can complement spreadsheets, order systems or an ERP; it does not replace every business system. These are product design distinctions, **not measured superiority claims**.
+| Capability | Typical tools (chat apps, spreadsheets, basic order tools) | PromiseFlow design goal |
+|---|---|---|
+| Understand messages | Messages stay in separate channels; staff re-type details. | Extract fields across channels with source spans, uncertainty and manual review. |
+| Supplier delay | Someone is notified and must work out the effect. | Re-evaluate commitments and flag only those actually affected. |
+| Recovery | Owner searches for a fix manually. | Options validated by the same feasibility engine, with cost, delay and risk side by side. |
+| Decision | Verbal or scattered approvals. | Approval bound to actor, role, plan version and snapshot version; stale approvals are blocked. |
+| Outcome | Order status only. | Message state, customer acceptance, action result and fulfilment evidence tracked separately. |
+
+Core rules: `REQUESTED ≠ CONFIRMED`, `APPROVED ≠ EXECUTED`, `SENT ≠ ACCEPTED ≠ FULFILLED`, supplier promise ≠ goods received, receipt image ≠ verified payment. PromiseFlow can complement spreadsheets, order systems or an ERP; it does not replace them.
+
+## People stay in control
+
+Login and roles are **simulated** (as the challenge allows). Demo actors are chosen through request headers; this is **not** production authentication. The intended policy:
+
+| Role (synthetic) | Can view | Can act |
+|---|---|---|
+| **Owner** | All commitments, recovery cases, audit. | Approve consequential recovery and changed customer terms; configure approval limits. |
+| **Manager** | Commitments, recovery cases, communications, audit. | Approve or reject recovery plans within policy; approve sending customer offers. |
+| **Staff** | Inbox, order contexts, commitment status. | Review and correct extracted fields, request more information, prepare drafts. Cannot approve procurement or promise changes. |
+
+Enforced on the server (not only hidden in the UI): tenant scoping, role checks, approval tied to plan/snapshot version and expiry, and an audit record of who did what and when. Every consequential state change writes to the activity log (`/activity`).
+
+**Easy to learn:** the journey follows the questions an owner already asks: *What changed? → Which promises are affected? → What can I do? → Do I approve? → Did the customer agree? → Was it delivered?* Statuses use plain, distinct labels (`UNKNOWN`, `PENDING_APPROVAL`, `INVALIDATED`, `FULFILLED`), and pending states never show a success colour. Usability without training is a **design goal that still needs testing with real users** (see [Roadmap](#roadmap)).
 
 ## Selective AI, ML and LLM architecture
 
-**Use the cheapest reliable layer first.** AI assists with interpreting messy language; it does not calculate stock, grant authority or certify fulfilment.
+**Use the cheapest reliable layer first.** AI helps interpret messy language; it does not calculate stock, grant authority or certify fulfilment.
 
 | Layer | Technology / model | Business task | Why this choice | Integration status |
 |---|---|---|---|---|
-| **L0 · Rules** | Deterministic Python rules and validated business records | Known references, quantities/dates, stock and capacity checks, plan constraints, version and approval policy | Reproducible decisions and inspectable reasons | **Implemented** in context, feasibility, recovery and Core. Offline demo works without a model endpoint. |
-| **L1 · Entity extraction** | [GLiNER `urchade/gliner_multi-v2.1`](https://huggingface.co/urchade/gliner_multi-v2.1) | Propose product, quantity, delivery and reference spans from multilingual messages | Flexible entity labels with original text spans | **Implemented as an opt-in remote inference stage** with a pinned model revision and tests. A saved evaluation artifact exists; not required for the standard offline demo. |
-| **L1 · Documents** | PyMuPDF text extraction; optional PaddleOCR | Read supported PDF text and scanned/image attachments while retaining evidence | Use document parsing first; OCR when needed | **Implemented in P1 code and scoped tests.** OCR dependencies/runtime must be available; it is not proof of payment. |
-| **L1 · Intent candidate** | [XLM-RoBERTa `FacebookAI/xlm-roberta-base`](https://huggingface.co/FacebookAI/xlm-roberta-base) | Possible future multilingual intent classification | Multilingual encoder suitable for **fine-tuning** | **Candidate only.** The base encoder is not a trained SME intent classifier; no fine-tuned classifier is integrated. |
-| **L2 · Selective interpretation** | [Qwen `Qwen/Qwen3-4B-Instruct-2507`](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) | Propose interpretation of genuinely ambiguous message details | Instruction-following model with multilingual potential | **Optional integrated adapter/worker path**, not default offline inference. GPU worker and RunPod transport code exist; a saved 26-case synthetic evaluation reports sample remote runs. No live endpoint, ongoing availability or pilot accuracy was reverified for this README. |
+| **L0 · Rules** | Deterministic Python rules and validated business records | Known references, quantities/dates, stock and capacity checks, plan constraints, version and approval policy | Reproducible decisions with inspectable reasons | **Implemented** in context, feasibility, recovery and Core. Works offline with no model endpoint. |
+| **L1 · Entity extraction** | [GLiNER `urchade/gliner_multi-v2.1`](https://huggingface.co/urchade/gliner_multi-v2.1) | Propose product, quantity, delivery and reference spans from multilingual messages | Flexible labels with original text spans | **Opt-in remote inference stage**, pinned model revision, with tests. Saved evaluation artifact exists; not needed for the offline demo. |
+| **L1 · Documents** | PyMuPDF; optional PaddleOCR | Read PDF text and scanned/image attachments, retaining evidence | Parse documents first, OCR only when needed | **Implemented in P1 code and scoped tests.** OCR needs its runtime; OCR output is not proof of payment. |
+| **L1 · Intent candidate** | [XLM-RoBERTa `FacebookAI/xlm-roberta-base`](https://huggingface.co/FacebookAI/xlm-roberta-base) | Possible future multilingual intent classification | Multilingual encoder suited to **fine-tuning** | **Candidate only.** The base encoder is not a trained SME classifier; none is integrated. |
+| **L2 · Selective interpretation** | [Qwen `Qwen/Qwen3-4B-Instruct-2507`](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) | Propose interpretation of genuinely ambiguous message details | Instruction-following, multilingual potential | **Optional adapter/worker path**, not default. A saved 26-case synthetic evaluation reports sample remote runs. No live endpoint or pilot accuracy was reverified for this README. |
 
-The P1 protocol pins model IDs and revisions in `backend/app/context/ai/protocol.py`. A [saved 26-case evaluation](backend/app/context/experiments/ai_gpu/unseen_acceptance_results.json) contains results and self-reported GPU telemetry; it is a limited synthetic test, not general SME accuracy or proof that an endpoint is currently available. GLiNER has also been kept optional after earlier domain-specific evaluation gaps.
+Model IDs and revisions are pinned in `backend/app/context/ai/protocol.py`. The [saved 26-case evaluation](backend/app/context/experiments/ai_gpu/unseen_acceptance_results.json) is a limited synthetic test, not general SME accuracy and not proof an endpoint is available now.
 
-**Safety path:** bounded inputs → structured model output → schema and quote/span validation → product and business-rule checks → visible uncertainty or manual review. Failed or unavailable inference falls back to deterministic processing or an unresolved state. Recovery feasibility, arithmetic, approval and fulfilment remain rule/evidence decisions. Open model weights offer deployment choice, cost visibility and multilingual potential, but hosted GPU use can cost money and sending data to a remote endpoint requires privacy controls; the models are not assumed free, private or local.
+**Safety path:** bounded input → structured model output → schema and quote/span validation → product and business-rule checks → visible uncertainty or manual review. If inference fails or is unavailable, processing falls back to deterministic rules or an unresolved state. Feasibility, arithmetic, approval and fulfilment stay rule/evidence decisions. Hosted GPU use can cost money and sends text to a remote endpoint, so privacy controls apply (see [Privacy](#privacy-and-pdpa-in-a-real-deployment)).
 
 ## System architecture
 
-The first diagram shows **business sources and module responsibilities**, including simulated communication channels and operational records. Arrows describe intended information flow; they do not imply live provider connectors.
+The first diagram shows **business sources and module responsibilities**. Arrows show intended information flow, not live provider connectors.
 
 ```mermaid
 flowchart TB
@@ -126,7 +146,7 @@ flowchart TB
     class CORE,AUDIT core
 ```
 
-**Approval and outcome flow:**
+**Approval and outcome flow.** Customer agreement and operational fulfilment are separate branches; acceptance alone never marks a commitment fulfilled.
 
 ```mermaid
 flowchart LR
@@ -137,24 +157,28 @@ flowchart LR
     D -- Yes --> E[Compare recovery trade-offs]
     E --> F{Manager approves?}
     F -- No --> R
-    F -- Yes --> G{Change customer terms?}
-    G -- No --> H[Track permitted action]
+    F -- Yes --> V[Revalidate plan and snapshot]
+    V -- Stale --> R
+    V -- Current --> G{Change customer terms?}
+    G -- No --> H[Execute permitted action]
     G -- Yes --> I[Send reviewed offer - mock]
-    I --> J{Explicit acceptance?}
+    I --> J{Explicit acceptance of this proposal version?}
     J -- No or unclear --> R
-    J -- Yes --> K[Record current agreement]
-    H --> L[Verify operational fulfilment]
-    K --> L
+    J -- Yes --> K[Agreement updated - not fulfilled]
+    H --> X[Action result verified]
+    K --> H
+    X --> OP[/Trusted operational completion evidence/]
+    OP --> L[Fulfilment verified]
     L --> M([Audit outcome])
     classDef decision fill:#fff0d8,stroke:#af741e,color:#523208
     classDef review fill:#ffe9e9,stroke:#b96363,color:#5e2424
     classDef outcome fill:#e7f7f1,stroke:#2a8267,color:#123c32
-    class D,F,G,J decision
+    class D,F,G,J,V decision
     class R review
-    class K,L,M outcome
+    class K,X,L,M outcome
 ```
 
-This second diagram is the **target business journey**. The prototype has working pieces and selected integration tests, but an uninterrupted live end-to-end run has not been verified on current main.
+This is the **target business journey**. The prototype has working pieces and selected integration tests, but an uninterrupted live end-to-end run has not been verified on current main.
 
 ## Technology at a glance
 
@@ -162,43 +186,91 @@ This second diagram is the **target business journey**. The prototype has workin
 |---|---|
 | Frontend | React 19, TypeScript, Vite, React Router, TanStack Query; Vitest and Testing Library |
 | Backend | FastAPI, Pydantic, SQLAlchemy; modular F1–F4 and Core routes |
-| Data and events | PostgreSQL configuration, Alembic migrations, versioned Commitment Registry, database outbox and worker |
+| Data and events | PostgreSQL, Alembic migrations, versioned Commitment Registry, database outbox and worker |
 | AI and documents | Deterministic extraction; optional GLiNER/Qwen remote worker path; PyMuPDF and PaddleOCR code |
 | Local development | Docker Compose, synthetic seed fixtures, Pytest, GitHub Actions workflow |
 
 ## Prototype demo
 
-No screenshots are committed in this repository, so this README uses reproducible routes and diagrams rather than an invented product image.
+No screenshots are committed yet, so this section lists reproducible routes. <!-- TODO: add real screenshots to docs/img/ and embed here: /inbox, /commitments/com_delay_01, /recovery/demo, /activity -->
 
-1. Start the database/API and frontend using [Run locally](#run-locally). Confirm `/health` returns `status: ok`.
-2. Open `/inbox`. The **Synthetic Composer** offers WhatsApp, Email and Telegram examples. Submitting one creates a mock inbound envelope, **not** a real provider message. Review extracted fields, source evidence and unresolved items.
-3. Open `/overview` and `/commitments/com_delay_01` to inspect seeded commitments and any available feasibility data. Seeded risk state is a starting fixture, not proof that a supplier event just ran.
-4. Open `/recovery/demo` to compare a conditional alternative supplier with a revised deadline. “Discuss this trade-off” is display-only and records no approval or action.
-5. Open `/activity` or request `GET /v1/commitments/com_delay_01/timeline` with `X-Tenant-ID: tenant_demo_01` and `X-Actor-ID: user_owner_01` to inspect persisted state and audit evidence.
+1. Start the stack with [Run locally](#run-locally); confirm `/health` returns `status: ok`.
+2. Open `/inbox`. The **Synthetic Composer** offers WhatsApp, Email and Telegram examples. Submitting one creates a mock inbound envelope. Review extracted fields, source evidence and unresolved items.
+3. Open `/overview` and `/commitments/com_delay_01` to inspect seeded commitments and feasibility data. The seeded risk state is a starting fixture, not proof that a supplier event just ran.
+4. Open `/recovery/demo` to compare a conditional alternative supplier with a revised deadline. "Discuss this trade-off" is display-only and records no approval or action.
+5. Open `/activity`, or call `GET /v1/commitments/com_delay_01/timeline` with `X-Tenant-ID: tenant_demo_01` and `X-Actor-ID: user_owner_01`, to inspect persisted state and audit evidence.
 
-**Not part of this reproducible walkthrough:** live supplier ingestion, real manager approval, external purchase, live outbound send, explicit customer response and actual delivery under one fresh event chain. Those require a separately recorded isolated E2E run. A customer accepting revised terms would still not prove the goods were delivered.
+**Not part of this walkthrough:** live supplier ingestion, real manager approval, external purchase, live outbound send, customer response and actual delivery under one fresh event chain. These need a separately recorded isolated E2E run.
 
 ## Business impact and SDGs
 
-**Expected, not measured:** less manual coordination, faster identification of threatened promises, fewer missed follow-ups, more consistent recovery decisions and better accountability. Better planning could also reduce avoidable rework or material waste; this has not been measured.
+**Expected benefits (hypotheses, not measured):** less manual coordination, faster identification of threatened promises, fewer missed follow-ups, more consistent recovery decisions, and clearer accountability.
 
-- **SDG 8 · Decent Work and Economic Growth:** help SMEs manage orders and staff time more reliably.
-- **SDG 9 · Industry, Innovation and Infrastructure:** connect fragmented operational information with a reusable decision workflow.
-- **Pilot measurement:** record baseline and sample size, then compare time to find affected commitments, time to an approved response, overlooked commitments, duplicate contacts and cases with complete outcome evidence.
+**Pilot measurement plan.** Record a manual baseline with sample size, then compare with the prototype:
+
+| Metric | How measured |
+|---|---|
+| Time from supplier change to a list of affected commitments | Stopwatch on the same scenario, manual vs PromiseFlow |
+| Affected commitments overlooked | Count against a labelled scenario set |
+| Time to an approved response | Timestamps from the audit log |
+| Duplicate or missed customer follow-ups | Count per scenario |
+| Cases with complete outcome evidence | Share of cases with message, acceptance, action and fulfilment records |
+
+**Target to validate (not an achieved result):** substantially cut the time to identify affected commitments and reach an approved response compared with the manual baseline. The exact target will be set after the baseline is measured.
+
+- **SDG 8 · Decent Work and Economic Growth** (targets 8.2 productivity through technological upgrading, 8.3 support for micro, small and medium-sized enterprises): less administrative chasing, more reliable order handling.
+- **SDG 9 · Industry, Innovation and Infrastructure:** a reusable decision workflow over fragmented operational information.
+
+## First market and business model hypotheses
+
+**First target:** small catering and food-production SMEs in Malaysia that take orders over WhatsApp, rely on a few key suppliers and have tight delivery cut-offs. Their commitments are frequent, time-sensitive and easy to explain. Later segments with delivery promises: small manufacturers, wholesalers and distributors.
+
+**Why they might switch:** they already lose time reconstructing which orders a late supplier affects; PromiseFlow does not ask them to abandon WhatsApp or their spreadsheets.
+
+**Delivery and pricing: hypotheses to validate with SMEs, none tested yet:**
+
+- **Orbyte add-on** (preferred): an optional module inside the shared business hub, reusing its identity, roles and data connections.
+- **Pricing options to test:** per-business subscription tiers, or usage-based on active commitments tracked. No prices have been set or validated.
+- **Reuse:** per-business configuration of products, cut-offs, channels and approval policy, so the same engine serves different SMEs.
 
 ## Orbyte ecosystem fit
 
-PromiseFlow could be a reusable commitment-assurance capability in a connected SME business hub:
+PromiseFlow adds a **distinct SME capability** (commitment assurance and recovery) rather than duplicating Orbyte's HR and administrative functions. As a connected capability it could:
 
 - **Read** customer requests, inventory, supplier changes and permission context through agreed adapters.
 - **Write back** risk, approval, communication and audit events with stable IDs and versions.
-- **Configure** products, cutoff times, channels and approval policies per business.
+- **Configure** products, cut-off times, channels and approval policies per business.
 
-**There is no official Orbyte API, sandbox or production connection available to this project.** These are conceptual integration boundaries, not tested Orbyte compatibility. Production use also needs authenticated tenants, consent and real connector contracts.
+**There is no official Orbyte API, sandbox or production connection available to this project.** These are conceptual integration boundaries, not tested Orbyte compatibility.
+
+## Privacy and PDPA in a real deployment
+
+This competition build uses **synthetic data only**. In a real deployment, aligned with the principles of Malaysia's Personal Data Protection Act (PDPA), we would:
+
+- **Notice and consent:** tell customers what is collected and why, and obtain consent before messaging them through any channel.
+- **Purpose limitation and minimisation:** use message data only to manage the related order; pass only the minimum necessary text to any inference service.
+- **Security:** tenant isolation across database, files, logs and caches; redacted logs; server-side role checks; no credentials in code or prompts.
+- **Retention, access and correction:** defined retention periods; customers can request access or correction; corrections are appended rather than silently overwritten.
+- **Cross-border transfer:** hosted GPU or cloud inference may be outside Malaysia, so the provider's location and safeguards must be assessed, or inference kept local.
+
+This is an implementation plan, not legal advice or a compliance claim.
+
+## Hardest risks and fallbacks
+
+| Risk | If it happens | Fallback |
+|---|---|---|
+| **Full cross-feature journey not yet verified live** (our biggest risk) | Features work separately but not as one chain | Lock one hero scenario on one `commitment_id`; cut optional endpoints; record one isolated E2E run with event IDs and audit. |
+| LLM or GPU unavailable | Endpoint timeout or credit limit | Deterministic rules and `UNKNOWN`/manual review; the core journey does not depend on a model. |
+| Ambiguous order match or reply ("OK" with several open proposals) | Multiple candidates | Stay unresolved and ask for clarification; never force a link or acceptance. |
+| Solver too slow | Timeout | Deterministic stock/capacity checks; timeout returns `UNKNOWN`, never a false `INFEASIBLE`. |
+| Real channels unavailable | No provider access | Clearly labelled synthetic adapters behind the same interface. |
+| Deployment failure | Hosted demo down | Tested local Docker run plus a recorded demo, disclosed honestly. |
 
 ## Run locally
 
-**Prerequisites:** Docker Desktop with a Linux engine, Python 3.11–3.14 for local backend work, Node.js 20+ and npm. Default ports: PostgreSQL `5433`, API `8000`, Vite `5173`. Use a disposable synthetic database.
+**Prerequisites:** Docker Desktop (Linux engine), Python 3.11–3.14 for local backend work, Node.js 20+ and npm. Default ports: PostgreSQL `5433`, API `8000`, Vite `5173`. Use a disposable synthetic database.
+
+**Windows (PowerShell):**
 
 ```powershell
 # From repository root. Edit .env with a local PostgreSQL password first.
@@ -208,55 +280,78 @@ docker compose up --build
 Invoke-RestMethod http://localhost:8000/health
 ```
 
-Compose migrates PostgreSQL and runs `scripts/seed_demo.py` before starting the API; it also starts the outbox worker. The seed resets its five named synthetic commitments, so point it only at an intended demo database. `.env.example` contains placeholder remote GPU settings; they are **not** a working inference connection.
+**macOS / Linux (bash):**
+
+```bash
+cp .env.example .env   # then edit .env with a local PostgreSQL password
+export P1_AI_ENABLED=false   # offline deterministic demo
+docker compose up --build
+curl http://localhost:8000/health
+```
+
+Compose migrates PostgreSQL and runs `scripts/seed_demo.py` before starting the API, and starts the outbox worker. The seed resets its five named synthetic commitments, so point it only at an intended demo database. `.env.example` holds placeholder remote GPU settings; they are **not** a working inference connection.
 
 In a second terminal:
 
-```powershell
-Set-Location frontend
-npm.cmd ci
-npm.cmd run dev
+```bash
+cd frontend
+npm ci
+npm run dev
 ```
 
-Open `http://localhost:5173/overview`. The frontend defaults to API `http://localhost:8000`; set `VITE_API_BASE_URL` before Vite starts if the API differs. To launch a separate local backend against the same database:
+(On Windows PowerShell use `npm.cmd`.) Open `http://localhost:5173/overview`. The frontend defaults to API `http://localhost:8000`; set `VITE_API_BASE_URL` before Vite starts if different.
 
-```powershell
+<details>
+<summary>Run the backend outside Docker</summary>
+
+```bash
 python -m venv backend/.venv
-backend/.venv/Scripts/python.exe -m pip install -e './backend[dev]'
-$env:DATABASE_URL = 'postgresql+psycopg://moumantai:<local-password>@localhost:5433/moumantai'
-$env:P1_AI_ENABLED = 'false'
-backend/.venv/Scripts/python.exe -m alembic -c backend/alembic.ini upgrade head
-backend/.venv/Scripts/python.exe scripts/seed_demo.py
-backend/.venv/Scripts/python.exe -m uvicorn app.main:app --app-dir backend --reload --port 8000
+backend/.venv/bin/python -m pip install -e './backend[dev]'      # Windows: backend/.venv/Scripts/python.exe
+export DATABASE_URL='postgresql+psycopg://moumantai:<local-password>@localhost:5433/moumantai'
+export P1_AI_ENABLED=false
+backend/.venv/bin/python -m alembic -c backend/alembic.ini upgrade head
+backend/.venv/bin/python scripts/seed_demo.py
+backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
 
-Use the same `DATABASE_URL` for migration, seed and API. For tests, run `python -m pytest backend/tests -q` from the root; in `frontend`, run `npm.cmd run typecheck`, `npm.cmd test`, and `npm.cmd run build`. PostgreSQL-gated tests require an approved disposable test database. A skipped test does not verify that path. If `tsc` is missing, run `npm.cmd ci`. A `503` on an authority-dependent route may be the intended fail-closed response outside isolated mode.
+Use the same `DATABASE_URL` for migration, seed and API.
+</details>
+
+**Tests:** from the root run `python -m pytest backend/tests -q`; in `frontend` run `npm run typecheck`, `npm test`, `npm run build`. PostgreSQL-gated tests need an approved disposable test database; a skipped test does not verify that path. If `tsc` is missing, run `npm ci`. A `503` on an authority-dependent route may be the intended fail-closed response outside isolated mode.
 
 ## Project status and validation
 
-The status below reflects repository evidence at the 23 October 2026 audit and the current main code, not a claimed production deployment.
+Status reflects repository evidence at the 23 Oct 2026 audit (commit `<fill in commit hash>`), not a production deployment.
 
 | Area | Status | Evidence / limit |
 |---|---|---|
-| Backend and Core | **Implemented; selected tests verified** | F1–F4/Core FastAPI routes, registry, version checks, audit and outbox. `backend/tests/integration/test_feature_handshakes.py`: **19 passed, 1 PostgreSQL-gated skip** in the documentation audit. |
-| Frontend | **Implemented; component tests verified** | Feature routes exist. After `npm ci`, typecheck and build passed; Vitest reported **475 passed, 5 skipped**. No live browser/API chain was run in that audit. |
-| Channel ingestion | **Synthetic / mock** | The UI sends mock WhatsApp/Email/Telegram envelopes to P1. No official channel webhooks or accounts. |
-| AI | **Optional, partly validated** | Deterministic path is implemented; GLiNER/Qwen adapters and a saved 26-case synthetic evaluation exist. No currently available GPU endpoint or general SME accuracy is established by this README. |
+| Backend and Core | **Implemented; selected tests verified** | F1–F4/Core routes, registry, version checks, audit, outbox. `backend/tests/integration/test_feature_handshakes.py`: 19 passed, 1 PostgreSQL-gated skip. |
+| Frontend | **Implemented; component tests verified** | Feature routes exist. After `npm ci`, typecheck and build passed; Vitest: 475 passed, 5 skipped. No live browser-to-API chain run in that audit. |
+| Channel ingestion | **Synthetic / mock** | UI sends mock WhatsApp/Email/Telegram envelopes to P1. No official webhooks or accounts. |
+| AI | **Optional, partly validated** | Deterministic path implemented; GLiNER/Qwen adapters and a 26-case synthetic evaluation exist. No currently available GPU endpoint or general SME accuracy is established. |
 | Recovery and outbound | **Partial / isolated** | Synthetic comparison, versioned approval code and mock communication exist. Normal authority gates fail closed; no real purchase or customer send. |
-| Full cross-feature journey | **Not verified end to end** | Selected tests cover boundaries, but one persisted browser/worker/DB/approval/customer-response/outcome run is still needed. |
+| Docker startup | **Config checked; clean-environment run pending** | `docker compose config` validated; a full clean-machine startup from this README still needs to be run and recorded. |
+| Full cross-feature journey | **Not verified end to end** | Selected tests cover boundaries; one persisted browser/worker/DB/approval/customer-response/outcome run is still needed. |
 | Orbyte | **Concept only** | No official API or sandbox connection. |
 
-**Security boundary:** demo actor IDs are selected through headers and do not provide production authentication. Consequential actions require current server-side approval and version checks; synthetic fixtures must not contain real customer data or trigger real payments or messaging.
+**Security boundary:** demo actor IDs come from headers and are not production authentication. Consequential actions require current server-side approval and version checks. Fixtures must not contain real customer data or trigger real payments or messaging.
 
 ## Roadmap
 
-1. **Before submission:** record one same-commitment synthetic journey with event IDs, before/after states, approval scope, customer response, audit and an unsafe/ambiguous case.
-2. **Pilot:** validate the problem and usability with an SME; measure manual baseline against the prototype.
-3. **Production work:** official messaging and business-system connectors, authenticated tenant membership, consent, monitoring, PostgreSQL migration/concurrency evidence and stronger multilingual model evaluation.
+1. **Before submission:** record one same-commitment synthetic journey (approval → persisted synthetic action → re-evaluation → customer response → audit), with event IDs, before/after states, approval scope and one unsafe or ambiguous case. Add screenshots. Run the README from a clean environment.
+2. **Pilot:** test the problem and usability with real SME owners or staff; measure the manual baseline against the prototype.
+3. **Production work:** official messaging and business-system connectors, authenticated tenant membership, consent management, monitoring, PostgreSQL concurrency evidence, stronger multilingual model evaluation.
 4. **Later research:** prediction or advanced scheduling only where measured operational data justifies it.
 
 ## Team and acknowledgements
 
-- **P1:** context intelligence and inbox · **P2:** feasibility and impact · **P3:** recovery · **P4:** communication and confirmation · **P5:** registry, shared contracts and integration.
-- [System requirements](docs/REQUIREMENTS_SYSTEM.md) · [Team log](docs/TEAM_LOG.md) · [Mentorship preparation](docs/MENTORSHIP_PREP.md) · [Repository instructions](AGENTS.md).
-- Prepared for the **SDC Hackathon 2026 Domain 2** challenge and **Alpha Red Solutions** mentorship in the Orbyte Smart SME context. Product claims above are limited to repository and test evidence.
+| Member | Module |
+|---|---|
+| `Bong Zi Shan` | **P1:** context intelligence and inbox |
+| `Lee Mei Shuet` | **P2:** feasibility and impact |
+| `Wong Jia Hui` | **P3:** recovery and approval |
+| `Loh Su Ting` | **P4:** communication and confirmation |
+| `Gan Rui En` | **P5:** registry, shared contracts and integration |
+
+- [System requirements](docs/REQUIREMENTS_SYSTEM.md) · [Team log](docs/TEAM_LOG.md) · [Mentorship preparation](docs/MENTORSHIP_PREP.md) · [Repository instructions](AGENTS.md)
+- Prepared for the **SDC Hackathon 2026 Domain 2** challenge in the Orbyte Smart SME context, with thanks to **Alpha Red Solutions**. Product claims are limited to repository and test evidence.
