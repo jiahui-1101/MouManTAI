@@ -188,6 +188,20 @@ jobs:
         run: |
           pytest backend/app/feasibility backend/app/communication -v
 
+  backend-optimization:
+    name: Backend Optimization (real CP-SAT)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install backend and OR-Tools
+        run: pip install -e "./backend[dev,optimization]"
+      - name: Run optimizer tests
+        run: pytest -v backend/app/optimization/tests
+
   frontend-checks:
     name: Frontend Checks (Typecheck, Vitest, Build)
     runs-on: ubuntu-latest
