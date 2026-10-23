@@ -3521,3 +3521,25 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - Alembic single head verified: `0016_p1_context_persistence (head)`.
   - CI YAML syntax verified valid with `yaml.safe_load`.
 - **Pending Acknowledgements**: P2, P3, P4
+
+## 2026-10-23 — Stage A PostgreSQL CI Audit & Migration Test Dialect Compatibility (P5 / D-046 / BE-03)
+
+- **Decision / Impact**:
+  1. D-045's PostgreSQL 16 CI design remains authoritative: `backend-postgres` runs all `backend/tests` with `REQUIRE_POSTGRES=1`, zero skips, and is intended to block once green. P5 should make it a required check only after a fully green CI result.
+  2. `backend-features` remains non-blocking. `compose-smoke` is deferred to Stage C after Stage B and remains non-blocking unless P5 later records three stable runs.
+  3. Strict mode fails for a missing `TEST_DATABASE_URL` and an unreachable PostgreSQL URL; it does not rewrite ports. Alembic's connection hook uses F2 option (b). The migration constraint test now avoids PostgreSQL-incompatible `PRAGMA` statements and multi-command execution, and no longer swallows cleanup SQL errors. Assertions are unchanged.
+  4. The authoritative session fixture is named `pg_suite_engine`; `test_engine` and autouse isolation depend on it so module-local `pg_engine` fixtures cannot bypass Alembic setup or suite-table truncation.
+  5. **F7 allowlist retired after rebase**: `origin/main` includes P3 PR #32; `durable_plans` imports `persistence`, which registers `recovery_cases` and `recovery_case_triggers` in `Base.metadata`. Stage B should use a plain drift check and omit the two-table allowlist and its absence guards.
+  6. BE-03 remains **Implemented, pending CI evidence**. No PostgreSQL CI run or PostgreSQL verification is claimed here.
+- **Validation**:
+  - SQLite suite before and after the focused changes: 336 passed, 12 skipped, 0 failed; 11 are database-gated and one is the F12 guard's expected SQLite-mode skip.
+  - `python -m pytest backend/tests/test_migration_0007.py -q -rs`: 2 passed.
+  - Strict mode with missing `TEST_DATABASE_URL` and with an unreachable URL at `127.0.0.1:1`: both fail at fixture setup (exit 1), not skip.
+  - `cd backend && python -m alembic heads`: `0016_p1_context_persistence (head)`.
+  - `python -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml', encoding='utf-8'))"`: valid YAML.
+- **Blockers / Reconciliation**:
+  - `BLOCK-20261021-001` remains **resolution pending CI evidence**.
+  - The log's `BLOCK-P3-001` register still says OPEN even though `origin/main` contains the PR #32 merge and PR #34 Core fix; P5 should reconcile its status after rebase.
+  - D-002 is referenced in `TEAM_LOG.md`, but no standalone decision definition was found; no definition is inferred here.
+- **Decision Tracking**: Highest prior D-ID was D-045 and highest ADR-ID was ADR-020; this entry uses D-046 and adds no ADR. D-046 may need renumbering at merge.
+- **Owner / Pending Acknowledgements**: P5 / P2, P3, P4.
