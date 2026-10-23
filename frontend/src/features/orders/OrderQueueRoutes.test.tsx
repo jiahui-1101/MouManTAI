@@ -51,7 +51,8 @@ describe('Orders integration through the real application router and Sidebar', (
     window.history.replaceState({}, '', '/orders/legacy-order');
     render(<App />);
     expect(await screen.findByRole('heading', { name: 'Order Context: legacy-order' })).toBeInTheDocument();
-    expect(getContext).toHaveBeenCalledWith('legacy-order');
+    expect(getContext).toHaveBeenCalledWith('legacy-order', expect.objectContaining({ 'X-Tenant-ID': 'tenant_demo_01', 'X-Actor-ID': 'user_owner_01' }));
+    expect(screen.getByRole('heading', { name: 'Order detail & feasibility' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Order Decision Queue' })).not.toBeInTheDocument();
     const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
     fireEvent.click(within(crumbs).getByRole('link', { name: 'Orders' }));

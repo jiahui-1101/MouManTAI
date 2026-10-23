@@ -1,5 +1,21 @@
 # Developer B — FE-ORD-01
 
+## Phase 2 — detail composition and verified read integration
+
+`App.tsx` now maps the existing `/orders/:id` route to `OrderDetailPage`. This composes the original `OrderContextDetail` with read-only summary, original-message evidence, structured fields, materials/BOM, reservations/demand, capacity, feasibility, pricing and decision-readiness panels. `/orders` and its Sidebar entry are unchanged.
+
+The default detail path reuses the context already read by P1 and fetches linked messages via verified `/v1/messages/{id}` reads using shared apiRequest/authHeaders. It does not read the same context twice. An explicit `onContextLoaded` callback and optional requestHeaders keep the existing P1 review/history/publish workflow active and in the current shell tenant/actor context. Existing standalone P1 callers retain their previous defaults. No new command is added; old context publishing is not v2.2 order acceptance. A future approved v2.2 `OrderDetailSource` can be injected into the page.
+
+The inspected current Main and Backend branches still lack the operational queue/detail/pending-assessment API. Phase 1 remains honestly unavailable. Backend `/v1/backend-v2/terms/check` and commitment status-preview routes are isolated synthetic diagnostics, not usable replacements. No preview key or acceptance/reservation command is sent by this feature.
+
+`detailTypes.ts` contains provisional presentation types. `detailApi.ts` maps only verified P1 fields: current captured deadline is distinct from immutable original deadline; P1 readiness/version do not establish lifecycle, order version, original received or information-completed time. Field evidence quotes do not imply VALID status. P1 missing_fields can show MISSING; other fields without validation remain UNVERIFIED. Source-message timestamps stay attached to their messages instead of being promoted into an authoritative order FCFS timestamp. Test-only JSON in `__fixtures__` was emitted through the actual FastAPI/Pydantic read contract using a synthetic in-memory repository, never imported by production.
+
+A positive assessment requires sourceVerified, complete, CURRENT backend freshness, a known non-future offset-aware snapshot and ID, plus matching known order request version. Otherwise display UNKNOWN while preserving raw source diagnostics. Snapshot age is elapsed display information only; no invented TTL, scheduling calculation or resource allocation. Financial redaction hides the entire financial block even if amounts were accidentally supplied; profit requires complete sourced costs and no missing components. Inventory units and incoming status remain separate.
+
+Shared integration changes for Phase 2: App.tsx swaps the detail component import/route; P1 OrderContextDetail.tsx adds optional context-loaded/request-header plumbing and tenant guard; operationalApi.ts supports optional headers on the existing context/history/catalog reads; ReviewDrawer.tsx carries the supplied headers to its unchanged guarded review command. All are included as minimal hunks in the Phase 2 shared-integration.patch. Merge those hunks into concurrent work rather than replacing newer files wholesale. P1 default development authentication remains synthetic, not production identity.
+
+The following Phase 1 sections are historical implementation notes. See the Phase 2 handoff and BACKEND_INTEGRATION_STATUS.md for current route/API/validation status.
+
 This folder is a read-only queue presentation and integration boundary. It is not live order integration. Default production source fails honestly with `OrderQueueUnavailableError`; it makes no HTTP call and has no synthetic fallback. Synthetic fixtures exist exclusively in `OrderQueuePage.test.tsx`.
 
 ## Route and Sidebar integration (updated user authorization)

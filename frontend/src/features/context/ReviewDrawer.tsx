@@ -10,6 +10,7 @@ export interface ReviewDrawerProps {
   onClose: () => void;
   onUpdated: (updated: OrderContextRecord) => void;
   catalogLoader?: () => Promise<{ sku: string; unit: string }[]>;
+  requestHeaders?: Record<string, string>;
 }
 
 export function getSuggestedClarification(context: OrderContextRecord): string | null {
@@ -52,7 +53,7 @@ export function ReviewDrawer(props: ReviewDrawerProps) {
   return <ReviewDrawerForm key={`${props.context.context_id}:${props.context.context_version}`} {...props} />;
 }
 
-function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: ReviewDrawerProps) {
+function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader, requestHeaders }: ReviewDrawerProps) {
 
   const evidenceQty = (context.field_evidence?.quantity?.[0]?.normalized_value || context.field_evidence?.quantity?.[0]?.quote || '') as string;
   const evidenceUnit = (context.field_evidence?.unit?.[0]?.normalized_value || context.field_evidence?.unit?.[0]?.quote || '') as string;
@@ -180,6 +181,7 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
       const updated = await operationalApi.reviewContext(context.context_id, req, {
         'X-Actor-ID': 'user_staff_01',
         'X-Actor-Role': 'STAFF',
+        ...requestHeaders,
       });
       onUpdated(updated);
       onClose();

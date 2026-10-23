@@ -1,0 +1,22 @@
+.order-detail { min-width: 0; padding: clamp(1rem, 2vw, 2rem); color: #e2e8f0; }
+.order-detail .od-heading { display: flex; justify-content: space-between; align-items: start; gap: 1rem; flex-wrap: wrap; }
+.order-detail h1 { color: #f8fafc; margin: .6rem 0; font-size: clamp(1.5rem, 3vw, 2rem); }
+.order-detail .od-panel, .order-detail .od-legacy { border: 1px solid #475569; border-radius: .75rem; background: #0f172a; margin: 1rem 0; padding: clamp(.8rem, 2vw, 1.4rem); }
+.order-detail .od-notice { border-left: 4px solid #fbbf24; background: #1e293b; padding: 1rem; line-height: 1.6; }
+.order-detail .od-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 1rem; }
+.order-detail .od-facts dt, .order-detail .od-muted { color: #cbd5e1; font-size: .85rem; }
+.order-detail .od-facts dd { margin: .35rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.order-detail .od-panel h2, .order-detail .od-legacy > h2 { font-size: 1.3rem; }
+.order-detail .od-panel h3 { font-size: 1rem; margin: 1.2rem 0 .6rem; }
+.order-detail .od-panel small { display: block; margin-top: .5rem; color: #cbd5e1; }
+.order-detail .od-panel a, .order-detail .od-heading a { color: #7dd3fc; display: inline-block; padding: .5rem 0; min-height: 44px; }
+.order-detail .od-panel blockquote { border-left: 2px solid #94a3b8; margin: .7rem 0; padding: .5rem 1rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.order-detail .od-evidence { border: 1px solid #475569; border-radius: .5rem; padding: 1rem; margin: 1rem 0; }
+.order-detail .od-scroll { max-width: 100%; overflow-x: auto; }
+.order-detail .od-scroll table { width: 100%; min-width: 680px; border-collapse: collapse; }
+.order-detail .od-scroll :is(th, td) { text-align: left; vertical-align: top; border-bottom: 1px solid #475569; padding: .8rem; max-width: 300px; overflow-wrap: anywhere; }
+.order-detail .od-scroll thead { background: #1e293b; }
+.order-detail .od-heading button, .order-detail .od-panel button { color: #f1f5f9; background: #0f172a; border: 1px solid #64748b; border-radius: .4rem; padding: .6rem 1rem; min-height: 44px; cursor: pointer; }
+.order-detail .od-heading button:disabled, .order-detail .od-panel button:disabled { opacity: .6; cursor: wait; }
+.order-detail :is(a, button, [tabindex]):focus-visible { outline: 3px solid #7dd3fc; outline-offset: 3px; }
+@media(max-width: 600px) { .order-detail .od-heading button { width: 100%; } }
