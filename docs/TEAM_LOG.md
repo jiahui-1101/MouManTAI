@@ -3557,3 +3557,19 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
   - D-002 is referenced in `TEAM_LOG.md`, but no standalone decision definition was found; no definition is inferred here.
 - **Decision Tracking**: Highest prior D-ID was D-045 and highest ADR-ID was ADR-020; this entry uses D-046 and adds no ADR. D-046 may need renumbering at merge.
 - **Owner / Pending Acknowledgements**: P5 / P2, P3, P4.
+
+
+## 2026-10-23 — PostgreSQL CI Round 1: P3 Owner Blocks (P5 coordination)
+
+- **CI evidence**: Run [39898921966](https://github.com/jiahui-1101/MouManTAI/actions/runs/39898921966) at commit `7e90ce93da601d6959fc9865ddf23c8808df1ae7`; `backend-postgres` collected 370 tests (353 passed, 14 failed, 3 errors, 0 skipped). PostgreSQL provisioning, the single-head check, F12 guard, and zero-skip policy all completed.
+- **BLOCK-P3-002 — PostgreSQL JSON equality in P4 evidence validation**:
+  - **Owner**: P3.
+  - **Location / tests**: `backend/app/recovery/confirmation_responses.py` (`_validate_p4_evidence`); `backend/tests/test_p3_confirmation_replanning.py::test_p3_validates_the_real_p4_terminal_event_and_tenant_binding[REJECT-confirmation.rejected-REJECTED]` and `[COUNTEROFFER-confirmation.counteroffer_received-COUNTEROFFER_RECEIVED]`.
+  - **Evidence**: PostgreSQL raised `psycopg.errors.UndefinedFunction: operator does not exist: json = json` for a predicate comparing `audit_events.new_state` as JSON.
+  - **Action**: P3 to revise the evidence lookup to avoid JSON equality and rerun the PostgreSQL cases; P5 did not edit feature code.
+- **BLOCK-P3-003 — PostgreSQL recovery plan version check constraint mismatch**:
+  - **Owner**: P3.
+  - **Location / tests**: `backend/migrations/versions/0010_p3_recovery_plans.py` (`ck_recovery_plan_core_after_evaluation`) and P3 persistence exercised by `backend/tests/test_p3_confirmation_replanning.py`: `test_typed_resolver_follows_p4_source_request_and_outbound_to_exact_p3_plan[1]`, `[2]`; `test_typed_resolver_fails_closed_on_ambiguous_plan_association`; `test_v1_approval_cannot_authorize_a_v2_communication_handoff`; `test_stale_response_is_reconciled_once_without_invalidating_newer_plan`; `test_shared_dispatcher_supersedes_stale_p4_event_before_p3_consumer`.
+  - **Evidence**: All six fail inserting `recovery_plan_versions` with `core_commitment_version=10`, `evaluated_commitment_version=10`, and `status=PENDING_APPROVAL`; PostgreSQL raises `CheckViolation` for `ck_recovery_plan_core_after_evaluation`.
+  - **Action**: P3 to reconcile persisted plan state with the constraint and rerun these cases. P5 did not modify the existing migration or recovery module.
+- **Separate CI configuration mismatch**: Several guarded integration tests and the P5 snapshot race test rejected `moumantai_suite` because it lacked the required disposable-test name (`test` / `p4_test_` prefix). P5 is correcting only the CI database name to `p4_test_moumantai_suite` for round 2; no feature tests are weakened.
