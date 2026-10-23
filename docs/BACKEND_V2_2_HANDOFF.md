@@ -11,7 +11,7 @@ Reviewers: P5 Gan0117 (Core/shared), P1 mavisbong41 (context), P4 Sheng554 (repl
 | Slice | Requirements | Implemented | Tested | Integrated | Evidence | Acceptance | Code refs | Validation commit |
 |---|---|---|---|---|---|---|---|---|
 | 0 | Blueprint 8–9 | Audit/docs | 68 baseline tests passed | Code inventories | VALIDATED code audit only | PASS | REPOSITORY_BASELINE / LEGACY_REUSE_MATRIX | ec3ffbc |
-| A | BE-STATE / BE-ORB-01 | Pending | NOT_RUN | No | TARGET | PARTIAL | BACKEND_V2_2_PLAN | None |
+| A | BE-STATE / BE-ORB-01 | Immutable terms + typed ports | 44 passed | Pure only, no acceptance | VALIDATED validators; TARGET workflow | PARTIAL / PRODUCTION-GATED | app/orders/terms.py; app/integrations/business_ports.py | 0eccb0b |
 | B | BE-REPLY / BE-CLAR | Pending | NOT_RUN | No | TARGET | PARTIAL | plan | None |
 | C–G | order saga/optimization/supplier/CTA/status/extensions | Existing legacy retained; v2.2 not implemented | NOT_RUN new behavior | No | TARGET | BLOCKED pending prerequisites | matrix | None |
 
@@ -54,3 +54,5 @@ No PR yet; all work will remain UNMERGED. #38 merged upstream; #39/#40/#42 open 
 ## Chronological checkpoints (append only)
 
 - Phase 0: complete read-only audit and source deployment; 68 baseline tests passed; code not yet implemented. Detailed subsequent checkpoints follow here.
+
+- 2026-10-23T15:28:43.367328+00:00: Slice A: terms tests RED 33 missing module -> GREEN 33; port tests RED 11 -> GREEN 11. `python -m pytest tests/v2_2 -o addopts= -q --tb=short` -> 44 passed / 5 legacy warnings. No schema change. Ruff initially unavailable; installing developer checker, no application dependency change. Docs commit 1d7fda9; code commit 0eccb0b. Initial checkpoint writer failed on Windows GBK decoding before modifying docs; repaired immediately in this follow-up using explicit UTF-8. Source Markdown hard-break trailing whitespace preserved byte-for-byte; default diff --check reports it, code-only check passed. Disposable PG targeted regression in progress. Next B: factual reply authorization and independent clarification reducer.
