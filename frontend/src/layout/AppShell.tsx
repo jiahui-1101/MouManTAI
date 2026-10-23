@@ -7,6 +7,7 @@ const navigation = [
   ["/overview", "Overview"],
   ["/activity", "Activity"],
   ["/inbox", "Inbox · P1"],
+  ["/orders", "Orders"],
   ["/commitments/demo", "Commitment · P2"],
   ["/recovery/demo", "Recovery · P3"],
   ["/communications", "Communications · P4"],

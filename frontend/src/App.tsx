@@ -11,6 +11,7 @@ import { ConfirmationWorkspacePage } from "./features/communication/Confirmation
 import { FollowUpQueuePage } from "./features/communication/FollowUpQueuePage";
 import { DurableInbox } from "./features/context/DurableInbox";
 import { OrderContextDetail } from "./features/context/OrderContextDetail";
+import { OrderQueuePage } from "./features/orders/OrderQueuePage";
 import { AuthProvider, useAuth } from "./shared/auth";
 import { apiRequest, authHeaders } from "./shared/api";
 import { createP2PublicApiSource } from "./features/feasibility/apiSource";
@@ -85,6 +86,7 @@ export function App({ queryClient, initialTenantId, initialActorId }: AppProps =
               <Route path="/overview" element={<OverviewPage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/inbox" element={<DurableInbox />} />
+              <Route path="/orders" element={<OrderQueuePage />} />
               <Route path="/orders/:id" element={<OrderContextDetail />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
