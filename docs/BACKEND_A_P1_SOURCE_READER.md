@@ -1,5 +1,7 @@
 # Backend A6 — Trusted P1 Source Reader
 
+Latest final validation, publication status, and current next-task handoff: [`BACKEND_A6_LATEST_HANDOFF.md`](BACKEND_A6_LATEST_HANDOFF.md).
+
 ## Checkpoint and status
 
 The A6 slice adds a read-only adapter around the existing `map_order_context()` function. It loads P1 records in one tenant-scoped PostgreSQL `REPEATABLE READ`, `READ ONLY` transaction and prepares the existing `AcceptanceCandidate`. It does not create a new terms contract, persistence model, route, request, or lifecycle transition.
