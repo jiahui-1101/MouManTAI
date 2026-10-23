@@ -129,6 +129,7 @@ export function OverviewPage() {
       return true;
     });
   }, [data?.commitments, activeBucket, searchQuery]);
+  const firstAtRisk = data?.commitments.find(commitment => commitment.risk_state === "AT_RISK");
 
   // Loading Skeleton State
   if (isLoading) {
@@ -282,6 +283,20 @@ export function OverviewPage() {
             {isFetching ? "Refreshing…" : "Refresh"}
           </button>
         </div>
+      </div>
+
+      <div className="section-card product-journey" aria-label="How a change becomes an outcome">
+        <div>
+          <p className="eyebrow">Follow the operational story</p>
+          <h3>From incoming message to verified outcome</h3>
+          <p>Inspect the source message, confirm its business context, assess affected commitments, then review recovery choices and approvals. A proposed action is complete only when the recorded evidence says so.</p>
+        </div>
+        <nav aria-label="Product journey">
+          <Link to="/inbox">1 · Message and context →</Link>
+          {firstAtRisk && <Link to={`/activity?commitment_id=${encodeURIComponent(firstAtRisk.commitment_id)}`}>2 · Inspect a recorded risk change →</Link>}
+          <Link to="/recovery/demo/plans">3 · Synthetic recovery walkthrough →</Link>
+          <Link to="/communications">4 · Check communication readiness →</Link>
+        </nav>
       </div>
 
       {/* FE-02a & FE-02c: 7 Authoritative State Summary Cards */}

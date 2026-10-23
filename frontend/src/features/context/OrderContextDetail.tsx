@@ -120,12 +120,13 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
               {context.customer_identity_status}
             </span>
             {context.core_commitment_id && (
-              <span
+              <a
+                href={`/commitments/${encodeURIComponent(context.core_commitment_id)}`}
                 className="p1-badge p1-badge-ready"
                 title={context.published_to_core_at ? `Published to Core at ${new Date(context.published_to_core_at).toLocaleString()}` : 'Published to Core'}
               >
-                Core: {context.core_commitment_id}
-              </span>
+                View Core commitment: {context.core_commitment_id}
+              </a>
             )}
           </div>
         </div>

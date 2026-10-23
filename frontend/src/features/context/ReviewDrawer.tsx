@@ -283,7 +283,7 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
               <h4 style={{ margin: 0 }}>Order Items {items.length > 1 ? `(${items.length})` : ''}</h4>
               <button
                 type="button"
-                className="p1-btn-subtle"
+                className="p1-btn-subtle p1-add-item-btn"
                 style={{ fontSize: '12px', padding: '2px 8px', border: '1px solid #cbd5e1', borderRadius: '4px' }}
                 onClick={addItem}
                 disabled={submitting}
@@ -491,7 +491,7 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                   <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e40af' }}>
-                    AI Suggested Clarification (P4 Draft Preview)
+                    Suggested clarification (rule template)
                   </span>
                   <span style={{ fontSize: '10px', background: '#dbeafe', color: '#1d4ed8', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
                     Requires Staff Approval
