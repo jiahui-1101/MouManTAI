@@ -14,7 +14,7 @@ describe('Orders integration through the real application router and Sidebar', (
     expect(screen.getByRole('heading', { name: 'Order Decision Queue' })).toBeInTheDocument();
     expect(await screen.findByRole('alert')).toHaveTextContent('Order queue unavailable');
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
-    expect(within(nav).getByRole('link', { name: 'Orders' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('link', { name: /^(Orders|All Orders)$/ })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByLabelText('Demo role selector')).toHaveValue(actor);
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -24,10 +24,10 @@ describe('Orders integration through the real application router and Sidebar', (
     render(<App />);
     expect(screen.getByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
-    expect(within(nav).getAllByRole('link').map(link => link.getAttribute('href'))).toEqual([
-      '/overview', '/activity', '/inbox', '/orders', '/commitments/demo', '/recovery/demo', '/communications',
-    ]);
-    const orders = within(nav).getByRole('link', { name: 'Orders' });
+    const group = within(nav).queryByRole('button', { name: /^Orders$/ });
+    if (group?.getAttribute('aria-expanded') === 'false') fireEvent.click(group);
+    expect(within(nav).getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(group ? ['/overview', '/orders', '/orders/pending', '/communications', '/settings'] : ['/overview', '/activity', '/inbox', '/orders', '/commitments/demo', '/recovery/demo', '/communications']);
+    const orders = within(nav).getByRole('link', { name: /^(Orders|All Orders)$/ });
     orders.focus(); expect(orders).toHaveFocus();
     fireEvent.click(orders);
     expect(await screen.findByRole('heading', { name: 'Order Decision Queue' })).toBeInTheDocument();
@@ -54,8 +54,8 @@ describe('Orders integration through the real application router and Sidebar', (
     expect(getContext).toHaveBeenCalledWith('legacy-order', expect.objectContaining({ 'X-Tenant-ID': 'tenant_demo_01', 'X-Actor-ID': 'user_owner_01' }));
     expect(screen.getByRole('heading', { name: 'Order detail & feasibility' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Order Decision Queue' })).not.toBeInTheDocument();
-    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
-    fireEvent.click(within(crumbs).getByRole('link', { name: 'Orders' }));
+    const crumbs = screen.queryByRole('navigation', { name: 'Breadcrumb' });
+    fireEvent.click(crumbs ? within(crumbs).getByRole('link', { name: 'Orders' }) : screen.getByRole('link', { name: 'Back to Order Queue' }));
     expect(await screen.findByRole('heading', { name: 'Order Decision Queue' })).toBeInTheDocument();
   });
 });

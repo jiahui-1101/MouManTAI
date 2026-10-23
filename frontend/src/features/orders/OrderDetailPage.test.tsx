@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../../shared/auth';
@@ -45,6 +45,24 @@ beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(now));
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Order detail and resource assessment', () => {
+  it('withholds positive feasibility when a supposedly current source contains an impossible snapshot date', async () => {
+    const detail = fixture(); detail.assessment!.status = 'FEASIBLE'; detail.assessment!.snapshotAt = '2026-02-30T01:00:00Z';
+    setup(sourceFor(detail)); const panel = await screen.findByRole('region', { name: 'Feasibility assessment' });
+    expect(within(panel).getByText('UNKNOWN')).toBeInTheDocument();
+  });
+  it('withholds cached identity, pricing, assessment and decisions during refresh and on permission failure', async () => {
+    let reject!: (error: Error) => void;
+    const source = sourceFor(); vi.mocked(source.load).mockResolvedValueOnce(fixture()).mockImplementation(() => new Promise((_, fail) => { reject = fail; }));
+    setup(source); await screen.findByText('Synthetic Customer');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh order assessment view' }));
+    await waitFor(() => expect(screen.queryByText('Synthetic Customer')).not.toBeInTheDocument());
+    expect(screen.queryByText('Approved SKU list v2')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Order Decision workspace' })).not.toBeInTheDocument();
+    expect(screen.getByText('Legacy P1 workflow for order-a')).toBeInTheDocument();
+    await act(async () => reject(new ApiError(403, 'FORBIDDEN', 'private')));
+    await screen.findByRole('heading', { name: 'Order detail access unavailable' });
+    expect(screen.queryByText('Synthetic Customer')).not.toBeInTheDocument();
+  });
   it('loads an injected source with identity, summary and distinct original timestamps', async () => {
     setup(); expect(await screen.findByText('Synthetic Customer')).toBeInTheDocument();
     expect(screen.getByText('24 Oct 2026, 00:30:00 (MYT)')).toBeInTheDocument();

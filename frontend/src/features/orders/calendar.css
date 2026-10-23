@@ -1,46 +1,48 @@
-.schedule-calendar { display: grid; gap: 1.15rem; min-width: 0; color: #e2e8f0; }
+.schedule-calendar { display: grid; gap: 1.15rem; min-width: 0; color: var(--ui-text, #1c3153); }
 .schedule-calendar h1 { font-size: clamp(1.5rem, 3vw, 2.1rem); margin: .25rem 0; }
 .schedule-calendar h2 { font-size: 1.2rem; margin: .3rem 0; }
 .schedule-calendar h3 { font-size: 1rem; margin: .35rem 0; }
 .schedule-calendar p { line-height: 1.65; margin: .45rem 0; }
-.schedule-calendar a { color: #7dd3fc; text-decoration: underline; text-underline-offset: .2em; }
-.schedule-calendar button, .schedule-calendar input, .schedule-calendar select { border-radius: .4rem; border: 1px solid #475569; padding: .5rem .65rem; background: #172033; color: #e2e8f0; max-width: 100%; }
+.schedule-calendar a { color: var(--ui-primary, #0767e8); text-decoration: underline; text-underline-offset: .2em; }
+.schedule-calendar button, .schedule-calendar input, .schedule-calendar select { border-radius: .4rem; border: 1px solid var(--ui-divider, #dce2eb); padding: .5rem .65rem; background: var(--ui-background, #f4f8ff); color: var(--ui-text, #1c3153); max-width: 100%; }
 .schedule-calendar button { cursor: pointer; }
 .schedule-calendar button:disabled { opacity: .5; cursor: default; }
-.schedule-calendar button[aria-pressed="true"] { background: #164e63; border-color: #38bdf8; }
-.schedule-calendar :focus-visible { outline: 2px solid #7dd3fc; outline-offset: 3px; }
+.schedule-calendar button[aria-pressed="true"] { background: var(--ui-active, #e8f0fd); border-color: var(--ui-primary, #0767e8); }
+.schedule-calendar :focus-visible { outline: 2px solid var(--ui-primary, #0767e8); outline-offset: 3px; }
 .cal-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .cal-heading > div { min-width: 0; }
 .cal-heading > button { flex-shrink: 0; }
 .cal-heading nav { display: flex; flex-wrap: wrap; gap: .75rem; }
-.cal-eyebrow { text-transform: uppercase; font-size: .75rem; letter-spacing: .08em; color: #94a3b8; }
-.cal-source, .cal-card, .cal-detail { border: 1px solid #334155; border-radius: .65rem; background: #0f172a; padding: 1rem; overflow-wrap: anywhere; min-width: 0; }
-.cal-source { display: flex; flex-wrap: wrap; gap: .4rem 1rem; align-items: center; --orbyte-text-muted: #94a3b8; --orbyte-text: #e2e8f0; }
+.cal-eyebrow { text-transform: uppercase; font-size: .75rem; letter-spacing: .08em; color: var(--ui-muted, #4d5e79); }
+.cal-source, .cal-card, .cal-detail { border: 1px solid var(--ui-divider, #dce2eb); border-radius: .65rem; background: var(--ui-surface, #fff); padding: 1rem; overflow-wrap: anywhere; min-width: 0; }
+.cal-source { display: flex; flex-wrap: wrap; gap: .4rem 1rem; align-items: center; --orbyte-text-muted: var(--ui-muted, #4d5e79); --orbyte-text: var(--ui-text, #1c3153); }
 .cal-source p { flex-basis: 100%; }
 .cal-toolbar, .cal-filters { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
-.cal-toolbar fieldset { border: 1px solid #334155; border-radius: .4rem; padding: .5rem; }
+.cal-toolbar fieldset { border: 1px solid var(--ui-divider, #dce2eb); border-radius: .4rem; padding: .5rem; }
 .cal-toolbar label, .cal-filters label { display: grid; gap: .35rem; font-size: .85rem; }
 .cal-toolbar fieldset button, .cal-period button { margin-right: .25rem; }
 .cal-filters .cal-check { display: flex; align-items: center; padding: .6rem; }
-.cal-legend, .cal-count { color: #94a3b8; font-size: .8rem; }
+.cal-legend, .cal-count { color: var(--ui-muted, #4d5e79); font-size: .8rem; }
 .cal-days { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .4rem; min-width: 0; }
-.cal-days > li { border: 1px solid #334155; border-radius: .5rem; background: #0f172a; padding: .5rem; min-width: 0; overflow-wrap: anywhere; }
+.cal-days > li { border: 1px solid var(--ui-divider, #dce2eb); border-radius: .5rem; background: var(--ui-surface, #fff); padding: .5rem; min-width: 0; overflow-wrap: anywhere; }
 .cal-days h3 button { padding: .3rem; font-size: .8rem; border-color: transparent; background: transparent; text-align: left; }
 .cal-adjacent h3 { opacity: .65; }
 .cal-count { display: block; margin-bottom: .4rem; }
-.cal-days .cal-event { display: grid; gap: .3rem; width: 100%; text-align: left; margin: .35rem 0; border-left: 3px solid #94a3b8; white-space: normal; overflow-wrap: anywhere; }
-.cal-event[data-authority="CONFIRMED_SCHEDULE"] { border-left-color: #38bdf8; }
-.cal-event[data-authority="TENTATIVE"] { border-left-color: #fbbf24; }
+.cal-days .cal-event { display: grid; gap: .3rem; width: 100%; text-align: left; margin: .35rem 0; border-left: 3px solid var(--ui-muted, #4d5e79); white-space: normal; overflow-wrap: anywhere; }
+.cal-event[data-authority="CONFIRMED_SCHEDULE"] { border-left-color: var(--ui-primary, #0767e8); }
+.cal-event[data-authority="TENTATIVE"] { border-left-color: #a65b00; }
 .cal-event[data-authority="SIMULATION"] { border-left-color: #c084fc; }
-.cal-event small { font-size: .72rem; font-weight: 400; color: #cbd5e1; }
+.cal-event small { font-size: .72rem; font-weight: 400; color: var(--ui-muted, #4d5e79); }
 .cal-view-month > li { min-height: 9rem; }
 .cal-view-day { grid-template-columns: minmax(0, 1fr); }
 .cal-view-week { grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); }
 .cal-detail dl { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 3fr); gap: .65rem 1rem; }
-.cal-detail dt { color: #94a3b8; }
+.cal-detail dt { color: var(--ui-muted, #4d5e79); }
 .cal-detail dd { margin: 0; }
 .cal-windows { list-style: none; padding: 0; }
-.cal-windows li { display: grid; gap: .4rem; border-left: 3px solid #64748b; margin: .7rem 0; padding: .65rem; background: #172033; }
-.cal-windows small { color: #94a3b8; }
+.cal-windows li { display: grid; gap: .4rem; border-left: 3px solid var(--ui-input-border, #aeb8c8); margin: .7rem 0; padding: .65rem; background: var(--ui-background, #f4f8ff); }
+.cal-windows small { color: var(--ui-muted, #4d5e79); }
 @media (max-width: 1000px) { .cal-view-month { grid-template-columns: repeat(7, minmax(5rem, 1fr)); overflow-x: auto; padding-bottom: .7rem; } }
 @media (max-width: 640px) { .cal-heading { flex-direction: column; } .cal-heading > button { width: 100%; } .cal-toolbar { align-items: stretch; } .cal-toolbar label { flex: 1 1 9rem; } .cal-filters label { width: 100%; } .cal-detail dl { grid-template-columns: 1fr; } .cal-detail dd { margin-bottom: .5rem; } .cal-view-week { grid-template-columns: 1fr; } }
+
+.schedule-calendar { background: var(--ui-background, #f4f8ff); padding: clamp(.8rem, 2vw, 1.4rem); }

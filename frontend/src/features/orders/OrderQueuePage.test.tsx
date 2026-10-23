@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../../shared/auth';
@@ -119,6 +119,18 @@ describe('Order Decision Queue', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Refresh queue' }));
     await screen.findByRole('alert'); expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
+  it('hides cached rows and source-derived filter options throughout refresh and revoked access', async () => {
+    let reject!: (error: Error) => void;
+    const load = vi.fn().mockResolvedValueOnce(snapshot).mockImplementation(() => new Promise((_, fail) => { reject = fail; }));
+    setup({ cacheKey: 'privacy-refresh', load }); await screen.findByRole('table');
+    expect(screen.getByRole('option', { name: 'Telegram' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh queue' }));
+    await waitFor(() => expect(screen.queryByRole('table')).not.toBeInTheDocument());
+    expect(screen.queryByRole('option', { name: 'Telegram' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Synthetic Alice')).not.toBeInTheDocument();
+    await act(async () => reject(new ApiError(403, 'FORBIDDEN', 'private')));
+    await screen.findByRole('alert'); expect(screen.queryByRole('option', { name: 'Telegram' })).not.toBeInTheDocument();
+  });
   it('renders permission failures without leaking error bodies', async () => {
     setup({ cacheKey: 'forbidden', load: vi.fn().mockRejectedValue(new ApiError(403, 'FORBIDDEN', 'private server detail')) });
     expect(await screen.findByRole('alert')).toHaveTextContent('Order queue access unavailable');
@@ -167,6 +179,10 @@ describe('Order Decision Queue', () => {
 });
 
 describe('presentation boundary', () => {
+  it('rejects impossible source dates instead of normalizing them into a valid-looking timestamp', () => {
+    expect(timestamp('2026-02-30T01:00:00Z')).toBe('Not available');
+    expect(businessDate('2026-02-30T01:00:00Z')).toBe('');
+  });
   it('never substitutes zero for missing money or incomplete sources', () => {
     expect(profitText(undefined)).toMatch(/unavailable/);
     expect(profitText({ amount: '12', currency: 'MYR', costComplete: true })).toMatch(/Not verified/);

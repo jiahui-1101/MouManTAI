@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../../shared/auth';
@@ -19,6 +19,19 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const acceptance = () => screen.getByRole('region', { name: 'Acceptance review' });
 const sourceState = () => screen.findByRole('status', { name: 'Order decision source state' });
 describe('Read-only Order Decision workspace', () => {
+  it('hides terms, agreements, financials and unsent preparation while records refresh or access is revoked', async () => {
+    let reject!: (error: Error) => void;
+    const source = sourceFor(); vi.mocked(source.load).mockResolvedValueOnce(decisionSnapshot()).mockImplementation(() => new Promise((_, fail) => { reject = fail; }));
+    setup(source); await screen.findByRole('region', { name: 'Acceptance review' });
+    fireEvent.click(screen.getByText('Prepare an unsent proposal comparison'));
+    expect(screen.getByRole('form', { name: 'Unsent proposal preparation' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh decision records' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Acceptance review' })).not.toBeInTheDocument());
+    expect(screen.queryByRole('form', { name: 'Unsent proposal preparation' })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('test-backend-hash-original');
+    await act(async () => reject(new ApiError(403, 'FORBIDDEN', 'private')));
+    await sourceState(); expect(document.body).not.toHaveTextContent('approved-quote');
+  });
   it('shows exact backend-supplied terms, identity and blockers without acceptance controls', async () => {
     const fetch = vi.fn(); vi.stubGlobal('fetch', fetch); setup();
     await screen.findByRole('region', { name: 'Acceptance review' });

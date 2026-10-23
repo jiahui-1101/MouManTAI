@@ -86,14 +86,18 @@ export function PortfolioComparisonPage({ source = unavailablePortfolioSource }:
   // Hide all cached results during refresh and after any error, including permission revocation.
   const data = !query.isFetching && !query.isError ? query.data : undefined;
   useEffect(() => {
-    setNow(Date.now());
     if (!data) return;
-    const expiry = Math.min(...[instant(data.expiresAt), instant(data.recommendation?.expiresAt)]
-      .filter((at): at is number => at !== null && at > Date.now()));
-    if (!Number.isFinite(expiry)) return;
-    const timer = window.setTimeout(() => setNow(Date.now()), Math.max(0, Math.min(expiry - Date.now() + 1, 2_147_483_647)));
+    let timer: number | undefined;
+    const scheduleExpiry = () => {
+      const clock = Date.now();
+      const expiry = Math.min(...[instant(data.expiresAt), instant(data.recommendation?.expiresAt)]
+        .filter((at): at is number => at !== null && at > clock));
+      if (!Number.isFinite(expiry)) return;
+      timer = window.setTimeout(() => { setNow(Date.now()); scheduleExpiry(); }, Math.min(expiry - clock + 1, 2_147_483_647));
+    };
+    scheduleExpiry();
     return () => window.clearTimeout(timer);
-  }, [data, now]);
+  }, [data]);
   const refresh = () => { setNow(Date.now()); void query.refetch(); };
   const conflict = query.error instanceof PortfolioVersionError || (query.error instanceof ApiError && query.error.status === 409) ||
     (data && data.snapshotVersion !== data.currentVersion);

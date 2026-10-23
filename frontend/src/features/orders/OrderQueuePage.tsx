@@ -60,9 +60,10 @@ export function OrderQueuePage({ source = unavailableOrderQueueSource }: OrderQu
   const query = useQuery({
     queryKey: ['orders', 'queue', source.cacheKey, auth.tenantId, auth.actorId],
     queryFn: ({ signal }) => source.load(auth, signal),
-    retry: false,
+    retry: false, gcTime: 0,
   });
-  const items = query.data?.items ?? [];
+  const data = !query.isFetching && !query.isError ? query.data : undefined;
+  const items = data?.items ?? [];
   const visible = selectOrders(items, filters);
   const update = <K extends keyof QueueFilters>(key: K, value: QueueFilters[K]) =>
     setFilters(current => ({ ...current, [key]: value }));
@@ -101,7 +102,7 @@ export function OrderQueuePage({ source = unavailableOrderQueueSource }: OrderQu
       <option value="PROFIT">Profit portfolio</option><option value="EXPIRY">Expiry-aware portfolio</option></select></label>
       <p role="status">{analysis === 'QUEUE' ? 'Queue sorted by original received time, then order ID. Unknown times appear last. No allocation calculated.' :
         `${analysis === 'EXPIRY' ? 'Expiry-aware' : analysis === 'PROFIT' ? 'Profit' : 'FCFS'} analysis unavailable: requires a verified backend portfolio result and resource snapshot. Queue order is unchanged.`}</p></div>
-    {query.isPending ? <p role="status">Loading order queue…</p> : error ? <div className="oq-state" role="alert">
+    {query.isPending || query.isFetching ? <p role="status"><span>Loading order queue…</span> Previous sensitive results are hidden.</p> : error ? <div className="oq-state" role="alert">
       <h2>{accessDenied ? 'Order queue access unavailable' : error instanceof OrderQueueUnavailableError ? 'Order queue unavailable' : 'Could not load order queue'}</h2>
       <p>{accessDenied ? 'Your current session cannot read these orders. Check your tenant and permissions.' :
         error instanceof OrderQueueUnavailableError ? error.message : 'The request failed. No order data is shown. Retry to load a fresh snapshot.'}</p>
@@ -109,15 +110,14 @@ export function OrderQueuePage({ source = unavailableOrderQueueSource }: OrderQu
       <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry</button>
     </div> : <>
       <p className="oq-muted" aria-live="polite">{visible.length} matching of {items.length} loaded orders.
-        {' '}{query.data?.coverage === 'complete' ? 'Source reports a complete snapshot.' : 'Partial snapshot: filters apply only to loaded orders, not the entire tenant.'}
-        {' '}Source updated: {timestamp(query.data?.asOf)}. Dates: Asia/Kuala_Lumpur.</p>
-      {query.isFetching && <p role="status">Refreshing snapshot…</p>}
+        {' '}{data?.coverage === 'complete' ? 'Source reports a complete snapshot.' : 'Partial snapshot: filters apply only to loaded orders, not the entire tenant.'}
+        {' '}Source updated: {timestamp(data?.asOf)}. Dates: Asia/Kuala_Lumpur.</p>
       {visible.length && !invalidRange ? <div className="oq-scroll" role="region" aria-label="Order queue table, scroll horizontally" tabIndex={0}>
         <table><caption>{activeLabel} · loaded orders · read only</caption><thead><tr>
           {['Order / customer', 'Status / priority / risk', 'Received / completed', 'Products / deadline', 'Assessment / reasons', 'Expected profit / provenance', 'Details'].map(heading => <th key={heading} scope="col">{heading}</th>)}
         </tr></thead><tbody>{visible.map(order => <OrderRow key={order.id} order={order} />)}</tbody></table></div> :
         <div className="oq-state" role="status"><h2>{invalidRange ? 'Check the date range' : `No ${activeLabel?.toLowerCase()} orders match`}</h2>
-          <p>{query.data?.coverage === 'partial' ? 'No matches in the loaded subset. More orders may exist outside this snapshot.' : 'Try another status or reset the search and filters.'}</p></div>}
+          <p>{data?.coverage === 'partial' ? 'No matches in the loaded subset. More orders may exist outside this snapshot.' : 'Try another status or reset the search and filters.'}</p></div>}
     </>}
   </section>;
 }

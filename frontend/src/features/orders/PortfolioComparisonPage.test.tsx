@@ -21,6 +21,18 @@ beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(portfolioTestNow); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('Portfolio Comparison states and read safety', () => {
+  it('settles with an advancing clock instead of repainting continuously or rereading the source', async () => {
+    let ticks = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      if (++ticks > 150) throw new Error('Portfolio clock did not settle');
+      return portfolioTestNow + ticks;
+    });
+    const source = sourceFor(); setup(source);
+    await screen.findByRole('table', { name: 'Scenario metrics and comparability' });
+    const settled = ticks;
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 25)); });
+    expect(ticks - settled).toBeLessThan(12); expect(source.load).toHaveBeenCalledTimes(1);
+  });
   it('defaults to unavailable without fetching or fabricating strategies', async () => {
     const fetch = vi.fn(); vi.stubGlobal('fetch', fetch); setup();
     expect(screen.getByRole('heading', { name: 'Portfolio Comparison' })).toBeInTheDocument();

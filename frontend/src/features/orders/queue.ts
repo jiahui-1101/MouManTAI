@@ -1,4 +1,5 @@
 import { formatKLTimestamp } from '../../shared/date';
+import { parseScheduleInstant } from './calendarDates';
 import type { OrderQueueItem, QueueFilters } from './types';
 
 export const initialFilters: QueueFilters = {
@@ -11,9 +12,7 @@ export const shown = (value?: string | null) => value?.trim() || 'Not available'
 
 /** Offset required: an ambiguous local timestamp must not be silently assigned a zone. */
 export function instant(value?: string | null): number | null {
-  if (!value || !/T.*(?:Z|[+-]\d{2}:\d{2})$/i.test(value)) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return parseScheduleInstant(value);
 }
 export function timestamp(value?: string | null): string {
   return instant(value) === null ? 'Not available' : formatKLTimestamp(value);

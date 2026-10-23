@@ -28,6 +28,14 @@ describe('Civil calendar arithmetic independent of browser timezone', () => {
   });
 });
 describe('Offset-aware schedule intervals', () => {
+  it('keeps repeated date placement independent for each business time zone', () => {
+    const at = parseScheduleInstant('2026-10-24T00:30:00Z')!;
+    for (let repeat = 0; repeat < 3; repeat++) {
+      expect(localDateAt(at, 'Asia/Kuala_Lumpur')).toBe('2026-10-24');
+      expect(localDateAt(at, 'America/New_York')).toBe('2026-10-23');
+      expect(localDateAt(at, 'UTC')).toBe('2026-10-24');
+    }
+  });
   it.each(['2026-02-30T12:00:00Z', '2026-10-24T24:00:00Z', '2026-10-24T12:60:00Z', '2026-10-24T12:00:60Z',
     '2026-10-24T12:00:00', '2026-10-24', '2026-10-24T12:00:00+24:00', 'invalid'])('rejects %s', value => expect(parseScheduleInstant(value)).toBeNull());
   it('accepts UTC, offsets and microseconds preserving original timestamps in display', () => {

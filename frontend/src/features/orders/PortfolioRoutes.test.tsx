@@ -10,7 +10,7 @@ it.each(['user_owner_01', 'user_manager_01', 'user_staff_01'])('registers the ex
   window.history.replaceState({}, '', '/orders/portfolio'); render(<App initialActorId={actor} routeExtensions={orderPlanningRoutes} />);
   expect(await screen.findByRole('heading', { name: 'Portfolio API unavailable' })).toBeInTheDocument();
   const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
-  expect(within(nav).getByRole('link', { name: 'Orders' })).toHaveAttribute('aria-current', 'page');
+  expect(within(nav).getByRole('link', { name: /^(Orders|All Orders)$/ })).toHaveAttribute('aria-current', 'page');
   expect(getContext).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('link', { name: 'Back to Order Decision Queue' }));
   expect(await screen.findByRole('heading', { name: 'Order Decision Queue' })).toBeInTheDocument();

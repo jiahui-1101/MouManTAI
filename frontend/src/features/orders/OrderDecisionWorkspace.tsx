@@ -45,8 +45,8 @@ export function OrderDecisionWorkspace({ order, now, source = coreOrderDecisionS
       const snapshot = await source.load(order, auth, signal);
       if (snapshot.tenantId !== auth.tenantId || snapshot.orderId !== order.id) throw new Error('Decision source identity mismatch');
       return snapshot;
-    }, retry: false });
-  const error = query.error; const snapshot = query.data;
+    }, retry: false, gcTime: 0 });
+  const error = query.error; const snapshot = !query.isFetching && !query.isError ? query.data : undefined;
   const errorText = error instanceof ApiError ? [401, 403].includes(error.status) ? 'Permission unavailable. Check the current tenant/session.' :
     error.status === 409 ? 'Source version conflict. Refresh authoritative records before reviewing terms.' :
       error.status === 404 ? 'Linked decision source was not found. No order decision is inferred.' :
@@ -56,10 +56,9 @@ export function OrderDecisionWorkspace({ order, now, source = coreOrderDecisionS
     <p>Read-only Backend boundary · acceptance, proposal, rejection and amendment commands unavailable.</p>
     <EvidenceTierBadge evidenceTier="TARGET" title="Order command capability is not yet operational" />
     <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>Refresh decision records</button></header>
-    {query.isPending ? <p role="status">Loading decision records…</p> : error ? <div role="status" aria-label="Order decision source state">
+    {query.isPending || query.isFetching ? <p role="status"><span>Loading decision records…</span> Previous terms and unsent preparation are hidden.</p> : error ? <div role="status" aria-label="Order decision source state">
       {error instanceof ApiError && error.status === 409 ? <VersionConflictBanner message={errorText} expectedVersion={order.version ?? undefined} /> : <ErrorState error={error} description={errorText} />}
       <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry decision records</button></div> : snapshot && <>
-      {query.isFetching && <p role="status">Refreshing decision records…</p>}
       <p>Decision data source: {snapshot.sourceLabel}</p>{snapshot.warnings?.map((warning, i) => <p key={i} className="decision-notice">{warning}</p>)}
       <section className="decision-panel" aria-labelledby="acceptance-review"><h3 id="acceptance-review">Acceptance review</h3>
         <UncertaintyNote kind="insufficient-evidence">Frontend review never grants decision permission; server command authority remains unavailable.</UncertaintyNote>

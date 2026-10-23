@@ -16,8 +16,15 @@ export function parseScheduleInstant(value: unknown): number | null {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
+// Calendar filtering visits each event/date repeatedly; reuse the formatter for each configured zone.
+const localDateFormatters = new Map<string, Intl.DateTimeFormat>();
 export function localDateAt(instant: number, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(instant);
+  let formatter = localDateFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    localDateFormatters.set(timeZone, formatter);
+  }
+  const parts = formatter.formatToParts(instant);
   const get = (key: string) => parts.find(p => p.type === key)!.value;
   return `${get('year').padStart(4, '0')}-${get('month')}-${get('day')}`;
 }

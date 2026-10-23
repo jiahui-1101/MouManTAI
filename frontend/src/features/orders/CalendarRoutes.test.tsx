@@ -11,10 +11,8 @@ it.each(['user_owner_01', 'user_manager_01', 'user_staff_01'])('preserves Portfo
   window.history.replaceState({}, '', '/orders/calendar'); render(<App initialActorId={actor} routeExtensions={orderPlanningRoutes} />);
   expect(await screen.findByRole('heading', { name: 'Scheduling API unavailable' })).toBeInTheDocument();
   const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
-  expect(within(nav).getByRole('link', { name: 'Orders' })).toHaveAttribute('aria-current', 'page');
-  expect(within(nav).getAllByRole('link').map(l => l.getAttribute('href'))).toEqual([
-    '/overview', '/activity', '/inbox', '/orders', '/commitments/demo', '/recovery/demo', '/communications',
-  ]);
+  expect(within(nav).getByRole('link', { name: /^(Orders|All Orders)$/ })).toHaveAttribute('aria-current', 'page');
+  expect(within(nav).getAllByRole('link').map(l => l.getAttribute('href'))).toEqual(within(nav).queryByRole('link', { name: 'All Orders' }) ? ['/overview', '/orders', '/orders/pending', '/communications', '/settings'] : ['/overview', '/activity', '/inbox', '/orders', '/commitments/demo', '/recovery/demo', '/communications']);
   fireEvent.click(screen.getByRole('link', { name: 'Portfolio Comparison' }));
   expect(await screen.findByRole('heading', { name: 'Portfolio API unavailable' })).toBeInTheDocument();
   fireEvent.click(screen.getByRole('link', { name: 'Production & Delivery Calendar' }));
