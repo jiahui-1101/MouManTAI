@@ -134,9 +134,14 @@ button, a, input, select { font: inherit; }
 
 .main-content {
   width: 100%;
-  max-width: 1320px;
-  margin: 0 auto;
-  padding: 2rem 2.5rem;
+  max-width: 100%;
+  margin: 0;
+  padding: 24px;
+  background: #f4f8ff;
+  font-family: 'Public Sans', system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  color: rgba(28, 49, 83, 0.9);
+  box-sizing: border-box;
 }
 
 /* Page Headings */
@@ -148,11 +153,12 @@ button, a, input, select { font: inherit; }
   margin-bottom: 1.5rem;
 }
 .page-heading h2, .placeholder-card h2 {
-  margin-bottom: 0.35rem;
-  font-size: clamp(1.6rem, 2.8vw, 2.1rem);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: #f8fafc;
+  margin-bottom: 4px;
+  font-size: 28px !important;
+  font-weight: 500 !important;
+  line-height: 42px !important;
+  color: rgba(28, 49, 83, 0.9) !important;
+  letter-spacing: -0.01em !important;
 }
 .muted { color: #94a3b8; line-height: 1.6; }
 .text-sm { font-size: 0.82rem; }
@@ -189,16 +195,17 @@ button, a, input, select { font: inherit; }
   align-items: flex-start;
   justify-content: space-between;
   gap: 1.5rem;
-  margin-bottom: 2rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid #1e293b;
+  margin-bottom: 24px;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 .transparency-header h2 {
-  margin-bottom: 0.4rem;
-  font-size: clamp(1.6rem, 2.5vw, 2.1rem);
-  font-weight: 800;
-  letter-spacing: -0.025em;
-  color: #f8fafc;
+  margin-bottom: 4px;
+  font-size: 28px !important;
+  font-weight: 500 !important;
+  line-height: 42px !important;
+  color: rgba(28, 49, 83, 0.9) !important;
+  letter-spacing: -0.01em !important;
 }
 .transparency-meta {
   display: flex;
@@ -327,12 +334,12 @@ button, a, input, select { font: inherit; }
 
 /* Section Cards */
 .section-card {
-  border: 1px solid #1e293b;
-  border-radius: 0.85rem;
-  background: #0b1120;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(28, 49, 83, 0.12);
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 .section-header {
   display: flex;
@@ -349,9 +356,9 @@ button, a, input, select { font: inherit; }
 }
 .section-title {
   margin-bottom: 0;
-  font-size: 1.15rem;
+  font-size: 16px;
   font-weight: 700;
-  color: #f8fafc;
+  color: rgba(28, 49, 83, 0.9);
 }
 .count-pill {
   display: inline-flex;
@@ -439,14 +446,15 @@ button, a, input, select { font: inherit; }
   gap: 0.65rem;
 }
 .search-input {
-  background: #0f172a;
-  color: #f8fafc;
-  border: 1px solid #334155;
-  border-radius: 0.55rem;
-  padding: 0.45rem 0.85rem;
-  font-size: 0.82rem;
+  background: #ffffff;
+  color: rgba(28, 49, 83, 0.9);
+  border: 1px solid rgba(28, 49, 83, 0.22);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
   min-width: 280px;
   outline: none;
+  height: 38px;
 }
 .search-input:focus { border-color: #0284c7; }
 .search-input::placeholder { color: #64748b; }
@@ -508,18 +516,23 @@ button, a, input, select { font: inherit; }
 }
 .commitments-table th {
   text-align: left;
-  padding: 0.75rem 0.85rem;
-  background: #0f172a;
-  color: #94a3b8;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  border-bottom: 1px solid #1e293b;
+  padding: 7.2px 8px;
+  background: #ffffff !important;
+  color: rgba(28, 49, 83, 0.9) !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  letter-spacing: normal;
+  text-transform: none;
+  border-bottom: 1px solid rgba(28, 49, 83, 0.12) !important;
+  height: 44px;
 }
 .commitments-table td {
-  padding: 0.85rem;
-  border-bottom: 1px solid #1e293b;
+  padding: 7.2px 8px;
+  border-bottom: 1px solid rgba(28, 49, 83, 0.12);
+  color: rgba(28, 49, 83, 0.9);
+  font-size: 13px;
+  font-weight: 400;
+  height: 50px;
   vertical-align: middle;
 }
 .commitments-table tr:hover td {
@@ -877,10 +890,11 @@ button, a, input, select { font: inherit; }
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 1.25rem;
-  padding: 1.25rem;
-  background: #090e1a;
-  border: 1px solid #1e293b;
-  border-radius: 0.75rem;
+  padding: 16px 20px;
+  background: #ffffff;
+  border: 1px solid rgba(28, 49, 83, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .filter-item {
@@ -901,13 +915,14 @@ button, a, input, select { font: inherit; }
 
 .select-control, .text-input {
   width: 100%;
-  padding: 0.55rem 0.85rem;
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 0.5rem;
-  color: #f8fafc;
-  font-size: 0.84rem;
+  padding: 6px 12px;
+  background: #ffffff;
+  border: 1px solid rgba(28, 49, 83, 0.22);
+  border-radius: 6px;
+  color: rgba(28, 49, 83, 0.9);
+  font-size: 13px;
   outline: none;
+  height: 38px;
   transition: border-color 0.15s ease;
 }
 
@@ -975,10 +990,12 @@ button, a, input, select { font: inherit; }
 
 .timeline-entry-card {
   position: relative;
-  background: #0f172a;
-  border: 1px solid #1e293b;
-  border-radius: 0.75rem;
-  padding: 1.25rem 1.5rem;
+  background: #ffffff;
+  border: 1px solid rgba(28, 49, 83, 0.12);
+  border-radius: 10px;
+  padding: 18px 22px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  color: rgba(28, 49, 83, 0.9);
   transition: border-color 0.2s ease, transform 0.15s ease;
 }
 

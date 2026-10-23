@@ -1,12 +1,12 @@
 .communication-center {
-  --p4-surface: #0b1120; --p4-raised: #0f172a; --p4-border: #263449;
-  --p4-muted: #94a3b8; --p4-text: #e2e8f0; --p4-accent: #7dd3fc;
-  --p4-gap: 1.25rem; --p4-radius: .85rem;
+  --p4-surface: #ffffff; --p4-raised: #ffffff; --p4-border: rgba(28, 49, 83, 0.12);
+  --p4-muted: rgba(28, 49, 83, 0.7); --p4-text: rgba(28, 49, 83, 0.9); --p4-accent: #0767e8;
+  --p4-gap: 1.25rem; --p4-radius: 10px;
   min-width: 0; color: var(--p4-text);
 }
-.communication-center .page-heading { flex-wrap: wrap; gap: 1rem; border-bottom: 1px solid var(--p4-border); padding-bottom: 1.25rem; margin-bottom: 1.25rem; }
+.communication-center .page-heading { flex-wrap: wrap; gap: 1rem; border-bottom: none; padding-bottom: 0; margin-bottom: 24px; }
 .communication-center .page-heading > div { min-width: 0; max-width: 100%; }
-.communication-center .page-heading h2 { margin-bottom: .5rem; letter-spacing: -.025em; }
+.communication-center .page-heading h2 { margin-bottom: 4px; font-size: 28px !important; font-weight: 500 !important; line-height: 42px !important; color: rgba(28, 49, 83, 0.9) !important; letter-spacing: -0.01em !important; }
 .communication-center .page-heading p { max-width: 68ch; }
 .communication-center .page-heading .cc-actions { margin-bottom: 0; align-self: flex-start; }
 .communication-center :is(a.btn, button, input, select) { min-height: 44px; max-width: 100%; }
@@ -18,9 +18,9 @@
 .communication-center fieldset { min-inline-size: 0; max-inline-size: 100%; }
 .communication-center :is(a, textarea, [tabindex]):focus-visible { outline: 2px solid #38bdf8; outline-offset: 3px; }
 .cc-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: .75rem; }
-.cc-metric { display: grid; align-content: start; gap: .6rem; min-width: 0; border: 1px solid var(--p4-border, #263449); border-radius: .75rem; padding: 1rem 1.25rem; background: var(--p4-surface, #0b1120); }
+.cc-metric { display: grid; align-content: start; gap: .6rem; min-width: 0; border: 1px solid rgba(28, 49, 83, 0.12); border-radius: 10px; padding: 16px 20px; background: #ffffff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); }
 .cc-metric > span { min-height: 2.5em; font-size: .8rem; }
-.cc-metric strong { color: #f8fafc; font-size: 1.8rem; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.cc-metric strong { color: rgba(28, 49, 83, 0.9); font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .cc-filters, .cc-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
 .cc-filters { margin-top: 1.5rem; }
 .cc-filters > label:first-child { flex: 1 1 240px; }
@@ -29,9 +29,9 @@
 .communication-center :is(button, input, select, summary):focus-visible { outline: 2px solid #38bdf8; outline-offset: 3px; }
 .communication-center button { min-height: 44px; }
 .cc-workspace { display: grid; grid-template-columns: minmax(250px, .85fr) minmax(0, 1.6fr); gap: 1.25rem; align-items: start; }
-.cc-list, .cc-panel { min-width: 0; border: 1px solid var(--p4-border, #263449); border-radius: var(--p4-radius, .85rem); background: var(--p4-surface, #0b1120); padding: var(--p4-gap, 1.25rem); box-shadow: 0 4px 16px #00000012; }
+.cc-list, .cc-panel { min-width: 0; border: 1px solid rgba(28, 49, 83, 0.12); border-radius: 10px; background: #ffffff; padding: 20px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); }
 .cc-list > ul { list-style: none; padding: 0; margin: 0; display: grid; gap: .65rem; }
-.cc-request { display: grid; gap: .65rem; width: 100%; padding: 1rem; border: 1px solid #263449; border-radius: .65rem; background: #0f172a; color: #e2e8f0; cursor: pointer; text-align: left; font-size: .82rem; overflow-wrap: anywhere; }
+.cc-request { display: grid; gap: .65rem; width: 100%; padding: 1rem; border: 1px solid rgba(28, 49, 83, 0.12); border-radius: 8px; background: #ffffff; color: rgba(28, 49, 83, 0.9); cursor: pointer; text-align: left; font-size: .82rem; overflow-wrap: anywhere; }
 .cc-request:hover { border-color: #64748b; }
 .cc-request[aria-pressed="true"] { border-color: #7dd3fc; background: #122339; box-shadow: inset 4px 0 #38bdf8; }
 .cc-row { display: flex; align-items: center; justify-content: space-between; gap: .65rem; flex-wrap: wrap; }

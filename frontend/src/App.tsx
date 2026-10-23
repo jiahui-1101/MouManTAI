@@ -84,17 +84,24 @@ export function App({ queryClient, initialTenantId, initialActorId }: AppProps =
             <Route element={<AppShell />}>
               <Route path="/" element={<OverviewPage />} />
               <Route path="/overview" element={<OverviewPage />} />
+              <Route path="/calendar" element={<FeaturePlaceholder owner="Shared shell" title="Calendar" />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/inbox" element={<DurableInbox />} />
               <Route path="/human-review" element={<HumanReviewPage />} />
+              <Route path="/orders" element={<FeaturePlaceholder owner="Orders" title="Orders" />} />
               <Route path="/orders/:id" element={<OrderContextDetail />} />
+              <Route path="/planning" element={<FeaturePlaceholder owner="Planning" title="Planning" />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
+              <Route path="/suppliers" element={<FeaturePlaceholder owner="Suppliers" title="Suppliers" />} />
+              <Route path="/recovery" element={<FeaturePlaceholder owner="Recovery" title="Recovery" />} />
               <Route path="/recovery/:id/plans" element={<RecoveryPage />} />
               <Route path="/recovery/:id" element={<RecoveryCaseRoutePage />} />
               <Route path="/communications" element={<CommunicationCenterPage />} />
               <Route path="/confirmations/:id" element={<ConfirmationWorkspacePage />} />
               <Route path="/communications/follow-ups" element={<FollowUpQueuePage />}/>
+              <Route path="/insights" element={<FeaturePlaceholder owner="Insights" title="Insights" />} />
+              <Route path="/settings" element={<FeaturePlaceholder owner="Settings" title="Settings" />} />
               <Route path="*" element={<FeaturePlaceholder owner="Shared shell" title="Page not found" />} />
             </Route>
           </Routes>
