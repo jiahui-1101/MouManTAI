@@ -25,7 +25,7 @@ export function Breadcrumbs() {
 
   if (segments.length === 0 || (segments.length === 1 && segments[0] === "overview")) {
     return (
-      <nav aria-label="Breadcrumb" className="breadcrumbs" data-testid="shell-breadcrumbs">
+      <nav aria-label="Breadcrumb" className="breadcrumbs sr-only" data-testid="shell-breadcrumbs">
         <ol>
           <li>
             <span aria-current="page">Overview</span>
@@ -81,7 +81,7 @@ export function AppShell() {
         <Sidebar />
 
         <div className="shell-workspace">
-          <header className="topbar sr-only">
+          <header className="sr-only">
             <div>
               <p className="eyebrow">Business command center</p>
               <h1>MouManTAI</h1>

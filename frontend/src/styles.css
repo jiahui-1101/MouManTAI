@@ -13,6 +13,32 @@ button, a, input, select { font: inherit; }
 /* Base App Shell Layout */
 .app-shell { min-height: 100vh; display: grid; background: #f4f8ff; }
 .topbar {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-height: 0;
+  background: transparent;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+.sr-only {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+.old-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -680,7 +706,33 @@ button, a, input, select { font: inherit; }
 }
 
 @media (max-width: 760px) {
-  .topbar { align-items: flex-start; flex-direction: column; padding: 1rem; }
+  .topbar {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-height: 0;
+  background: transparent;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+.sr-only {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+.old-topbar { align-items: flex-start; flex-direction: column; padding: 1rem; }
   .shell-body { display: block; }
   .sidebar { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid #1e293b; padding: 0.75rem; }
   .nav-link { white-space: nowrap; }
@@ -694,7 +746,33 @@ button, a, input, select { font: inherit; }
 }
 
 @media (max-width: 480px) {
-  .topbar { padding: 0.75rem 0.85rem; }
+  .topbar {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-height: 0;
+  background: transparent;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+.sr-only {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+.old-topbar { padding: 0.75rem 0.85rem; }
   .topbar-controls { flex-wrap: wrap; width: 100%; gap: 0.5rem; }
   .role-simulator { flex-wrap: wrap; width: 100%; }
   .role-selector { width: 100%; max-width: 100%; }

@@ -98,6 +98,11 @@ export function Sidebar() {
   });
   const [expanded, setExpanded] = useState<string[]>(() => activeAncestors(navigation, pathname));
   const [search, setSearch] = useState("");
+  const [selectedItem, setSelectedItem] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedItem(null);
+  }, [pathname]);
   const [organizationOpen, setOrganizationOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const currentActor = getActorDisplay(actorId, actorRole);
@@ -155,6 +160,7 @@ export function Sidebar() {
     setExpanded(current => (current.includes(id) ? current.filter(value => value !== id) : [...current, id]));
 
   const handleGroupClick = (id: string) => {
+    setSelectedItem(id);
     if (collapsed) {
       setCollapsed(false);
       setExpanded(current => (current.includes(id) ? current : [...current, id]));
@@ -164,7 +170,11 @@ export function Sidebar() {
   };
 
   const renderItem = (item: NavigationItem, depth = 0) => {
-    const active = isItemActive(item, pathname);
+    const isSelected = selectedItem === item.id;
+    const isDescendantSelected = Boolean(selectedItem && item.children?.some(c => c.id === selectedItem));
+    const active = selectedItem
+      ? isSelected || isDescendantSelected
+      : isItemActive(item, pathname);
     const open = Boolean(search) || expanded.includes(item.id);
     const className = `sidebar-item${active ? " is-active" : ""}${depth ? " is-child" : ""}${!item.to && !item.children ? " is-unavailable" : ""}`;
     const itemContent = (
@@ -204,14 +214,26 @@ export function Sidebar() {
             {itemContent}
           </button>
         ) : item.to ? (
-          <NavLink to={item.to} className={className} title={item.label} aria-label={collapsed ? item.label : undefined}>
+          <NavLink
+            to={item.to}
+            className={className}
+            title={item.label}
+            aria-label={collapsed ? item.label : undefined}
+            onClick={() => setSelectedItem(item.id)}
+          >
             {itemContent}
           </NavLink>
         ) : (
-          <span className={className} aria-disabled="true" title={`${item.label} — unavailable`}>
+          <button
+            type="button"
+            className={className}
+            aria-disabled="true"
+            title={`${item.label} — unavailable`}
+            onClick={() => setSelectedItem(item.id)}
+          >
             <span className="sidebar-unavailable-content">{itemContent}</span>
             <span className="sidebar-soon">Unavailable</span>
-          </span>
+          </button>
         )}
         {item.children && (
           <div id={`sidebar-group-${item.id}`} className="sidebar-submenu" hidden={!open}>
@@ -247,7 +269,12 @@ export function Sidebar() {
       <button ref={organizationTriggerRef} type="button" className="sidebar-org-trigger" aria-label={`Current organization: ${tenantId}`} aria-haspopup="listbox" aria-expanded={organizationOpen} title={`Current organization: ${tenantId}`} onClick={() => setOrganizationOpen(value => !value)} onKeyDown={event => { if (event.key === "ArrowDown") { event.preventDefault(); setOrganizationOpen(true); } }}>
         <span className="sidebar-org-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M5 21V4h14v17M3 21h18M9 8h2m2 0h2M9 12h2m2 0h2M9 16h2m2 0h2" /></svg></span>
         <span className="sidebar-org-copy"><small>Current organization</small><strong>{tenantId}</strong></span>
-        <span className="sidebar-org-chevron" aria-hidden="true">⌄</span>
+        <span className="sidebar-org-chevron" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m7 15 5 5 5-5" />
+            <path d="m7 9 5-5 5 5" />
+          </svg>
+        </span>
       </button>
       {organizationOpen && <div className="sidebar-org-dropdown" role="listbox" aria-label="Available organizations" onKeyDown={event => {
         if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) { event.preventDefault(); organizationOptionRef.current?.focus(); }
