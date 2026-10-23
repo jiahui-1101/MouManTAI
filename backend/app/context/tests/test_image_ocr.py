@@ -2,7 +2,17 @@
 
 import io
 import os
+os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "False"
+try:
+    import paddle
+    paddle.set_flags({"FLAGS_use_mkldnn": False})
+except Exception:
+    pass
 import pytest
+
+pytest.importorskip("numpy", reason="numpy is required for image OCR tests")
+pytest.importorskip("paddleocr", reason="paddleocr is required for image OCR tests")
 from PIL import Image, ImageDraw
 from fastapi.testclient import TestClient
 
@@ -23,9 +33,12 @@ def shared_repo():
     url = os.environ.get("P1_DATABASE_URL")
     if not url:
         pytest.skip("P1_DATABASE_URL not set")
-    engine = create_p1_engine(url)
-    initialize_p1_schema(engine)
-    return PostgresMessageRepository(engine)
+    try:
+        engine = create_p1_engine(url)
+        initialize_p1_schema(engine)
+        return PostgresMessageRepository(engine)
+    except Exception as exc:
+        pytest.skip(f"P1 database unavailable: {exc}")
 
 
 def create_synthetic_image(text_lines: list[str], *, width: int = 400, height: int = 150) -> bytes:
@@ -60,7 +73,7 @@ def test_image_ocr_order_extraction():
 
     result = extract_image_ocr(att, img_bytes)
 
-    assert result.status == "SUCCESS"
+    assert result.status == "SUCCESS", f"Diagnostic: {result.diagnostic}"
     assert result.document_type == "IMAGE"
     assert result.page_count == 1
     assert not result.is_payment_notice
@@ -108,7 +121,7 @@ def test_image_ocr_payment_screenshot_guard():
 
     result = extract_image_ocr(att, img_bytes)
 
-    assert result.status == "SUCCESS"
+    assert result.status == "SUCCESS", f"Diagnostic: {result.diagnostic}"
     assert result.is_payment_notice is True
 
     # Every evidence item must be tagged as payment evidence
@@ -164,7 +177,7 @@ def test_image_ocr_blank_image():
 
     result = extract_image_ocr(att, blank_bytes)
 
-    assert result.status == "SUCCESS"
+    assert result.status == "SUCCESS", f"Diagnostic: {result.diagnostic}"
     assert result.evidence_items == []
     assert "0 text lines detected by OCR" in result.diagnostic
 

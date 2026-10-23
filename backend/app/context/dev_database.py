@@ -58,14 +58,21 @@ def initialize_p1_schema(engine: Engine) -> None:
         P1Base.metadata.create_all(connection)
         connection.execute(text("ALTER TABLE p1_dev.order_contexts ADD COLUMN IF NOT EXISTS core_commitment_id VARCHAR(100);"))
         connection.execute(text("ALTER TABLE p1_dev.order_contexts ADD COLUMN IF NOT EXISTS published_to_core_at TIMESTAMPTZ;"))
+        connection.execute(text("ALTER TABLE p1_dev.inbound_messages ADD COLUMN IF NOT EXISTS provider VARCHAR(50) DEFAULT 'SYNTHETIC';"))
+        connection.execute(text("ALTER TABLE p1_dev.inbound_messages ALTER COLUMN synthetic_provider DROP NOT NULL;"))
         connection.execute(text("ALTER TABLE p1_dev.inbound_messages DROP CONSTRAINT IF EXISTS ck_p1_synthetic_provider;"))
+        connection.execute(text("ALTER TABLE p1_dev.inbound_messages DROP CONSTRAINT IF EXISTS ck_p1_provenance;"))
         connection.execute(text("""
-            ALTER TABLE p1_dev.inbound_messages ADD CONSTRAINT ck_p1_synthetic_provider
+            ALTER TABLE p1_dev.inbound_messages ADD CONSTRAINT ck_p1_provenance
             CHECK (
-                (channel = 'WHATSAPP' AND synthetic_provider = 'SYNTHETIC_WHATSAPP') OR
-                (channel = 'EMAIL' AND synthetic_provider = 'SYNTHETIC_EMAIL') OR
-                (channel = 'TELEGRAM' AND synthetic_provider = 'SYNTHETIC_TELEGRAM') OR
-                (channel = 'UNKNOWN' AND synthetic_provider = 'SYNTHETIC_UNKNOWN')
+                (synthetic_provider IS NOT NULL AND (
+                    (channel = 'WHATSAPP' AND synthetic_provider = 'SYNTHETIC_WHATSAPP') OR
+                    (channel = 'EMAIL' AND synthetic_provider = 'SYNTHETIC_EMAIL') OR
+                    (channel = 'TELEGRAM' AND synthetic_provider = 'SYNTHETIC_TELEGRAM') OR
+                    (channel = 'UNKNOWN' AND synthetic_provider = 'SYNTHETIC_UNKNOWN')
+                ) AND provider = 'SYNTHETIC')
+                OR
+                (synthetic_provider IS NULL AND provider IN ('TELEGRAM_BOT_API', 'GMAIL_API', 'WHATSAPP_CLOUD_API', 'REAL') AND channel IN ('WHATSAPP', 'EMAIL', 'TELEGRAM', 'UNKNOWN'))
             );
         """))
 

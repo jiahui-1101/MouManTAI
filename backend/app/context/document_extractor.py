@@ -4,6 +4,13 @@ from __future__ import annotations
 
 import io
 import os
+os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "False"
+try:
+    import paddle
+    paddle.set_flags({"FLAGS_use_mkldnn": False})
+except Exception:
+    pass
 import re
 import uuid
 from typing import Any, Sequence
@@ -441,7 +448,13 @@ _ocr_engine: Any = None
 def get_ocr_engine() -> Any:
     global _ocr_engine
     if _ocr_engine is None:
+        os.environ["FLAGS_use_mkldnn"] = "0"
         os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "False"
+        try:
+            import paddle
+            paddle.set_flags({"FLAGS_use_mkldnn": False})
+        except Exception:
+            pass
         from paddleocr import PaddleOCR
         _ocr_engine = PaddleOCR(lang="en")
     return _ocr_engine

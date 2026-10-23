@@ -93,11 +93,14 @@ class InboundMessage(P1Base):
         UniqueConstraint("tenant_id", "channel", "provider_message_id", name="uq_p1_delivery"),
         CheckConstraint("processing_status IN ('RECEIVED', 'PROCESSING', 'PROCESSED', 'PROCESSING_FAILED')", name="ck_p1_processing"),
         CheckConstraint(
+            "(synthetic_provider IS NOT NULL AND ("
             "(channel = 'WHATSAPP' AND synthetic_provider = 'SYNTHETIC_WHATSAPP') OR "
             "(channel = 'EMAIL' AND synthetic_provider = 'SYNTHETIC_EMAIL') OR "
             "(channel = 'TELEGRAM' AND synthetic_provider = 'SYNTHETIC_TELEGRAM') OR "
-            "(channel = 'UNKNOWN' AND synthetic_provider = 'SYNTHETIC_UNKNOWN')",
-            name="ck_p1_synthetic_provider",
+            "(channel = 'UNKNOWN' AND synthetic_provider = 'SYNTHETIC_UNKNOWN')"
+            ") AND provider = 'SYNTHETIC') OR "
+            "(synthetic_provider IS NULL AND provider IN ('TELEGRAM_BOT_API', 'GMAIL_API', 'WHATSAPP_CLOUD_API', 'REAL') AND channel IN ('WHATSAPP', 'EMAIL', 'TELEGRAM', 'UNKNOWN'))",
+            name="ck_p1_provenance",
         ),
         Index("ix_p1_inbox", "tenant_id", "ingested_at", "message_id"),
         {"schema": "p1_dev"},
@@ -107,7 +110,8 @@ class InboundMessage(P1Base):
     tenant_id: Mapped[str] = mapped_column(String(200), nullable=False)
     channel: Mapped[str] = mapped_column(String(20), nullable=False)
     provider_message_id: Mapped[str] = mapped_column(String(200), nullable=False)
-    synthetic_provider: Mapped[str] = mapped_column(String(30), nullable=False)
+    synthetic_provider: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False, default="SYNTHETIC")
     raw: Mapped[dict] = mapped_column(JSONB, nullable=False)
     immutable_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -252,10 +256,39 @@ def fingerprint(envelope: RawMessageEnvelope) -> str:
 
 
 def stored(row: InboundMessage, extractor_version: str | None = None) -> StoredMessage:
-    return StoredMessage(message_id=row.message_id, raw=RawMessageEnvelope(**row.raw),
-                         synthetic_provider=row.synthetic_provider, content_sha256=row.content_sha256,
-                         processing_status=row.processing_status, extractor_version=extractor_version,
-                         ingested_at=row.ingested_at, updated_at=row.updated_at)
+    raw_mode = row.raw.get("adapter_mode")
+    row_provider = getattr(row, "provider", None) or "SYNTHETIC"
+    is_real = raw_mode == "REAL" or row_provider in ("TELEGRAM_BOT_API", "GMAIL_API", "WHATSAPP_CLOUD_API") or row.synthetic_provider is None
+    if is_real:
+        if row.channel == "TELEGRAM":
+            source_label = "Telegram"
+            provider_name = row_provider if row_provider != "SYNTHETIC" else "TELEGRAM_BOT_API"
+        elif row.channel == "EMAIL":
+            source_label = "Gmail"
+            provider_name = row_provider if row_provider != "SYNTHETIC" else "GMAIL_API"
+        elif row.channel == "WHATSAPP":
+            source_label = "WhatsApp"
+            provider_name = row_provider if row_provider != "SYNTHETIC" else "WHATSAPP_CLOUD_API"
+        else:
+            source_label = row.channel.capitalize()
+            provider_name = row_provider if row_provider != "SYNTHETIC" else "REAL"
+        synthetic_prov = None
+    else:
+        source_label = "Synthetic"
+        provider_name = "SYNTHETIC"
+        synthetic_prov = row.synthetic_provider
+    return StoredMessage(
+        message_id=row.message_id,
+        raw=RawMessageEnvelope(**row.raw),
+        synthetic_provider=synthetic_prov,
+        provider=provider_name,
+        source_label=source_label,
+        content_sha256=row.content_sha256,
+        processing_status=row.processing_status,
+        extractor_version=extractor_version,
+        ingested_at=row.ingested_at,
+        updated_at=row.updated_at,
+    )
 
 
 def attempt_record(row: ExtractionAttempt) -> ExtractionAttemptRecord:
@@ -372,7 +405,9 @@ class PostgresMessageRepository:
             with Session(self.engine) as session, session.begin():
                 statement = insert(InboundMessage).values(
                     message_id=str(uuid4()), tenant_id=envelope.tenant_id, channel=envelope.channel,
-                    provider_message_id=envelope.provider_message_id, synthetic_provider=f"SYNTHETIC_{envelope.channel}",
+                    provider_message_id=envelope.provider_message_id,
+                    synthetic_provider=(None if getattr(envelope, "adapter_mode", "SYNTHETIC") == "REAL" else f"SYNTHETIC_{envelope.channel}"),
+                    provider=("TELEGRAM_BOT_API" if getattr(envelope, "adapter_mode", "SYNTHETIC") == "REAL" and envelope.channel == "TELEGRAM" else ("GMAIL_API" if getattr(envelope, "adapter_mode", "SYNTHETIC") == "REAL" and envelope.channel == "EMAIL" else ("WHATSAPP_CLOUD_API" if getattr(envelope, "adapter_mode", "SYNTHETIC") == "REAL" and envelope.channel == "WHATSAPP" else ("REAL" if getattr(envelope, "adapter_mode", "SYNTHETIC") == "REAL" else "SYNTHETIC")))),
                     raw=envelope.model_dump(mode="json"), immutable_fingerprint=digest,
                     content_sha256=hashlib.sha256(envelope.text.encode("utf-8")).hexdigest(),
                     processing_status="RECEIVED", ingested_at=now, updated_at=now,
@@ -588,7 +623,7 @@ class PostgresMessageRepository:
                                 active_fields = reconciled_fields
                                 diagnostics_dict["accepted_model_fields"] = accepted_count
                             elif getattr(proposal_res, "outcomes", None) and any(
-                                v in ("unavailable", "timeout", "busy", "endpoint_http_error", "transport_or_schema_error")
+                                v in ("unavailable", "timeout", "busy", "endpoint_http_error", "transport_or_schema_error", "invalid_context_or_candidate")
                                 for v in proposal_res.outcomes.values()
                             ):
                                 diagnostics_dict["fallback"] = "rules_only"

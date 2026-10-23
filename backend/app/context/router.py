@@ -35,8 +35,10 @@ from .order_context_schemas import (
 from .repository import ContextNotFound, MessageRepository, StaleContextVersion
 from .review_catalog import approved_review_products, review_item_errors
 from .schemas import Channel, ProcessingStatus, RawMessageEnvelope
+from .channels.router import router as channels_router
 
 router = APIRouter(tags=["P1 synthetic ingestion — provisional"])
+router.include_router(channels_router)
 Tenant = Annotated[DevelopmentContext, Depends(development_context)]
 Repository = Annotated[MessageRepository, Depends(local_repository)]
 errors = {403: {"model": ApiError}, 503: {"model": ApiError}}
@@ -63,6 +65,10 @@ def _check_review_items(tenant_id, items, repository):
 @router.post("/v1/messages/ingest", response_model=IngestResponse, status_code=201,
              responses={**errors, 200: {"model": IngestResponse}, 409: {"model": ApiError}, 422: {"description": "Invalid envelope or unimplemented channel"}})
 def ingest_message(envelope: RawMessageEnvelope, response: Response, tenant: Tenant, repository: Repository) -> IngestResponse:
+    # Anti-spoofing guard: External HTTP ingest endpoint is strictly for synthetic/test messages.
+    # Real channel provenance is exclusively asserted by authorized internal channel adapters.
+    if envelope.adapter_mode != "SYNTHETIC":
+        envelope = envelope.model_copy(update={"adapter_mode": "SYNTHETIC"})
     result = IngestionService(repository).ingest(envelope, tenant.tenant_id)
     response.status_code = 200 if result.duplicate else 201
     return result
