@@ -71,6 +71,35 @@ class PriceSourceAuthorityEvidence(ImmutableContract):
     authority_ref: Text | None = None
 
 
+class PriceDisclosureEvidence(ImmutableContract):
+    """Trusted adapter assertion for disclosure of one exact canonical terms hash."""
+
+    tenant_id: Text
+    customer_id: Text
+    context_id: Text
+    context_version: int = Field(ge=1)
+    order_request_id: Text
+    terms_revision: int = Field(ge=1)
+    terms_hash: Text
+    source_id: Text
+    source_version: Text
+    disclosed_at: AwareDatetime
+    disclosure_ref: Text
+    verification_status: Literal["VERIFIED", "UNVERIFIED"]
+    authority_ref: Text | None = None
+
+
+class CustomerIdentityAssociationEvidence(ImmutableContract):
+    """Versioned P1 association snapshot supporting the verified customer link."""
+
+    association_id: Text
+    association_version: int = Field(ge=1)
+    message_id: Text
+    tenant_id: Text
+    customer_id: Text
+    updated_at: AwareDatetime
+
+
 class OrderCommercialEvidence(ImmutableContract):
     """Optional commercial/fulfilment snapshot bound to one P1 context version.
 
@@ -99,7 +128,7 @@ class OrderCommercialEvidence(ImmutableContract):
     total: Amount | None = None
     price_source: PriceSource | None = None
     price_source_authority: PriceSourceAuthorityEvidence | None = None
-    price_disclosure_evidence: tuple[Text, ...] = ()
+    price_disclosure_evidence: tuple[PriceDisclosureEvidence, ...] = ()
     binding_policy_ref: Text | None = None
 
 
@@ -120,10 +149,11 @@ class AcceptanceCandidate(ImmutableContract):
     canonical_terms: OrderTerms | None = None
     customer_id: Text | None = None
     customer_identity_evidence: tuple[Text, ...] = ()
+    customer_identity_associations: tuple[CustomerIdentityAssociationEvidence, ...] = ()
     source_message_ids: tuple[Text, ...] = ()
     source_evidence_refs: tuple[Text, ...] = ()
     price_source_ref: Text | None = None
-    price_disclosure_evidence: tuple[Text, ...] = ()
+    price_disclosure_evidence: tuple[PriceDisclosureEvidence, ...] = ()
     agreement_basis: AgreementBasis = "UNKNOWN"
     proposal_id: Text | None = None
     proposal_version: int | None = Field(default=None, ge=1)
@@ -148,13 +178,45 @@ class AcceptanceCandidate(ImmutableContract):
                 raise ValueError("Candidate terms revision must match canonical terms")
             if self.canonical_terms.terms_hash != self.terms_hash:
                 raise ValueError("Candidate terms hash does not match canonical terms")
+            if not self.customer_identity_associations:
+                raise ValueError("Canonical terms require versioned customer identity evidence")
+            association_ids = tuple(
+                row.association_id for row in self.customer_identity_associations
+            )
+            if association_ids != self.customer_identity_evidence:
+                raise ValueError("Customer identity evidence IDs and versions must match")
+            if any(
+                row.tenant_id != self.tenant_id
+                or row.customer_id != self.customer_id
+                or row.message_id not in self.source_message_ids
+                for row in self.customer_identity_associations
+            ):
+                raise ValueError("Customer identity evidence must bind to this candidate")
+            if not self.price_disclosure_evidence:
+                raise ValueError("Canonical terms require structured price disclosure evidence")
+            if any(
+                row.tenant_id != self.tenant_id
+                or row.customer_id != self.customer_id
+                or row.order_request_id != self.order_request_id
+                or row.terms_revision != self.terms_revision
+                or row.terms_hash != self.terms_hash
+                or row.source_id != self.canonical_terms.price_source.source_id
+                or row.source_version != self.canonical_terms.price_source.source_version
+                or row.disclosed_at != self.canonical_terms.price_source.disclosed_at
+                or row.verification_status != "VERIFIED"
+                or not row.authority_ref
+                for row in self.price_disclosure_evidence
+            ):
+                raise ValueError("Price disclosure evidence must bind to the exact canonical terms")
         if self.agreement_basis == "UNKNOWN" and self.customer_assent_evidence:
             raise ValueError("Unknown agreement basis cannot carry customer-assent evidence")
         return self
 
 
 def _unique(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(value for value in values if isinstance(value, str) and value.strip()))
+    return tuple(
+        dict.fromkeys(value for value in values if isinstance(value, str) and value.strip())
+    )
 
 
 def _context_evidence_refs(context: OrderContextRecord) -> tuple[str, ...]:
@@ -201,6 +263,7 @@ def _make_candidate(
     commercial: OrderCommercialEvidence | None,
     source_evidence_refs: tuple[str, ...],
     identity_evidence: tuple[str, ...] = (),
+    identity_associations: tuple[CustomerIdentityAssociationEvidence, ...] = (),
     canonical_terms: OrderTerms | None = None,
     reasons: tuple[str, ...] = (),
     missing: tuple[str, ...] = (),
@@ -209,27 +272,61 @@ def _make_candidate(
     reviewed_at = context.last_reviewed_at
     if reviewed_at is not None and (reviewed_at.tzinfo is None or reviewed_at.utcoffset() is None):
         reviewed_at = None
+    commercial_matches_context = bool(
+        commercial is not None
+        and commercial.tenant_id == context.tenant_id
+        and commercial.context_id == context.context_id
+        and commercial.context_version == context.context_version
+        and commercial.customer_id == context.customer_id
+    )
+    safe_commercial = commercial if commercial_matches_context else None
+    validated_commercial = (
+        safe_commercial
+        if readiness == "READY_FOR_VALIDATION" and canonical_terms is not None
+        else None
+    )
+    # Commercial source and disclosure references can identify another
+    # tenant's catalog or customer. Publish them only with a fully validated
+    # canonical terms candidate; failure results carry reason codes instead.
+    safe_price_source_ref = (
+        safe_commercial.price_source.source_id
+        if readiness == "READY_FOR_VALIDATION"
+        and canonical_terms is not None
+        and safe_commercial is not None
+        and safe_commercial.price_source is not None
+        else None
+    )
+    safe_disclosure_evidence = (
+        safe_commercial.price_disclosure_evidence
+        if readiness == "READY_FOR_VALIDATION"
+        and canonical_terms is not None
+        and safe_commercial is not None
+        else ()
+    )
     return AcceptanceCandidate(
         tenant_id=context.tenant_id,
-        order_request_id=commercial.order_request_id if commercial else None,
+        order_request_id=validated_commercial.order_request_id if validated_commercial else None,
         source_context_id=context.context_id,
         source_context_version=context.context_version,
         source_context_version_record_id=current_version.version_id if current_version else None,
         context_review_actor_id=context.last_reviewed_by,
         context_review_actor_role=context.last_reviewed_role,
         context_reviewed_at=reviewed_at,
-        existing_order_id=context.order_id,
-        terms_revision=commercial.terms_revision if commercial else None,
+        existing_order_id=(
+            context.order_id
+            if readiness == "READY_FOR_VALIDATION" and canonical_terms is not None
+            else None
+        ),
+        terms_revision=validated_commercial.terms_revision if validated_commercial else None,
         terms_hash=canonical_terms.terms_hash if canonical_terms else None,
         canonical_terms=canonical_terms,
         customer_id=context.customer_id,
         customer_identity_evidence=identity_evidence,
+        customer_identity_associations=identity_associations,
         source_message_ids=tuple(context.source_message_ids),
         source_evidence_refs=source_evidence_refs,
-        price_source_ref=commercial.price_source.source_id if commercial and commercial.price_source else None,
-        price_disclosure_evidence=(
-            tuple(commercial.price_disclosure_evidence) if commercial else ()
-        ),
+        price_source_ref=safe_price_source_ref,
+        price_disclosure_evidence=safe_disclosure_evidence,
         # P1 extraction/review and a matching terms hash are not customer assent.
         agreement_basis="UNKNOWN",
         proposal_id=None,
@@ -265,8 +362,11 @@ def map_order_context(
 
     if current_version is None:
         return _make_candidate(
-            context, readiness="STALE_SOURCE", current_version=None,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="STALE_SOURCE",
+            current_version=None,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             reasons=("CURRENT_CONTEXT_VERSION_MISSING",),
         )
     if (
@@ -274,109 +374,166 @@ def map_order_context(
         or current_version.context_id != context.context_id
     ):
         return _make_candidate(
-            context, readiness="STALE_SOURCE", current_version=None,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="STALE_SOURCE",
+            current_version=None,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             reasons=("CURRENT_CONTEXT_BINDING_MISMATCH",),
         )
     base_refs = _unique(list(context_refs) + [current_version.version_id])
     if current_version.context_version != context.context_version:
         return _make_candidate(
-            context, readiness="STALE_SOURCE", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="STALE_SOURCE",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             reasons=("CURRENT_CONTEXT_VERSION_MISMATCH",),
         )
     try:
         version_snapshot = OrderContextRecord.model_validate(current_version.snapshot)
     except ValidationError:
         version_snapshot = None
-    if version_snapshot is None or version_snapshot.model_dump(mode="json") != context.model_dump(mode="json"):
+    if version_snapshot is None or version_snapshot.model_dump(mode="json") != context.model_dump(
+        mode="json"
+    ):
         return _make_candidate(
-            context, readiness="STALE_SOURCE", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="STALE_SOURCE",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             reasons=("CURRENT_CONTEXT_SNAPSHOT_MISMATCH",),
         )
 
     if not context.source_message_ids:
         return _make_candidate(
-            context, readiness="INCOMPLETE", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
-            reasons=("SOURCE_MESSAGES_MISSING",), missing=("source_message_ids",),
+            context,
+            readiness="INCOMPLETE",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            reasons=("SOURCE_MESSAGES_MISSING",),
+            missing=("source_message_ids",),
         )
     if len(context.source_message_ids) != len(set(context.source_message_ids)):
         return _make_candidate(
-            context, readiness="REVIEW_REQUIRED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             reasons=("DUPLICATE_SOURCE_MESSAGE_ID",),
         )
 
     source_by_id = {message.message_id: message for message in source_messages}
     if len(source_by_id) != len(source_messages):
         return _make_candidate(
-            context, readiness="REVIEW_REQUIRED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             reasons=("DUPLICATE_SOURCE_MESSAGE",),
         )
     if set(source_by_id) != set(context.source_message_ids):
         if not source_by_id or set(context.source_message_ids) - set(source_by_id):
             return _make_candidate(
-                context, readiness="INCOMPLETE", current_version=current_version,
-                commercial=commercial_terms, source_evidence_refs=base_refs,
-                reasons=("SOURCE_MESSAGE_RECORD_MISSING",), missing=("source_messages",),
+                context,
+                readiness="INCOMPLETE",
+                current_version=current_version,
+                commercial=commercial_terms,
+                source_evidence_refs=base_refs,
+                reasons=("SOURCE_MESSAGE_RECORD_MISSING",),
+                missing=("source_messages",),
             )
         return _make_candidate(
-            context, readiness="REVIEW_REQUIRED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             reasons=("SOURCE_MESSAGE_SET_MISMATCH",),
         )
     if any(message.raw.tenant_id != context.tenant_id for message in source_by_id.values()):
         return _make_candidate(
-            context, readiness="TERMS_CONFLICT", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="TERMS_CONFLICT",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             reasons=("SOURCE_TENANT_MISMATCH",),
         )
     if not _evidence_source_ids(context).issubset(set(context.source_message_ids)):
         return _make_candidate(
-            context, readiness="TERMS_CONFLICT", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
-            reasons=("EVIDENCE_SOURCE_MISMATCH",), conflicts=("source_evidence",),
+            context,
+            readiness="TERMS_CONFLICT",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            reasons=("EVIDENCE_SOURCE_MISMATCH",),
+            conflicts=("source_evidence",),
         )
 
-    if (
-        context.customer_identity_status != "LINK_VERIFIED"
-        or not context.customer_id
-    ):
+    if context.customer_identity_status != "LINK_VERIFIED" or not context.customer_id:
         return _make_candidate(
-            context, readiness="IDENTITY_UNVERIFIED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="IDENTITY_UNVERIFIED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             reasons=("CUSTOMER_IDENTITY_UNVERIFIED",),
         )
 
     association_by_id = {association.message_id: association for association in associations}
     if len(association_by_id) != len(associations):
         return _make_candidate(
-            context, readiness="REVIEW_REQUIRED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             reasons=("DUPLICATE_SOURCE_ASSOCIATION",),
+        )
+    if len({row.association_id for row in association_by_id.values()}) != len(association_by_id):
+        return _make_candidate(
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            reasons=("DUPLICATE_ASSOCIATION_ID",),
         )
     if set(association_by_id) != set(context.source_message_ids):
         return _make_candidate(
-            context, readiness="IDENTITY_UNVERIFIED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="IDENTITY_UNVERIFIED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             reasons=("SOURCE_ASSOCIATION_MISSING_OR_UNEXPECTED",),
         )
     identity_refs = _unique([record.association_id for record in association_by_id.values()])
     for association in association_by_id.values():
         if association.tenant_id != context.tenant_id:
             return _make_candidate(
-                context, readiness="TERMS_CONFLICT", current_version=current_version,
-                commercial=None, source_evidence_refs=base_refs,
+                context,
+                readiness="TERMS_CONFLICT",
+                current_version=current_version,
+                commercial=None,
+                source_evidence_refs=base_refs,
                 reasons=("SOURCE_TENANT_MISMATCH",),
             )
         if association.status == "CONFLICT" or association.conflicts:
             return _make_candidate(
-                context, readiness="TERMS_CONFLICT", current_version=current_version,
-                commercial=commercial_terms, source_evidence_refs=base_refs,
-                identity_evidence=identity_refs, reasons=("SOURCE_ASSOCIATION_CONFLICT",),
+                context,
+                readiness="TERMS_CONFLICT",
+                current_version=current_version,
+                commercial=commercial_terms,
+                source_evidence_refs=base_refs,
+                identity_evidence=identity_refs,
+                reasons=("SOURCE_ASSOCIATION_CONFLICT",),
                 conflicts=("customer_identity",),
             )
         if association.status != "LINK_VERIFIED" or association.verified_customer is None:
@@ -385,7 +542,8 @@ def map_order_context(
                 context,
                 readiness="REVIEW_REQUIRED" if unresolved else "IDENTITY_UNVERIFIED",
                 current_version=current_version,
-                commercial=commercial_terms, source_evidence_refs=base_refs,
+                commercial=commercial_terms,
+                source_evidence_refs=base_refs,
                 identity_evidence=identity_refs,
                 reasons=("ASSOCIATION_UNRESOLVED" if unresolved else "SOURCE_IDENTITY_UNVERIFIED",),
             )
@@ -394,39 +552,80 @@ def map_order_context(
             or association.verified_customer.customer_id != context.customer_id
         ):
             return _make_candidate(
-                context, readiness="TERMS_CONFLICT", current_version=current_version,
-                commercial=commercial_terms, source_evidence_refs=base_refs,
-                identity_evidence=identity_refs, reasons=("SOURCE_CUSTOMER_MISMATCH",),
+                context,
+                readiness="TERMS_CONFLICT",
+                current_version=current_version,
+                commercial=commercial_terms,
+                source_evidence_refs=base_refs,
+                identity_evidence=identity_refs,
+                reasons=("SOURCE_CUSTOMER_MISMATCH",),
                 conflicts=("customer_identity",),
             )
         order_ref = association.verified_order
         if order_ref is not None and (
-            order_ref.tenant_id != context.tenant_id
-            or order_ref.customer_id != context.customer_id
+            order_ref.tenant_id != context.tenant_id or order_ref.customer_id != context.customer_id
         ):
             return _make_candidate(
-                context, readiness="TERMS_CONFLICT", current_version=current_version,
-                commercial=commercial_terms, source_evidence_refs=base_refs,
-                identity_evidence=identity_refs, reasons=("SOURCE_ORDER_MISMATCH",),
+                context,
+                readiness="TERMS_CONFLICT",
+                current_version=current_version,
+                commercial=commercial_terms,
+                source_evidence_refs=base_refs,
+                identity_evidence=identity_refs,
+                reasons=("SOURCE_ORDER_MISMATCH",),
                 conflicts=("order_id",),
             )
         if context.order_id and (order_ref is None or order_ref.order_id != context.order_id):
             return _make_candidate(
-                context, readiness="REVIEW_REQUIRED", current_version=current_version,
-                commercial=commercial_terms, source_evidence_refs=base_refs,
-                identity_evidence=identity_refs, reasons=("ORDER_ASSOCIATION_UNVERIFIED",),
+                context,
+                readiness="REVIEW_REQUIRED",
+                current_version=current_version,
+                commercial=commercial_terms,
+                source_evidence_refs=base_refs,
+                identity_evidence=identity_refs,
+                reasons=("ORDER_ASSOCIATION_UNVERIFIED",),
                 conflicts=("order_id",),
             )
         if not context.order_id and order_ref is not None:
             return _make_candidate(
-                context, readiness="REVIEW_REQUIRED", current_version=current_version,
-                commercial=commercial_terms, source_evidence_refs=base_refs,
-                identity_evidence=identity_refs, reasons=("ORDER_ASSOCIATION_UNRESOLVED",),
+                context,
+                readiness="REVIEW_REQUIRED",
+                current_version=current_version,
+                commercial=commercial_terms,
+                source_evidence_refs=base_refs,
+                identity_evidence=identity_refs,
+                reasons=("ORDER_ASSOCIATION_UNRESOLVED",),
                 conflicts=("order_id",),
             )
 
+    if any(
+        association.updated_at.tzinfo is None or association.updated_at.utcoffset() is None
+        for association in association_by_id.values()
+    ):
+        return _make_candidate(
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            reasons=("ASSOCIATION_TIMESTAMP_UNVERIFIED",),
+        )
+    identity_associations = tuple(
+        CustomerIdentityAssociationEvidence(
+            association_id=association.association_id,
+            association_version=association.version,
+            message_id=association.message_id,
+            tenant_id=association.tenant_id,
+            customer_id=association.verified_customer.customer_id,
+            updated_at=association.updated_at,
+        )
+        for association in association_by_id.values()
+    )
+
     current_reviews = [
-        review for review in reviews
+        review
+        for review in reviews
         if review.tenant_id == context.tenant_id
         and review.context_id == context.context_id
         and review.context_version_after == context.context_version
@@ -434,35 +633,73 @@ def map_order_context(
         and review.actor_id == context.last_reviewed_by
         and review.actor_role == context.last_reviewed_role
     ]
+    if (
+        context.last_reviewed_at is not None
+        and (
+            context.last_reviewed_at.tzinfo is None or context.last_reviewed_at.utcoffset() is None
+        )
+    ) or any(
+        review.created_at.tzinfo is None or review.created_at.utcoffset() is None
+        for review in current_reviews
+    ):
+        return _make_candidate(
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("CURRENT_CONTEXT_REVIEW_TIMESTAMP_UNVERIFIED",),
+        )
     if not current_reviews or not context.last_reviewed_at:
         return _make_candidate(
-            context, readiness="REVIEW_REQUIRED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
-            identity_evidence=identity_refs, reasons=("CURRENT_CONTEXT_REVIEW_REQUIRED",),
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("CURRENT_CONTEXT_REVIEW_REQUIRED",),
         )
 
     review = max(current_reviews, key=lambda row: row.created_at)
     base_refs = _unique(list(base_refs) + [review.review_id])
     if review.created_at != context.last_reviewed_at:
         return _make_candidate(
-            context, readiness="REVIEW_REQUIRED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
-            identity_evidence=identity_refs, reasons=("CURRENT_CONTEXT_REVIEW_MISMATCH",),
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("CURRENT_CONTEXT_REVIEW_MISMATCH",),
         )
 
     if context.conflicts or context.status == "CONFLICT":
         return _make_candidate(
-            context, readiness="TERMS_CONFLICT", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="TERMS_CONFLICT",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             identity_evidence=identity_refs,
+            identity_associations=identity_associations,
             reasons=("CONTEXT_TERMS_CONFLICT",),
             conflicts=("context_fields",),
         )
     if context.status != "INFORMATION_READY" or context.missing_fields:
         return _make_candidate(
-            context, readiness="REVIEW_REQUIRED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
-            identity_evidence=identity_refs, reasons=("CONTEXT_NOT_READY",),
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("CONTEXT_NOT_READY",),
             missing=tuple(context.missing_fields),
         )
 
@@ -476,17 +713,27 @@ def map_order_context(
     )
     if missing_context_evidence:
         return _make_candidate(
-            context, readiness="INCOMPLETE", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
-            identity_evidence=identity_refs, reasons=("CONTEXT_FIELD_EVIDENCE_MISSING",),
+            context,
+            readiness="INCOMPLETE",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("CONTEXT_FIELD_EVIDENCE_MISSING",),
             missing=missing_context_evidence,
         )
 
     if commercial_terms is None:
         return _make_candidate(
-            context, readiness="INCOMPLETE", current_version=current_version,
-            commercial=None, source_evidence_refs=base_refs,
-            identity_evidence=identity_refs, reasons=("COMMERCIAL_EVIDENCE_MISSING",),
+            context,
+            readiness="INCOMPLETE",
+            current_version=current_version,
+            commercial=None,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("COMMERCIAL_EVIDENCE_MISSING",),
             missing=("commercial_terms",),
         )
 
@@ -498,18 +745,26 @@ def map_order_context(
     )
     if not commercial_binding:
         return _make_candidate(
-            context, readiness="TERMS_CONFLICT", current_version=current_version,
-            commercial=None, source_evidence_refs=base_refs,
+            context,
+            readiness="TERMS_CONFLICT",
+            current_version=current_version,
+            commercial=None,
+            source_evidence_refs=base_refs,
             identity_evidence=identity_refs,
+            identity_associations=identity_associations,
             reasons=("COMMERCIAL_CONTEXT_BINDING_MISMATCH",),
             conflicts=("commercial_context_binding",),
         )
 
     if context.core_commitment_id and existing_core_terms is None:
         return _make_candidate(
-            context, readiness="REVIEW_REQUIRED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             identity_evidence=identity_refs,
+            identity_associations=identity_associations,
             reasons=("CORE_TERMS_REVALIDATION_REQUIRED",),
         )
 
@@ -521,8 +776,16 @@ def map_order_context(
     if not commercial_terms.items:
         missing.append("items")
     for field in (
-        "fulfilment_method", "location_ref", "window_start", "window_end",
-        "business_timezone", "currency", "fees", "tax", "discount", "total",
+        "fulfilment_method",
+        "location_ref",
+        "window_start",
+        "window_end",
+        "business_timezone",
+        "currency",
+        "fees",
+        "tax",
+        "discount",
+        "total",
         "binding_policy_ref",
     ):
         if getattr(commercial_terms, field) is None:
@@ -540,9 +803,13 @@ def map_order_context(
             missing_reasons[field] for field in missing if field in missing_reasons
         )
         return _make_candidate(
-            context, readiness="INCOMPLETE", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="INCOMPLETE",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             identity_evidence=identity_refs,
+            identity_associations=identity_associations,
             reasons=specific_reasons or ("BINDING_TERMS_INCOMPLETE",),
             missing=tuple(missing),
         )
@@ -559,27 +826,69 @@ def map_order_context(
         or authority.source_version != price_source.source_version
     ):
         return _make_candidate(
-            context, readiness="PRICE_SOURCE_UNVERIFIED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
-            identity_evidence=identity_refs, reasons=("PRICE_SOURCE_UNVERIFIED",),
+            context,
+            readiness="PRICE_SOURCE_UNVERIFIED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("PRICE_SOURCE_UNVERIFIED",),
         )
 
-    if not set(commercial_terms.price_disclosure_evidence).issubset(set(price_source.evidence_refs)):
+    disclosure_refs = _unique(
+        [record.disclosure_ref for record in commercial_terms.price_disclosure_evidence]
+    )
+    if len(disclosure_refs) != len(commercial_terms.price_disclosure_evidence):
         return _make_candidate(
-            context, readiness="TERMS_CONFLICT", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=None,
+            source_evidence_refs=base_refs,
             identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("DUPLICATE_PRICE_DISCLOSURE_EVIDENCE",),
+        )
+    if not set(disclosure_refs).issubset(set(price_source.evidence_refs)):
+        return _make_candidate(
+            context,
+            readiness="TERMS_CONFLICT",
+            current_version=current_version,
+            commercial=None,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
             reasons=("PRICE_DISCLOSURE_EVIDENCE_MISMATCH",),
             conflicts=("price_disclosure_evidence",),
+        )
+    if any(
+        record.verification_status != "VERIFIED" or not record.authority_ref
+        for record in commercial_terms.price_disclosure_evidence
+    ):
+        return _make_candidate(
+            context,
+            readiness="PRICE_SOURCE_UNVERIFIED",
+            current_version=current_version,
+            commercial=None,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("PRICE_DISCLOSURE_UNVERIFIED",),
         )
 
     requested_lines = context.requested_items
     commercial_lines = commercial_terms.items or ()
     if len(requested_lines) != len(commercial_lines):
         return _make_candidate(
-            context, readiness="TERMS_CONFLICT", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
-            identity_evidence=identity_refs, reasons=("REQUESTED_ITEMS_MISMATCH",),
+            context,
+            readiness="TERMS_CONFLICT",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("REQUESTED_ITEMS_MISMATCH",),
             conflicts=("items",),
         )
     for requested, commercial in zip(requested_lines, commercial_lines, strict=True):
@@ -594,17 +903,26 @@ def map_order_context(
             or requested_quantity != commercial.quantity
         ):
             return _make_candidate(
-                context, readiness="TERMS_CONFLICT", current_version=current_version,
-                commercial=commercial_terms, source_evidence_refs=base_refs,
-                identity_evidence=identity_refs, reasons=("REQUESTED_ITEMS_MISMATCH",),
+                context,
+                readiness="TERMS_CONFLICT",
+                current_version=current_version,
+                commercial=commercial_terms,
+                source_evidence_refs=base_refs,
+                identity_evidence=identity_refs,
+                identity_associations=identity_associations,
+                reasons=("REQUESTED_ITEMS_MISMATCH",),
                 conflicts=("items",),
             )
 
     if commercial_terms.fulfilment_method == "PICKUP":
         return _make_candidate(
-            context, readiness="REVIEW_REQUIRED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
             identity_evidence=identity_refs,
+            identity_associations=identity_associations,
             reasons=("PICKUP_WINDOW_NOT_SUPPORTED_BY_P1_CONTEXT",),
             conflicts=("fulfilment_window",),
         )
@@ -617,16 +935,26 @@ def map_order_context(
         or context.delivery_qualifier != "DEADLINE"
     ):
         return _make_candidate(
-            context, readiness="REVIEW_REQUIRED", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
-            identity_evidence=identity_refs, reasons=("DELIVERY_TIME_AMBIGUOUS",),
+            context,
+            readiness="REVIEW_REQUIRED",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("DELIVERY_TIME_AMBIGUOUS",),
             conflicts=("fulfilment_window",),
         )
     if commercial_terms.window_end != deadline:
         return _make_candidate(
-            context, readiness="TERMS_CONFLICT", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
-            identity_evidence=identity_refs, reasons=("DELIVERY_WINDOW_CONFLICT",),
+            context,
+            readiness="TERMS_CONFLICT",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("DELIVERY_WINDOW_CONFLICT",),
             conflicts=("fulfilment_window",),
         )
 
@@ -634,9 +962,14 @@ def map_order_context(
         ZoneInfo(commercial_terms.business_timezone or "")
     except (ZoneInfoNotFoundError, ValueError):
         return _make_candidate(
-            context, readiness="TERMS_CONFLICT", current_version=current_version,
-            commercial=commercial_terms, source_evidence_refs=base_refs,
-            identity_evidence=identity_refs, reasons=("INVALID_BUSINESS_TIMEZONE",),
+            context,
+            readiness="TERMS_CONFLICT",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("INVALID_BUSINESS_TIMEZONE",),
             conflicts=("business_timezone",),
         )
 
@@ -653,6 +986,12 @@ def map_order_context(
     additional_evidence = list(price_source.evidence_refs)
     if authority.authority_ref:
         additional_evidence.append(authority.authority_ref)
+    additional_evidence.extend(disclosure_refs)
+    additional_evidence.extend(
+        record.authority_ref
+        for record in commercial_terms.price_disclosure_evidence
+        if record.authority_ref
+    )
     terms_evidence = _unique(list(context_refs) + additional_evidence)
     try:
         mapped_terms = OrderTerms.model_validate(
@@ -673,7 +1012,9 @@ def map_order_context(
                 "discount": commercial_terms.discount,
                 "total": commercial_terms.total,
                 "price_source": price_source,
-                "special_conditions": (context.special_instructions,) if context.special_instructions else (),
+                "special_conditions": (context.special_instructions,)
+                if context.special_instructions
+                else (),
                 "binding_policy_ref": commercial_terms.binding_policy_ref,
                 "source_message_ids": tuple(context.source_message_ids),
                 "evidence_refs": terms_evidence,
@@ -688,16 +1029,56 @@ def map_order_context(
                 if loc and isinstance(loc[0], str):
                     fields.append(loc[0])
         return _make_candidate(
-            context, readiness="TERMS_CONFLICT", current_version=current_version,
+            context,
+            readiness="TERMS_CONFLICT",
+            current_version=current_version,
             commercial=commercial_terms,
-            source_evidence_refs=_unique(list(base_refs) + list(terms_evidence)),
-            identity_evidence=identity_refs, reasons=("CANONICAL_TERMS_INVALID",),
+            # The commercial evidence refs are not trusted until OrderTerms
+            # validation and disclosure binding both succeed.
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("CANONICAL_TERMS_INVALID",),
             conflicts=_unique(fields),
         )
 
+    disclosure_binding_matches = all(
+        record.tenant_id == context.tenant_id
+        and record.customer_id == context.customer_id
+        and record.context_id == context.context_id
+        and record.context_version == context.context_version
+        and record.order_request_id == commercial_terms.order_request_id
+        and record.terms_revision == commercial_terms.terms_revision
+        and record.terms_hash == mapped_terms.terms_hash
+        and record.source_id == price_source.source_id
+        and record.source_version == price_source.source_version
+        and record.disclosed_at == price_source.disclosed_at
+        for record in commercial_terms.price_disclosure_evidence
+    )
+    if not disclosure_binding_matches:
+        return _make_candidate(
+            context,
+            readiness="TERMS_CONFLICT",
+            current_version=current_version,
+            commercial=None,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("PRICE_DISCLOSURE_BINDING_MISMATCH",),
+            conflicts=("price_disclosure_evidence",),
+        )
+
     candidate_evidence = _unique(
-        list(base_refs) + list(context_refs) + list(terms_evidence)
-        + list(identity_refs) + list(commercial_terms.price_disclosure_evidence)
+        list(base_refs)
+        + list(context_refs)
+        + list(terms_evidence)
+        + list(identity_refs)
+        + list(disclosure_refs)
+        + [
+            record.authority_ref
+            for record in commercial_terms.price_disclosure_evidence
+            if record.authority_ref
+        ]
     )
     if existing_core_terms is not None:
         comparison = compare_terms(existing_core_terms, mapped_terms)
@@ -706,21 +1087,36 @@ def map_order_context(
             or existing_core_terms.customer_id != context.customer_id
         ):
             return _make_candidate(
-                context, readiness="TERMS_CONFLICT", current_version=current_version,
-                commercial=commercial_terms, source_evidence_refs=candidate_evidence,
-                identity_evidence=identity_refs, reasons=("CORE_TERMS_CUSTOMER_MISMATCH",),
+                context,
+                readiness="TERMS_CONFLICT",
+                current_version=current_version,
+                commercial=commercial_terms,
+                source_evidence_refs=candidate_evidence,
+                identity_evidence=identity_refs,
+                identity_associations=identity_associations,
+                reasons=("CORE_TERMS_CUSTOMER_MISMATCH",),
                 conflicts=("tenant_id", "customer_id"),
             )
         if not comparison.matches:
             return _make_candidate(
-                context, readiness="TERMS_CONFLICT", current_version=current_version,
-                commercial=commercial_terms, source_evidence_refs=candidate_evidence,
+                context,
+                readiness="TERMS_CONFLICT",
+                current_version=current_version,
+                commercial=commercial_terms,
+                source_evidence_refs=candidate_evidence,
                 identity_evidence=identity_refs,
-                reasons=("PROPOSAL_REQUIRED",), conflicts=comparison.changed_fields,
+                identity_associations=identity_associations,
+                reasons=("PROPOSAL_REQUIRED",),
+                conflicts=comparison.changed_fields,
             )
 
     return _make_candidate(
-        context, readiness="READY_FOR_VALIDATION", current_version=current_version,
-        commercial=commercial_terms, source_evidence_refs=candidate_evidence,
-        identity_evidence=identity_refs, canonical_terms=mapped_terms,
+        context,
+        readiness="READY_FOR_VALIDATION",
+        current_version=current_version,
+        commercial=commercial_terms,
+        source_evidence_refs=candidate_evidence,
+        identity_evidence=identity_refs,
+        identity_associations=identity_associations,
+        canonical_terms=mapped_terms,
     )
