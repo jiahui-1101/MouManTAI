@@ -70,6 +70,7 @@ jobs:
       TEST_DATABASE_APPROVED: "1"
       TEST_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/p4_test_moumantai_suite"
       TEST_MIGRATION_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/moumantai_migration"
+      P4_TEST_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/p4_test_moumantai_suite"
       P1_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/p4_test_moumantai_suite"
     steps:
       - name: Checkout repository
