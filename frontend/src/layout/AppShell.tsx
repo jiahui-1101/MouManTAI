@@ -2,16 +2,8 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../shared/auth";
 import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { ToastProvider } from "../shared/Toast";
-
-const navigation = [
-  ["/overview", "Overview"],
-  ["/activity", "Activity"],
-  ["/inbox", "Inbox · P1"],
-  ["/orders", "Orders"],
-  ["/commitments/demo", "Commitment · P2"],
-  ["/recovery/demo", "Recovery · P3"],
-  ["/communications", "Communications · P4"],
-] as const;
+import { EvidenceTierBadge } from "../shared/EvidenceTierBadge";
+import { isNavigationItemActive, navigation } from "./navigation";
 
 const routeLabels: Record<string, string> = {
   overview: "Overview",
@@ -74,13 +66,14 @@ export function Breadcrumbs() {
 
 export function AppShell() {
   const { tenantId, actorId, setActorId, actorRole } = useAuth();
+  const location = useLocation();
 
   return (
     <ToastProvider>
       <div className="app-shell">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Synthetic integration mode</p>
+            <EvidenceTierBadge evidenceTier="DEMO-ONLY" integrationMode="SYNTHETIC" />
             <h1>MouManTAI</h1>
           </div>
           <div className="topbar-controls">
@@ -109,9 +102,13 @@ export function AppShell() {
 
         <div className="shell-body">
           <nav aria-label="Primary navigation" className="sidebar">
-            {navigation.map(([to, label]) => (
-              <NavLink key={to} to={to} className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}>
-                {label}
+            {navigation.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) => (isActive || isNavigationItemActive(item, location.pathname) ? "nav-link active" : "nav-link")}
+              >
+                {item.label}
               </NavLink>
             ))}
           </nav>
