@@ -12,7 +12,13 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
-from app.core.models import AuditEventRecord, CommitmentRecord, OutboxEventRecord, ProcessedEventRecord
+from app.core.models import (
+    AuditEventRecord,
+    CommitmentProposalRecord,
+    CommitmentRecord,
+    OutboxEventRecord,
+    ProcessedEventRecord,
+)
 from app.core.outbox import OutboxDispatcher, to_domain_event
 from app.core.schemas import RecordFulfilmentRequest
 from app.core.service import CommitmentService
