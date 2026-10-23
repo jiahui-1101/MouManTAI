@@ -3496,3 +3496,99 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - P5 approved the narrowly scoped P3 audit-payload comparison correction. P3 now compares nested JSON values with exact scalar types, while retaining the bounded tenant/event lookup, ambiguity rejection, and existing evidence gates. The four same-transaction FK fixture flushes, counteroffer plan-row assertions, duplicate-delivery regression, and case-index restoration are test-only changes.
 - On the isolated PostgreSQL 16 service at host port 15444, the focused response/replanning tests passed (34 collected, no failures). The complete `backend/tests` scope passed (379 collected, no failures), and P2/P4 feasibility+communication tests passed (843 passed). Scoped Ruff, compileall, Alembic single head `0016_p1_context_persistence`, and `git diff --check` passed. These are local results, not GitHub CI evidence.
 - No Core, P1/P2/P4 source, migration, or production worker registration changed. Combined P3+P5 PostgreSQL CI and independent P4/P5 PR reviews remain pending. Existing team entries and decision IDs are untouched; P5 D-045 through D-048 are not yet present on this branch's `origin/main` baseline and require later owner-coordinated reconciliation when published.
+
+## 2026-10-23 — PostgreSQL Authoritative CI Test Environment & Strict Mode Infrastructure (P5 / D-045 / BE-03)
+
+- **Context**: Resolving `BLOCK-20261021-001` (Docker unavailable locally on WSL1 host). CI on Ubuntu with PostgreSQL 16 service container is established as the authoritative, definitive test execution environment for MouManTAI.
+- **Architectural Policy & Decision (D-045)**:
+  1. **Authoritative CI Environment**: PostgreSQL 16 service in GitHub Actions CI runs the complete `backend/tests` suite under `REQUIRE_POSTGRES=1`. The job is intended to be blocking once green, but will only be marked as a required check in repository branch protection settings after achieving fully green runs.
+  2. **Strict Mode (`REQUIRE_POSTGRES=1`)**: When active, a missing `TEST_DATABASE_URL` or unreachable PostgreSQL database causes tests to immediately FAIL (via `pytest.fail`), never skip. Port rewrites (5432 → 5433) are strictly disabled.
+  3. **F12 Dialect-Binding Guard**: In PG mode, `DATABASE_URL` is pointed to the PostgreSQL suite database (`moumantai_suite`) before `app` is imported in `conftest.py`. Added `test_pg_strict_guard.py` asserting that BOTH `app.db.session.engine` and client request injected sessions have `dialect.name == "postgresql"`.
+  4. **Dynamic Application Isolation**: Between test cases in PG mode, an autouse fixture queries `information_schema.tables` and executes `TRUNCATE TABLE <all_application_tables> RESTART IDENTITY CASCADE` in a dedicated transaction, explicitly excluding `alembic_version`.
+  5. **Separate Migration Database**: `TEST_MIGRATION_DATABASE_URL` (`moumantai_migration`) is dedicated to schema migration tests (e.g. `test_migration_0007.py`), protecting the suite database from schema mutations and revision changes.
+  6. **F2 Connection Hook (Option b)**: Added support in `backend/migrations/env.py` to use a connection passed via `config.attributes["connection"]`, allowing programmatic in-process migrations without environment tampering.
+  7. **Feature Module Separation**: Feature suites (`backend/app/feasibility`, `backend/app/communication`) run in a separate non-blocking job (`backend-features`, `continue-on-error: true`).
+  8. **F7 Model/Migration Drift Allowlist**: Prepared allowlist `{"recovery_cases", "recovery_case_triggers"}` for Stage B drift checks. Guard tests will assert these tables are absent from `target_metadata`, and will fail on purpose when P3's ORM PR merges to signal allowlist removal.
+- **Delivered Changes**:
+  - `backend/migrations/env.py`: Implemented F2 option (b) connection hook in `run_migrations_online`.
+  - `backend/pyproject.toml`: Registered pytest marker `postgres`.
+  - `backend/tests/conftest.py`: Added strict mode handling, F12 `DATABASE_URL` pre-import setting, session-scoped `pg_engine` running Alembic head, dynamic `_truncate_all_application_tables`, and `test_engine` / `session` / `client` adaptation.
+  - `backend/tests/test_migration_0007.py`: Connected migration upgrade/downgrade to `TEST_MIGRATION_DATABASE_URL` under `REQUIRE_POSTGRES=1`.
+  - `backend/tests/test_pg_strict_guard.py`: Created F12 dialect guard test and strict mode verification.
+  - `.github/workflows/ci.yml`: Added `backend-postgres` (PostgreSQL 16 service, two DBs, zero-skip A1 policy, artifact uploads) and `backend-features` (non-blocking).
+  - `docs/evidence/postgres_ci_20261023.log`: Created template for CI log and artifact recording.
+  - `docs/requirements/PERSON_5_CORE_INTEGRATION_REQUIREMENTS.md`: Re-rated BE-03 items to "Implemented, pending CI evidence".
+- **Blocker Status**:
+  - `BLOCK-20261021-001`: Marked **resolution pending CI evidence** (NOT resolved until passing CI run confirmed by P5).
+- **Decision Tracking Note**:
+  - Highest existing decision: `D-044`; assigned: `D-045`. Note for P5: this ID may need renumbering at PR merge time depending on concurrent branch merges.
+- **Teammate Impact Analysis**:
+  - **P1 (Context)**: ZERO impact on P1 local development. CI now passes `P1_DATABASE_URL` pointing to PostgreSQL suite DB for integration tests.
+  - **P2 (Feasibility)**: ZERO impact. Feasibility tests run in `backend-features` job without blocking Core.
+  - **P3 (Recovery)**: ZERO impact on unmerged recovery code. Dedicated migration DB isolates recovery constraint assertions. F7 drift allowlist will be removed when P3 PR merges.
+  - **P4 (Communication)**: ZERO impact on communication schemas or endpoints.
+  - **P5 (Core/DB/Shell)**: Closes critical testing blind spot by establishing authoritative PostgreSQL execution.
+- **Validation**:
+  - Local SQLite regression: `python -m pytest backend/tests -q` (336 passed, 12 skipped, 0 failed in 15.01s). Pass count preserved.
+  - F12 guard test skipped cleanly in SQLite mode (`F12 guard active only when REQUIRE_POSTGRES=1`).
+  - Strict mode verification: `REQUIRE_POSTGRES=1` with missing or unreachable DB raises `Failed` (exit code 1), never skips.
+  - Alembic single head verified: `0016_p1_context_persistence (head)`.
+  - CI YAML syntax verified valid with `yaml.safe_load`.
+- **Pending Acknowledgements**: P2, P3, P4
+
+## 2026-10-23 — Stage A PostgreSQL CI Audit & Migration Test Dialect Compatibility (P5 / D-046 / BE-03)
+
+- **Decision / Impact**:
+  1. D-045's PostgreSQL 16 CI design remains authoritative: `backend-postgres` runs all `backend/tests` with `REQUIRE_POSTGRES=1`, zero skips, and is intended to block once green. P5 should make it a required check only after a fully green CI result.
+  2. `backend-features` remains non-blocking. `compose-smoke` is deferred to Stage C after Stage B and remains non-blocking unless P5 later records three stable runs.
+  3. Strict mode fails for a missing `TEST_DATABASE_URL` and an unreachable PostgreSQL URL; it does not rewrite ports. Alembic's connection hook uses F2 option (b). The migration constraint test now avoids PostgreSQL-incompatible `PRAGMA` statements and multi-command execution, and no longer swallows cleanup SQL errors. Assertions are unchanged.
+  4. The authoritative session fixture is named `pg_suite_engine`; `test_engine` and autouse isolation depend on it so module-local `pg_engine` fixtures cannot bypass Alembic setup or suite-table truncation.
+  5. **F7 allowlist retired after rebase**: `origin/main` includes P3 PR #32; `durable_plans` imports `persistence`, which registers `recovery_cases` and `recovery_case_triggers` in `Base.metadata`. Stage B should use a plain drift check and omit the two-table allowlist and its absence guards.
+  6. BE-03 remains **Implemented, pending CI evidence**. No PostgreSQL CI run or PostgreSQL verification is claimed here.
+- **Validation**:
+  - SQLite suite before and after the focused changes: 336 passed, 12 skipped, 0 failed; 11 are database-gated and one is the F12 guard's expected SQLite-mode skip.
+  - `python -m pytest backend/tests/test_migration_0007.py -q -rs`: 2 passed.
+  - Strict mode with missing `TEST_DATABASE_URL` and with an unreachable URL at `127.0.0.1:1`: both fail at fixture setup (exit 1), not skip.
+  - `cd backend && python -m alembic heads`: `0016_p1_context_persistence (head)`.
+  - `python -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml', encoding='utf-8'))"`: valid YAML.
+- **Blockers / Reconciliation**:
+  - `BLOCK-20261021-001` remains **resolution pending CI evidence**.
+  - The log's `BLOCK-P3-001` register still says OPEN even though `origin/main` contains the PR #32 merge and PR #34 Core fix; P5 should reconcile its status after rebase.
+  - D-002 is referenced in `TEAM_LOG.md`, but no standalone decision definition was found; no definition is inferred here.
+- **Decision Tracking**: Highest prior D-ID was D-045 and highest ADR-ID was ADR-020; this entry uses D-046 and adds no ADR. D-046 may need renumbering at merge.
+- **Owner / Pending Acknowledgements**: P5 / P2, P3, P4.
+
+
+## 2026-10-23 — PostgreSQL CI Round 1: P3 Owner Blocks (P5 coordination)
+
+- **CI evidence**: Run [39898921966](https://github.com/jiahui-1101/MouManTAI/actions/runs/39898921966) at commit `7e90ce93da601d6959fc9865ddf23c8808df1ae7`; `backend-postgres` collected 370 tests (353 passed, 14 failed, 3 errors, 0 skipped). PostgreSQL provisioning, the single-head check, F12 guard, and zero-skip policy all completed.
+- **BLOCK-P3-002 — PostgreSQL JSON equality in P4 evidence validation**:
+  - **Owner**: P3.
+  - **Location / tests**: `backend/app/recovery/confirmation_responses.py` (`_validate_p4_evidence`); `backend/tests/test_p3_confirmation_replanning.py::test_p3_validates_the_real_p4_terminal_event_and_tenant_binding[REJECT-confirmation.rejected-REJECTED]` and `[COUNTEROFFER-confirmation.counteroffer_received-COUNTEROFFER_RECEIVED]`.
+  - **Evidence**: PostgreSQL raised `psycopg.errors.UndefinedFunction: operator does not exist: json = json` for a predicate comparing `audit_events.new_state` as JSON.
+  - **Action**: P3 to revise the evidence lookup to avoid JSON equality and rerun the PostgreSQL cases; P5 did not edit feature code.
+- **BLOCK-P3-003 — PostgreSQL recovery plan version check constraint mismatch**:
+  - **Owner**: P3.
+  - **Location / tests**: `backend/migrations/versions/0010_p3_recovery_plans.py` (`ck_recovery_plan_core_after_evaluation`) and P3 persistence exercised by `backend/tests/test_p3_confirmation_replanning.py`: `test_typed_resolver_follows_p4_source_request_and_outbound_to_exact_p3_plan[1]`, `[2]`; `test_typed_resolver_fails_closed_on_ambiguous_plan_association`; `test_v1_approval_cannot_authorize_a_v2_communication_handoff`; `test_stale_response_is_reconciled_once_without_invalidating_newer_plan`; `test_shared_dispatcher_supersedes_stale_p4_event_before_p3_consumer`.
+  - **Evidence**: All six fail inserting `recovery_plan_versions` with `core_commitment_version=10`, `evaluated_commitment_version=10`, and `status=PENDING_APPROVAL`; PostgreSQL raises `CheckViolation` for `ck_recovery_plan_core_after_evaluation`.
+  - **Action**: P3 to reconcile persisted plan state with the constraint and rerun these cases. P5 did not modify the existing migration or recovery module.
+- **Separate CI configuration mismatch**: Several guarded integration tests and the P5 snapshot race test rejected `moumantai_suite` because it lacked the required disposable-test name (`test` / `p4_test_` prefix). P5 is correcting only the CI database name to `p4_test_moumantai_suite` for round 2; no feature tests are weakened.
+
+## 2026-10-23 — PostgreSQL CI Round 2 Closeout (P5 / D-047 / BE-03)
+
+- **Rebase / scope**: `feat/p5-postgres-ci` was rebased onto `origin/main` at `34ce33af88f0627737b5e1b55c2c0901dcb279fe`. The pre-rebase branch head was `5c55af2390570a92250a7a456e15febedd158f0a`; the rebased code head is `bb1af9bb0de68f32fc9eee7ad36aeab7777b9d09`. No conflicts occurred. No feature-owned module, existing migration, CI trigger, or database schema was changed. No commit or push was made.
+- **Round-2 PostgreSQL evidence**: PR #38 run [39899386976](https://github.com/jiahui-1101/MouManTAI/actions/runs/39899386976), on pre-rebase PR head `5c55af2390570a92250a7a456e15febedd158f0a`, provisioned PostgreSQL 16, created the disposable `p4_test_moumantai_suite` database, passed the one-head check and zero-skip verifier, and collected 370 tests: 362 passed, 8 failed, 0 skipped. Only `Backend Tests (PostgreSQL Authoritative)` failed; backend, feature, frontend, and hygiene jobs passed. This is not green authoritative PostgreSQL evidence.
+- **BLOCK-P3-002 root cause**: The two parameter cases of `test_p3_validates_the_real_p4_terminal_event_and_tenant_binding` fail because the P3 evidence query compares PostgreSQL `audit_events.new_state` (`JSON`) with `=`; PostgreSQL reports `operator does not exist: json = json`. P3 owns the evidence lookup fix.
+- **BLOCK-P3-003 corrected cause and invariant evidence**: Six cases fail because migration `0010_p3_recovery_plans.py` declares `ck_recovery_plan_core_after_evaluation` (`core_commitment_version > evaluated_commitment_version`), while the P3 ORM model has no matching `CheckConstraint` and the current fixtures insert equal versions (`10`, `10`). P3 must confirm and implement the intended write/fixture invariant; P5 did not edit the P3 model, tests, or migration. Core mutating commands increment the authoritative commitment version, while persisted recovery plans record that current Core version at write time separately from the source `evaluated_commitment_version` (`backend/app/core/service.py`; `backend/app/recovery/durable_plans.py`). This supports treating the versions as distinct, but the P3 owner must confirm the strict inequality contract.
+- **Eight failing P3 cases**: The two terminal-event parameter cases above; `test_typed_resolver_follows_p4_source_request_and_outbound_to_exact_p3_plan` parameters `[1]` and `[2]`; `test_typed_resolver_fails_closed_on_ambiguous_plan_association`; `test_v1_approval_cannot_authorize_a_v2_communication_handoff`; `test_stale_response_is_reconciled_once_without_invalidating_newer_plan`; and `test_shared_dispatcher_supersedes_stale_p4_event_before_p3_consumer`.
+- **P3 handoff / blocker reconciliation**: P3's separate-fix-PR intent was supplied in the closeout context, but the current open PR inventory has no separate fix PR for these failures. `BLOCK-P3-001` is closed as the historical P3 PR-to-main merge blocker: P3 PR #32 and the related P5 Core PR #34 are in `main`; any remaining authentication follow-up is tracked separately. This appended reconciliation supersedes older status snapshots in this log that still show `BLOCK-P3-001` as open. `BLOCK-20261021-001` remains **resolution pending CI evidence** until P5 confirms a green authoritative PostgreSQL run.
+- **Disposable DB approval meaning**: `TEST_DATABASE_APPROVED=1` is explicitly set only in the GitHub Actions `backend-postgres` job, which creates a fresh PostgreSQL 16 service-container database named `p4_test_moumantai_suite` for that run. It authorizes that disposable CI test target only; it is not approval to use an external or developer database.
+- **CI path audit**: `backend-tests` runs `backend/tests`, `backend/app/feasibility/tests`, and `backend/app/communication/tests`; the separate non-blocking `backend-features` job reruns the feasibility and communication suites. `backend-postgres` runs `backend/tests` against PostgreSQL. The feature-suite overlap is intentional in the current workflow and adds duplicate execution time; no trigger or suite configuration change was made. Proposed trigger-only diff for P5 decision: remove `- "feat/**"` from `on.push.branches` and retain `main` plus `pull_request` to `main`. This reduces branch-push runs; branch-only commits would wait for a PR to receive CI. Pending P5 decision.
+- **Post-rebase validation**: `cd backend && python -m alembic heads` reported exactly `0016_p1_context_persistence (head)`. Required `python -m pytest backend/tests -q -rs` exited 0; backend pytest config adds a second quiet flag, so a count-capturing rerun with `-o addopts=` reported **350 passed, 12 skipped, 0 failed**, versus the recorded pre-rebase 336 passed / 12 skipped baseline. YAML parse of `.github/workflows/ci.yml` and `git diff --check` passed. No local Docker or PostgreSQL was started; local PostgreSQL validation remains not run by instruction. The 12 SQLite skips are PostgreSQL-gated and the expected SQLite-mode F12 guard skip.
+- **Closeout artifacts / status**: `/pg-report.xml` is ignored and preserved; `pg-test.log` is already covered by `*.log`; the evidence template remains intact. BE-03 is **In progress, pending CI evidence**. Do not mark `backend-postgres` required until the P3 failures are fixed and P5 verifies a fully green run.
+- **Decision tracking**: Highest prior decision was D-046; this entry uses D-047. Highest ADR remains ADR-020; no ADR added. This closeout entry is uncommitted for P5 review.
+
+## 2026-10-23 — P3 PostgreSQL Migration Case CI Wiring (P5 / D-048 / BE-03)
+
+- **Wiring and reason**: `backend-postgres` now provides `P4_TEST_DATABASE_URL` as the migration fixture's admin URL so P3's five PostgreSQL cases do not skip. The fixture creates, migrates, and drops separate `p4_test_<uuid>` databases; the configured suite and `moumantai_migration` databases remain separate. The `postgres` service user is initialized as the PostgreSQL superuser and can create databases. The P3 candidate adds no other `migrated` cases under `backend/tests`; strict zero-skip stays unchanged.
+- **Decision tracking**: Highest prior D-ID was D-047; this entry uses D-048. Highest ADR-ID remains ADR-020; no ADR added.

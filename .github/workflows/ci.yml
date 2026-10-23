@@ -46,6 +46,145 @@ jobs:
         run: |
           pytest -v backend/tests backend/app/feasibility/tests backend/app/communication/tests
 
+  backend-postgres:
+    name: Backend Tests (PostgreSQL Authoritative)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DISABLE_SQLALCHEMY_CEXT: "1"
+      REQUIRE_POSTGRES: "1"
+      TEST_DATABASE_APPROVED: "1"
+      TEST_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/p4_test_moumantai_suite"
+      TEST_MIGRATION_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/moumantai_migration"
+      P4_TEST_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/p4_test_moumantai_suite"
+      P1_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/p4_test_moumantai_suite"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install backend dependencies
+        env:
+          DISABLE_SQLALCHEMY_CEXT: "1"
+        run: |
+          python -m pip install --upgrade pip
+          pip install --no-binary=sqlalchemy -e "./backend[dev]"
+
+      - name: Create PostgreSQL test databases
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "DROP DATABASE IF EXISTS p4_test_moumantai_suite;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE p4_test_moumantai_suite;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "DROP DATABASE IF EXISTS moumantai_migration;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE moumantai_migration;"
+
+      - name: Assert single Alembic head
+        run: |
+          cd backend
+          HEADS=$(python -m alembic heads)
+          echo "$HEADS"
+          HEAD_COUNT=$(echo "$HEADS" | grep -c "(head)")
+          if [ "$HEAD_COUNT" -ne 1 ]; then
+            echo "ERROR: Expected exactly 1 Alembic head, found $HEAD_COUNT"
+            exit 1
+          fi
+
+      - name: Run backend tests against PostgreSQL
+        id: run-tests
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest backend/tests -v -rs --junitxml=pg-report.xml 2>&1 | tee pg-test.log
+
+      - name: Verify zero skipped tests (A1 policy)
+        if: always() && steps.run-tests.outcome != 'skipped'
+        run: |
+          python -c "
+          import xml.etree.ElementTree as ET
+          import sys
+
+          try:
+              tree = ET.parse('pg-report.xml')
+              root = tree.getroot()
+          except Exception as e:
+              print(f'Error reading pg-report.xml: {e}')
+              sys.exit(1)
+
+          skipped_cases = []
+          for testcase in root.iter('testcase'):
+              for skipped in testcase.iter('skipped'):
+                  classname = testcase.get('classname', '')
+                  name = testcase.get('name', '')
+                  msg = skipped.get('message', '') or skipped.text or ''
+                  skipped_cases.append((f'{classname}.{name}', msg))
+
+          print(f'Total skipped testcases: {len(skipped_cases)}')
+          APPROVED_ALLOWLIST = set()
+
+          unexpected_skips = [case for case in skipped_cases if case[0] not in APPROVED_ALLOWLIST]
+          if unexpected_skips:
+              print('ERROR: Found unapproved skipped tests under REQUIRE_POSTGRES=1:')
+              for name, msg in unexpected_skips:
+                  print(f'  - {name}: {msg}')
+              sys.exit(1)
+          print('Verified: Zero unapproved skipped tests.')
+          "
+
+      - name: Upload PostgreSQL test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postgres-test-artifacts
+          path: |
+            pg-test.log
+            pg-report.xml
+          if-no-files-found: warn
+
+  backend-features:
+    name: Feature Suites (Feasibility & Communication, non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      DISABLE_SQLALCHEMY_CEXT: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install backend dependencies
+        env:
+          DISABLE_SQLALCHEMY_CEXT: "1"
+        run: |
+          python -m pip install --upgrade pip
+          pip install --no-binary=sqlalchemy -e "./backend[dev]"
+
+      - name: Run feasibility and communication tests
+        run: |
+          pytest backend/app/feasibility backend/app/communication -v
+
   frontend-checks:
     name: Frontend Checks (Typecheck, Vitest, Build)
     runs-on: ubuntu-latest
