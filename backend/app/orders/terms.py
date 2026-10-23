@@ -168,8 +168,9 @@ def _validate_window_timezone(value: datetime, zone: ZoneInfo, field_name: str) 
 
     UTC timestamps represent absolute instants and are accepted directly.
     Non-UTC inputs must identify one valid local wall time in the named zone
-    and use that time's actual offset. Repeated or nonexistent wall times fail
-    closed; callers can provide an explicit UTC instant to disambiguate a fold.
+    and use that time's actual offset. A matching explicit offset can select
+    one fold of a repeated wall hour; nonexistent or still-ambiguous inputs fail
+    closed. An explicit UTC instant is another unambiguous representation.
     """
     offset = value.utcoffset()
     if offset is None:
@@ -188,13 +189,15 @@ def _validate_window_timezone(value: datetime, zone: ZoneInfo, field_name: str) 
 
     if not candidates:
         raise ValueError(f"{field_name} is a nonexistent local time in business_timezone")
-    if len(candidates) > 1:
+    matching_instants = [
+        instant for instant, candidate_offset in candidates.items() if candidate_offset == offset
+    ]
+    if not matching_instants:
+        raise ValueError(f"{field_name} offset does not match business_timezone")
+    if len(matching_instants) > 1:
         raise ValueError(
             f"{field_name} is ambiguous in business_timezone; provide an explicit UTC instant"
         )
-    expected_offset = next(iter(candidates.values()))
-    if offset != expected_offset:
-        raise ValueError(f"{field_name} offset does not match business_timezone")
 
 
 class TermsComparison(ImmutableContract):

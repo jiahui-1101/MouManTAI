@@ -43,6 +43,9 @@ def test_hash_is_stable_across_decimal_context_timezone_and_input_order():
         equivalent_terms = OrderTerms.model_validate(equivalent)
         assert original.canonical_values() == equivalent_terms.canonical_values()
     assert original.terms_hash.startswith("order-terms-v1:")
+    assert original.terms_hash == (
+        "order-terms-v1:636c28ee4361a73f7cb039054f8fdbd6ea365bdf99524de2735b549bb2a71fd3"
+    )
     assert original.model_dump(mode="json")["items"][0]["quantity"] == "100.00"
 
 
@@ -176,18 +179,49 @@ def test_valid_daylight_saving_transition_offsets_match_named_timezone():
 
 
 @pytest.mark.parametrize(
-    "start,end",
+    "start,end,utc_start,utc_end",
     [
-        ("2026-11-01T01:30:00-04:00", "2026-11-01T02:30:00-05:00"),
-        ("2026-11-01T00:30:00-04:00", "2026-11-01T01:30:00-05:00"),
+        (
+            "2026-11-01T01:30:00-04:00",
+            "2026-11-01T01:45:00-04:00",
+            "2026-11-01T05:30:00Z",
+            "2026-11-01T05:45:00Z",
+        ),
+        (
+            "2026-11-01T01:30:00-05:00",
+            "2026-11-01T01:45:00-05:00",
+            "2026-11-01T06:30:00Z",
+            "2026-11-01T06:45:00Z",
+        ),
     ],
 )
-def test_ambiguous_local_daylight_saving_times_fail_closed(start, end):
+def test_explicit_offset_disambiguates_repeated_local_hour(start, end, utc_start, utc_end):
+    local_terms = make_terms(
+        business_timezone="America/New_York", window_start=start, window_end=end
+    )
+    utc_terms = make_terms(
+        business_timezone="America/New_York", window_start=utc_start, window_end=utc_end
+    )
+
+    assert local_terms.canonical_values() == utc_terms.canonical_values()
+    assert local_terms.terms_hash == utc_terms.terms_hash
+
+
+def test_repeated_local_hour_without_offset_fails_closed():
     with pytest.raises(ValidationError):
         make_terms(
             business_timezone="America/New_York",
-            window_start=start,
-            window_end=end,
+            window_start="2026-11-01T01:30:00",
+            window_end="2026-11-01T02:30:00-05:00",
+        )
+
+
+def test_wrong_offset_for_repeated_local_hour_fails_closed():
+    with pytest.raises(ValidationError):
+        make_terms(
+            business_timezone="America/New_York",
+            window_start="2026-11-01T01:30:00-06:00",
+            window_end="2026-11-01T01:45:00-06:00",
         )
 
 
