@@ -82,7 +82,35 @@ purpose-specific, unexpired recipient/policy result and complete send history,
 then atomically enforce the existing proposed dedup key. D2 does not alter
 recipient-level dedup scope or P4 records.
 
-## Next bounded Backend D increment
+## Final read-only composition checkpoint
+
+`service.py` adds a tenant/customer-scoped `CoreCommitmentLookup` against the
+existing Core Commitment table, plus an injected `OperationalReadService` and
+bounded `read_daily` page composition. The Core lookup supplies identity and
+version only. The service requires a server-owned `IdentityResolver` and the
+single status owner's `AuthoritativeOrderReader`; neither is implemented by
+request headers or by Backend D. It rechecks Core identity/version after the
+status read and rejects mismatched, stale, structurally invalid or DEMO_ONLY
+status evidence. Without a verified customer resolver and an approved PR #48
+integration, the customer route remains disabled.
+
+Milestone and feedback planning require exact `MILESTONE` or `FEEDBACK`
+`PurposePolicy`, an approved status-bound template for milestones, complete
+P4 send history, and reconciliation of unresolved provider outcomes. The
+current P4 preference table permits only `TRANSACTIONAL_REVISED_TERMS`; it
+cannot provide either required purpose. No P4 command or provider send is
+called. The dedup key remains a planning identity until P4 atomically enforces
+it. `read_daily` bounds the tenant/day query protocol, detects page cycles and
+watermark changes, and marks unavailable or incomplete source populations
+partial. The existing `aggregate_daily` now exposes each missing source code
+alongside generic partial-coverage indicators. The daily page protocol has no
+production repository implementation because the current Core record lacks a
+complete due-date and operational event population contract.
+
+The SQLite Core lookup test and synthetic protocol tests establish only the
+scope and fail-closed behavior of this isolated module. They do not establish
+live customer authentication, verified v2.2 acceptance/reservation, P4 consent,
+real provider history, or PostgreSQL integration.
 
 After Core and P4 agree on authoritative accepted/reservation and operational
 event readers, the PR #48 order-status owner should extend its existing reader

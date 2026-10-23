@@ -124,6 +124,7 @@ def aggregate_daily(
         limitations.add("SOURCE_INCOMPLETE")
     if source.missing_sources:
         limitations.add("SOURCES_MISSING")
+        limitations.update(source.missing_sources)
     seen: set[str] = set()
     eligible = 0
     covered = 0
