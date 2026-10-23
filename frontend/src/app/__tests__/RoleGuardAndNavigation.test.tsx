@@ -320,14 +320,13 @@ describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a
     const forceBtn = screen.getByTestId("force-unauthorized-action-btn");
     fireEvent.click(forceBtn);
 
-    // Verify 403 error banner is surfaced in UI (never fake optimistic success)
-    const errorBanner = await screen.findByTestId("permission-error-banner");
-    expect(errorBanner).toBeInTheDocument();
-    expect(errorBanner).toHaveTextContent("403 Forbidden");
-    expect(errorBanner).toHaveTextContent("Manager or owner approval is required");
+    // Verify the shared error state surfaces permission failure without echoing backend detail.
+    const errorBanner = await screen.findByTestId("approval-mutation-feedback");
+    expect(errorBanner).toHaveTextContent("Access denied");
+    expect(errorBanner).not.toHaveTextContent("Manager or owner approval is required");
 
-    // Ensure success banner is NOT rendered
-    expect(screen.queryByTestId("approval-success-banner")).not.toBeInTheDocument();
+    // Ensure no success state is rendered.
+    expect(errorBanner.querySelector(".foundation-mutation-success")).toBeNull();
   });
 
   // =========================================================================
@@ -341,9 +340,24 @@ describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a
           return Promise.resolve(
             new Response(
               JSON.stringify({
-                commitment_id: "cmt_conf_01",
-                commitment_version: 3,
-                transition: "CONFIRMED",
+                commitment: {
+                  ...mockOverview.commitments[0],
+                  commitment_id: "cmt_conf_01",
+                  agreement_state: "CONFIRMED",
+                  commitment_version: 3,
+                },
+                audit_event: {
+                  audit_id: "audit_approval_01", tenant_id: "tenant_demo_01", commitment_id: "cmt_conf_01",
+                  event_type: "commitment.confirmed", actor_id: "user_manager_01", actor_role: "MANAGER",
+                  dimension: "agreement", previous_state: { agreement_state: "OFFERED" },
+                  new_state: { agreement_state: "CONFIRMED" }, evidence_refs: ["ev_approval_sign"],
+                  reason: "Authorized proposal decision", correlation_id: "corr_approval_01", occurred_at: "2026-10-21T02:00:00Z",
+                },
+                domain_event: {
+                  event_id: "evt_approval_01", schema_version: 1, event_type: "commitment.confirmed",
+                  tenant_id: "tenant_demo_01", commitment_id: "cmt_conf_01", commitment_version: 3,
+                  correlation_id: "corr_approval_01", occurred_at: "2026-10-21T02:00:00Z", payload: {},
+                },
               }),
               {
                 status: 200,
@@ -375,9 +389,10 @@ describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a
 
     fireEvent.click(approveBtn);
 
-    // Success banner appears after 200 OK
-    const successBanner = await screen.findByTestId("approval-success-banner");
-    expect(successBanner).toHaveTextContent("Proposal approved and committed successfully");
+    // Success is shown only after the canonical response reports CONFIRMED.
+    const successFeedback = await screen.findByTestId("approval-mutation-feedback");
+    expect(successFeedback).toHaveTextContent("Proposal decision recorded.");
+    expect(successFeedback).toHaveTextContent("Server state: CONFIRMED");
   });
 
   // =========================================================================
