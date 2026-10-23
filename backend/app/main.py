@@ -13,6 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.context.router import router as context_router
+from app.orders.router import router as orders_preview_router
 from app.core.errors import DomainError
 from app.core.router import router as core_router
 from app.recovery.router import router as recovery_router
@@ -58,6 +59,7 @@ app.include_router(recovery_router)
 app.include_router(communication_router)
 app.include_router(feasibility_read_router)
 app.include_router(context_router)
+app.include_router(orders_preview_router)
 if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
     isolated_dependencies = [Depends(require_isolated_e2e_key)]
     app.include_router(feasibility_assessment_router, dependencies=isolated_dependencies)
@@ -141,7 +143,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "code": "VALIDATION_ERROR",
             "message": "Request validation failed",
             "correlation_id": correlation_id,
-            "details": {"errors": exc.errors()},
+            # Pydantic ctx can contain non-JSON ValueError objects. Input may
+            # contain secrets/PII; return locations and explanations only.
+            "details": {"errors": [
+                {"type": error["type"], "loc": error["loc"], "msg": error["msg"]}
+                for error in exc.errors()
+            ]},
         },
     )
 
