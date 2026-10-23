@@ -54,13 +54,13 @@ Build the **Commitment Registry & Lifecycle Engine** as the one authoritative bu
 - [ ] `FEASIBLE` is snapshot-specific; confirmed commitment is not automatically safe forever; risk change does not erase agreement.
 - [ ] `FULFILLED` requires trusted operational evidence and required terms satisfied; manual completion requires authorized evidence and audit, not silent override.
 
-### BE-03 Database & Migrations
-- [ ] PostgreSQL + SQLAlchemy + Alembic, reproducible Docker Compose startup and seed fixtures.
-- [ ] Shared tables: `tenants`, `users`, `roles`, `customers` (lightweight mock), `orders`, `commitments`, `commitment_versions`, `commitment_proposals`, `commitment_evidence`, `audit_events`, `outbox_events`, `processed_events`.
-- [ ] P1–P4 domain models extend via migration **coordinated** with P5; no direct schema change without PR review.
-- [ ] All rows have tenant scope where appropriate; indexes/unique constraints on provider event, idempotency and state refs.
-- [ ] Avoid cross-tenant joins/embedding retrieval; backups/restore rehearsal for Production roadmap.
-- [ ] Synthetic seed supports normal, shortage, supplier delay, alternate recovery plans, ambiguous confirmation, operational completion.
+### BE-03 Database & Migrations (Implemented, pending CI evidence)
+- [ ] BE-03a: PostgreSQL + SQLAlchemy + Alembic, reproducible Docker Compose startup and seed fixtures (Implemented, pending CI evidence).
+- [ ] BE-03b: Shared tables: `tenants`, `users`, `roles`, `customers` (lightweight mock), `orders`, `commitments`, `commitment_versions`, `commitment_proposals`, `commitment_evidence`, `audit_events`, `outbox_events`, `processed_events` (Implemented, pending CI evidence).
+- [ ] BE-03c: P1–P4 domain models extend via migration **coordinated** with P5; no direct schema change without PR review (Implemented, pending CI evidence).
+- [ ] BE-03d: All rows have tenant scope where appropriate; indexes/unique constraints on provider event, idempotency and state refs (Implemented, pending CI evidence).
+- [ ] BE-03e: Avoid cross-tenant joins/embedding retrieval; backups/restore rehearsal for Production roadmap (Implemented, pending CI evidence).
+- [ ] BE-03f: Synthetic seed supports normal, shortage, supplier delay, alternate recovery plans, ambiguous confirmation, operational completion (Implemented, pending CI evidence).
 
 ### BE-04 Domain Event Bus & Reliability
 - [ ] Define producer/consumer event structure (`event_id`, `event_type`, `schema_version`, `tenant_id`, `commitment_id`, `commitment_version`, `correlation_id`, `causation_id`, timestamp, payload).
