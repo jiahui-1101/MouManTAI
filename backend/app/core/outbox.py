@@ -65,9 +65,16 @@ MANDATORY_SUBSCRIBERS: dict[str, str] = {
     "commitment.at_risk": "p3.recovery_trigger.v1",
 }
 
+MANDATORY_SUBSCRIBER_GROUPS: dict[str, tuple[str, ...]] = {
+    "confirmation.accepted": ("p5.confirmation.required",),
+    "confirmation.rejected": ("p5.confirmation.required", "p3.confirmation_response.v1"),
+    "confirmation.counteroffer_received": ("p5.confirmation.required", "p3.confirmation_response.v1"),
+}
+
 
 class OutboxDispatcher:
     MANDATORY_SUBSCRIBERS = MANDATORY_SUBSCRIBERS
+    MANDATORY_SUBSCRIBER_GROUPS = MANDATORY_SUBSCRIBER_GROUPS
 
     def __init__(self) -> None:
         # event_type -> {consumer_name: handler_fn}
@@ -104,6 +111,13 @@ class OutboxDispatcher:
                 if name not in handlers:
                     handlers[name] = handler
             return list(handlers.items())
+
+    def required_subscribers(self, event_type: str) -> tuple[str, ...]:
+        grouped = self.MANDATORY_SUBSCRIBER_GROUPS.get(event_type)
+        if grouped is not None:
+            return grouped
+        legacy = self.MANDATORY_SUBSCRIBERS.get(event_type)
+        return (legacy,) if legacy is not None else ()
 
     @staticmethod
     def is_stale_event(session: Session, event: DomainEvent) -> bool:
@@ -188,8 +202,8 @@ class OutboxDispatcher:
             # Keep an unprocessed mandatory event available for explicit reconciliation;
             # replaying its stale business update would also be unsafe.
             if self.is_stale_event(session, event):
-                required_consumer = self.MANDATORY_SUBSCRIBERS.get(event.event_type)
-                if required_consumer is not None:
+                unfinished = []
+                for required_consumer in self.required_subscribers(event.event_type):
                     completed = session.scalar(
                         select(ProcessedEventRecord).where(
                             ProcessedEventRecord.tenant_id == event.tenant_id,
@@ -198,24 +212,26 @@ class OutboxDispatcher:
                         )
                     )
                     if completed is None:
-                        logger.warning(
-                            "Stale mandatory event awaits subscriber reconciliation: event_id=%s consumer=%s",
-                            event.event_id,
-                            required_consumer,
-                        )
-                        record.attempts += 1
-                        record.last_error = "STALE_MANDATORY_SUBSCRIBER_INCOMPLETE"
-                        if record.attempts >= max_attempts:
-                            record.status = OutboxStatus.DEAD_LETTER.value
-                            record.next_retry_at = None
-                            result.dead_letter_count += 1
-                        else:
-                            record.status = OutboxStatus.FAILED.value
-                            delay = min(3600.0, backoff_base_seconds ** record.attempts)
-                            record.next_retry_at = _now() + timedelta(seconds=delay)
-                            result.failed_count += 1
-                        session.commit()
-                        continue
+                        unfinished.append(required_consumer)
+                if unfinished:
+                    logger.warning(
+                        "Stale mandatory event awaits subscriber reconciliation: event_id=%s consumers=%s",
+                        event.event_id,
+                        ",".join(unfinished),
+                    )
+                    record.attempts += 1
+                    record.last_error = "STALE_MANDATORY_SUBSCRIBER_INCOMPLETE"
+                    if record.attempts >= max_attempts:
+                        record.status = OutboxStatus.DEAD_LETTER.value
+                        record.next_retry_at = None
+                        result.dead_letter_count += 1
+                    else:
+                        record.status = OutboxStatus.FAILED.value
+                        delay = min(3600.0, backoff_base_seconds ** record.attempts)
+                        record.next_retry_at = _now() + timedelta(seconds=delay)
+                        result.failed_count += 1
+                    session.commit()
+                    continue
 
                 # The mandatory subscriber completed before the event became stale.
                 # Record supersession once, without reapplying old business state.
@@ -248,31 +264,33 @@ class OutboxDispatcher:
                 result.published_count += 1
                 continue
 
-            # Mandatory subscriber policy (D-017): specifically named subscriber must be registered (no wildcards)
-            required_consumer = self.MANDATORY_SUBSCRIBERS.get(event.event_type)
-            if required_consumer is not None:
+            # Mandatory subscriber policy (D-017): all specifically named
+            # consumers must be registered; wildcard handlers do not qualify.
+            required_consumers = self.required_subscribers(event.event_type)
+            if required_consumers:
                 with self._lock:
-                    is_registered = required_consumer in self._subscribers.get(event.event_type, {})
-                    if not is_registered:
-                        warn_key = (required_consumer, event.event_type, record.event_id)
+                    registered = self._subscribers.get(event.event_type, {})
+                    missing_consumers = [name for name in required_consumers if name not in registered]
+                    if missing_consumers:
+                        warn_key = (missing_consumers[0], event.event_type, record.event_id)
                         should_warn = warn_key not in self._warned_unregistered
                         if should_warn:
                             if len(self._warned_unregistered) > 1000:
                                 self._warned_unregistered.clear()
                             self._warned_unregistered.add(warn_key)
-                if not is_registered:
+                if missing_consumers:
                     if should_warn:
                         logger.warning(
-                            "Mandatory subscriber '%s' for event '%s' (event_id=%s) is not registered; leaving %s",
-                            required_consumer,
+                            "Mandatory subscriber(s) '%s' for event '%s' (event_id=%s) are not registered; leaving %s",
+                            ",".join(missing_consumers),
                             event.event_type,
                             record.event_id,
                             record.status,
                         )
                     else:
                         logger.debug(
-                            "Mandatory subscriber '%s' for event '%s' (event_id=%s) is not registered; leaving %s",
-                            required_consumer,
+                            "Mandatory subscriber(s) '%s' for event '%s' (event_id=%s) are not registered; leaving %s",
+                            ",".join(missing_consumers),
                             event.event_type,
                             record.event_id,
                             record.status,

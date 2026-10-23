@@ -290,7 +290,7 @@ def seed_demo(db_url: str | None = None) -> None:
             recovery_state="NONE",
             fulfilment_state="FULFILLED",
             commitment_version=6,
-            evidence_refs=["ev_ops_delivery_pod_com_fulfilled"],
+            evidence_refs=["ev_synthetic_delivery|tenant_demo_01|com_fulfilled_01|pod_fulfilled"],
             updated_at=now - timedelta(minutes=15),
         )
 
@@ -367,7 +367,7 @@ def seed_demo(db_url: str | None = None) -> None:
                 dimension="fulfilment",
                 previous_state={"fulfilment_state": "NOT_STARTED", "commitment_version": 5},
                 new_state={"fulfilment_state": "FULFILLED", "risk_state": "RESOLVED", "commitment_version": 6},
-                evidence_refs=["ev_ops_delivery_pod_com_fulfilled"],
+                evidence_refs=["ev_synthetic_delivery|tenant_demo_01|com_fulfilled_01|pod_fulfilled"],
                 reason="Courier delivery verified with customer signature on POD",
                 correlation_id="corr_fulfilled_01",
                 causation_id="evt_pod_delivered_01",

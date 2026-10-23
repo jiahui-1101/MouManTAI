@@ -21,9 +21,13 @@ from sqlalchemy.exc import IntegrityError
 
 REVISION_0007 = "0007_recovery_case_constraints_alignment"
 
+pytestmark = pytest.mark.postgres
+
 
 @pytest.fixture(scope="module")
 def migrated_postgresql_engine():
+    if os.environ.get("REQUIRE_POSTGRES") != "1":
+        pytest.skip("PostgreSQL NOT VERIFIED: REQUIRE_POSTGRES=1 is absent")
     raw_url = os.environ.get("TEST_DATABASE_URL")
     if not raw_url:
         pytest.skip("PostgreSQL NOT VERIFIED: explicit approved TEST_DATABASE_URL is absent")

@@ -991,7 +991,7 @@ def test_p4_proposal_rejection_sets_recovery_required_for_replanning(session: Se
 # =============================================================================
 
 def test_operational_delivery_evidence_transitions_to_fulfilled_and_resolved(session: Session) -> None:
-    """Trusted operational delivery evidence (ev_ops_delivery_*) transitions to FULFILLED and resolves risk (E2E-12)."""
+    """Exact synthetic delivery evidence transitions to FULFILLED and resolves risk (E2E-12)."""
     facade = CoreIntegrationFacade()
     context = _ctx(actor="user_manager_01", role="MANAGER")
 
@@ -1044,7 +1044,7 @@ def test_operational_delivery_evidence_transitions_to_fulfilled_and_resolved(ses
         RecordFulfilmentRequest(
             expected_commitment_version=3,
             fulfilment_state="FULFILLED",
-            evidence_refs=["ev_ops_delivery_pod_signed_9921"],
+            evidence_refs=[f"ev_synthetic_delivery|{context.tenant_id}|{c.commitment_id}|pod_9921"],
             reason="Courier signed POD verified",
         ),
     )
@@ -1084,7 +1084,7 @@ def test_fulfilment_rejected_if_not_confirmed_or_invalid_evidence(session: Sessi
             RecordFulfilmentRequest(
                 expected_commitment_version=1,
                 fulfilment_state="FULFILLED",
-                evidence_refs=["ev_ops_delivery_001"],
+                evidence_refs=[f"ev_synthetic_delivery|{context.tenant_id}|{c.commitment_id}|pod_001"],
                 reason="Trying to fulfil unconfirmed commitment",
             ),
         )
@@ -1430,6 +1430,7 @@ def test_portable_dual_boundary_transaction_rollback_and_assessment_provenance(
     assert consumer_audit.new_state["assessment_id"] == assessment_id
 
 
+@pytest.mark.postgres
 def test_postgresql_concurrency_lock_order_safety(postgresql_test_engine) -> None:
     """A second PostgreSQL session promotes the source while assessment holds Core's row lock.
 
