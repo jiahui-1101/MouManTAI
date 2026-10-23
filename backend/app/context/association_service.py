@@ -25,6 +25,7 @@ from .association_schemas import (
     OrderReference,
 )
 from .customer_directory import CustomerDirectory, DEFAULT_DIRECTORY
+from .deterministic_extraction import ORDER_RE
 from .ingestion_schemas import StoredMessage
 
 
@@ -56,17 +57,29 @@ class AssociationService:
 
         # 2. Inspect extracted order references
         extracted_order_ids: list[str] = []
+        has_model_order_observation = False
         if extracted_fields:
             for f in extracted_fields:
-                # A MODEL quote is an observation, never identity/order-link
-                # authority. Only the literal L0 reference recognizer supplies
-                # this deterministic lookup input (still subject to sender checks).
-                if not f.get("evidence") or any(ev.get("method") != "RULE" for ev in f["evidence"]):
-                    continue
-                if f.get("field_name") == "order_id" and f.get("value"):
-                    val = str(f["value"]).strip()
-                    if val not in extracted_order_ids:
-                        extracted_order_ids.append(val)
+                if f.get("field_name") == "order_id":
+                    # A MODEL quote is an observation, never identity/order-link
+                    # authority. Only the literal L0 reference recognizer supplies
+                    # this deterministic lookup input (still subject to sender checks).
+                    if any(ev.get("method") == "MODEL" for ev in f.get("evidence", [])):
+                        has_model_order_observation = True
+                        continue
+                    if not f.get("evidence") or any(ev.get("method") != "RULE" for ev in f["evidence"]):
+                        continue
+                    if f.get("value"):
+                        val = str(f["value"]).strip()
+                        if val not in extracted_order_ids:
+                            extracted_order_ids.append(val)
+        # Fallback: scan message text with deterministic purchase order regex
+        # ONLY if not overridden by a MODEL observation
+        if not extracted_order_ids and not has_model_order_observation and raw.text:
+            for m in ORDER_RE.finditer(raw.text):
+                val = m.group().strip()
+                if val not in extracted_order_ids:
+                    extracted_order_ids.append(val)
 
         candidates: list[AssociationCandidate] = []
         conflicts: list[str] = []

@@ -24,6 +24,11 @@ export interface MessageQuery {
   search: string;
   processing: string;
   offset: number;
+  limit?: number;
+}
+
+export function getReviewCatalog(): Promise<{ sku: string; unit: string }[]> {
+  return request('/v1/contexts/catalog');
 }
 
 export interface OperationalApi {
@@ -44,6 +49,7 @@ export interface OperationalApi {
   listContextVersions(id: string): Promise<OrderContextVersionRecord[]>;
   listContextReviews(id: string): Promise<ContextReviewRecord[]>;
   publishContext(id: string, headers?: Record<string, string>): Promise<OrderContextRecord>;
+  getCatalog(): Promise<{ sku: string; unit: string }[]>;
   uploadAttachment(file: File): Promise<AttachmentRecord>;
   extractAttachment(evidenceRef: string): Promise<DocumentExtractionResult>;
   getAttachmentExtraction(evidenceRef: string): Promise<DocumentExtractionResult>;
@@ -87,8 +93,8 @@ function processMessage(id: string, reprocess = false): Promise<ProcessResponse>
 
 export const operationalApi: OperationalApi = {
   config: () => request('/dev/p1/config'),
-  list: ({ channel, search, processing, offset }) => {
-    const params = new URLSearchParams({ limit: '25', offset: String(offset) });
+  list: ({ channel, search, processing, offset, limit = 25 }) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (channel !== 'ALL') params.set('channel', channel);
     if (search) params.set('search', search);
     if (processing !== 'ALL') params.set('processing_status', processing);
@@ -129,6 +135,7 @@ export const operationalApi: OperationalApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
     }),
+  getCatalog: () => request('/v1/contexts/catalog'),
   uploadAttachment: file => {
     const formData = new FormData();
     formData.append('file', file);

@@ -90,3 +90,85 @@ def test_ambiguous_followup_cannot_silently_leave_context_ready(pg_engine):
     assert updated.status == 'CONFLICT'
     assert updated.requested_items[0].quantity == '40'
     assert any('requires review' in c for c in updated.conflicts)
+
+
+def test_conversational_followup_merges_missing_unit_without_creating_second_order(pg_engine):
+    repo = PostgresMessageRepository(pg_engine)
+    service = ContextService(repo)
+
+    # Message 1: Product and quantity provided, unit is missing
+    env1 = make_envelope('Can I get 50 burgers tomorrow before 3pm?')
+    env1.sender_identity_id = '+60123456789'
+    msg1 = repo.ingest(env1, NOW).message
+    ctx1 = service.create_or_update_from_message(msg1.raw.tenant_id, msg1.message_id)
+
+    assert ctx1.status == 'INFORMATION_PARTIAL'
+    assert not ctx1.requested_items
+    assert 'unit' in ctx1.missing_fields or 'requested_items' in ctx1.missing_fields
+    assert ctx1.field_evidence['sku'][0]['normalized_value'] == 'BURGER'
+    assert ctx1.field_evidence['quantity'][0]['normalized_value'] == '50'
+    assert ctx1.context_version == 1
+
+    # Message 2: Follow-up clarifies unit and repeats quantity without repeating SKU
+    env2 = make_envelope('50 pcs please')
+    env2.sender_identity_id = '+60123456789'
+    msg2 = repo.ingest(env2, NOW).message
+    ctx2 = service.create_or_update_from_message(msg2.raw.tenant_id, msg2.message_id)
+
+    # Context continuity: Must update the existing context, never create a separate second OrderContext
+    assert ctx2.context_id == ctx1.context_id
+    assert ctx2.context_version == 2
+    assert len(ctx2.requested_items) == 1
+    assert ctx2.requested_items[0].sku == 'BURGER'
+    assert ctx2.requested_items[0].quantity == '50'
+    assert ctx2.requested_items[0].unit == 'pcs'
+    assert 'unit' not in ctx2.missing_fields
+    assert 'requested_items' not in ctx2.missing_fields
+    assert ctx2.status == 'INFORMATION_READY'
+    assert ctx2.source_message_ids == [msg1.message_id, msg2.message_id]
+
+    # Verify Core eligibility gate: ctx1 is blocked, ctx2 is eligible
+    publisher = CoreContextPublisher()
+    eligible1, reasons1 = publisher.check_eligibility(ctx1)
+    assert not eligible1
+    assert any("not INFORMATION_READY" in r for r in reasons1)
+
+    eligible2, reasons2 = publisher.check_eligibility(ctx2)
+    assert eligible2
+    assert reasons2 == []
+
+    # Verify database persistence: exactly 1 OrderContext exists, zero duplicate orders created
+    by_msg1 = repo.get_order_context_by_message(msg1.raw.tenant_id, msg1.message_id)
+    by_msg2 = repo.get_order_context_by_message(msg2.raw.tenant_id, msg2.message_id)
+    assert by_msg1 is not None and by_msg2 is not None
+    assert by_msg1.context_id == by_msg2.context_id == ctx1.context_id
+    assert by_msg2.context_version == 2
+    versions = repo.list_context_versions(msg1.raw.tenant_id, ctx1.context_id)
+    assert len(versions) == 2
+
+
+def test_conversational_followup_unit_only_recovers_sku_and_quantity(pg_engine):
+    repo = PostgresMessageRepository(pg_engine)
+    service = ContextService(repo)
+
+    # Message 1: 50 burgers tomorrow 3pm
+    env1 = make_envelope('Can I get 50 burgers tomorrow before 3pm?')
+    env1.sender_identity_id = '+60123456789'
+    msg1 = repo.ingest(env1, NOW).message
+    ctx1 = service.create_or_update_from_message(msg1.raw.tenant_id, msg1.message_id)
+    assert not ctx1.requested_items
+
+    # Message 2: Customer responds with unit only ("pcs please")
+    env2 = make_envelope('pcs please')
+    env2.sender_identity_id = '+60123456789'
+    msg2 = repo.ingest(env2, NOW).message
+    ctx2 = service.create_or_update_from_message(msg2.raw.tenant_id, msg2.message_id)
+
+    # Verifies cross-message item assembly recovers SKU and Quantity from Message 1
+    assert ctx2.context_id == ctx1.context_id
+    assert ctx2.context_version == 2
+    assert len(ctx2.requested_items) == 1
+    assert ctx2.requested_items[0].sku == 'BURGER'
+    assert ctx2.requested_items[0].quantity == '50'
+    assert ctx2.requested_items[0].unit == 'pcs'
+    assert ctx2.status == 'INFORMATION_READY'

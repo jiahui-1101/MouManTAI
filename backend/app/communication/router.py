@@ -221,3 +221,6 @@ confirmation_router = build_confirmation_router(get_draft_authority, get_review_
 router = APIRouter()
 router.include_router(communications_router)
 router.include_router(confirmation_router)
+from .followup_router import build_followup_router
+router.include_router(build_followup_router(
+    get_outbound_service, get_preference_service, get_draft_authority, get_review_authority))

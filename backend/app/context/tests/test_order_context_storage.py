@@ -111,7 +111,9 @@ def test_order_context_optimistic_concurrency(pg_engine):
 
 
 def test_context_review_workflow(pg_engine):
-    repo = PostgresMessageRepository(pg_engine)
+    from app.context.deterministic_extraction import ProductAlias
+    repo = PostgresMessageRepository(pg_engine, catalog=(
+        ProductAlias('test_tenant_p1', 'BURGER', ('burger',), 'pcs'),))
     tenant_id = "test_tenant_p1"
     ctx_id = str(uuid4())
 

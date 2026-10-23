@@ -1,0 +1,507 @@
+{
+  "version": "benchmark-l1-multilingual-v1",
+  "description": "Unseen evaluation dataset for L1 GLiNER candidate extraction across English, Chinese, Malay, and Code-switched messages.",
+  "base_timestamp": "2026-10-22T08:00:00+08:00",
+  "cases": [
+    {
+      "id": "l1_en_01",
+      "language": "en",
+      "category": "colloquial_order",
+      "text": "Hi boss, can get 25 beef burgers sent over by tomorrow noon?",
+      "expected_entities": {
+        "product": "beef burgers",
+        "quantity": "25",
+        "delivery": "tomorrow noon"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_en_02",
+      "language": "en",
+      "category": "colloquial_order",
+      "text": "need to reserve 40 buns for delivery this friday around 3pm please",
+      "expected_entities": {
+        "product": "buns",
+        "quantity": "40",
+        "delivery": "this friday around 3pm"
+      },
+      "expected_sku": "BREAD",
+      "is_order": true
+    },
+    {
+      "id": "l1_en_03",
+      "language": "en",
+      "category": "urgent_order",
+      "text": "Urgent request: 15 chicken burgers needed at kitchen dock before 11:30 am tomorrow.",
+      "expected_entities": {
+        "product": "chicken burgers",
+        "quantity": "15",
+        "delivery": "11:30 am tomorrow"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_en_04",
+      "language": "en",
+      "category": "informal_order",
+      "text": "Can you prepare 80 bread for our morning shift next Monday at 8am?",
+      "expected_entities": {
+        "product": "bread",
+        "quantity": "80",
+        "delivery": "next Monday at 8am"
+      },
+      "expected_sku": "BREAD",
+      "is_order": true
+    },
+    {
+      "id": "l1_en_05",
+      "language": "en",
+      "category": "indirect_phrasing",
+      "text": "We will be taking 60 burgers for the school catering on 2026-10-25 10:00.",
+      "expected_entities": {
+        "product": "burgers",
+        "quantity": "60",
+        "delivery": "2026-10-25 10:00"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_en_06",
+      "language": "en",
+      "category": "unknown_sku",
+      "text": "Can we order 10 pizzas for tomorrow lunch at 12pm?",
+      "expected_entities": {
+        "product": "pizzas",
+        "quantity": "10",
+        "delivery": "tomorrow lunch at 12pm"
+      },
+      "expected_sku": null,
+      "is_order": true
+    },
+    {
+      "id": "l1_en_07",
+      "language": "en",
+      "category": "inquiry_no_order",
+      "text": "Hello, do you do delivery to Damansara area during public holidays?",
+      "expected_entities": {},
+      "expected_sku": null,
+      "is_order": false
+    },
+    {
+      "id": "l1_en_08",
+      "language": "en",
+      "category": "tentative_no_quantity",
+      "text": "We might need some beef burgers next week for an event, what is the price?",
+      "expected_entities": {
+        "product": "beef burgers"
+      },
+      "expected_sku": "BURGER",
+      "is_order": false
+    },
+    {
+      "id": "l1_en_09",
+      "language": "en",
+      "category": "feedback_no_order",
+      "text": "Thanks for yesterday's buns delivery, the quality was great!",
+      "expected_entities": {
+        "product": "buns"
+      },
+      "expected_sku": "BREAD",
+      "is_order": false
+    },
+    {
+      "id": "l1_en_10",
+      "language": "en",
+      "category": "order_modification",
+      "text": "Please change our order to 35 burgers for delivery tomorrow at 2pm instead.",
+      "expected_entities": {
+        "product": "burgers",
+        "quantity": "35",
+        "delivery": "tomorrow at 2pm"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_zh_01",
+      "language": "zh",
+      "category": "colloquial_order",
+      "text": "老板你好，帮我订30个汉堡，后天下午4点之前送到可以吗？",
+      "expected_entities": {
+        "product": "汉堡",
+        "quantity": "30",
+        "unit": "个",
+        "delivery": "后天下午4点之前"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_zh_02",
+      "language": "zh",
+      "category": "colloquial_order",
+      "text": "我们要追加50个面包，大后天早上9点送来档口。",
+      "expected_entities": {
+        "product": "面包",
+        "quantity": "50",
+        "unit": "个",
+        "delivery": "大后天早上9点"
+      },
+      "expected_sku": "BREAD",
+      "is_order": true
+    },
+    {
+      "id": "l1_zh_03",
+      "language": "zh",
+      "category": "informal_order",
+      "text": "送20个汉堡包过来中央厨房，明天中午12点要用。",
+      "expected_entities": {
+        "product": "汉堡包",
+        "quantity": "20",
+        "unit": "个",
+        "delivery": "明天中午12点"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_zh_04",
+      "language": "zh",
+      "category": "urgent_order",
+      "text": "加急订购：牛肉汉堡15个，今天下午5点前送达，谢谢！",
+      "expected_entities": {
+        "product": "牛肉汉堡",
+        "quantity": "15",
+        "unit": "个",
+        "delivery": "今天下午5点前"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_zh_05",
+      "language": "zh",
+      "category": "informal_order",
+      "text": "后天上午10点需要100个面包，请确认一下有没有现货。",
+      "expected_entities": {
+        "product": "面包",
+        "quantity": "100",
+        "unit": "个",
+        "delivery": "后天上午10点"
+      },
+      "expected_sku": "BREAD",
+      "is_order": true
+    },
+    {
+      "id": "l1_zh_06",
+      "language": "zh",
+      "category": "unknown_sku",
+      "text": "请帮我们准备20碗云吞面，明天早上8点送到前台。",
+      "expected_entities": {
+        "product": "云吞面",
+        "quantity": "20",
+        "delivery": "明天早上8点"
+      },
+      "expected_sku": null,
+      "is_order": true
+    },
+    {
+      "id": "l1_zh_07",
+      "language": "zh",
+      "category": "inquiry_no_order",
+      "text": "请问你们现在的汉堡起订量是多少？支持月结吗？",
+      "expected_entities": {
+        "product": "汉堡"
+      },
+      "expected_sku": "BURGER",
+      "is_order": false
+    },
+    {
+      "id": "l1_zh_08",
+      "language": "zh",
+      "category": "tentative_no_quantity",
+      "text": "下个星期可能要订一批面包办活动，过两天再跟你确认数量。",
+      "expected_entities": {
+        "product": "面包"
+      },
+      "expected_sku": "BREAD",
+      "is_order": false
+    },
+    {
+      "id": "l1_zh_09",
+      "language": "zh",
+      "category": "feedback_no_order",
+      "text": "今天送来的汉堡很新鲜，客户评价很好，谢谢！",
+      "expected_entities": {
+        "product": "汉堡"
+      },
+      "expected_sku": "BURGER",
+      "is_order": false
+    },
+    {
+      "id": "l1_zh_10",
+      "language": "zh",
+      "category": "order_modification",
+      "text": "刚才那单改成45个汉堡，明天下午3点送到后巷卸货区。",
+      "expected_entities": {
+        "product": "汉堡",
+        "quantity": "45",
+        "unit": "个",
+        "delivery": "明天下午3点"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_ms_01",
+      "language": "ms",
+      "category": "colloquial_order",
+      "text": "Salam bos, nak order 35 roti burger hantar esok petang pukul 2 boleh?",
+      "expected_entities": {
+        "product": "roti burger",
+        "quantity": "35",
+        "delivery": "esok petang pukul 2"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_ms_02",
+      "language": "ms",
+      "category": "colloquial_order",
+      "text": "Tolong sediakan 60 bun burger sebelum lusa pagi pukul 10 ya.",
+      "expected_entities": {
+        "product": "bun burger",
+        "quantity": "60",
+        "delivery": "sebelum lusa pagi pukul 10"
+      },
+      "expected_sku": "BREAD",
+      "is_order": true
+    },
+    {
+      "id": "l1_ms_03",
+      "language": "ms",
+      "category": "informal_order",
+      "text": "Nak tempah 20 chicken burger hantar jumaat ni pukul 5 petang.",
+      "expected_entities": {
+        "product": "chicken burger",
+        "quantity": "20",
+        "delivery": "jumaat ni pukul 5 petang"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_ms_04",
+      "language": "ms",
+      "category": "informal_order",
+      "text": "Order 40 roti untuk gerai kami esok sebelum pukul 11 pagi.",
+      "expected_entities": {
+        "product": "roti",
+        "quantity": "40",
+        "delivery": "esok sebelum pukul 11 pagi"
+      },
+      "expected_sku": "BREAD",
+      "is_order": true
+    },
+    {
+      "id": "l1_ms_05",
+      "language": "ms",
+      "category": "colloquial_order",
+      "text": "Bos, nak beli 50 burger hantar hari sabtu pukul 1 petang.",
+      "expected_entities": {
+        "product": "burger",
+        "quantity": "50",
+        "delivery": "hari sabtu pukul 1 petang"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_ms_06",
+      "language": "ms",
+      "category": "unknown_sku",
+      "text": "Boleh hantar 25 bungkus nasi lemak esok pagi pukul 7?",
+      "expected_entities": {
+        "product": "nasi lemak",
+        "quantity": "25",
+        "delivery": "esok pagi pukul 7"
+      },
+      "expected_sku": null,
+      "is_order": true
+    },
+    {
+      "id": "l1_ms_07",
+      "language": "ms",
+      "category": "inquiry_no_order",
+      "text": "Berapa harga sekotak burger kalau ambil pukal 100 biji?",
+      "expected_entities": {
+        "product": "burger"
+      },
+      "expected_sku": "BURGER",
+      "is_order": false
+    },
+    {
+      "id": "l1_ms_08",
+      "language": "ms",
+      "category": "inquiry_no_order",
+      "text": "Ada penghantaran ke Shah Alam tak waktu cuti umum?",
+      "expected_entities": {},
+      "expected_sku": null,
+      "is_order": false
+    },
+    {
+      "id": "l1_ms_09",
+      "language": "ms",
+      "category": "feedback_no_order",
+      "text": "Terima kasih bos roti burger semalam sampai tepat masa dan elok.",
+      "expected_entities": {
+        "product": "roti burger"
+      },
+      "expected_sku": "BURGER",
+      "is_order": false
+    },
+    {
+      "id": "l1_ms_10",
+      "language": "ms",
+      "category": "order_modification",
+      "text": "Tukar kuantiti tadi jadi 30 burger hantar lusa pukul 3 petang.",
+      "expected_entities": {
+        "product": "burger",
+        "quantity": "30",
+        "delivery": "lusa pukul 3 petang"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_mix_01",
+      "language": "mixed",
+      "category": "code_switching",
+      "text": "Boss, nak order 50 pcs burger deliver esok pagi around 10am boleh?",
+      "expected_entities": {
+        "product": "burger",
+        "quantity": "50",
+        "unit": "pcs",
+        "delivery": "esok pagi around 10am"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_mix_02",
+      "language": "mixed",
+      "category": "code_switching",
+      "text": "Hi, tolong send 15 beef burgers by tomorrow 4pm ya, urgent.",
+      "expected_entities": {
+        "product": "beef burgers",
+        "quantity": "15",
+        "delivery": "tomorrow 4pm"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_mix_03",
+      "language": "mixed",
+      "category": "code_switching",
+      "text": "Tolong hantar 30 roti burger petang esok sebelum 5pm, tq boss.",
+      "expected_entities": {
+        "product": "roti burger",
+        "quantity": "30",
+        "delivery": "petang esok sebelum 5pm"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_mix_04",
+      "language": "mixed",
+      "category": "code_switching",
+      "text": "Nak book 80 buns for event lusa around 2pm, can ah?",
+      "expected_entities": {
+        "product": "buns",
+        "quantity": "80",
+        "delivery": "lusa around 2pm"
+      },
+      "expected_sku": "BREAD",
+      "is_order": true
+    },
+    {
+      "id": "l1_mix_05",
+      "language": "mixed",
+      "category": "code_switching",
+      "text": "Hello, order 45 汉堡 to our kitchen before tomorrow 11am ya.",
+      "expected_entities": {
+        "product": "汉堡",
+        "quantity": "45",
+        "delivery": "before tomorrow 11am"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_mix_06",
+      "language": "mixed",
+      "category": "unknown_sku",
+      "text": "Can we order 20 paket curry puff for delivery esok pukul 3pm?",
+      "expected_entities": {
+        "product": "curry puff",
+        "quantity": "20",
+        "delivery": "esok pukul 3pm"
+      },
+      "expected_sku": null,
+      "is_order": true
+    },
+    {
+      "id": "l1_mix_07",
+      "language": "mixed",
+      "category": "inquiry_no_order",
+      "text": "Bro, ada delivery available tak this coming Sunday morning?",
+      "expected_entities": {},
+      "expected_sku": null,
+      "is_order": false
+    },
+    {
+      "id": "l1_mix_08",
+      "language": "mixed",
+      "category": "tentative_no_quantity",
+      "text": "We planning to order some bread buns for next week party, will update u later.",
+      "expected_entities": {
+        "product": "bread buns"
+      },
+      "expected_sku": "BREAD",
+      "is_order": false
+    },
+    {
+      "id": "l1_mix_09",
+      "language": "mixed",
+      "category": "code_switching",
+      "text": "Boss, tolong deliver 25 pcs chicken burger esok sebelum 12pm k.",
+      "expected_entities": {
+        "product": "chicken burger",
+        "quantity": "25",
+        "unit": "pcs",
+        "delivery": "esok sebelum 12pm"
+      },
+      "expected_sku": "BURGER",
+      "is_order": true
+    },
+    {
+      "id": "l1_mix_10",
+      "language": "mixed",
+      "category": "code_switching",
+      "text": "Change order tadi to 60 面包 deliver lusa pagi at 9am, thank you!",
+      "expected_entities": {
+        "product": "面包",
+        "quantity": "60",
+        "delivery": "lusa pagi at 9am"
+      },
+      "expected_sku": "BREAD",
+      "is_order": true
+    }
+  ]
+}

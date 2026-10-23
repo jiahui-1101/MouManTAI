@@ -204,6 +204,7 @@ function fakeApi(): OperationalApi {
     }),
     listContextVersions: vi.fn().mockResolvedValue([]),
     listContextReviews: vi.fn().mockResolvedValue([]),
+    getCatalog: vi.fn().mockResolvedValue([{ sku: 'BURGER', unit: 'pcs' }]),
     publishContext: vi.fn().mockResolvedValue({
       context_id: 'ctx_1',
       tenant_id: 'server_tenant',
@@ -318,7 +319,7 @@ describe('durable synthetic Inbox', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Storage unavailable');
     fireEvent.click(screen.getByRole('button', { name: 'Retry Inbox' }));
     expect(await screen.findByText(/No persisted messages/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Fixture preview ↗' })).toHaveAttribute('href', '/inbox/fixtures');
+    expect(screen.getByText('Local PostgreSQL · synthetic channel only')).toBeInTheDocument();
   });
 
   it('fetches persisted metadata, retries detail errors and restores focus when closed', async () => {
@@ -345,7 +346,7 @@ describe('durable synthetic Inbox', () => {
     render(<DurableInbox api={api} />);
     await screen.findByText('30 persisted messages');
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-    await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 25 })));
+    await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 15 })));
     await screen.findByRole('button', { name: 'Previous' });
     fireEvent.change(screen.getByRole('combobox', { name: 'Channel' }), { target: { value: 'EMAIL' } });
     await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ channel: 'EMAIL', offset: 0 })));

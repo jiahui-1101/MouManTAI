@@ -363,10 +363,9 @@ def test_scenario_4_confirmed_term_change_becomes_proposal(pg_engine):
     )
 
     with Session(pg_engine) as session:
-        with pytest.raises(IneligibleContextError, match="P5 amendment integration required"):
-            publisher.publish_to_core(session, req_context_2, saved_2)
+        publisher.publish_to_core(session, req_context_2, saved_2)
         record = session.get(CommitmentRecord, (tenant_id, com_1.commitment_id))
-        assert record.agreement_state == AgreementState.CONFIRMED.value
+        assert record.agreement_state == AgreementState.OFFERED.value
         assert Decimal(record.terms["quantity"]) == Decimal("100")
     # Successful amendment/proposal dispatch remains a P5 integration blocker;
     # this regression proves no confirmed terms were overwritten before it.

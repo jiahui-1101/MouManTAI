@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrderContextDetail } from './OrderContextDetail';
 import { operationalApi } from './operationalApi';
+import * as reviewApi from './operationalApi';
 import type { ContextReviewRecord, OrderContextRecord, OrderContextVersionRecord } from './types';
 
 const timestamp = '2026-10-21T02:00:00Z';
@@ -79,6 +80,7 @@ const mockReviews: ContextReviewRecord[] = [
 describe('OrderContextDetail component', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(reviewApi, 'getReviewCatalog').mockResolvedValue([{ sku: 'BURGER', unit: 'pcs' }]);
     vi.spyOn(operationalApi, 'getContext').mockResolvedValue(mockContext);
     vi.spyOn(operationalApi, 'listContextVersions').mockResolvedValue(mockVersions);
     vi.spyOn(operationalApi, 'listContextReviews').mockResolvedValue(mockReviews);
@@ -265,5 +267,27 @@ describe('OrderContextDetail component', () => {
       expect(screen.getByText(/Context status is not INFORMATION_READY/)).toBeInTheDocument();
     });
   });
-});
 
+  it('displays unmapped item candidate banner instead of empty table when requested_items is empty', async () => {
+    const unmappedContext: OrderContextRecord = {
+      ...mockContext,
+      requested_items: [],
+      field_evidence: {
+        sku: [{ quote: 'cookies', start: 27, end: 34, method: 'RULE' }],
+        quantity: [{ quote: '25', start: 15, end: 17, method: 'RULE' }],
+        unit: [{ quote: 'boxes', normalized_value: 'box', start: 18, end: 23, method: 'RULE' }],
+      },
+      missing_fields: ['sku_mapping', 'requested_items'],
+    };
+    vi.spyOn(operationalApi, 'getContext').mockResolvedValue(unmappedContext);
+
+    render(<OrderContextDetail contextId="ctx_mock_1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Unverified item candidates detected from source text/)).toBeInTheDocument();
+      expect(screen.getByText(/"cookies"/)).toBeInTheDocument();
+      expect(screen.getByText(/Quantity: 25/)).toBeInTheDocument();
+      expect(screen.getByText(/These items are not yet mapped to authorized catalog SKUs/)).toBeInTheDocument();
+    });
+  });
+});
