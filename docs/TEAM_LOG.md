@@ -3593,9 +3593,9 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - **Wiring and reason**: `backend-postgres` now provides `P4_TEST_DATABASE_URL` as the migration fixture's admin URL so P3's five PostgreSQL cases do not skip. The fixture creates, migrates, and drops separate `p4_test_<uuid>` databases; the configured suite and `moumantai_migration` databases remain separate. The `postgres` service user is initialized as the PostgreSQL superuser and can create databases. The P3 candidate adds no other `migrated` cases under `backend/tests`; strict zero-skip stays unchanged.
 - **Decision tracking**: Highest prior D-ID was D-047; this entry uses D-048. Highest ADR-ID remains ADR-020; no ADR added.
 
-### 2026-10-23 — D-045: P5 Critical Integration Recovery (scoped; ID pending renumbering at merge)
+### 2026-10-23 — D-049: P5 Critical Integration Recovery (scoped; renumbered from D-045)
 
-- Highest prior IDs found on fetched `origin/main`: D-044 and ADR-020. D-045 is branch-local and may need renumbering at merge. Branch `feat/p5-integration-recovery` starts at `1d540e855895d517b5bad6efb2649e10d8e776bf`; this follow-up remains uncommitted and unpushed.
+- Highest prior IDs found on fetched `origin/main`: D-048 and ADR-020. D-049 is renumbered from D-045. Branch `feat/p5-integration-recovery` starts at `1d540e855895d517b5bad6efb2649e10d8e776bf`; this follow-up remains uncommitted and unpushed.
 - Scope: implement the P5-owned evidence and confirmation boundary, keyed worker wiring, synthetic identity gate, tests, CI support and recovery documentation. No migration or P1–P4 application module was changed.
 - SYS-002: fulfilment accepts only full-match synthetic references `ev_synthetic_delivery|<tenant_id>|<commitment_id>|<evidence_id>`; requires confirmed agreement, manager/owner authorization and current version. Action success remains distinct from fulfilment.
 - SYS-004/SYS-003: P4's expected `VerifiedCoreConfirmationPort.apply(db, event, evidence)` is implemented in Core and registered behind the existing default-off keyed worker gate. ACCEPT/REJECT update only the matching current proposal; COUNTEROFFER remains with P3; audit/outbox and processed marker share the dispatcher transaction. Rejected/counteroffer events require both named P5 and P3 subscribers; wildcard handlers do not satisfy D-017.
