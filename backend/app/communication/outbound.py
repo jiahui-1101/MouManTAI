@@ -35,10 +35,11 @@ class RuntimeSendAuthority:
 
 
 class OutboundService:
-    def __init__(self, db: Session, draft_authority, review_authority, authority: SendAuthority | None, provider: OutboundProvider):
+    def __init__(self, db: Session, draft_authority, review_authority, authority: SendAuthority | None, provider: OutboundProvider, *, challenge_delivery=None):
         self.db, self.authority, self.provider = db, authority, provider
         self.reviews = DraftReviewService(db, draft_authority, review_authority)
         self.repository = OutboundRepository(db)
+        self.challenge_delivery = challenge_delivery
 
     def _preflight(self, context):
         _require_context(context)
@@ -122,6 +123,8 @@ class OutboundService:
                     correlation_id=context.correlation_id, created_at=current, updated_at=current)
                 self.db.add(row)
                 self.db.flush()
+                if self.challenge_delivery is not None:
+                    self.challenge_delivery.prepare(self.db, context, row, draft, current)
                 attempt = SendAttemptRecord(tenant_id=context.tenant_id, outbound_id=row.outbound_id,
                     attempt_number=1, status="QUEUED", started_at=current)
                 self.db.add(attempt)
@@ -161,11 +164,13 @@ class OutboundService:
             # hold them through provider submission/result persistence.
             current = self.reviews.drafts._time(now)
             draft, review, grant = self._validate(context, communication_id, draft_id, current)
+            envelope = (self.challenge_delivery.envelope(self.db, context, row, draft, current)
+                        if self.challenge_delivery is not None else SendEnvelope(row.outbound_id, draft))
         except Exception:
             self.db.rollback()
             raise
         try:
-            result = self.provider.submit(SendEnvelope(row.outbound_id, draft))
+            result = self.provider.submit(envelope)
             if not isinstance(result, ProviderResult) or result.status not in {"SENT", "FAILED", "DELIVERY_UNKNOWN"}:
                 raise ValueError("Invalid provider result")
             if result.status == "SENT" and not result.provider_reference:
