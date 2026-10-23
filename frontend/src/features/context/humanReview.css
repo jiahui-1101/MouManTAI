@@ -422,6 +422,34 @@
   background: #fef3c7;
 }
 
+/* Review activities remain mounted while only the selected stage is shown. */
+.hr-stage[data-active="false"] { display: none; }
+.hr-queue-panel { max-height: calc(100vh - 190px); min-height: 420px; }
+.hr-queue-search { padding: 12px 12px 6px; }
+.hr-queue-search label { display: block; margin-bottom: 5px; color: rgba(28,49,83,.7); font-size: 11px; font-weight: 600; }
+.hr-queue-panel > .hr-filter-pills { padding: 4px 12px 10px; border-bottom: 1px solid rgba(28,49,83,.12); }
+.hr-detail-panel { display: flex; flex-direction: column; max-height: calc(100vh - 190px); min-height: 420px; overflow: hidden; }
+.hr-detail-panel > div:has(.hr-stage-content) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.hr-detail-intro { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding-bottom: 10px; color: #1c3153; }
+.hr-detail-intro span { color: rgba(28,49,83,.7); font-size: 12px; }
+.hr-review-tabs { display: flex; gap: 4px; overflow-x: auto; flex: 0 0 auto; border-bottom: 1px solid rgba(28,49,83,.12); }
+.hr-review-tabs button { flex: 0 0 auto; padding: 10px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: rgba(28,49,83,.7); font: inherit; font-size: 12px; cursor: pointer; }
+.hr-review-tabs button[aria-selected="true"] { color: #0767e8; border-color: #0767e8; font-weight: 700; }
+.hr-review-tabs button:hover { background: rgba(7,103,232,.094); }
+.hr-review-tabs button:focus-visible, .hr-queue-item:focus-visible { outline: 2px solid #0767e8; outline-offset: -2px; }
+.hr-stage-content { overflow-y: auto; min-height: 0; padding-top: 14px; flex: 1; }
+.hr-stage-footer { display: flex; justify-content: space-between; align-items: center; flex: 0 0 auto; padding-top: 12px; border-top: 1px solid rgba(28,49,83,.12); color: rgba(28,49,83,.7); font-size: 12px; }
+.hr-unsaved-warning { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px; margin-bottom: 8px; background: #f4f8ff; border: 1px solid rgba(28,49,83,.12); border-radius: 6px; font-size: 12px; }
+.human-review-page .hr-tag-amber, .human-review-page .hr-tag-purple { background: rgba(7,103,232,.094); color: #0767e8; }
+.human-review-page .hr-btn-amber { background: #fff; color: #0767e8; border-color: rgba(7,103,232,.35); }
+.human-review-page .hr-btn-amber:hover:not(:disabled) { background: rgba(7,103,232,.094); }
+.human-review-page .p1-attention,
+.human-review-page .status-partial,
+.human-review-page .status-unresolved,
+.human-review-page .extraction-diagnostic,
+.human-review-page .p1-prov-dot.is-amber { background: rgba(7,103,232,.094); color: #0767e8; border-color: rgba(7,103,232,.25); }
+@media (max-width: 980px) { .hr-workspace-grid { grid-template-columns: minmax(0,1fr); } .hr-queue-panel { min-height: 0; max-height: 280px; } .hr-detail-panel { max-height: none; min-height: 500px; } .hr-stage-content { max-height: 60vh; } }
+
 .hr-btn-red {
   background: #fef2f2;
   color: #b91c1c;

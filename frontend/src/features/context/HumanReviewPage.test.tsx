@@ -165,6 +165,17 @@ describe('HumanReviewPage component', () => {
     });
   });
 
+  it('keeps amendment values while moving between review activities', async () => {
+    renderPage(<HumanReviewPage />);
+    await waitFor(() => expect(screen.getByDisplayValue('CROISSANT')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('tab', { name: 'Amendments' }));
+    fireEvent.change(screen.getByDisplayValue('CROISSANT'), { target: { value: 'SOURDOUGH' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Inquiry & Evidence' }));
+    expect(screen.getByRole('tab', { name: 'Inquiry & Evidence' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: 'Amendments' }));
+    expect(screen.getByDisplayValue('SOURDOUGH')).toBeInTheDocument();
+  });
+
   it('adopts suggested clarification preview into the reviewer note', async () => {
     renderPage(<HumanReviewPage />);
 

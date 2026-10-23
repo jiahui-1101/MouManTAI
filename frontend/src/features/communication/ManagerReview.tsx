@@ -8,10 +8,12 @@ import type { DraftReviewCommand, MessageDraftView } from "./types";
 import { ApiErrorReference } from "./P4Feedback";
 import { useInlineConfirmationFocus } from "./useInlineConfirmationFocus";
 
-export function ManagerReview({ draft, auth, now }: { draft: MessageDraftView; auth: RequestAuthHeaders; now: number }) {
+export function ManagerReview({ draft, auth, now, onDirtyChange }: { draft: MessageDraftView; auth: RequestAuthHeaders; now: number; onDirtyChange?: (dirty: boolean) => void }) {
   const client = useQueryClient();
   const [confirming, setConfirming] = useState(false);
   const [reason, setReason] = useState("");
+  useEffect(() => { onDirtyChange?.(!!reason.trim()); }, [reason, onDirtyChange]);
+  useEffect(() => () => { onDirtyChange?.(false); }, [onDirtyChange]);
   const [savedAction, setSavedAction] = useState("");
   const keys = useRef(new Map<string, string>());
   const busy = useRef(false);
@@ -32,7 +34,7 @@ export function ManagerReview({ draft, auth, now }: { draft: MessageDraftView; a
     },
     onSuccess: async (_value, variables) => {
       if (!active.current) return;
-      setConfirming(false); setSavedAction(variables.action);
+      setConfirming(false); setReason(""); setSavedAction(variables.action);
       await client.invalidateQueries({ queryKey: communicationKeys.review(auth, draft) });
       void client.invalidateQueries({ queryKey: communicationKeys.summary(auth) });
       void client.invalidateQueries({ queryKey: communicationKeys.eligibility(auth, draft) });

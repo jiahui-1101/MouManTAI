@@ -45,6 +45,22 @@ describe('ReviewDrawer component', () => {
     onUpdated.mockReset();
   });
 
+  it('keeps edits when switching stages and warns before closing', () => {
+    render(<ReviewDrawer context={baseContext} isOpen={true} onClose={onClose} onUpdated={onUpdated} />);
+    expect(screen.getByRole('tab', { name: 'Review Summary' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(screen.getByRole('tablist', { name: 'Context review stages' }), { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: 'Extracted Fields' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.change(screen.getByLabelText(/SKU \/ Product/i), { target: { value: 'CROISSANT' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'AI Candidates & Evidence' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Extracted Fields' }));
+    expect(screen.getByDisplayValue('CROISSANT')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close drawer' }));
+    expect(screen.getByText('Unsaved review changes will be lost.')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(screen.getByDisplayValue('CROISSANT')).toBeInTheDocument();
+  });
+
   it('renders nothing when isOpen is false', () => {
     const { container } = render(
       <ReviewDrawer context={baseContext} isOpen={false} onClose={onClose} onUpdated={onUpdated} />

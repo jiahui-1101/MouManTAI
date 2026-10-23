@@ -10,6 +10,7 @@ import { OutboundPanel } from "./OutboundPanel";
 import { LinkedConfirmations } from "./LinkedConfirmations";
 import { ApiErrorReference } from "./P4Feedback";
 import type { CommunicationRequestView, DraftLanguage, MessageDraftView } from "./types";
+import { WorkflowTabs } from "../../shared/WorkflowTabs";
 
 interface Props {
   request: CommunicationRequestView;
@@ -17,15 +18,27 @@ interface Props {
   knownIds: string[];
   remember: (id: string, draftId: string) => void;
   checked: (id: string, value?: MessageDraftView, failed?: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void;
   now: number;
 }
+type CommunicationStage = 'overview' | 'draft' | 'send' | 'history';
+const communicationStages: { id: CommunicationStage; label: string }[] = [
+  { id: 'overview', label: 'Request Overview' },
+  { id: 'draft', label: 'Draft Message' },
+  { id: 'send', label: 'Send / Simulate' },
+  { id: 'history', label: 'History & Confirmation' },
+];
 
-export function CommunicationDetails({ request, auth, knownIds, remember, checked, now }: Props) {
+export function CommunicationDetails({ request, auth, knownIds, remember, checked, onDirtyChange, now }: Props) {
   const client = useQueryClient();
   const id = request.communication_id;
   const [language, setLanguage] = useState<DraftLanguage>("en");
+  const [preparedLanguage, setPreparedLanguage] = useState<DraftLanguage>("en");
+  const [stage, setStage] = useState<CommunicationStage>('overview');
   const [draftId, setDraftId] = useState(() => knownIds.at(-1) ?? "");
   const [enteredId, setEnteredId] = useState("");
+  const [reviewDirty, setReviewDirty] = useState(false);
+  useEffect(() => { onDirtyChange?.(!!enteredId.trim() || language !== preparedLanguage || reviewDirty); }, [enteredId, language, preparedLanguage, reviewDirty, onDirtyChange]);
   const [rechecking, setRechecking] = useState(false);
   const pending = useRef(false);
   const active = useRef(true);
@@ -50,6 +63,7 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
     },
     onSuccess: value => {
       if (!active.current) return;
+      setPreparedLanguage(language);
       remember(id, value.draft_id);
       setDraftId(value.draft_id);
       // Always GET the saved draft again, even if Prepare returned an existing ID.
@@ -88,6 +102,8 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
   const terms = request.proposed_terms;
   return <>
     <div className="cc-row"><div><p className="eyebrow">Request details</p><h3>{request.reference.commitment_id}</h3></div><DisplayBadge label={label} /></div>
+    <WorkflowTabs stages={communicationStages} active={stage} onChange={setStage} label="Communication stages" className="cc-review-tabs" />
+    <div className="cc-stage" data-active={stage === 'overview'}>
     <dl className="cc-facts">
       <Fact label="Communication" value={id} />
       <Fact label="Proposal" value={`${request.reference.proposal_id} · v${request.reference.proposal_version}`} />
@@ -120,6 +136,8 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
       <Evidence label="Proposal evidence references" values={request.proposal_evidence_refs} />
       <p className="muted text-sm">Source event: <code>{request.reference.source_event_id}</code></p>
     </details>
+    </div>
+    <div className="cc-stage" data-active={stage === 'draft'}>
     <section className="cc-section" aria-label="Draft preparation"><h4>Prepare a draft</h4>
       <div className="cc-actions"><label>Draft language<select value={language} disabled={prepare.isPending}
         onChange={event => setLanguage(event.target.value as DraftLanguage)}>
@@ -142,7 +160,7 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
       </select></label>}
       <form className="cc-actions" onSubmit={event => {
         event.preventDefault(); if (!enteredId.trim() || prepare.isPending) return;
-        prepare.reset(); const next = enteredId.trim(); setDraftId(next);
+        prepare.reset(); const next = enteredId.trim(); setDraftId(next); setEnteredId("");
         if (next === draftId) reload();
       }}>
         <label>Draft ID<input value={enteredId} onChange={event => setEnteredId(event.target.value)} maxLength={256} placeholder="Enter an existing draft ID" /></label>
@@ -154,12 +172,18 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
       {expired && !draft.isFetching && <div role="alert" className="cc-error"><p>This draft has expired. Refresh and review the current proposal before preparing another draft.</p></div>}
       {validDraft && !prepare.isPending && !prepare.isError && <>
         <DraftPreview draft={validDraft} onReload={reload} />
-        <ManagerReview key={`${validDraft.draft_id}:${validDraft.content_hash}:${validDraft.validation_hash}`} draft={validDraft} auth={auth} now={now} />
+        <ManagerReview key={`${validDraft.draft_id}:${validDraft.content_hash}:${validDraft.validation_hash}`} draft={validDraft} auth={auth} now={now} onDirtyChange={setReviewDirty} />
       </>}
     </section>
+    </div>
+    <div className="cc-stage" data-active={stage === 'send' || stage === 'history'}>
     <OutboundPanel key={`${auth.tenantId}:${auth.actorId}:${id}:${validDraft?.draft_id ?? ""}:${validDraft?.content_hash ?? ""}`}
-      communicationId={id} draft={validDraft} auth={auth} now={now} />
+      communicationId={id} draft={validDraft} auth={auth} now={now} view={stage === 'history' ? 'history' : 'send'} />
+    <div className="cc-stage" data-active={stage === 'history'}>
     <LinkedConfirmations communicationId={id} auth={auth} />
+    </div>
+    </div>
+    <div className="cc-stage-footer"><button type="button" className="btn btn-secondary" disabled={stage === 'overview'} onClick={() => setStage(communicationStages[Math.max(0, communicationStages.findIndex(item => item.id === stage) - 1)].id)}>Back</button><span>{communicationStages.findIndex(item => item.id === stage) + 1} of {communicationStages.length}</span><button type="button" className="btn btn-secondary" disabled={stage === 'history'} onClick={() => setStage(communicationStages[Math.min(communicationStages.length - 1, communicationStages.findIndex(item => item.id === stage) + 1)].id)}>Next</button></div>
   </>;
 }
 

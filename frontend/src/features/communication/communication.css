@@ -107,7 +107,7 @@
 /* Authority Banner (Soft Orbyte Alert Card) */
 .cc-preferences {
   border: 1px solid rgba(28, 49, 83, 0.12);
-  border-left: 4px solid #f59e0b;
+  border-left: 4px solid #0767e8;
   border-radius: 10px;
   background: #ffffff;
   padding: 16px 20px;
@@ -438,10 +438,32 @@
   overflow-wrap: anywhere;
 }
 .p4-authority-notice {
-  background: #fffbeb;
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #92400e;
+  background: #f4f8ff;
+  border-color: rgba(7, 103, 232, 0.3);
+  color: #1c3153;
 }
+
+/* Focused communication request workspace. Inactive panels stay mounted. */
+.cc-stage[data-active="false"] { display: none; }
+.cc-outbound-part[data-active="false"] { display: none; }
+.cc-workspace { grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); }
+.cc-queue { display: flex; flex-direction: column; min-width: 0; max-height: calc(100vh - 170px); background: #fff; border: 1px solid rgba(28,49,83,.12); border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.04); overflow: hidden; }
+.cc-list, .cc-panel { max-height: calc(100vh - 170px); min-height: 450px; }
+.cc-list { display: flex; flex-direction: column; flex: 1; min-height: 0; max-height: none; border: 0; box-shadow: none; padding-top: 8px; }
+.cc-list > ul { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.cc-queue .cc-filters { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 4px 0 0; padding: 12px 20px 0; border: 0; border-radius: 0; box-shadow: none; }
+.cc-queue .cc-filters > label:first-child { grid-column: 1 / -1; }
+.cc-queue .cc-filters .btn { grid-column: 1 / -1; justify-self: start; }
+.cc-queue .cc-filters label { font-size: 11px; }
+.cc-filter-note { margin: 4px 20px 0; font-size: 11px; }
+.cc-unsaved-warning { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; margin-bottom: 10px; background: #f4f8ff; border: 1px solid rgba(28,49,83,.12); border-radius: 6px; font-size: 12px; }
+.cc-panel { overflow-y: auto; }
+.cc-review-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid rgba(28,49,83,.12); margin: 8px 0 14px; }
+.cc-review-tabs button { flex: 0 0 auto; padding: 10px; background: transparent; border: 0; border-bottom: 2px solid transparent; color: rgba(28,49,83,.7); font: inherit; font-size: 12px; cursor: pointer; }
+.cc-review-tabs button[aria-selected="true"] { color: #0767e8; border-color: #0767e8; font-weight: 700; }
+.cc-review-tabs button:hover { background: rgba(7,103,232,.094); }
+.cc-stage-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 12px; margin-top: 14px; border-top: 1px solid rgba(28,49,83,.12); color: rgba(28,49,83,.7); font-size: 12px; }
+@media (max-width: 980px) { .cc-workspace { grid-template-columns: minmax(0,1fr); } .cc-queue { max-height: 300px; } .cc-list { min-height: 0; } .cc-panel { max-height: none; min-height: 450px; } }
 .p4-loading {
   min-height: 10rem;
   display: flex;

@@ -3,9 +3,11 @@ import { createPortal } from 'react-dom';
 import type { ContextReviewRequest, OrderContextRecord, RequestedItem } from './types';
 import { getReviewCatalog, operationalApi } from './operationalApi';
 import { extractEvidenceItemGroups, reviewCandidates } from './reviewCandidates';
+import { WorkflowTabs } from '../../shared/WorkflowTabs';
 
 export interface ReviewDrawerProps {
   context: OrderContextRecord;
+  sourceMessage?: string;
   isOpen: boolean;
   onClose: () => void;
   onUpdated: (updated: OrderContextRecord) => void;
@@ -52,7 +54,14 @@ export function ReviewDrawer(props: ReviewDrawerProps) {
   return <ReviewDrawerForm key={`${props.context.context_id}:${props.context.context_version}`} {...props} />;
 }
 
-function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: ReviewDrawerProps) {
+function ReviewDrawerForm({ context, sourceMessage, onClose, onUpdated, catalogLoader }: ReviewDrawerProps) {
+  type ReviewStage = 'summary' | 'fields' | 'evidence' | 'resolution';
+  const stages: { id: ReviewStage; label: string }[] = [
+    { id: 'summary', label: 'Review Summary' }, { id: 'fields', label: 'Extracted Fields' },
+    { id: 'evidence', label: 'AI Candidates & Evidence' }, { id: 'resolution', label: 'Review & Resolution' },
+  ];
+  const [stage, setStage] = useState<ReviewStage>('summary');
+  const [closeRequested, setCloseRequested] = useState(false);
 
   const evidenceQty = (context.field_evidence?.quantity?.[0]?.normalized_value || context.field_evidence?.quantity?.[0]?.quote || '') as string;
   const evidenceUnit = (context.field_evidence?.unit?.[0]?.normalized_value || context.field_evidence?.unit?.[0]?.quote || '') as string;
@@ -118,16 +127,20 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
   const hasUnsavedEdits = JSON.stringify(items) !== JSON.stringify(initialItems) ||
     deliveryAt !== initialDelivery || qualifier !== initialQualifier ||
     specialInstructions !== (context.special_instructions || '') || conflictsReviewed;
+  const requestClose = () => {
+    if (hasUnsavedEdits || note.trim()) setCloseRequested(true);
+    else onClose();
+  };
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        onClose();
+        requestClose();
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, hasUnsavedEdits, note]);
 
   const handleSubmit = async (action: 'ACCEPT_EXTRACTION' | 'EDIT_FIELD' | 'REQUEST_MORE_INFO' | 'MARK_UNRESOLVED') => {
     setSubmitting(true);
@@ -184,6 +197,7 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
       onUpdated(updated);
       onClose();
     } catch (err: unknown) {
+      if (action === 'EDIT_FIELD') setStage('fields');
       if (err instanceof Error) {
         setError(err.message);
       } else {
@@ -198,7 +212,7 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
     <>
       <div
         className="p1-review-backdrop"
-        onClick={onClose}
+        onClick={requestClose}
         aria-hidden="true"
         role="presentation"
       />
@@ -222,13 +236,18 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
               <span className={`status-badge status-${context.status.toLowerCase()}`}>{context.status}</span>
             </div>
           </div>
-          <button type="button" className="p1-btn-subtle" onClick={onClose} aria-label="Close drawer">
+          <button type="button" className="p1-btn-subtle" onClick={requestClose} aria-label="Close drawer">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
           </button>
         </div>
+
+        <WorkflowTabs stages={stages} active={stage} onChange={setStage} label="Context review stages" className="p1-review-tabs" idPrefix="p1-review" />
+        {((context.missing_fields?.length || 0) + (context.conflicts?.length || 0) > 0) && <p className="p1-review-persistent-warning" role="status">{context.missing_fields?.length || 0} missing field(s) · {context.conflicts?.length || 0} conflict(s) still require review.</p>}
+
+        {closeRequested && <div className="p1-review-close-warning" role="alert"><span>Unsaved review changes will be lost.</span><button type="button" className="p1-btn p1-btn-secondary" onClick={() => setCloseRequested(false)}>Keep editing</button><button type="button" className="p1-btn p1-btn-subtle-red" onClick={onClose}>Discard and close</button></div>}
 
         {error && (
           <div className="p1-error-banner" role="alert">
@@ -237,11 +256,20 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
         )}
 
         <div className="p1-drawer-body">
+          <section id="p1-review-panel-summary" role="tabpanel" aria-labelledby="p1-review-tab-summary" className="p1-review-stage" data-active={stage === 'summary'}>
+            <h4>Current customer request</h4>
+            {sourceMessage ? <blockquote className="p1-review-source-message">{sourceMessage}</blockquote> : <p className="p1-review-summary-note">Open the linked customer message to inspect the original request.</p>}
+            <p className="p1-review-summary-note">Context {context.context_id} · version {context.context_version} · {context.status}</p>
+            <dl className="p1-review-summary-grid"><div><dt>Requested items</dt><dd>{context.requested_items?.length || 0}</dd></div><div><dt>Delivery</dt><dd>{context.requested_delivery_at || 'Not verified'}</dd></div><div><dt>Source messages</dt><dd>{context.source_message_ids?.length || 0}</dd></div><div><dt>Candidate observations</dt><dd>{candidateProposals.length}</dd></div></dl>
+            <div className="p1-review-summary-alert"><strong>{context.missing_fields?.length || 0} missing fields · {context.conflicts?.length || 0} conflicts</strong>{!!context.missing_fields?.length && <p>Missing: {context.missing_fields.join(', ')}</p>}{!!context.conflicts?.length && <ul>{context.conflicts.map((item, index) => <li key={index}>{item}</li>)}</ul>}</div>
+            <p className="p1-review-summary-note">Check original source messages and evidence before accepting extraction. Information readiness does not accept or reserve an order.</p>
+          </section>
+          <div id="p1-review-panel-evidence" role="tabpanel" aria-labelledby="p1-review-tab-evidence" className="p1-review-stage" data-active={stage === 'evidence'}>
           {candidateProposals.length > 0 && (
-            <div className="p1-proposal-banner" style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '6px', padding: '10px 12px', marginBottom: '14px' }}>
+            <div className="p1-proposal-banner">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: '#166534' }}>Extraction Proposals (Model / Unresolved Candidates)</span>
-                <span style={{ fontSize: '10px', background: '#dcfce7', color: '#15803d', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>Provisional</span>
+                <span>Extraction Proposals (Model / Unresolved Candidates)</span>
+                <span className="p1-dim-badge">Provisional</span>
               </div>
               <p>Unverified observations are not approved inventory items. Map product names to an approved SKU or mark unresolved. Quantity and unit conversions require staff verification.</p>
               {items.length > 1 && <label>Apply candidates to item
@@ -252,13 +280,11 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
               </label>}
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {candidateProposals.map(cp => (
-                  <button
-                    key={cp.key}
+                  <div key={cp.key} className="p1-candidate-card"><button
                     type="button"
                     disabled={submitting || cp.unverifiedProduct || (items.length > 1 && targetItem === '') ||
                       (cp.field === 'requested_delivery_at' && !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(cp.value))}
                     className="p1-secondary"
-                    style={{ fontSize: '11px', padding: '3px 8px', background: '#ffffff', borderColor: '#86efac', color: '#166534' }}
                     onClick={() => {
                       const index = items.length === 1 ? 0 : Number(targetItem);
                       if (!items[index]) return;
@@ -272,12 +298,14 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
                   >
                     {cp.unverifiedProduct ? 'Unverified product' : `Apply ${cp.field === 'sku' ? 'SKU' : cp.field === 'quantity' ? 'Quantity' : cp.field === 'unit' ? 'Unit' : 'Delivery'}`}: <strong>{cp.value}</strong>
                     <span> ({cp.method}{cp.group ? `, item ${cp.group}` : ''})</span>
-                    <span> Source: {cp.source || 'unspecified'} [{String(cp.start ?? '?')}:{String(cp.end ?? '?')}] “{cp.quote}”</span>
                   </button>
+                  <details className="p1-candidate-evidence"><summary>Evidence</summary><span> Source: {cp.source || 'unspecified'} [{String(cp.start ?? '?')}:{String(cp.end ?? '?')}] “{cp.quote}”</span></details></div>
                 ))}
               </div>
             </div>
           )}
+          </div>
+          <div id="p1-review-panel-fields" role="tabpanel" aria-labelledby="p1-review-tab-fields" className="p1-review-stage" data-active={stage === 'fields'}>
           <section className="p1-drawer-section">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <h4 style={{ margin: 0 }}>Order Items {items.length > 1 ? `(${items.length})` : ''}</h4>
@@ -343,9 +371,9 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
                       data-testid={`unverified-product-hint-${idx}`}
                       style={{
                         fontSize: '11px',
-                        background: '#fffbeb',
-                        border: '1px solid #fde68a',
-                        color: '#92400e',
+                        background: '#f4f8ff',
+                        border: '1px solid rgba(7,103,232,.25)',
+                        color: '#1c3153',
                         padding: '4px 8px',
                         borderRadius: '4px',
                         marginBottom: '4px',
@@ -475,6 +503,8 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
             </div>
           </section>
 
+          </div>
+          <div id="p1-review-panel-resolution" role="tabpanel" aria-labelledby="p1-review-tab-resolution" className="p1-review-stage" data-active={stage === 'resolution'}>
           <section className="p1-drawer-section">
             <h4>Audit Reason & Notes</h4>
             {suggestedClarification && (
@@ -531,9 +561,12 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
               <span className="p1-form-hint">Audited business reason recorded in context timeline</span>
             </div>
           </section>
+          </div>
         </div>
 
         <div className="p1-drawer-footer">
+          <div className="p1-review-step-controls"><button type="button" className="p1-btn p1-btn-secondary" disabled={stage === 'summary'} onClick={() => setStage(stages[Math.max(0, stages.findIndex(item => item.id === stage) - 1)].id)}>Back</button><span>{stages.findIndex(item => item.id === stage) + 1} of {stages.length}</span><button type="button" className="p1-btn p1-btn-secondary" disabled={stage === 'resolution'} onClick={() => setStage(stages[Math.min(stages.length - 1, stages.findIndex(item => item.id === stage) + 1)].id)}>Next</button></div>
+          <div className="p1-review-resolution-actions" data-active={stage === 'resolution'}>
           <div className="p1-drawer-footer-row">
             <button
               type="button"
@@ -556,7 +589,7 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
           <div className="p1-drawer-footer-row">
             <button
               type="button"
-              className="p1-btn p1-btn-subtle-amber"
+              className="p1-btn p1-btn-secondary"
               disabled={submitting}
               onClick={() => handleSubmit('REQUEST_MORE_INFO')}
             >
@@ -570,6 +603,7 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
             >
               Mark Unresolved
             </button>
+          </div>
           </div>
         </div>
       </aside>

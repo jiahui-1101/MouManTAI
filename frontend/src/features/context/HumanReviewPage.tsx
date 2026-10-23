@@ -15,9 +15,17 @@ import type {
 import { extractEvidenceItemGroups, reviewCandidates } from './reviewCandidates';
 import { getSuggestedClarification } from './ReviewDrawer';
 import { ExtractionProvenance } from './ExtractionProvenance';
+import { WorkflowTabs } from '../../shared/WorkflowTabs';
 import './humanReview.css';
 
 export type ReviewFilterCategory = 'ALL' | 'UNRESOLVED' | 'FAILED_EXTRACTION';
+type ReviewStage = 'evidence' | 'extraction' | 'amendments' | 'resolution';
+const reviewStages: { id: ReviewStage; label: string }[] = [
+  { id: 'evidence', label: 'Inquiry & Evidence' },
+  { id: 'extraction', label: 'AI Extraction' },
+  { id: 'amendments', label: 'Amendments' },
+  { id: 'resolution', label: 'Resolution' },
+];
 
 export interface HumanReviewPageProps {
   initialFilter?: ReviewFilterCategory;
@@ -32,6 +40,9 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<ReviewFilterCategory>(initialFilter);
   const [search, setSearch] = useState('');
+  const [reviewStage, setReviewStage] = useState<ReviewStage>('evidence');
+  const [pendingSelection, setPendingSelection] = useState<string | null>(null);
+  const [savedForm, setSavedForm] = useState('');
 
   // Capability detection & v2.2 task integration state
   const [taskCapability, setTaskCapability] = useState<'AUTHORITATIVE' | 'PROVISIONAL'>('PROVISIONAL');
@@ -59,6 +70,13 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [conflictOccurred, setConflictOccurred] = useState(false);
+  const currentForm = JSON.stringify([items, deliveryAt, qualifier, specialInstructions]);
+  const hasUnsavedReview = !!reviewerNote.trim() || !!conflictsReviewed || (!!savedForm && currentForm !== savedForm);
+  const selectInquiry = (id: string) => {
+    if (id === selectedId) return;
+    if (hasUnsavedReview) { setPendingSelection(id); return; }
+    setSelectedId(id); setReviewStage('evidence'); setReviewerNote(''); setPendingSelection(null);
+  };
 
   // Load catalog and detect backend v2.2 task queue capability on mount
   useEffect(() => {
@@ -141,6 +159,7 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
       } else {
         setSelectedContext(null);
         setItems([{ sku: '', quantity: '', unit: '' }]);
+        setSavedForm(JSON.stringify([[{ sku: '', quantity: '', unit: '' }], '', '', '']));
       }
     }).catch(err => {
       if (active) setContextError(err instanceof Error ? err.message : 'Failed loading context');
@@ -168,6 +187,7 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
     setQualifier(ctx.delivery_qualifier || '');
     setSpecialInstructions(ctx.special_instructions || '');
     setConflictsReviewed(false);
+    setSavedForm(JSON.stringify([initialItems, ctx.requested_delivery_at || '', ctx.delivery_qualifier || '', ctx.special_instructions || '']));
   };
 
   const handleCreateContext = async () => {
@@ -290,6 +310,7 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
 
       setSelectedContext(updated);
       initFormFromContext(updated);
+      setReviewerNote('');
       setSubmitSuccess(`Review action "${action}" successfully recorded (v${updated.context_version}).`);
       if (onContextUpdated) onContextUpdated(updated);
     } catch (err: unknown) {
@@ -369,53 +390,16 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
         </div>
       )}
 
-      {/* Filter toolbar */}
-      <div className="hr-filter-toolbar">
-        <div className="hr-filter-pills" role="tablist" aria-label="Review filter categories">
-          <button
-            type="button"
-            className={`hr-pill-btn ${filter === 'ALL' ? 'is-active' : ''}`}
-            onClick={() => setFilter('ALL')}
-            role="tab"
-            aria-selected={filter === 'ALL'}
-          >
-            All Inquiries ({messages.length})
-          </button>
-          <button
-            type="button"
-            className={`hr-pill-btn ${filter === 'FAILED_EXTRACTION' ? 'is-active' : ''}`}
-            onClick={() => setFilter('FAILED_EXTRACTION')}
-            role="tab"
-            aria-selected={filter === 'FAILED_EXTRACTION'}
-          >
-            Failed Extractions
-          </button>
-          <button
-            type="button"
-            className={`hr-pill-btn ${filter === 'UNRESOLVED' ? 'is-active' : ''}`}
-            onClick={() => setFilter('UNRESOLVED')}
-            role="tab"
-            aria-selected={filter === 'UNRESOLVED'}
-          >
-            Pending / Unprocessed
-          </button>
-        </div>
-        <div className="hr-search-box">
-          <input
-            type="search"
-            className="hr-search-input"
-            placeholder="Search inquiries…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            aria-label="Search inquiries"
-          />
-        </div>
-      </div>
-
       {/* Workspace Grid */}
       <div className="hr-workspace-grid">
         {/* Left Column: Queue List */}
         <div className="hr-queue-panel" aria-label="Inquiry review list">
+          <div className="hr-queue-search"><label htmlFor="hr-queue-search">Search review queue</label><input id="hr-queue-search" type="search" className="hr-search-input" aria-label="Search inquiries" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search inquiries…" /></div>
+          <div className="hr-filter-pills" role="tablist" aria-label="Review filter categories">
+            <button type="button" className={`hr-pill-btn ${filter === 'ALL' ? 'is-active' : ''}`} onClick={() => setFilter('ALL')} role="tab" aria-selected={filter === 'ALL'}>All Inquiries ({messages.length})</button>
+            <button type="button" className={`hr-pill-btn ${filter === 'FAILED_EXTRACTION' ? 'is-active' : ''}`} onClick={() => setFilter('FAILED_EXTRACTION')} role="tab" aria-selected={filter === 'FAILED_EXTRACTION'}>Failed Extractions</button>
+            <button type="button" className={`hr-pill-btn ${filter === 'UNRESOLVED' ? 'is-active' : ''}`} onClick={() => setFilter('UNRESOLVED')} role="tab" aria-selected={filter === 'UNRESOLVED'}>Pending / Unprocessed</button>
+          </div>
           <div className="hr-queue-header">
             <span>Inquiry Queue ({filteredItems.length})</span>
             <button
@@ -437,10 +421,10 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
                 <div
                   key={message.message_id}
                   className={`hr-queue-item ${selectedId === message.message_id ? 'is-selected' : ''}`}
-                  onClick={() => setSelectedId(message.message_id)}
+                  onClick={() => selectInquiry(message.message_id)}
                   role="listitem"
                   tabIndex={0}
-                  onKeyDown={e => { if (e.key === 'Enter') setSelectedId(message.message_id); }}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectInquiry(message.message_id); } }}
                 >
                   <div className="hr-item-top">
                     <span className="hr-sender">{message.raw?.sender_alias || 'Customer'}</span>
@@ -466,12 +450,16 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
 
         {/* Right Column: Detail & Review Workspace */}
         <div className="hr-detail-panel" aria-label="Inquiry detail and review controls">
+          {pendingSelection && <div className="hr-unsaved-warning" role="alert"><span>Unsaved review changes will be lost.</span><button type="button" className="p1-btn p1-btn-secondary" onClick={() => setPendingSelection(null)}>Keep editing</button><button type="button" className="p1-btn p1-btn-subtle-red" onClick={() => { setSelectedId(pendingSelection); setReviewStage('evidence'); setReviewerNote(''); setConflictsReviewed(false); setPendingSelection(null); }}>Discard and switch</button></div>}
           {!selectedMessage ? (
             <div className="hr-detail-empty">Select an inquiry from the left panel to begin review.</div>
           ) : (
             <div>
+              <div className="hr-detail-intro"><strong>{selectedMessage.raw?.sender_alias || 'Customer inquiry'}</strong><span>{selectedMessage.processing_status} · {selectedContext?.status || 'Context pending'}</span></div>
+              <WorkflowTabs stages={reviewStages} active={reviewStage} onChange={setReviewStage} label="Review stages" className="hr-review-tabs" />
+              <div className="hr-stage-content">
               {/* Evidence Section */}
-              <section className="hr-section" aria-labelledby="hr-evidence-title">
+              <section className="hr-section hr-stage" data-active={reviewStage === 'evidence'} aria-labelledby="hr-evidence-title">
                 <div className="hr-section-title">
                   <h3 id="hr-evidence-title" style={{ margin: 0, fontSize: '15px' }}>Original Evidence</h3>
                   <span className="p1-dim-badge">{selectedMessage.provider || 'SYNTHETIC'}</span>
@@ -519,17 +507,19 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
 
               {/* AI Understanding & Extraction Section */}
               {selectedExtraction && (
-                <section className="hr-section" aria-labelledby="hr-ai-title">
+                <section className="hr-section hr-stage" data-active={reviewStage === 'extraction'} aria-labelledby="hr-ai-title">
                   <div className="hr-section-title">
                     <h3 id="hr-ai-title" style={{ margin: 0, fontSize: '15px' }}>AI Understanding & Model Telemetry</h3>
                     <span className="p1-dim-badge">v: {selectedExtraction.extractor_version}</span>
                   </div>
-                  <ExtractionProvenance attempt={selectedExtraction} />
+                  <p className="muted">{selectedContext?.requested_items?.length || 0} structured item(s) · {selectedContext?.missing_fields?.length || 0} missing field(s) · {selectedContext?.conflicts?.length || 0} conflict(s)</p>
+                  <details><summary>Advanced model telemetry and evidence</summary><ExtractionProvenance attempt={selectedExtraction} /></details>
                 </section>
               )}
+              {!selectedExtraction && <section className="hr-section hr-stage" data-active={reviewStage === 'extraction'}><h3>AI Extraction</h3><p>No extraction attempt is available for this inquiry.</p></section>}
 
               {/* Order Context & Multi-Item Field Correction Section */}
-              <section className="hr-section" aria-labelledby="hr-context-title">
+              <section className="hr-section hr-stage" data-active={reviewStage === 'amendments' || reviewStage === 'resolution'} aria-labelledby="hr-context-title">
                 <div className="hr-section-title">
                   <h3 id="hr-context-title" style={{ margin: 0, fontSize: '15px' }}>
                     Order Context & Structured Draft {selectedContext ? `(v${selectedContext.context_version})` : ''}
@@ -589,6 +579,7 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
                       </div>
                     )}
 
+                    <div className="hr-stage" data-active={reviewStage === 'amendments'}>
                     {/* Candidate proposals banner */}
                     {candidateProposals.length > 0 && (
                       <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '10px 12px', marginBottom: '14px' }}>
@@ -772,6 +763,9 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
                       />
                     </div>
 
+                    </div>
+                    <div className="hr-stage" data-active={reviewStage === 'resolution'}>
+                    <p className="muted">Review the current context and resolve any remaining questions before recording an outcome.</p>
                     {/* Issues Timeline & Clarification Lane */}
                     {issuesData && issuesData.issues.length > 0 && (
                       <div className="hr-issues-timeline-card" aria-label="Clarification Issues Timeline">
@@ -906,9 +900,12 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
                         </button>
                       </div>
                     </div>
+                    </div>
                   </div>
                 )}
               </section>
+              </div>
+              <div className="hr-stage-footer"><button type="button" className="p1-btn p1-btn-secondary" disabled={reviewStage === 'evidence'} onClick={() => setReviewStage(reviewStages[Math.max(0, reviewStages.findIndex(item => item.id === reviewStage) - 1)].id)}>Back</button><span>{reviewStages.findIndex(item => item.id === reviewStage) + 1} of {reviewStages.length}</span><button type="button" className="p1-btn p1-btn-secondary" disabled={reviewStage === 'resolution'} onClick={() => setReviewStage(reviewStages[Math.min(reviewStages.length - 1, reviewStages.findIndex(item => item.id === reviewStage) + 1)].id)}>Next</button></div>
             </div>
           )}
         </div>

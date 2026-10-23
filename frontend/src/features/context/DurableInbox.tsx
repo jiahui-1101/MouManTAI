@@ -1695,6 +1695,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
         <ReviewDrawer
 
           context={activeContext}
+          sourceMessage={data && activeContext.source_message_ids?.includes(data.message_id) ? data.raw.text : undefined}
 
           isOpen={showReviewDrawer}
 
