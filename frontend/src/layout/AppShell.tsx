@@ -81,7 +81,7 @@ export function AppShell() {
         <Sidebar />
 
         <div className="shell-workspace">
-          <header className="topbar">
+          <header className="topbar sr-only">
             <div>
               <p className="eyebrow">Business command center</p>
               <h1>MouManTAI</h1>
