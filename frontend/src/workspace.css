@@ -60,10 +60,25 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .metric-card-summary.selected { border-color: #168b91; background: #edfafa; }
 :is(.section-title, .card-count, .attention-summary, .id-cell, .cc-metric strong) { color: var(--workspace-ink); }
 :is(.card-label, .card-desc, .attention-meta, .attention-time) { color: var(--workspace-muted); }
+.card-badge, .count-pill, .attention-meta code { background: #eaf4f7; color: #28627a; }
+.metric-card-summary.badge-success .card-count { color: #147554; }
+.metric-card-summary.badge-danger .card-count { color: #a83e45; }
+.metric-card-summary.badge-warning .card-count { color: #8b6315; }
+.metric-card-summary.badge-purple .card-count { color: #66539d; }
+.metric-card-summary.badge-info .card-count { color: #176b9c; }
+.metric-card-summary.badge-neutral .card-count { color: #536d7d; }
+.empty-notice { border-color: #b7d8cb; color: #1b7552; background: #f5fbf7; }
+.empty-state-card, .empty-state { background: #fff; border-color: #cbdce3; }
+.empty-state-card h4, .empty-state h3 { color: var(--workspace-ink); }
+.filter-chips-bar { border-color: var(--workspace-line); }
 .search-input, .filter-chip { background: #fff; border-color: #c8dbe4; color: var(--workspace-ink); }
 .filter-chip:hover, .filter-chip.active { background: #e9f5f7; color: #076b73; border-color: #8dc4ca; }
 .commitments-table th { background: #f2f7f9; color: #476275; }
 .commitments-table td { color: var(--workspace-ink); border-color: var(--workspace-line); }
+.commitments-table tr:hover td { background: #f4fafb; }
+.primary-id-link, .secondary-id a { color: #176b9c; }
+.primary-id-link:hover, .secondary-id a:hover { color: #0c557d; }
+.customer-cell { color: var(--workspace-ink); }
 .status-badge.badge-success { background: #e5f6ed; color: #146e49; border-color: #b8e5cc; }
 .status-badge.badge-danger { background: #fff0f0; color: #a53c44; border-color: #ecc3c5; }
 .status-badge.badge-warning, .status-badge.badge-amber { background: #fff5e3; color: #875f13; border-color: #ecd49f; }
@@ -116,6 +131,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .timeline-track { border-color: #c9dfe8; }
 .timeline-entry-card::before { border-color: #fff; }
 .timeline-entry-card.governance-highlight { background: #f5fbfd; border-color: #add6e1; }
+.correlation-chain-card { background: #fff; border-color: var(--workspace-line); }
+.correlation-chain-header { border-color: var(--workspace-line); }
+.chain-title h4 { color: var(--workspace-ink); }
+.chain-subtitle { color: var(--workspace-muted); }
+.corr-link-btn { color: #176b9c; border-color: #bdd3de; }
+.deep-link-f1, .deep-link-f2 { color: #176b9c; background: #eaf4fa; border-color: #c2dce8; }
+.deep-link-f3 { color: #855e18; background: #fff5e4; border-color: #edd7aa; }
+.deep-link-f4 { color: #14795b; background: #eaf7f0; border-color: #c2e5d0; }
+.evidence-chip { background: #f1f6f8; color: #46687a; border-color: #cbdce3; }
+.approval-header h4 { color: var(--workspace-ink); }
+.proposal-meta { color: var(--workspace-muted); }
+.permission-notice { background: #fff5e4; color: #815c16; border-color: #e9d49f; }
+.error-banner { background: #fff0f0; color: #a23c45; border-color: #e8c0c3; }
+.success-banner { background: #eaf7ef; color: #176e4b; border-color: #bce1ca; }
 .entry-action-title, .gov-reason { color: var(--workspace-ink); }
 .gov-badge, .btn-link { color: #176b9c; }
 .gov-actor, .gov-detail, .gov-reason-label { color: var(--workspace-muted); }
