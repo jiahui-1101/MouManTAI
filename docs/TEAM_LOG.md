@@ -3613,3 +3613,10 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - PR #50 mapper/candidate were not recreated or edited. Current A-side proposal remains in PR #50 `docs/BACKEND_A_B_INTEGRATION_CONTRACT.md`. `BACKEND_AB_CONTRACT_HANDOFF.md` was absent from fetched #48/#50 repository trees, so no Backend B contract contents or alignment are inferred. Exact two-sided review is pending actual document delivery.
 - No migration, acceptance, reservation, P2 evaluator, Core transition, production operation, external send or product-policy ratification. S1–S5 remain unratified. This entry records implementation/validation evidence only; no D-ID/ADR or product decision is created.
 - Next: publish the separate stacked Draft PR targeting #48; obtain P1/P5 review of revision and timezone compatibility plus Backend B review of trusted evidence reloading. Then design a reviewed tenant-scoped evidence currentness adapter without enabling acceptance.
+
+### 2026-10-24 — Backend A foundation hardening Draft PR publication
+
+- Published branch `backend-a/fix-order-terms-foundation-hardening`, HEAD `9f25d6c7e3edf1bfdbdc2b377fbcba5e4412cf6b`, with code/tests commit `941b817` and documentation commit `9f25d6c`.
+- Opened Draft PR #52 (https://github.com/jiahui-1101/MouManTAI/pull/52) against PR #48 branch `codex/feat-v2-2-backend` at `741976d3cdd59352d66a30c5712ce9eca5d3bc16`. Requested P1 `mavisbong41` and P5 `Gan0117`. GitHub reported open, Draft, unmerged, mergeable; no CI status checks yet.
+- At publication, #48/#49/#50/#52 remained open Draft/unmerged at heads `741976d3...` / `62040da0...` / `fd7be2e2...` / `9f25d6c7...`; latest fetched Main `67627cb782a02c7e47bd0812d861f55ff8bb5982`. Exact records: `docs/BACKEND_V2_2_HANDOFF.md` and `docs/BACKEND_A_ORDER_TERMS_HARDENING_VALIDATION.md`.
+- The Backend B handoff file was not present in the actual PR #48/#50 trees; comparison remains pending, and no Backend B contract contents are inferred. No other PR history or Main was changed; S1–S5 remain unratified.

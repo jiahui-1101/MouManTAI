@@ -45,3 +45,8 @@ The A-side proposal is `docs/BACKEND_A_B_INTEGRATION_CONTRACT.md` on PR #50. `BA
 - S1–S5 remain unratified; no product policy or customer assent semantics were ratified here.
 - No persistence, acceptance, P2 evaluation, SME approval, reservation, Core transition, outbound communication or production operation is implemented/enabled.
 - This is a separate foundation hardening change based on PR #48, not a duplicate P1 mapper/AcceptanceCandidate PR.
+## Publication checkpoint
+
+- Final branch HEAD: `9f25d6c7e3edf1bfdbdc2b377fbcba5e4412cf6b` (`941b817` code/tests plus `9f25d6c` docs).
+- Draft PR #52: https://github.com/jiahui-1101/MouManTAI/pull/52, based on open Draft PR #48 branch at `741976d3cdd59352d66a30c5712ce9eca5d3bc16`. P1 `mavisbong41` and P5 `Gan0117` requested. PR #52 is open, Draft, unmerged and mergeable; no CI statuses were returned at this check.
+- PR #48/#49/#50/#52 all remain open Draft/unmerged at heads `741976d3...` / `62040da0...` / `fd7be2e2...` / `9f25d6c7...`. Latest fetched Main: `67627cb782a02c7e47bd0812d861f55ff8bb5982`.
