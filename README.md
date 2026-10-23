@@ -1,18 +1,18 @@
-# PromiseFlow
+# MouManTAI
 
 ### Protect the promise, even when the plan changes.
 
 **SDC Hackathon 2026 · Domain 2 · Orbyte Smart SME Challenge · Alpha Red Solutions**
 
-PromiseFlow turns fragmented business communication into **actionable customer-commitment recovery**. From a WhatsApp order to a supplier delay, then stock and capacity checks, recovery options and human approval, it helps SMEs protect what they promised customers, without replacing the spreadsheets, chats and systems they already use.
+MouManTAI turns fragmented business communication into **actionable customer-commitment recovery**. From a WhatsApp order to a supplier delay, then stock and capacity checks, recovery options and human approval, it helps SMEs protect what they promised customers, without replacing the spreadsheets, chats and systems they already use.
 
-An SME can promise a delivery in one conversation, learn about a supplier delay in another, and keep stock and production plans in a spreadsheet. **PromiseFlow connects those fragments around the customer commitment**: it finds the promises that are really at risk, compares realistic recovery choices, asks an authorized person to approve, and tracks customer agreement and actual delivery as separate outcomes.
+An SME may promise delivery in a chat, hear about a supplier delay elsewhere, and track stock in a spreadsheet. **MouManTAI identifies affected commitments**, compares recovery choices, requests authorized approval, and tracks customer agreement separately from actual delivery.
 
 > **Prototype note (23 Oct 2026):** F1–F4 APIs and screens run on **synthetic data**. WhatsApp, Email, Telegram, outbound messages and Orbyte connections are simulated or proposed. See [Project status](#project-status-and-validation) for exactly what has and has not been verified.
 >
-> The repository and application still use the engineering name **MouManTAI** (database, package and API names). **MouManTAI = PromiseFlow**; names were not changed to avoid breaking APIs.
+> Code identifiers (database, package, API names) use the lowercase form `moumantai`.
 
-**Explore:** [Problem](#the-problem) · [Story](#one-sme-story) · [Capabilities](#four-connected-capabilities) · [Why different](#why-promiseflow-is-different) · [Control](#people-stay-in-control) · [AI](#selective-ai-ml-and-llm-architecture) · [Architecture](#system-architecture) · [Demo](#prototype-demo) · [Market](#first-market-and-business-model-hypotheses) · [Privacy](#privacy-and-pdpa-in-a-real-deployment) · [Risks](#hardest-risks-and-fallbacks) · [Run](#run-locally) · [Status](#project-status-and-validation)
+**Explore:** [Problem](#the-problem) · [Story](#one-sme-story) · [Capabilities](#four-connected-capabilities) · [Why different](#why-moumantai-is-different) · [Control](#people-stay-in-control) · [AI](#selective-ai-ml-and-llm-architecture) · [Architecture](#system-architecture) · [Demo](#prototype-demo) · [Market](#first-market-and-business-model-hypotheses) · [Privacy](#privacy-and-pdpa-in-a-real-deployment) · [Risks](#hardest-risks-and-fallbacks) · [Run](#run-locally) · [Status](#project-status-and-validation)
 
 ## The problem
 
@@ -26,7 +26,7 @@ When a supplier is late, a reminder does not answer **which promises are affecte
 
 ## Our solution
 
-PromiseFlow is a **commitment-centered automation layer** that:
+MouManTAI is a **commitment-centered automation layer** that:
 
 1. Connects incoming business information to the right order, keeping its source and uncertainty.
 2. Rechecks stock, supplier timing and capacity when an operational fact changes.
@@ -40,7 +40,7 @@ PromiseFlow is a **commitment-centered automation layer** that:
 
 **A caterer promises 100 lunch boxes by 3 pm.** A packaging supplier later reports that 20 boxes will arrive after the production cutoff.
 
-| Moment | Normal manual work | PromiseFlow's intended response |
+| Moment | Normal manual work | MouManTAI's intended response |
 |---|---|---|
 | Customer request | Find the original chat, write down quantity and deadline. | Link the message to a reviewable order context and a versioned commitment. |
 | Supplier delay | Check stock; work out which other orders use the same packaging. | Recalculate only the commitments truly affected, against a fresh operational snapshot. |
@@ -61,11 +61,11 @@ PromiseFlow is a **commitment-centered automation layer** that:
 
 The **Shared Commitment Registry (P5)** is the backbone, **not a fifth feature**: one tenant/commitment identity, versioned terms, separate agreement / feasibility / risk / recovery / fulfilment states, audit records and outbox events.
 
-## Why PromiseFlow is different
+## Why MouManTAI is different
 
 A fair question is: *isn't this just an order system plus AI?* The table compares **design intent**, not measured superiority over any product.
 
-| Capability | Typical tools (chat apps, spreadsheets, basic order tools) | PromiseFlow design goal |
+| Capability | Typical tools (chat apps, spreadsheets, basic order tools) | MouManTAI design goal |
 |---|---|---|
 | Understand messages | Messages stay in separate channels; staff re-type details. | Extract fields across channels with source spans, uncertainty and manual review. |
 | Supplier delay | Someone is notified and must work out the effect. | Re-evaluate commitments and flag only those actually affected. |
@@ -73,7 +73,7 @@ A fair question is: *isn't this just an order system plus AI?* The table compare
 | Decision | Verbal or scattered approvals. | Approval bound to actor, role, plan version and snapshot version; stale approvals are blocked. |
 | Outcome | Order status only. | Message state, customer acceptance, action result and fulfilment evidence tracked separately. |
 
-Core rules: `REQUESTED ≠ CONFIRMED`, `APPROVED ≠ EXECUTED`, `SENT ≠ ACCEPTED ≠ FULFILLED`, supplier promise ≠ goods received, receipt image ≠ verified payment. PromiseFlow can complement spreadsheets, order systems or an ERP; it does not replace them.
+Core rules: `REQUESTED ≠ CONFIRMED`, `APPROVED ≠ EXECUTED`, `SENT ≠ ACCEPTED ≠ FULFILLED`, supplier promise ≠ goods received, receipt image ≠ verified payment. MouManTAI can complement spreadsheets, order systems or an ERP; it does not replace them.
 
 ## People stay in control
 
@@ -210,7 +210,7 @@ No screenshots are committed yet, so this section lists reproducible routes. <!-
 
 | Metric | How measured |
 |---|---|
-| Time from supplier change to a list of affected commitments | Stopwatch on the same scenario, manual vs PromiseFlow |
+| Time from supplier change to a list of affected commitments | Stopwatch on the same scenario, manual vs MouManTAI |
 | Affected commitments overlooked | Count against a labelled scenario set |
 | Time to an approved response | Timestamps from the audit log |
 | Duplicate or missed customer follow-ups | Count per scenario |
@@ -225,7 +225,7 @@ No screenshots are committed yet, so this section lists reproducible routes. <!-
 
 **First target:** small catering and food-production SMEs in Malaysia that take orders over WhatsApp, rely on a few key suppliers and have tight delivery cut-offs. Their commitments are frequent, time-sensitive and easy to explain. Later segments with delivery promises: small manufacturers, wholesalers and distributors.
 
-**Why they might switch:** they already lose time reconstructing which orders a late supplier affects; PromiseFlow does not ask them to abandon WhatsApp or their spreadsheets.
+**Why they might switch:** they already lose time reconstructing which orders a late supplier affects; MouManTAI does not ask them to abandon WhatsApp or their spreadsheets.
 
 **Delivery and pricing: hypotheses to validate with SMEs, none tested yet:**
 
@@ -235,7 +235,7 @@ No screenshots are committed yet, so this section lists reproducible routes. <!-
 
 ## Orbyte ecosystem fit
 
-PromiseFlow adds a **distinct SME capability** (commitment assurance and recovery) rather than duplicating Orbyte's HR and administrative functions. As a connected capability it could:
+MouManTAI adds a **distinct SME capability** (commitment assurance and recovery) rather than duplicating Orbyte's HR and administrative functions. As a connected capability it could:
 
 - **Read** customer requests, inventory, supplier changes and permission context through agreed adapters.
 - **Write back** risk, approval, communication and audit events with stable IDs and versions.
@@ -276,7 +276,7 @@ This is an implementation plan, not legal advice or a compliance claim.
 # From repository root. Edit .env with a local PostgreSQL password first.
 Copy-Item .env.example .env
 $env:P1_AI_ENABLED = 'false' # offline deterministic demo; overrides .env for Compose
-docker compose up --build
+docker compose up -d --build
 Invoke-RestMethod http://localhost:8000/health
 ```
 
@@ -285,7 +285,7 @@ Invoke-RestMethod http://localhost:8000/health
 ```bash
 cp .env.example .env   # then edit .env with a local PostgreSQL password
 export P1_AI_ENABLED=false   # offline deterministic demo
-docker compose up --build
+docker compose up -d --build
 curl http://localhost:8000/health
 ```
 
@@ -321,7 +321,7 @@ Use the same `DATABASE_URL` for migration, seed and API.
 
 ## Project status and validation
 
-Status reflects repository evidence at the 23 Oct 2026 audit (commit `<fill in commit hash>`), not a production deployment.
+Status reflects repository evidence at the 23 Oct 2026 audit, not a production deployment.
 
 | Area | Status | Evidence / limit |
 |---|---|---|
@@ -347,11 +347,11 @@ Status reflects repository evidence at the 23 Oct 2026 audit (commit `<fill in c
 
 | Member | Module |
 |---|---|
-| `Bong Zi Shan` | **P1:** context intelligence and inbox |
-| `Lee Mei Shuet` | **P2:** feasibility and impact |
-| `Wong Jia Hui` | **P3:** recovery and approval |
-| `Loh Su Ting` | **P4:** communication and confirmation |
-| `Gan Rui En` | **P5:** registry, shared contracts and integration |
+| Bong Zi Shan | **P1:** context intelligence and inbox |
+| Lee Mei Shuet | **P2:** feasibility and impact |
+| Wong Jia Hui | **P3:** recovery and approval |
+| Loh Su Ting | **P4:** communication and confirmation |
+| Gan Rui En | **P5:** registry, shared contracts and integration |
 
 - [System requirements](docs/REQUIREMENTS_SYSTEM.md) · [Team log](docs/TEAM_LOG.md) · [Mentorship preparation](docs/MENTORSHIP_PREP.md) · [Repository instructions](AGENTS.md)
 - Prepared for the **SDC Hackathon 2026 Domain 2** challenge in the Orbyte Smart SME context, with thanks to **Alpha Red Solutions**. Product claims are limited to repository and test evidence.
