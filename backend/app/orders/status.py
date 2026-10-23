@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
+from app.core.fulfilment_evidence import are_trusted_synthetic_delivery_refs
 from app.core.models import AuditEventRecord, CommitmentRecord
 from app.orders.terms import ImmutableContract, Text
 
@@ -54,7 +55,10 @@ def read_status_preview(db: Session, context: RequestContext, commitment_id: str
             if (isinstance(version, int) and not isinstance(version, bool)
                     and 1 <= version <= record.commitment_version
                     and state.get("fulfilment_state") == "FULFILLED"
-                    and audit.evidence_refs and set(audit.evidence_refs) <= set(record.evidence_refs)):
+                    and are_trusted_synthetic_delivery_refs(audit.evidence_refs,
+                                                           tenant_id=context.tenant_id,
+                                                           commitment_id=commitment_id)
+                    and set(audit.evidence_refs) <= set(record.evidence_refs)):
                 evidence = tuple(audit.evidence_refs)
                 break
         status = "COMPLETED" if evidence else "COMPLETION_VERIFICATION_PENDING"

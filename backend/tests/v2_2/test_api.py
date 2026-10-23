@@ -125,20 +125,21 @@ def test_fulfilled_without_matching_audit_never_projects_completed(client, sessi
 
 
 def test_core_fulfilment_audit_projects_completed_and_does_not_write(client, session, isolated):
-    seed_commitment(session, fulfilment_state="FULFILLED", evidence_refs=["ev_order", "ev_pod_22"])
+    proof = "ev_synthetic_delivery|a|com_v22|proof22"
+    seed_commitment(session, fulfilment_state="FULFILLED", evidence_refs=["ev_order", proof])
     session.add(AuditEventRecord(
         audit_id="aud_v22", tenant_id="a", commitment_id="com_v22",
         event_type="commitment.fulfilment_verified", actor_id="manager_v22", actor_role="MANAGER",
         dimension="fulfilment", previous_state={},
         new_state={"fulfilment_state": "FULFILLED", "commitment_version": 3},
-        evidence_refs=["ev_pod_22"], reason="Synthetic delivery receipt",
+        evidence_refs=[proof], reason="Synthetic delivery receipt",
         correlation_id="corr_v22", occurred_at=datetime.now(UTC),
     ))
     session.commit()
     result = client.get("/v1/backend-v2/commitments/com_v22/status-preview", headers=HEADERS).json()
     assert result["customer_status"] == "COMPLETED"
     assert result["fulfilment_verified"]
-    assert result["evidence_refs"] == ["ev_pod_22"]
+    assert result["evidence_refs"] == [proof]
     assert session.scalar(select(func.count()).select_from(AuditEventRecord)) == 1
     assert session.scalar(select(func.count()).select_from(OutboxEventRecord)) == 0
 
@@ -168,10 +169,26 @@ def test_real_core_http_lifecycle_readback_uses_persisted_fulfilment_audit(clien
     assert client.get(path, headers=HEADERS).json()["customer_status"] == "ORDER_ACCEPTANCE_UNVERIFIED"
     fulfilled = client.post(f"/v1/commitments/{cid}/record-fulfilment", headers=core_headers, json={
         "expected_commitment_version": 3, "fulfilment_state": "FULFILLED",
-        "reason": "Synthetic operational delivery proof", "evidence_refs": ["ev_pod_http"],
+        "reason": "Synthetic operational delivery proof",
+        "evidence_refs": [f"ev_synthetic_delivery|a|{cid}|proof_http"],
     })
     assert fulfilled.status_code == 200, fulfilled.text
     status = client.get(path, headers=HEADERS).json()
     assert status["customer_status"] == "COMPLETED"
     assert status["commitment_version"] == 4
-    assert status["evidence_refs"] == ["ev_pod_http"]
+    assert status["evidence_refs"] == [f"ev_synthetic_delivery|a|{cid}|proof_http"]
+
+
+def test_old_unscoped_audit_evidence_does_not_bypass_current_core_policy(client, session, isolated):
+    seed_commitment(session, fulfilment_state="FULFILLED", evidence_refs=["ev_pod_old"])
+    session.add(AuditEventRecord(
+        audit_id="aud_old", tenant_id="a", commitment_id="com_v22",
+        event_type="commitment.fulfilment_verified", actor_id="manager_v22", actor_role="MANAGER",
+        dimension="fulfilment", previous_state={},
+        new_state={"fulfilment_state": "FULFILLED", "commitment_version": 3},
+        evidence_refs=["ev_pod_old"], reason="Legacy unscoped receipt",
+        correlation_id="corr_old", occurred_at=datetime.now(UTC),
+    ))
+    session.commit()
+    result = client.get("/v1/backend-v2/commitments/com_v22/status-preview", headers=HEADERS).json()
+    assert result["customer_status"] == "COMPLETION_VERIFICATION_PENDING"
