@@ -25,7 +25,8 @@ The source retains distinct `SENT`, `ACCEPTED`, `EXECUTED` and `FULFILLED` meani
 - Full Vitest: **475 passed, 5 skipped** across 30 files. Existing ReviewDrawer `act(...)` warnings remain; no test failed.
 - TypeScript: `npm run typecheck` passed.
 - Build: `npm run build` passed. Vite reported the existing JS chunk size warning.
-- Chrome browser smoke: `/overview`, `/activity`, `/inbox`, `/orders/demo`, `/commitments/demo`, `/impact/demo`, `/recovery/demo`, `/recovery/demo/plans`, `/communications`, `/confirmations/demo` at **1440, 1024, 768, 390** pixels. Every page had `document.scrollWidth === viewport width`; no document overflow. At 390 pixels, menu opened, Activity navigation closed it, role selector remained visible.
+- Chrome browser smoke: `/overview`, `/activity`, `/inbox`, `/orders/demo`, `/commitments/demo`, `/impact/demo`, `/recovery/demo`, `/recovery/demo/plans`, `/communications`, `/communications/follow-ups`, `/confirmations/demo` at **1440, 1024, 768, 390** pixels. Every page had `document.scrollWidth === viewport width`; no document overflow. At 390 pixels, menu opened, Activity navigation closed it, role selector remained visible.
+- A browser route fixture rendered all seven populated overview KPI cards in [this screenshot](screenshots/unified-frontend/overview-populated-1440.png). The fixture is visual test data, not backend evidence.
 - [Before screenshots](screenshots/unified-frontend/before) are from PR #40. [After screenshots](screenshots/unified-frontend) are from this branch. They show actual disconnected, error and synthetic states; they are not a live backend success claim.
 
 ## Backend and review gates
