@@ -46,6 +46,10 @@ def route_keys(routes):
 
 def test_main_registers_every_existing_p4_route_once_without_extra_prefix():
     expected = {
+        ("GET", "/v1/follow-ups"),
+        ("POST", "/v1/follow-ups"),
+        ("POST", "/v1/follow-ups/run-due"),
+        ("POST", "/v1/follow-ups/{task_id}/cancel"),
         ("GET", "/v1/communications/runtime-capabilities"),
         ("GET", "/v1/communications/recipient-preferences"),
         ("POST", "/v1/communications/recipient-preferences"),
