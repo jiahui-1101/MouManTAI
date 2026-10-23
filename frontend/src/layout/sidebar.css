@@ -52,8 +52,8 @@
 .sidebar-item-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-item.is-active .sidebar-icon { color: var(--ui-primary); }
 .sidebar-icon { flex: none; width: 20px; height: 20px; color: #627893; }
-.sidebar-chevron { margin-left: auto; color: #71849e; font-size: 1.15rem; line-height: 1; transform: rotate(-90deg); transition: transform .18s; }
-.sidebar-chevron.is-open { transform: rotate(0); }
+.sidebar-chevron { margin-left: auto; flex: none; width: 16px; height: 16px; color: #71849e; transform: rotate(-90deg); transition: transform .18s ease; }
+.sidebar-chevron.is-open { transform: rotate(0deg); }
 .sidebar-submenu { padding-left: 17px; }
 .sidebar-submenu[hidden] { display: none; }
 .sidebar-submenu .sidebar-item { min-height: 39px; font-size: .86rem; }
@@ -67,20 +67,36 @@
 .sidebar.is-collapsed .sidebar-item { justify-content: center; min-height: 46px; padding: 9px 0; }
 .sidebar.is-collapsed .sidebar-unavailable-content { justify-content: center; width: 100%; }
 
-.sidebar-footer { display: block; position: relative; flex: none; margin: auto -12px 0; padding: 9px 12px 12px; border-top: 1px solid var(--ui-divider); background: #fff; }
-.sidebar-account-toggle { display: flex; align-items: center; gap: 9px; width: 100%; padding: 4px; border: 0; border-radius: 7px; background: transparent; color: var(--ui-text); text-align: left; cursor: pointer; }
-.sidebar-account-toggle:hover { background: #f1f7ff; }
-.sidebar-avatar { flex: none; margin: 0; }
-.sidebar-account-copy { display: flex; flex-direction: column; min-width: 0; }
-.sidebar-account-copy small { color: var(--ui-muted); font-size: .72rem; }
-.sidebar-account-panel { display: flex; flex-direction: column; gap: 5px; padding: 5px 4px 0; }
-.sidebar-account-panel .tenant-badge { align-self: flex-start; padding: 2px 6px; font-size: .69rem; }
-.sidebar-account-panel .role-label { font-size: .7rem; }
-.sidebar-account-panel .role-selector { width: 100%; min-height: 35px; }
-.sidebar.is-collapsed .sidebar-account-toggle { justify-content: center; }
-.sidebar.is-collapsed .sidebar-account-copy { display: none; }
-.sidebar.is-collapsed .sidebar-account-panel { display: none; position: absolute; left: calc(100% + 7px); bottom: 8px; width: 245px; padding: 12px; border: 1px solid var(--ui-divider); border-radius: 8px; background: #fff; box-shadow: var(--ui-shadow); }
-.sidebar.is-collapsed .sidebar-account-panel.is-open { display: flex; }
+.sidebar-footer { display: block; position: relative; flex: none; margin: auto -12px 0; padding: 10px 12px; border-top: 1px solid var(--ui-divider); background: #fff; }
+.sidebar-account-btn { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--ui-text); text-align: left; cursor: pointer; transition: background-color .16s ease, border-color .16s ease; }
+.sidebar-account-btn:hover { background: #f1f5f9; border-color: #e2e8f0; }
+.sidebar-account-btn:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 1px; }
+
+.sidebar-user-avatar { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 38px; height: 38px; }
+.sidebar-user-avatar.is-small { width: 32px; height: 32px; }
+.sidebar-user-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.sidebar-status-dot { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; background-color: #22c55e; border: 2px solid #ffffff; box-sizing: border-box; }
+
+.sidebar-user-info { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.25; }
+.sidebar-user-name { display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .88rem; font-weight: 600; color: #1e293b; }
+.sidebar-user-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .76rem; color: #64748b; }
+.sidebar-user-chevrons { margin-left: auto; display: flex; align-items: center; justify-content: center; flex: none; color: #64748b; transition: color .16s ease; }
+.sidebar-account-btn:hover .sidebar-user-chevrons { color: #1e293b; }
+
+.sidebar-account-dropdown { position: absolute; bottom: calc(100% + 8px); left: 12px; right: 12px; padding: 8px; border: 1px solid var(--ui-divider); border-radius: 10px; background: #ffffff; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08); z-index: 60; }
+.sidebar-account-dropdown-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 8px; border-bottom: 1px solid #f1f5f9; margin-bottom: 6px; }
+.sidebar-account-dropdown-label { font-size: .68rem; font-weight: 700; letter-spacing: .04em; color: #94a3b8; }
+.sidebar-account-dropdown-header .tenant-badge { font-size: .7rem; padding: 2px 6px; border-radius: 4px; background: #f1f5f9; color: #475569; }
+.sidebar-account-options { display: flex; flex-direction: column; gap: 4px; }
+.sidebar-account-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; background: #ffffff; color: var(--ui-text); text-align: left; cursor: pointer; transition: background-color .15s ease; }
+.sidebar-account-option:hover, .sidebar-account-option:focus-visible { background: #f8fafc; outline: none; }
+.sidebar-account-option.is-selected { background: #eff6ff; border-color: #bfdbfe; }
+.sidebar-role-tag { font-size: .68rem; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: #e2e8f0; color: #475569; }
+.sidebar-account-check { margin-left: auto; color: var(--ui-primary); font-weight: 800; font-size: .95rem; }
+
+.sidebar.is-collapsed .sidebar-account-btn { justify-content: center; padding: 6px 0; }
+.sidebar.is-collapsed .sidebar-user-info, .sidebar.is-collapsed .sidebar-user-chevrons { display: none; }
+.sidebar.is-collapsed .sidebar-account-dropdown { left: calc(100% + 8px); bottom: 0; width: 260px; right: auto; }
 
 @media (max-width: 900px) {
   .app-shell, .app-shell:has(.sidebar.is-collapsed) { grid-template-columns: 1fr; }
@@ -102,10 +118,7 @@
   .sidebar.is-collapsed .sidebar-item-label, .sidebar.is-collapsed .sidebar-chevron, .sidebar.is-collapsed .sidebar-submenu, .sidebar.is-collapsed .sidebar-soon { display: initial; }
   .sidebar-submenu { padding-left: 7px; }
   .sidebar-footer, .sidebar.is-collapsed .sidebar-footer { margin: 4px 0 0; padding: 5px 0 0; border: 0; }
-  .sidebar-account-toggle { display: none; }
-  .sidebar-account-panel, .sidebar.is-collapsed .sidebar-account-panel { position: static; display: flex; width: auto; padding: 0; border: 0; box-shadow: none; }
-  .sidebar-account-panel .tenant-badge { display: none; }
-  .sidebar-account-panel .role-selector { max-width: 300px; }
+  .sidebar-account-dropdown { left: 0; right: 0; width: 100%; bottom: calc(100% + 5px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .sidebar, .sidebar-item, .sidebar-chevron { transition: none; }

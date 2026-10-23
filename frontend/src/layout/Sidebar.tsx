@@ -44,6 +44,52 @@ function filterItems(items: NavigationItem[], query: string): NavigationItem[] {
   });
 }
 
+interface ActorDisplayInfo {
+  actorId: string;
+  role: string;
+  name: string;
+  email: string;
+  roleLabel: string;
+}
+
+const ACTOR_DISPLAY_LIST: ActorDisplayInfo[] = [
+  {
+    actorId: "user_owner_01",
+    role: "OWNER",
+    name: "SDC_Demo",
+    email: "momentnetid@gmail.com",
+    roleLabel: "Owner",
+  },
+  {
+    actorId: "user_manager_01",
+    role: "MANAGER",
+    name: "SDC_Manager",
+    email: "manager@sdc.demo",
+    roleLabel: "Manager",
+  },
+  {
+    actorId: "user_staff_01",
+    role: "STAFF",
+    name: "SDC_Staff",
+    email: "staff@sdc.demo",
+    roleLabel: "Staff",
+  },
+];
+
+function getActorDisplay(actorId: string, actorRole: string): ActorDisplayInfo {
+  const byId = ACTOR_DISPLAY_LIST.find(a => a.actorId === actorId);
+  if (byId) return byId;
+  const byRole = ACTOR_DISPLAY_LIST.find(a => a.role === actorRole);
+  if (byRole) return { ...byRole, actorId };
+  return {
+    actorId,
+    role: actorRole,
+    name: actorId,
+    email: `${actorId}@sdc.demo`,
+    roleLabel: actorRole,
+  };
+}
+
 export function Sidebar() {
   const { tenantId, actorId, actorRole, setActorId } = useAuth();
   const { pathname } = useLocation();
@@ -54,10 +100,13 @@ export function Sidebar() {
   const [search, setSearch] = useState("");
   const [organizationOpen, setOrganizationOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const currentActor = getActorDisplay(actorId, actorRole);
   const organizationRef = useRef<HTMLDivElement>(null);
   const organizationTriggerRef = useRef<HTMLButtonElement>(null);
   const organizationOptionRef = useRef<HTMLButtonElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
+  const accountTriggerRef = useRef<HTMLButtonElement>(null);
+  const accountOptionRef = useRef<HTMLButtonElement>(null);
   const filtered = useMemo(() => filterItems(navigation, search.trim().toLowerCase()), [search]);
 
   useEffect(() => {
@@ -84,25 +133,93 @@ export function Sidebar() {
 
   useEffect(() => {
     if (!accountOpen) return;
+    accountOptionRef.current?.focus();
     const onPointerDown = (event: PointerEvent) => {
       if (!accountRef.current?.contains(event.target as Node)) setAccountOpen(false);
     };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setAccountOpen(false);
+        accountTriggerRef.current?.focus();
+      }
+    };
     document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [accountOpen]);
 
-  const toggleGroup = (id: string) => setExpanded(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id]);
+  const toggleGroup = (id: string) =>
+    setExpanded(current => (current.includes(id) ? current.filter(value => value !== id) : [...current, id]));
+
+  const handleGroupClick = (id: string) => {
+    if (collapsed) {
+      setCollapsed(false);
+      setExpanded(current => (current.includes(id) ? current : [...current, id]));
+    } else {
+      toggleGroup(id);
+    }
+  };
+
   const renderItem = (item: NavigationItem, depth = 0) => {
     const active = isItemActive(item, pathname);
     const open = Boolean(search) || expanded.includes(item.id);
     const className = `sidebar-item${active ? " is-active" : ""}${depth ? " is-child" : ""}${!item.to && !item.children ? " is-unavailable" : ""}`;
-    const itemContent = <><Icon name={item.icon} /><span className="sidebar-item-label">{item.label}</span>{item.children && <span className={`sidebar-chevron${open ? " is-open" : ""}`} aria-hidden="true">⌄</span>}</>;
-    return <div key={item.id} className="sidebar-item-wrap">
-      {item.children ? <button type="button" className={className} aria-expanded={open} aria-controls={`sidebar-group-${item.id}`} aria-label={collapsed ? item.label : undefined} title={item.label} onClick={() => { if (collapsed) setCollapsed(false); setExpanded(current => current.includes(item.id) ? current : [...current, item.id]); if (!collapsed) toggleGroup(item.id); }}>{itemContent}</button>
-        : item.to ? <NavLink to={item.to} className={className} title={item.label} aria-label={collapsed ? item.label : undefined}>{itemContent}</NavLink>
-        : <span className={className} aria-disabled="true" title={`${item.label} — unavailable`}><span className="sidebar-unavailable-content">{itemContent}</span><span className="sidebar-soon">Unavailable</span></span>}
-      {item.children && <div id={`sidebar-group-${item.id}`} className="sidebar-submenu" hidden={!open}>{item.children.map(child => renderItem(child, depth + 1))}</div>}
-    </div>;
+    const itemContent = (
+      <>
+        <Icon name={item.icon} />
+        <span className="sidebar-item-label">{item.label}</span>
+        {item.children && (
+          <svg
+            className={`sidebar-chevron${open ? " is-open" : ""}`}
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        )}
+      </>
+    );
+    return (
+      <div key={item.id} className="sidebar-item-wrap">
+        {item.children ? (
+          <button
+            type="button"
+            className={className}
+            aria-expanded={open}
+            aria-controls={`sidebar-group-${item.id}`}
+            aria-label={collapsed ? item.label : undefined}
+            title={item.label}
+            onClick={() => handleGroupClick(item.id)}
+          >
+            {itemContent}
+          </button>
+        ) : item.to ? (
+          <NavLink to={item.to} className={className} title={item.label} aria-label={collapsed ? item.label : undefined}>
+            {itemContent}
+          </NavLink>
+        ) : (
+          <span className={className} aria-disabled="true" title={`${item.label} — unavailable`}>
+            <span className="sidebar-unavailable-content">{itemContent}</span>
+            <span className="sidebar-soon">Unavailable</span>
+          </span>
+        )}
+        {item.children && (
+          <div id={`sidebar-group-${item.id}`} className="sidebar-submenu" hidden={!open}>
+            {item.children.map(child => renderItem(child, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return <nav aria-label="Primary navigation" className={`sidebar${collapsed ? " is-collapsed" : ""}`}>
@@ -137,16 +254,113 @@ export function Sidebar() {
     <div className="sidebar-links">{filtered.length ? filtered.map(item => renderItem(item)) : <p className="sidebar-no-results" role="status">No matching navigation items</p>}</div>
 
     <div className="sidebar-footer" ref={accountRef}>
-      <button type="button" className="sidebar-account-toggle" aria-label={collapsed ? `Account: ${actorRole}. ${accountOpen ? "Close" : "Open"} role controls` : `Account: ${actorRole}`} aria-expanded={collapsed ? accountOpen : true} title={`${actorRole} · development role controls`} onClick={() => { if (collapsed) setAccountOpen(value => !value); }}><span className="sidebar-avatar" aria-hidden="true">{actorRole.slice(0, 1)}</span><span className="sidebar-account-copy"><strong>{actorRole}</strong><small>Development identity</small></span></button>
-      <div className={`sidebar-account-panel${accountOpen ? " is-open" : ""}`}>
-        <span className="tenant-badge" data-testid="shell-tenant-badge">{tenantId} · {actorRole}</span>
-        <label htmlFor="shell-role-select" className="role-label">Development role switcher</label>
-        <select id="shell-role-select" aria-label="Demo role selector" value={actorId} onChange={event => setActorId(event.target.value)} className="role-selector" data-testid="shell-role-selector">
-          <option value="user_owner_01">Owner (user_owner_01)</option>
-          <option value="user_manager_01">Manager (user_manager_01)</option>
-          <option value="user_staff_01">Staff (user_staff_01)</option>
-        </select>
-      </div>
+      <button
+        ref={accountTriggerRef}
+        type="button"
+        className="sidebar-account-btn"
+        aria-label={`Current user: ${currentActor.name} (${currentActor.roleLabel}). Switch user.`}
+        aria-haspopup="listbox"
+        aria-expanded={accountOpen}
+        title={`${currentActor.name} (${currentActor.roleLabel}) · Click to switch user`}
+        onClick={() => setAccountOpen(value => !value)}
+        onKeyDown={event => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setAccountOpen(true);
+          }
+        }}
+      >
+        <div className="sidebar-user-avatar">
+          <img src="/images/avatar.png" alt="" className="sidebar-user-img" />
+          <span className="sidebar-status-dot" aria-hidden="true" />
+        </div>
+
+        <div className="sidebar-user-info">
+          <strong className="sidebar-user-name">{currentActor.name}</strong>
+          <span className="sidebar-user-email">{currentActor.email}</span>
+        </div>
+
+        <span className="sidebar-user-chevrons" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m7 15 5 5 5-5" />
+            <path d="m7 9 5-5 5 5" />
+          </svg>
+        </span>
+      </button>
+
+      {accountOpen && (
+        <div
+          className="sidebar-account-dropdown"
+          role="listbox"
+          aria-label="Select development user role"
+          onKeyDown={event => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setAccountOpen(false);
+              accountTriggerRef.current?.focus();
+            }
+          }}
+        >
+          <div className="sidebar-account-dropdown-header">
+            <small className="sidebar-account-dropdown-label">SWITCH USER ROLE</small>
+            <span className="tenant-badge">{tenantId} · {actorRole}</span>
+          </div>
+
+          <div className="sidebar-account-options">
+            {ACTOR_DISPLAY_LIST.map((actor, idx) => {
+              const isSelected = actor.actorId === actorId || (actor.role === actorRole && !ACTOR_DISPLAY_LIST.some(a => a.actorId === actorId));
+              return (
+                <button
+                  key={actor.actorId}
+                  ref={idx === 0 ? accountOptionRef : undefined}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  className={`sidebar-account-option${isSelected ? " is-selected" : ""}`}
+                  onClick={() => {
+                    setActorId(actor.actorId);
+                    setAccountOpen(false);
+                    accountTriggerRef.current?.focus();
+                  }}
+                >
+                  <div className="sidebar-user-avatar is-small">
+                    <img src="/images/avatar.png" alt="" className="sidebar-user-img" />
+                    <span className="sidebar-status-dot" aria-hidden="true" />
+                  </div>
+                  <div className="sidebar-user-info">
+                    <span className="sidebar-user-name">
+                      <strong>{actor.name}</strong>
+                      <span className="sidebar-role-tag">{actor.roleLabel}</span>
+                    </span>
+                    <span className="sidebar-user-email">{actor.email}</span>
+                  </div>
+                  {isSelected && <span className="sidebar-account-check" aria-hidden="true">✓</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Accessible elements for test suite and screen readers */}
+      <span className="sr-only" data-testid="shell-tenant-badge">
+        {tenantId} · {actorRole}
+      </span>
+      <label htmlFor="shell-role-select" className="sr-only">
+        Demo role selector
+      </label>
+      <select
+        id="shell-role-select"
+        aria-label="Demo role selector"
+        value={actorId}
+        onChange={event => setActorId(event.target.value)}
+        className="sr-only"
+        data-testid="shell-role-selector"
+      >
+        <option value="user_owner_01">Owner (user_owner_01)</option>
+        <option value="user_manager_01">Manager (user_manager_01)</option>
+        <option value="user_staff_01">Staff (user_staff_01)</option>
+      </select>
     </div>
   </nav>;
 }

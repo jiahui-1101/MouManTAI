@@ -10,7 +10,7 @@ import { ActivityPage } from "../../features/activity/ActivityPage";
 import { CommitmentFeasibilityRoute, ImpactDetailRoute } from "../../App";
 import { AuthProvider } from "../../shared/auth";
 import { ApprovalActionControl } from "../../shared/ApprovalActionControl";
-import { StatusBadge } from "../../shared/StatusBadge";
+import { StatusBadge, getStatusBadgeClass } from "../../shared/StatusBadge";
 import type { OverviewResponse } from "../../shared/types";
 
 const mockOverview: OverviewResponse = {
@@ -104,6 +104,13 @@ function renderAppWithRoute(initialRoute: string, initialActorId: string = "user
 }
 
 describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a, FE-01d)", () => {
+  it("keeps v2 pending, accepted, reported and fulfilled states distinct", () => {
+    expect(getStatusBadgeClass(undefined, "PROPOSAL_AWAITING_CUSTOMER")).toContain("badge-purple");
+    expect(getStatusBadgeClass(undefined, "ACCEPTING")).toContain("badge-info");
+    expect(getStatusBadgeClass(undefined, "ACCEPTED")).toContain("badge-info");
+    expect(getStatusBadgeClass(undefined, "COMPLETION_REPORTED")).toContain("badge-info");
+    expect(getStatusBadgeClass(undefined, "FULFILLED")).toContain("badge-success");
+  });
   let capturedHeaders: Record<string, string>[] = [];
 
   beforeEach(() => {

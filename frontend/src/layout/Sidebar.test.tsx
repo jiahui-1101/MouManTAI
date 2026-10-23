@@ -65,4 +65,64 @@ describe("shared sidebar navigation", () => {
     fireEvent.change(select, { target: { value: "user_manager_01" } });
     expect(screen.getByTestId("shell-tenant-badge")).toHaveTextContent("tenant_sidebar_test · MANAGER");
   });
+
+  it("toggles downward navigation menus on click", () => {
+    mount("/overview");
+    const ordersBtn = screen.getByRole("button", { name: "Orders" });
+    const ordersSubmenu = document.getElementById("sidebar-group-orders");
+
+    // Initially closed
+    expect(ordersBtn).toHaveAttribute("aria-expanded", "false");
+    expect(ordersSubmenu).toHaveAttribute("hidden");
+
+    // Click to open
+    fireEvent.click(ordersBtn);
+    expect(ordersBtn).toHaveAttribute("aria-expanded", "true");
+    expect(ordersSubmenu).not.toHaveAttribute("hidden");
+
+    // Click to close
+    fireEvent.click(ordersBtn);
+    expect(ordersBtn).toHaveAttribute("aria-expanded", "false");
+    expect(ordersSubmenu).toHaveAttribute("hidden");
+  });
+
+  it("renders clean user identity bar and switches role by clicking anywhere on the bar", () => {
+    mount("/overview");
+
+    // Clean user identity bar (Image 2 style)
+    const accountBtn = screen.getByRole("button", { name: /Current user: SDC_Demo/i });
+    expect(accountBtn).toBeInTheDocument();
+    expect(accountBtn).toHaveAttribute("aria-expanded", "false");
+    expect(within(accountBtn).getByText("SDC_Demo")).toBeInTheDocument();
+    expect(within(accountBtn).getByText("momentnetid@gmail.com")).toBeInTheDocument();
+    expect(accountBtn.querySelector("img")).toHaveAttribute("src", "/images/avatar.png");
+    expect(accountBtn.querySelector(".sidebar-status-dot")).toBeInTheDocument();
+    expect(accountBtn.querySelector(".sidebar-user-chevrons")).toBeInTheDocument();
+
+    // Clicking anywhere on the bar opens role selection popover
+    fireEvent.click(accountBtn);
+    expect(accountBtn).toHaveAttribute("aria-expanded", "true");
+
+    const roleDropdown = screen.getByRole("listbox", { name: "Select development user role" });
+    expect(roleDropdown).toBeInTheDocument();
+    const options = within(roleDropdown).getAllByRole("option");
+    expect(options).toHaveLength(3);
+    expect(options[0]).toHaveAttribute("aria-selected", "true"); // Owner is selected
+
+    // Select Manager
+    fireEvent.click(screen.getByRole("option", { name: /SDC_Manager/i }));
+    expect(screen.queryByRole("listbox", { name: "Select development user role" })).not.toBeInTheDocument();
+
+    // Bar updates cleanly to Manager
+    expect(screen.getByText("SDC_Manager")).toBeInTheDocument();
+    expect(screen.getByText("manager@sdc.demo")).toBeInTheDocument();
+    expect(screen.getByTestId("shell-tenant-badge")).toHaveTextContent("tenant_sidebar_test · MANAGER");
+
+    // Open and close with Escape
+    const updatedAccountBtn = screen.getByRole("button", { name: /Current user: SDC_Manager/i });
+    fireEvent.click(updatedAccountBtn);
+    expect(screen.getByRole("listbox", { name: "Select development user role" })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("listbox", { name: "Select development user role" }), { key: "Escape" });
+    expect(screen.queryByRole("listbox", { name: "Select development user role" })).not.toBeInTheDocument();
+  });
 });
