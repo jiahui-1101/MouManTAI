@@ -35,7 +35,7 @@ from app.core.models import (
     OutboxEventRecord,
 )
 from app.core.outbox import to_domain_event
-from app.core.schemas import ContractModel, DomainEvent
+from app.core.schemas import ApprovalState, ContractModel, DomainEvent
 from app.core.service import CommitmentService
 from app.recovery.eventing import (
     P3RecoveryEventPublisherPort,
@@ -341,7 +341,6 @@ class P3ConfirmationResponseConsumer:
             or plan_record.status in {"NEEDS_REPLAN", "SUPERSEDED"}
             or case.status == RecoveryCaseStatus.COMPLETED
             or plan.core_commitment_version is None
-            or plan.core_commitment_version + 1 != event.commitment_version
         )
         if stale:
             result = CustomerResponseEvidence(
@@ -365,14 +364,25 @@ class P3ConfirmationResponseConsumer:
             # plan or emit an actionable replan command.
             return
 
-        self._require_active_approval(db, event, plan_record, plan)
+        approval = self._require_active_approval(db, event, plan_record, plan)
+        self.plans.require_authorized_offer_transition(
+            db,
+            tenant_id=event.tenant_id,
+            commitment=commitment_row,
+            case_record=case_record,
+            prior_plan_record=plan_record,
+            prior_plan=plan,
+            proposal=proposal,
+            approval=approval,
+            response_event=event,
+        )
         prior_status = case.status.value
         if intent == "REJECT":
             plan_record.status = "NEEDS_REPLAN"
             case.status = RecoveryCaseStatus.NEEDS_REPLAN
             case.plans = [
                 item.model_copy(update={
-                    "approval_state": "INVALIDATED",
+                    "approval_state": ApprovalState.INVALIDATED,
                     "execution_state": "NEEDS_REPLAN",
                 }) if item.plan_id == plan.plan_id and item.plan_version == plan.plan_version else item
                 for item in case.plans
@@ -410,6 +420,7 @@ class P3ConfirmationResponseConsumer:
                 prior_plan_record=plan_record,
                 prior_plan=plan,
                 proposal=proposal,
+                approval=approval,
                 counteroffer=counteroffer,
                 response_event=event,
             )
@@ -568,15 +579,16 @@ class P3ConfirmationResponseConsumer:
         ):
             raise DomainError("P4_RESPONSE_BINDING_MISMATCH", "P4 response does not match its stored proposal and evidence", status_code=409)
 
-        audit = db.scalar(select(AuditEventRecord).where(
+        audit_candidates = db.scalars(select(AuditEventRecord).where(
             AuditEventRecord.tenant_id == event.tenant_id,
             AuditEventRecord.commitment_id == event.commitment_id,
             AuditEventRecord.event_type == event.event_type,
             AuditEventRecord.correlation_id == event.correlation_id,
             AuditEventRecord.causation_id == event.causation_id,
-            AuditEventRecord.new_state == payload,
-        ).limit(1))
-        if audit is None:
+        ).order_by(AuditEventRecord.occurred_at, AuditEventRecord.audit_id).limit(2)).all()
+        if len(audit_candidates) > 1:
+            raise DomainError("P4_RESPONSE_AUDIT_AMBIGUOUS", "P4 response audit evidence is ambiguous", status_code=409)
+        if not audit_candidates or audit_candidates[0].new_state != payload:
             raise DomainError("P4_RESPONSE_AUDIT_MISSING", "P4 response audit evidence is missing", status_code=409)
         return intent, response_state
 
@@ -651,7 +663,7 @@ class P3ConfirmationResponseConsumer:
 
     @staticmethod
     def _require_active_approval(db: Session, event: DomainEvent, plan_record: RecoveryPlanRecord,
-                                 plan: RecoveryPlanVersion) -> None:
+                                 plan: RecoveryPlanVersion) -> ManagerApprovalRecord:
         proposal_id, proposal_version = require_proposal_binding(
             plan.plan_id, plan.plan_version, plan.proposal_id, plan.proposal_version,
         )
@@ -685,6 +697,7 @@ class P3ConfirmationResponseConsumer:
             or "CREATE_DELIVERY_CHANGE_PROPOSAL" not in latest.action_scope
         ):
             raise DomainError("P3_APPROVAL_PROVENANCE_MISSING", "Current P3 manager approval is not proven", status_code=409)
+        return latest
 
     @staticmethod
     def _audit(db: Session, event: DomainEvent, intent: str, response: CustomerResponseEvidence,
