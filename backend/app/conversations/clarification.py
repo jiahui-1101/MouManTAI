@@ -5,7 +5,7 @@ versions plus review/outbox; P4 owns reminder sends and deduped receipts. No API
 may accept a client's identity_verified/progress flag as authority.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from typing import Literal
@@ -15,6 +15,17 @@ from pydantic import AwareDatetime, Field, model_validator
 
 from app.core.errors import DomainError
 from app.orders.terms import Amount, Evidence, ImmutableContract, Text
+
+
+class DeliveryWindow(ImmutableContract):
+    start: AwareDatetime
+    end: AwareDatetime
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.end <= self.start:
+            raise ValueError("Operating window must end after it starts")
+        return self
 
 
 class ClarificationPolicy(ImmutableContract):
@@ -28,6 +39,9 @@ class ClarificationPolicy(ImmutableContract):
     max_age_seconds: int = Field(gt=0)
     reminder_after_seconds: int = Field(gt=0)
     expire_after_seconds: int = Field(gt=0)
+    # Concrete allowable windows are supplied by a trusted tenant policy adapter;
+    # an empty list means date resolution unavailable, never unrestricted hours.
+    delivery_windows: tuple[DeliveryWindow, ...]
 
     @model_validator(mode="after")
     def valid_policy(self):
@@ -106,7 +120,8 @@ def _validated_progress(issue: UnresolvedIssue, answer: LinkedAnswer,
         supplied, previous = set(answer.candidate_values), set(issue.candidates)
         allowed = policy.catalog_skus if issue.kind == "SKU" else previous
         if (supplied and len(supplied) == len(answer.candidate_values)
-                and supplied <= allowed and (not previous or supplied < previous)):
+                and supplied <= allowed and (not previous or supplied < previous
+                                             or len(supplied) == 1 and supplied == previous)):
             return True, len(supplied) == 1, {"candidates": tuple(sorted(supplied))}
     elif issue.kind == "QUANTITY":
         try:
@@ -120,7 +135,10 @@ def _validated_progress(issue: UnresolvedIssue, answer: LinkedAnswer,
         try:
             start = datetime.fromisoformat(answer.window_start or "")
             end = datetime.fromisoformat(answer.window_end or "")
-            if (start.tzinfo is not None and end.tzinfo is not None and now < start < end):
+            if (start.tzinfo is not None and end.tzinfo is not None and now < start < end
+                    and any(window.start.astimezone(UTC) <= start.astimezone(UTC)
+                            < end.astimezone(UTC) <= window.end.astimezone(UTC)
+                            for window in policy.delivery_windows)):
                 return True, True, {"resolved_window_start": start, "resolved_window_end": end}
         except (ValueError, TypeError):
             pass
@@ -128,8 +146,10 @@ def _validated_progress(issue: UnresolvedIssue, answer: LinkedAnswer,
 
 
 def apply_answer(issue: UnresolvedIssue, question: ClarificationQuestion, answer: LinkedAnswer,
-                 policy: ClarificationPolicy, *, now: datetime, total_questions: int) -> UnresolvedIssue:
+                 policy: ClarificationPolicy, *, now: datetime, total_questions: int,
+                 conversation_started_at: datetime) -> UnresolvedIssue:
     _scope(issue, question, policy, now)
+    _validate_conversation_start(conversation_started_at, issue, now)
     if (not answer.identity_verified or
             (answer.tenant_id, answer.order_id, answer.issue_id, answer.question_id) !=
             (issue.tenant_id, issue.order_id, issue.issue_id, question.question_id)):
@@ -149,7 +169,7 @@ def apply_answer(issue: UnresolvedIssue, question: ClarificationQuestion, answer
     reason = None
     if answer.risk_flags:
         reason = "RISK_REQUIRES_HUMAN_REVIEW"
-    elif total_questions >= policy.max_questions or (now - issue.created_at).total_seconds() >= policy.max_age_seconds:
+    elif total_questions >= policy.max_questions or (now - conversation_started_at).total_seconds() >= policy.max_age_seconds:
         reason = "GLOBAL_CLARIFICATION_BUDGET"
     elif failures >= 2:
         reason = "TWO_ANSWERED_NO_PROGRESS"
@@ -170,19 +190,20 @@ class FollowUpDecision(ImmutableContract):
 
 
 def follow_up(issue: UnresolvedIssue, question: ClarificationQuestion, policy: ClarificationPolicy, *,
-              now: datetime) -> FollowUpDecision:
+              now: datetime, conversation_started_at: datetime) -> FollowUpDecision:
     """Decision only. Persist intent + dedup key through P4 before any reminder.
 
     Returned key is stable for a question, independent of scheduler run time.
     Only an actual persisted send receipt sets issue.reminder_sent_at.
     """
     _scope(issue, question, policy, now)
+    _validate_conversation_start(conversation_started_at, issue, now)
     if (issue.state != "OPEN" or question.send_state not in {"SENT", "DELIVERED"}
             or issue.last_answer_at is not None and issue.last_answer_at >= question.sent_at):
         return FollowUpDecision(action="NONE")
     if question.issue_version != issue.version:
         raise DomainError("STALE_ISSUE_VERSION", "Question belongs to an older issue version", status_code=409)
-    age = (now - issue.created_at).total_seconds()
+    age = (now - conversation_started_at).total_seconds()
     wait = (now - question.sent_at).total_seconds()
     if age >= policy.max_age_seconds or wait >= policy.expire_after_seconds:
         return FollowUpDecision(action="HUMAN_REVIEW", reason="UNANSWERED_EXPIRED")
@@ -191,3 +212,8 @@ def follow_up(issue: UnresolvedIssue, question: ClarificationQuestion, policy: C
         return FollowUpDecision(action="REMINDER_DUE", idempotency_key="clarify-reminder:" +
                                 sha256(identity.encode()).hexdigest())
     return FollowUpDecision(action="WAIT")
+
+
+def _validate_conversation_start(start: datetime, issue: UnresolvedIssue, now: datetime) -> None:
+    if start.tzinfo is None or start.utcoffset() is None or not start <= issue.created_at <= now:
+        raise ValueError("Trusted conversation start must precede issue creation and evaluation")

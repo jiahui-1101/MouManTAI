@@ -133,3 +133,10 @@ def test_provenance_version_and_customer_identity_bound_to_hash():
     data["price_source"]["source_version"] = "4"
     assert make_terms().terms_hash != make_terms(**data).terms_hash
     assert make_terms().terms_hash != make_terms(customer_id="other").terms_hash
+
+
+def test_decimal_upper_bound_is_independent_of_ambient_precision():
+    from app.orders.terms import _precision
+    with localcontext() as ctx:
+        ctx.prec = 2
+        assert _precision(Decimal("999999999999999999")) == Decimal("999999999999999999")

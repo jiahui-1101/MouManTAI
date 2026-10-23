@@ -27,13 +27,18 @@ def _not_float(value):
 
 
 def _precision(value: Decimal) -> Decimal:
-    if not value.is_finite() or value.as_tuple().exponent < -6 or abs(value) >= 10**18:
+    if not value.is_finite() or value.as_tuple().exponent < -6 or value.copy_abs() >= 10**18:
         raise ValueError("Finite value with at most 18 integer and 6 fractional digits required")
     return value
 
 
-Text = Annotated[str, Field(min_length=1, max_length=500), AfterValidator(
-    lambda v: v if v.strip() else (_ for _ in ()).throw(ValueError("Blank value")))]
+def _nonblank(value: str) -> str:
+    if not value.strip():
+        raise ValueError("Blank value")
+    return value
+
+
+Text = Annotated[str, Field(min_length=1, max_length=500), AfterValidator(_nonblank)]
 Amount = Annotated[Decimal, BeforeValidator(_not_float), Field(ge=0), AfterValidator(_precision)]
 Quantity = Annotated[Decimal, BeforeValidator(_not_float), Field(gt=0), AfterValidator(_precision)]
 Evidence = Annotated[tuple[Text, ...], Field(min_length=1)]

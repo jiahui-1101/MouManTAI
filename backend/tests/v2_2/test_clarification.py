@@ -38,13 +38,15 @@ def policy(**changes):
         catalog_skus=["A", "B", "C"], allowed_units=["pcs"], max_quantity="1000",
         max_questions=6, max_age_seconds=259200, reminder_after_seconds=86400,
         expire_after_seconds=172800,
+        delivery_windows=[{"start": NOW + timedelta(days=1), "end": NOW + timedelta(days=5)}],
     ) | changes)
 
 
 def apply(current=None, q=None, a=None, **kwargs):
     from app.conversations.clarification import apply_answer
     return apply_answer(current or issue(), q or question(), a or answer(), policy(),
-                        now=NOW, total_questions=kwargs.get("total_questions", 1))
+                        now=NOW, total_questions=kwargs.get("total_questions", 1),
+                        conversation_started_at=kwargs.get("conversation_started_at", (current or issue()).created_at))
 
 
 def test_two_consecutive_answered_no_progress_escalate_and_deduplicate():
@@ -131,15 +133,19 @@ def test_idle_reminder_has_stable_dedup_key_then_expiry_without_answer_failure()
     from app.conversations.clarification import follow_up
     current = issue()
     sent = question(sent_at=NOW - timedelta(hours=25))
-    due = follow_up(current, sent, policy(), now=NOW)
+    due = follow_up(current, sent, policy(), now=NOW, conversation_started_at=NOW - timedelta(hours=26))
     assert due.action == "REMINDER_DUE"
-    assert due.idempotency_key == follow_up(current, sent, policy(), now=NOW).idempotency_key
+    assert due.idempotency_key == follow_up(current, sent, policy(), now=NOW,
+                                           conversation_started_at=NOW - timedelta(hours=26)).idempotency_key
     reminded = current.model_copy(update={"reminder_sent_at": NOW})
-    assert follow_up(reminded, sent, policy(), now=NOW).action == "WAIT"
-    expired = follow_up(reminded, sent, policy(), now=NOW + timedelta(hours=24))
+    assert follow_up(reminded, sent, policy(), now=NOW,
+                     conversation_started_at=NOW - timedelta(hours=26)).action == "WAIT"
+    expired = follow_up(reminded, sent, policy(), now=NOW + timedelta(hours=24),
+                        conversation_started_at=NOW - timedelta(hours=26))
     assert expired.action == "HUMAN_REVIEW"
     assert current.consecutive_no_progress == 0
-    assert follow_up(issue(state="RESOLVED"), sent, policy(), now=NOW).action == "NONE"
+    assert follow_up(issue(state="RESOLVED"), sent, policy(), now=NOW,
+                     conversation_started_at=NOW - timedelta(hours=26)).action == "NONE"
 
 
 def test_policy_has_no_fixture_timer_defaults_and_validates_timezone_and_timer_order():
@@ -150,3 +156,34 @@ def test_policy_has_no_fixture_timer_defaults_and_validates_timezone_and_timer_o
         policy(expire_after_seconds=60)
     with pytest.raises(ValidationError):
         policy(business_timezone="fake")
+
+
+def test_explicit_singleton_confirmation_resolves_even_without_narrowing():
+    result = apply(issue(candidates=["A"]), a=answer(candidate_values=["A"]))
+    assert result.state == "RESOLVED"
+    assert result.consecutive_no_progress == 0
+
+
+def test_new_issue_cannot_reset_global_conversation_age():
+    result = apply(issue(created_at=NOW - timedelta(minutes=5)),
+                   a=answer(candidate_values=["A"]),
+                   conversation_started_at=NOW - timedelta(days=4))
+    assert result.state == "HUMAN_REVIEW"
+    assert result.reason == "GLOBAL_CLARIFICATION_BUDGET"
+
+
+def test_delivery_outside_trusted_tenant_operating_window_stays_unresolved():
+    result = apply(issue(kind="DELIVERY"), a=answer(
+        window_start="2026-11-01T10:00:00+08:00", window_end="2026-11-01T11:00:00+08:00"))
+    assert result.state == "OPEN"
+    assert result.consecutive_no_progress == 1
+
+
+def test_dst_fold_cannot_move_answer_inside_later_operating_window():
+    from app.conversations.clarification import apply_answer
+    result = apply_answer(issue(kind="DELIVERY"), question(), answer(
+        window_start="2026-11-01T01:45:00-04:00", window_end="2026-11-01T01:50:00-04:00"),
+        policy(business_timezone="America/New_York", delivery_windows=[{
+            "start": "2026-11-01T01:30:00-05:00", "end": "2026-11-01T02:00:00-05:00"}]),
+        now=NOW, total_questions=1, conversation_started_at=NOW - timedelta(hours=1))
+    assert result.state == "OPEN"
