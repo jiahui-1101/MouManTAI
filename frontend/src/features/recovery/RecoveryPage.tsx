@@ -52,13 +52,15 @@ function EvidenceList({ refs }: { refs: string[] }) {
 function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const permission = isPermissionError(error);
   return (
-    <section className="recovery-error" data-testid={permission ? "recovery-permission-error" : "recovery-error"}>
-      <span className="recovery-status-badge">{permission ? "PERMISSION DENIED" : "RECOVERY API ERROR"}</span>
-      <h2>{permission ? "This tenant cannot view the recovery case" : "Recovery data is unavailable"}</h2>
-      <p>{errorMessage(error)}</p>
-      <p className="muted text-sm">No plan was approved or executed by this screen.</p>
-      {onRetry && <button className="btn btn-outline btn-sm" type="button" onClick={onRetry}>Retry loading</button>}
-    </section>
+    <main className="recovery-page recovery-state-page">
+      <section className="recovery-error" data-testid={permission ? "recovery-permission-error" : "recovery-error"}>
+        <span className="recovery-status-badge">{permission ? "PERMISSION DENIED" : "RECOVERY API ERROR"}</span>
+        <h2>{permission ? "This tenant cannot view the recovery case" : "Recovery data is unavailable"}</h2>
+        <p>{errorMessage(error)}</p>
+        <p className="muted text-sm">No plan was approved or executed by this screen.</p>
+        {onRetry && <button className="btn btn-outline btn-sm" type="button" onClick={onRetry}>Retry loading</button>}
+      </section>
+    </main>
   );
 }
 
@@ -408,35 +410,42 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
   }, [plans, selectedPlanId]);
 
   if (caseQuery.isLoading) {
-    return <section className="recovery-loading" role="status">Loading recovery case…</section>;
+    return <main className="recovery-page recovery-state-page"><section className="recovery-loading" role="status">Loading recovery case…</section></main>;
   }
   if (caseQuery.isError) return <ErrorState error={caseQuery.error} onRetry={() => { void caseQuery.refetch(); }} />;
-  if (!caseData) return <section className="empty-state-card"><h2>Recovery case not found</h2></section>;
+  if (!caseData) return <main className="recovery-page recovery-state-page"><section className="empty-state-card"><h2>Recovery case not found</h2></section></main>;
   if ("evaluation_readiness" in caseData) {
     return (
-      <section className="recovery-panel" role="status">
-        <h2>Recovery evaluation inputs are pending</h2>
-        <p>Case {caseData.case_id} · Commitment {caseData.commitment_id} · version {caseData.commitment_version}</p>
-        <p>Missing: {caseData.missing_evaluation_inputs.join(", ") || "current evaluation inputs"}.</p>
-        <p>Risk event: {caseData.trigger_events.map((event) => event.event_id).join(", ") || "none recorded"}</p>
-        <p>Assessment: {caseData.trigger_events.map((event) => event.assessment_id).join(", ") || "not verified"}</p>
-        <p>Plans and consequential actions remain unavailable until trusted inputs are present.</p>
-        <button className="btn btn-outline btn-sm" type="button" onClick={() => { void caseQuery.refetch(); }}>Retry loading case</button>
-      </section>
+      <main className="recovery-page recovery-state-page">
+        <header className="page-heading"><div><p className="eyebrow">P3 · Recovery workspace</p><h2>Recovery evaluation inputs are pending</h2><p className="muted">The case remains readable while trusted planning inputs are missing.</p></div><span className="status-pill warning">Awaiting evaluation inputs</span></header>
+        <section className="recovery-panel recovery-pending-panel" role="status">
+          <dl className="recovery-facts">
+            <div><dt>Case</dt><dd><code>{caseData.case_id}</code></dd></div>
+            <div><dt>Commitment</dt><dd><code>{caseData.commitment_id}</code> · version {caseData.commitment_version}</dd></div>
+            <div><dt>Missing</dt><dd>{caseData.missing_evaluation_inputs.join(", ") || "current evaluation inputs"}</dd></div>
+            <div><dt>Risk event</dt><dd>{caseData.trigger_events.map((event) => event.event_id).join(", ") || "none recorded"}</dd></div>
+            <div><dt>Assessment reference</dt><dd>{caseData.trigger_events.map((event) => event.assessment_id).join(", ") || "not verified"}</dd></div>
+          </dl>
+          <p>Plans and consequential actions remain unavailable until trusted inputs are present.</p>
+          <button className="btn btn-outline btn-sm" type="button" onClick={() => { void caseQuery.refetch(); }}>Retry loading case</button>
+        </section>
+      </main>
     );
   }
   if (!caseData.trigger_assessment || !caseData.operational_snapshot) {
     return (
-      <section className="recovery-panel" role="status">
-        <h2>Recovery evaluation inputs are pending</h2>
-        <p className="muted">This case has no complete assessment and operational snapshot, so P3 cannot compare or generate plans.</p>
-        <p>Case status: {caseData.status.replaceAll("_", " ")} · missing: {[!caseData.trigger_assessment && "P2 assessment", !caseData.operational_snapshot && "current operational snapshot"].filter(Boolean).join(" and ")}.</p>
-        <button className="btn btn-outline btn-sm" type="button" onClick={() => { void caseQuery.refetch(); }}>Retry loading case</button>
-      </section>
+      <main className="recovery-page recovery-state-page">
+        <header className="page-heading"><div><p className="eyebrow">P3 · Recovery workspace</p><h2>Recovery evaluation inputs are pending</h2><p className="muted">This case is readable, but planning is gated on trusted evidence.</p></div><span className="status-pill warning">Awaiting inputs</span></header>
+        <section className="recovery-panel recovery-pending-panel" role="status">
+          <p className="muted">This case has no complete assessment and operational snapshot, so P3 cannot compare or generate plans.</p>
+          <p>Case status: {caseData.status.replaceAll("_", " ")} · missing: {[!caseData.trigger_assessment && "P2 assessment", !caseData.operational_snapshot && "current operational snapshot"].filter(Boolean).join(" and ")}.</p>
+          <button className="btn btn-outline btn-sm" type="button" onClick={() => { void caseQuery.refetch(); }}>Retry loading case</button>
+        </section>
+      </main>
     );
   }
   if (plansQuery.isError) return <ErrorState error={plansQuery.error} onRetry={() => { void plansQuery.refetch(); }} />;
-  if (plansQuery.isLoading) return <section className="recovery-loading" role="status">Loading recovery options…</section>;
+  if (plansQuery.isLoading) return <main className="recovery-page recovery-state-page"><section className="recovery-loading" role="status">Loading recovery options…</section></main>;
 
   const assessment = caseData.trigger_assessment;
   const snapshot = caseData.operational_snapshot;
@@ -452,8 +461,24 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
           <h2>Recovery workspace</h2>
           <p className="muted">Compare typed, evidence-linked options for commitment {caseData.commitment_id}.</p>
         </div>
-        <span className="status-pill warning">{caseData.storage_mode.replaceAll("_", " ")}</span>
+        <div className="recovery-page-header-actions">
+          <span className="status-pill warning">{caseData.storage_mode.replaceAll("_", " ")}</span>
+          <nav className="recovery-context-links" aria-label="Related commitment pages">
+            <Link to={`/commitments/${encodeURIComponent(caseData.commitment_id)}`}>Commitment context</Link>
+            <span className="recovery-context-unavailable" role="note">
+              Impact detail unavailable — no impact ID returned
+            </span>
+            <Link to={`/recovery/${encodeURIComponent(caseData.commitment_id)}`}>Case evidence</Link>
+          </nav>
+        </div>
       </header>
+
+      <section className="recovery-summary-strip" aria-label="Current recovery context" data-testid="recovery-summary-strip">
+        <div><span>Commitment</span><strong><code>{caseData.commitment_id}</code></strong><small>Version {caseData.commitment_version}</small></div>
+        <div><span>Assessment</span><strong>{assessment.status}</strong><small><code>{assessment.assessment_id}</code></small></div>
+        <div><span>Operational snapshot</span><strong>v{snapshot.snapshot_version}</strong><small><code>{snapshot.snapshot_id}</code></small></div>
+        <div><span>Recovery case</span><strong>{caseData.status.replaceAll("_", " ")}</strong><small>Case version {caseData.case_version}</small></div>
+      </section>
 
       {synthetic && (
         <section className="recovery-demo-notice" role="note">
