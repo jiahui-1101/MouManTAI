@@ -6,15 +6,21 @@ Canonical v1 uses six fractional digits at most and exact arithmetic with a
 local decimal context; it never rounds commercial values or normalizes free text.
 """
 
-from datetime import UTC
+import json
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, localcontext
 from hashlib import sha256
-import json
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
-    AfterValidator, AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, model_validator,
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    model_validator,
 )
 
 from app.core.errors import DomainError
@@ -49,6 +55,13 @@ class ImmutableContract(BaseModel):
 
 
 class PriceSource(ImmutableContract):
+    """Binding price-source identity plus nonbinding evidence references.
+
+    The source type, ID, version, policy and disclosure time participate in
+    OrderTerms v1 equality. Evidence references are provenance metadata and
+    must be validated independently against a trusted, current evidence source.
+    """
+
     source_type: Literal["APPROVED_CATALOG", "APPROVED_QUOTE"]
     source_id: Text
     source_version: Text
@@ -97,12 +110,14 @@ class OrderTerms(ImmutableContract):
 
     @model_validator(mode="after")
     def validate_business_values(self):
-        if self.window_start >= self.window_end:
-            raise ValueError("Fulfilment window must end after it starts")
         try:
-            ZoneInfo(self.business_timezone)
+            zone = ZoneInfo(self.business_timezone)
         except (ValueError, ZoneInfoNotFoundError):
             raise ValueError("Unknown business timezone") from None
+        _validate_window_timezone(self.window_start, zone, "window_start")
+        _validate_window_timezone(self.window_end, zone, "window_end")
+        if self.window_start.astimezone(UTC) >= self.window_end.astimezone(UTC):
+            raise ValueError("Fulfilment window must end after it starts")
         keys = [(line.sku, line.variant, line.unit) for line in self.items]
         if len(set(keys)) != len(keys):
             raise ValueError("Duplicate SKU/variant/unit lines must be resolved explicitly")
@@ -115,10 +130,15 @@ class OrderTerms(ImmutableContract):
         return self
 
     def canonical_values(self) -> dict:
-        """Versioned binding values; evidence IDs and extraction revision are metadata.
+        """Return versioned binding values, not a proof or evidence verdict.
 
         List item order is irrelevant; exact IDs, unit spelling, conditions and
-        pricing provenance are binding. No fuzzy SKU/unit/address equivalence.
+        price-source identity/version/policy/disclosed-at are binding. Terms
+        revision, message IDs, general evidence refs, and price-source evidence
+        refs are omitted for v1 compatibility and provenance corrections. No
+        fuzzy SKU/unit/address equivalence. Callers must validate evidence
+        existence, tenant binding, relation, currentness, revocation and assent
+        separately; hash equality establishes none of those facts.
         """
         values = self.model_dump(mode="json", exclude={
             "terms_revision", "source_message_ids", "evidence_refs", "price_source",
@@ -143,6 +163,40 @@ class OrderTerms(ImmutableContract):
         return "order-terms-v1:" + sha256(encoded).hexdigest()
 
 
+def _validate_window_timezone(value: datetime, zone: ZoneInfo, field_name: str) -> None:
+    """Validate local offset timestamps against the named business zone.
+
+    UTC timestamps represent absolute instants and are accepted directly.
+    Non-UTC inputs must identify one valid local wall time in the named zone
+    and use that time's actual offset. Repeated or nonexistent wall times fail
+    closed; callers can provide an explicit UTC instant to disambiguate a fold.
+    """
+    offset = value.utcoffset()
+    if offset is None:
+        raise ValueError(f"{field_name} must include a timezone offset")
+    if offset == timedelta(0):
+        return
+
+    wall_time = value.replace(tzinfo=None)
+    candidates: dict[datetime, timedelta | None] = {}
+    for fold in (0, 1):
+        local_candidate = wall_time.replace(tzinfo=zone, fold=fold)
+        instant = local_candidate.astimezone(UTC)
+        round_trip = instant.astimezone(zone)
+        if round_trip.replace(tzinfo=None) == wall_time:
+            candidates[instant] = local_candidate.utcoffset()
+
+    if not candidates:
+        raise ValueError(f"{field_name} is a nonexistent local time in business_timezone")
+    if len(candidates) > 1:
+        raise ValueError(
+            f"{field_name} is ambiguous in business_timezone; provide an explicit UTC instant"
+        )
+    expected_offset = next(iter(candidates.values()))
+    if offset != expected_offset:
+        raise ValueError(f"{field_name} offset does not match business_timezone")
+
+
 class TermsComparison(ImmutableContract):
     matches: bool
     original_hash: str
@@ -152,6 +206,11 @@ class TermsComparison(ImmutableContract):
 
 
 def compare_terms(original: OrderTerms, proposed: OrderTerms) -> TermsComparison:
+    """Compare binding commercial terms, excluding revision and proof metadata.
+
+    A matching result establishes only commercial-value equality. It does not
+    establish current disclosure, authenticity, customer identity, or assent.
+    """
     before, after = original.canonical_values(), proposed.canonical_values()
     changed = tuple(sorted(key for key in before if before[key] != after[key]))
     return TermsComparison(matches=not changed, original_hash=original.terms_hash,
@@ -161,15 +220,19 @@ def compare_terms(original: OrderTerms, proposed: OrderTerms) -> TermsComparison
 
 def require_exact_terms(original: OrderTerms, proposed: OrderTerms, *, tenant_id: str,
                         expected_revision: int, expected_terms_hash: str) -> None:
-    """Side-effect-free precondition; caller must load original from trusted storage.
+    """Guard an unchanged original revision; caller must load terms from trusted storage.
 
     Passing this guard does not authorize acceptance, establish source trust,
-    grant customer assent, or replace P2/role/reservation checks.
+    validate current disclosure, grant customer assent, or replace P2/role/
+    reservation checks. A changed offer requires the separate verified
+    proposal/version/customer-assent workflow.
     """
     if tenant_id != original.tenant_id or tenant_id != proposed.tenant_id:
         raise DomainError("TERMS_NOT_FOUND", "Terms were not found", status_code=404)
     if expected_revision != original.terms_revision:
         raise DomainError("STALE_TERMS_VERSION", "Terms version changed", status_code=409)
+    if proposed.terms_revision != original.terms_revision:
+        raise DomainError("STALE_TERMS_VERSION", "Proposed terms version changed", status_code=409)
     comparison = compare_terms(original, proposed)
     if expected_terms_hash != original.terms_hash or not comparison.matches:
         raise DomainError("TERMS_MISMATCH", "Exact customer-agreed terms required; create a proposal",

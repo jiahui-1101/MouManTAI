@@ -251,6 +251,13 @@ def make_disclosure_record(commercial=None, **updates):
         "disclosure_ref": "ev_disclosure",
         "verification_status": "VERIFIED",
         "authority_ref": "disclosure_record_a",
+        "currentness_status": "CURRENT",
+        "currentness_checked_at": "2026-10-24T08:00:00Z",
+        "currentness_ref": "disclosure_lookup_a",
+        "currentness_disclosure_ref": updates.get(
+            "currentness_disclosure_ref", updates.get("disclosure_ref", "ev_disclosure")
+        ),
+        "currentness_authority_ref": "disclosure_currentness_adapter_a",
     } | updates
 
 
@@ -414,6 +421,95 @@ def test_disclosure_evidence_must_be_verified_and_bound_to_exact_terms_and_sourc
     result = map_context(commercial=repeated)
     assert result.readiness_status == "REVIEW_REQUIRED"
     assert "DUPLICATE_PRICE_DISCLOSURE_EVIDENCE" in result.validation_reason_codes
+
+
+@pytest.mark.parametrize(
+    "status,reason",
+    [
+        ("STALE", "PRICE_DISCLOSURE_STALE"),
+        ("REVOKED", "PRICE_DISCLOSURE_REVOKED"),
+        ("UNKNOWN", "PRICE_DISCLOSURE_CURRENTNESS_UNVERIFIED"),
+    ],
+)
+def test_matching_terms_hash_does_not_override_stale_revoked_or_unknown_disclosure(status, reason):
+    commercial = make_commercial(
+        price_disclosure_evidence=[
+            make_disclosure_record(currentness_status=status, currentness_ref="lookup_result_a")
+        ]
+    )
+    result = map_context(commercial=commercial)
+
+    assert result.readiness_status == "PRICE_SOURCE_UNVERIFIED"
+    assert reason in result.validation_reason_codes
+    assert result.canonical_terms is None
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"currentness_status": "CURRENT", "currentness_checked_at": None},
+        {"currentness_status": "CURRENT", "currentness_ref": None},
+        {"currentness_status": "CURRENT", "currentness_disclosure_ref": "another_disclosure"},
+        {"currentness_status": "CURRENT", "currentness_authority_ref": None},
+        {"currentness_status": "CURRENT", "currentness_checked_at": "2026-10-22T00:00:00Z"},
+    ],
+)
+def test_currentness_must_be_present_fresh_and_bound_to_exact_disclosure(updates):
+    commercial = make_commercial(price_disclosure_evidence=[make_disclosure_record(**updates)])
+
+    result = map_context(commercial=commercial)
+
+    assert result.readiness_status == "PRICE_SOURCE_UNVERIFIED"
+    assert "PRICE_DISCLOSURE_CURRENTNESS_UNVERIFIED" in result.validation_reason_codes
+    assert result.canonical_terms is None
+
+
+def test_acceptance_candidate_rejects_unrelated_currentness_evidence_directly():
+    from app.orders.context_mapping import AcceptanceCandidate
+
+    candidate_data = map_context().model_dump()
+    candidate_data["price_disclosure_evidence"][0]["currentness_disclosure_ref"] = (
+        "another_disclosure"
+    )
+
+    with pytest.raises(ValidationError, match="Price disclosure evidence"):
+        AcceptanceCandidate.model_validate(candidate_data)
+
+
+def test_changed_or_unrelated_disclosure_ref_fails_despite_unchanged_terms_hash():
+    commercial_data = _commercial_defaults()
+    commercial_data["price_source"]["evidence_refs"] = ["different_disclosure_ref"]
+    original_hash = _terms_hash_for(_commercial_defaults())
+    assert _terms_hash_for(commercial_data) == original_hash
+    commercial_data["price_disclosure_evidence"] = [
+        make_disclosure_record(commercial_data, disclosure_ref="ev_disclosure")
+    ]
+    result = map_context(commercial=make_commercial(**commercial_data))
+
+    assert result.readiness_status == "TERMS_CONFLICT"
+    assert "PRICE_DISCLOSURE_EVIDENCE_MISMATCH" in result.validation_reason_codes
+    assert result.terms_hash is None
+
+
+def test_legitimate_disclosure_provenance_correction_keeps_binding_terms_hash():
+    original = map_context()
+    corrected_data = _commercial_defaults()
+    corrected_data["price_source"]["evidence_refs"] = ["ev_disclosure_corrected"]
+    corrected_data["price_disclosure_evidence"] = [
+        make_disclosure_record(
+            corrected_data,
+            disclosure_ref="ev_disclosure_corrected",
+            currentness_ref="disclosure_lookup_corrected",
+            currentness_disclosure_ref="ev_disclosure_corrected",
+        )
+    ]
+
+    corrected = map_context(commercial=make_commercial(**corrected_data))
+
+    assert corrected.readiness_status == "READY_FOR_VALIDATION"
+    assert corrected.terms_hash == original.terms_hash
+    assert "ev_disclosure_corrected" in corrected.source_evidence_refs
+    assert "disclosure_lookup_corrected" in corrected.source_evidence_refs
 
 
 def test_foreign_commercial_snapshot_is_not_echoed_on_early_context_or_price_failure():

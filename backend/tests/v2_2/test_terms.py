@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import UTC
 from decimal import Decimal, localcontext
 
 import pytest
@@ -39,6 +40,8 @@ def test_hash_is_stable_across_decimal_context_timezone_and_input_order():
     with localcontext() as ctx:
         ctx.prec = 2
         assert original.terms_hash == OrderTerms.model_validate(equivalent).terms_hash
+        equivalent_terms = OrderTerms.model_validate(equivalent)
+        assert original.canonical_values() == equivalent_terms.canonical_values()
     assert original.terms_hash.startswith("order-terms-v1:")
     assert original.model_dump(mode="json")["items"][0]["quantity"] == "100.00"
 
@@ -105,6 +108,105 @@ def test_terms_are_deeply_immutable_and_revisions_do_not_change_business_hash():
     with pytest.raises(ValidationError):
         original.items[0].quantity = Decimal(80)
     assert original.terms_hash == make_terms(terms_revision=2, evidence_refs=["extra"]).terms_hash
+
+
+def test_require_exact_terms_rejects_proposed_revision_mismatch_even_when_terms_hash_matches():
+    from app.core.errors import DomainError
+    from app.orders.terms import compare_terms, require_exact_terms
+
+    original = make_terms(terms_revision=4)
+    proposed = make_terms(terms_revision=5)
+    comparison = compare_terms(original, proposed)
+    assert comparison.matches is True
+    assert comparison.original_hash == comparison.proposed_hash
+
+    with pytest.raises(DomainError) as exc:
+        require_exact_terms(
+            original,
+            proposed,
+            tenant_id="tenant_a",
+            expected_revision=4,
+            expected_terms_hash=original.terms_hash,
+        )
+    assert (exc.value.code, exc.value.status_code) == ("STALE_TERMS_VERSION", 409)
+
+
+def test_price_source_provenance_refs_are_not_binding_terms_equality():
+    from app.orders.terms import compare_terms
+
+    original = make_terms()
+    corrected = terms_data()
+    corrected["price_source"]["evidence_refs"] = ["corrected_disclosure_ref"]
+    comparison = compare_terms(original, make_terms(**corrected))
+
+    assert comparison.matches is True
+    assert original.terms_hash == make_terms(**corrected).terms_hash
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("window_start", "2026-10-25T10:00:00+07:00"),
+        ("window_end", "2026-10-25T11:00:00+07:00"),
+    ],
+)
+def test_local_window_offsets_must_match_business_timezone(field, value):
+    with pytest.raises(ValidationError):
+        make_terms(**{field: value})
+
+
+def test_utc_windows_are_valid_equivalent_instants_with_stable_canonical_values():
+    original = make_terms()
+    utc_equivalent = make_terms(
+        window_start="2026-10-25T02:00:00Z",
+        window_end="2026-10-25T03:00:00Z",
+    )
+
+    assert original.canonical_values() == utc_equivalent.canonical_values()
+    assert original.terms_hash == utc_equivalent.terms_hash
+
+
+def test_valid_daylight_saving_transition_offsets_match_named_timezone():
+    terms = make_terms(
+        business_timezone="America/New_York",
+        window_start="2026-03-08T01:30:00-05:00",
+        window_end="2026-03-08T03:30:00-04:00",
+    )
+    assert terms.window_start.astimezone(UTC) < terms.window_end.astimezone(UTC)
+
+
+@pytest.mark.parametrize(
+    "start,end",
+    [
+        ("2026-11-01T01:30:00-04:00", "2026-11-01T02:30:00-05:00"),
+        ("2026-11-01T00:30:00-04:00", "2026-11-01T01:30:00-05:00"),
+    ],
+)
+def test_ambiguous_local_daylight_saving_times_fail_closed(start, end):
+    with pytest.raises(ValidationError):
+        make_terms(
+            business_timezone="America/New_York",
+            window_start=start,
+            window_end=end,
+        )
+
+
+def test_nonexistent_local_daylight_saving_time_fails_closed():
+    with pytest.raises(ValidationError):
+        make_terms(
+            business_timezone="America/New_York",
+            window_start="2026-03-08T01:30:00-05:00",
+            window_end="2026-03-08T02:30:00-05:00",
+        )
+
+
+def test_utc_can_disambiguate_a_repeated_local_hour():
+    terms = make_terms(
+        business_timezone="America/New_York",
+        window_start="2026-11-01T05:30:00Z",
+        window_end="2026-11-01T06:30:00Z",
+    )
+    assert terms.window_start < terms.window_end
 
 
 def test_exact_guard_rejects_tenant_version_hash_and_material_mismatch():

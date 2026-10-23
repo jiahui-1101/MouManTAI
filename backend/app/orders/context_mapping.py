@@ -7,6 +7,7 @@ reserve, send, publish to Core, or establish customer assent.
 
 from __future__ import annotations
 
+from datetime import UTC
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -72,7 +73,13 @@ class PriceSourceAuthorityEvidence(ImmutableContract):
 
 
 class PriceDisclosureEvidence(ImmutableContract):
-    """Trusted adapter assertion for disclosure of one exact canonical terms hash."""
+    """Trusted adapter assertion for disclosure and its currentness lookup.
+
+    These fields describe the result of a server-side, tenant-scoped evidence
+    read. They are not safe to accept from an API client or infer from a terms
+    hash. The mapper can check binding and status but cannot authenticate the
+    adapter or independently query its source of truth.
+    """
 
     tenant_id: Text
     customer_id: Text
@@ -87,6 +94,11 @@ class PriceDisclosureEvidence(ImmutableContract):
     disclosure_ref: Text
     verification_status: Literal["VERIFIED", "UNVERIFIED"]
     authority_ref: Text | None = None
+    currentness_status: Literal["CURRENT", "STALE", "REVOKED", "UNKNOWN"] = "UNKNOWN"
+    currentness_checked_at: AwareDatetime | None = None
+    currentness_ref: Text | None = None
+    currentness_disclosure_ref: Text | None = None
+    currentness_authority_ref: Text | None = None
 
 
 class CustomerIdentityAssociationEvidence(ImmutableContract):
@@ -165,6 +177,8 @@ class AcceptanceCandidate(ImmutableContract):
 
     @model_validator(mode="after")
     def terms_and_hash_are_bound(self):
+        if (self.readiness_status == "READY_FOR_VALIDATION") != (self.canonical_terms is not None):
+            raise ValueError("Canonical terms are present only for a ready candidate")
         if (self.canonical_terms is None) != (self.terms_hash is None):
             raise ValueError("Canonical terms and their hash must be present together")
         if self.canonical_terms is not None:
@@ -197,6 +211,8 @@ class AcceptanceCandidate(ImmutableContract):
             if any(
                 row.tenant_id != self.tenant_id
                 or row.customer_id != self.customer_id
+                or row.context_id != self.source_context_id
+                or row.context_version != self.source_context_version
                 or row.order_request_id != self.order_request_id
                 or row.terms_revision != self.terms_revision
                 or row.terms_hash != self.terms_hash
@@ -205,9 +221,18 @@ class AcceptanceCandidate(ImmutableContract):
                 or row.disclosed_at != self.canonical_terms.price_source.disclosed_at
                 or row.verification_status != "VERIFIED"
                 or not row.authority_ref
+                or row.currentness_status != "CURRENT"
+                or row.currentness_checked_at is None
+                or not row.currentness_ref
+                or row.currentness_disclosure_ref != row.disclosure_ref
+                or not row.currentness_authority_ref
+                or row.currentness_checked_at.astimezone(UTC) < row.disclosed_at.astimezone(UTC)
+                or row.disclosure_ref not in self.canonical_terms.price_source.evidence_refs
                 for row in self.price_disclosure_evidence
             ):
-                raise ValueError("Price disclosure evidence must bind to the exact canonical terms")
+                raise ValueError(
+                    "Price disclosure evidence must be verified, current, and bind to exact terms"
+                )
         if self.agreement_basis == "UNKNOWN" and self.customer_assent_evidence:
             raise ValueError("Unknown agreement basis cannot carry customer-assent evidence")
         return self
@@ -217,6 +242,23 @@ def _unique(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(value for value in values if isinstance(value, str) and value.strip())
     )
+
+
+def _disclosure_currentness_reason(record: PriceDisclosureEvidence) -> str | None:
+    if record.currentness_status == "STALE":
+        return "PRICE_DISCLOSURE_STALE"
+    if record.currentness_status == "REVOKED":
+        return "PRICE_DISCLOSURE_REVOKED"
+    if (
+        record.currentness_status != "CURRENT"
+        or record.currentness_checked_at is None
+        or not record.currentness_ref
+        or record.currentness_disclosure_ref != record.disclosure_ref
+        or not record.currentness_authority_ref
+        or record.currentness_checked_at.astimezone(UTC) < record.disclosed_at.astimezone(UTC)
+    ):
+        return "PRICE_DISCLOSURE_CURRENTNESS_UNVERIFIED"
+    return None
 
 
 def _context_evidence_refs(context: OrderContextRecord) -> tuple[str, ...]:
@@ -876,6 +918,24 @@ def map_order_context(
             identity_associations=identity_associations,
             reasons=("PRICE_DISCLOSURE_UNVERIFIED",),
         )
+    currentness_reasons = _unique(
+        [
+            reason
+            for record in commercial_terms.price_disclosure_evidence
+            if (reason := _disclosure_currentness_reason(record)) is not None
+        ]
+    )
+    if currentness_reasons:
+        return _make_candidate(
+            context,
+            readiness="PRICE_SOURCE_UNVERIFIED",
+            current_version=current_version,
+            commercial=None,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=currentness_reasons,
+        )
 
     requested_lines = context.requested_items
     commercial_lines = commercial_terms.items or ()
@@ -992,6 +1052,16 @@ def map_order_context(
         for record in commercial_terms.price_disclosure_evidence
         if record.authority_ref
     )
+    additional_evidence.extend(
+        record.currentness_ref
+        for record in commercial_terms.price_disclosure_evidence
+        if record.currentness_ref
+    )
+    additional_evidence.extend(
+        record.currentness_authority_ref
+        for record in commercial_terms.price_disclosure_evidence
+        if record.currentness_authority_ref
+    )
     terms_evidence = _unique(list(context_refs) + additional_evidence)
     try:
         mapped_terms = OrderTerms.model_validate(
@@ -1078,6 +1148,16 @@ def map_order_context(
             record.authority_ref
             for record in commercial_terms.price_disclosure_evidence
             if record.authority_ref
+        ]
+        + [
+            record.currentness_ref
+            for record in commercial_terms.price_disclosure_evidence
+            if record.currentness_ref
+        ]
+        + [
+            record.currentness_authority_ref
+            for record in commercial_terms.price_disclosure_evidence
+            if record.currentness_authority_ref
         ]
     )
     if existing_core_terms is not None:
