@@ -18,7 +18,7 @@ export const navigation: NavigationItem[] = [
   ] },
   { id: "inbox", label: "Inbox", icon: "inbox", children: [
     { id: "customer-messages", label: "Customer Messages", icon: "inbox", to: "/inbox" },
-    { id: "human-review", label: "Human Review", icon: "review" },
+    { id: "human-review", label: "Human Review", icon: "review", to: "/human-review" },
   ] },
   { id: "orders", label: "Orders", icon: "orders", activeFor: ["/orders/", "/commitments/", "/impact/"], children: [
     { id: "all-orders", label: "All Orders", icon: "orders" },

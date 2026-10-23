@@ -10,6 +10,7 @@ import { CommunicationCenterPage } from "./features/communication/CommunicationC
 import { ConfirmationWorkspacePage } from "./features/communication/ConfirmationWorkspacePage";
 import { FollowUpQueuePage } from "./features/communication/FollowUpQueuePage";
 import { DurableInbox } from "./features/context/DurableInbox";
+import { HumanReviewPage } from "./features/context/HumanReviewPage";
 import { OrderContextDetail } from "./features/context/OrderContextDetail";
 import { AuthProvider, useAuth } from "./shared/auth";
 import { apiRequest, authHeaders } from "./shared/api";
@@ -85,6 +86,7 @@ export function App({ queryClient, initialTenantId, initialActorId }: AppProps =
               <Route path="/overview" element={<OverviewPage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/inbox" element={<DurableInbox />} />
+              <Route path="/human-review" element={<HumanReviewPage />} />
               <Route path="/orders/:id" element={<OrderContextDetail />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
