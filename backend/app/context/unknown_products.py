@@ -34,13 +34,19 @@ def literal_product_observations(text, *, catalog, tenant_id, units, excluded_sp
         r'(?:(?P<unit>' + unit_pattern + r')(?![A-Za-z])\s*)?'
         r'(?:of\s+)?', re.I)
     stop = re.compile(
-        r'[;,.!?\n，。；！？]|\b(?:for|delivery|deliver|on|tomorrow|today|before|after|at|'
+        r'[;,.!?\n，。；！？]|\b(?:for|delivery|deliver|delivered|by|on|tomorrow|today|before|after|at|'
         r'esok|lusa|hantar|pada|sebelum|selepas|pukul|and|dan|or|atau|please|thanks|'
         r'sent\s+over|sent|send|reach|get|arrive|driver)\b|'
         r'明天|后天|今天|送到|送达|交货|配送|和|以及', re.I)
     seen = set()
     for match in prefix.finditer(text):
         if any(a <= match.start() < b for a, b in excluded_spans):
+            continue
+        # Known item + trailing quantity ("burger 9 pcs boleh?") is handled
+        # by the postfix pass; its conversational tail is not a new product.
+        prior = text[:match.start()].rstrip()
+        if any(re.search(r'(?<![A-Za-z0-9_])' + re.escape(alias) + r'$', prior, re.I)
+               for alias in catalog_aliases):
             continue
         tail = text[match.end():match.end() + 100]
         end = stop.search(tail)
