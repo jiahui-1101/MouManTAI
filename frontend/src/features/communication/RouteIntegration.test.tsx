@@ -75,7 +75,7 @@ describe("Real App communication route", () => {
   it("navigates to the real page using the existing shell link", async () => {
     mount("/overview");
     await screen.findByRole("heading", { name: "Commitment Overview" });
-    fireEvent.click(screen.getByRole("link", { name: "Communications · P4" }));
+    fireEvent.click(screen.getByRole("link", { name: "Communications" }));
     await screen.findByText("No communication requests");
     expect(window.location.pathname).toBe("/communications");
     expect(screen.getByRole("heading", { name: "Communication Center" })).toBeInTheDocument();
