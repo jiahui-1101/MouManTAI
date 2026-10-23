@@ -20,10 +20,10 @@ describe("business navigation", () => {
   it("keeps Orders active for order detail routes", () => {
     const orders = navigation.find((item) => item.to === "/orders");
     const inbox = navigation.find((item) => item.to === "/inbox");
-  
+
     expect(orders).toBeDefined();
     expect(inbox).toBeDefined();
-  
+
     expect(isNavigationItemActive(orders!, "/orders/123")).toBe(true);
     expect(isNavigationItemActive(inbox!, "/orders/123")).toBe(false);
   });
