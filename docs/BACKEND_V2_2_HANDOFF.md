@@ -1,9 +1,9 @@
 # MouManTAI 2.2 Backend — Living Handoff
 
-Updated: 2026-10-23T15:58:38.132311+00:00 UTC / 2026-10-23T23:58:38.132311+08:00 MYT.
+Updated: 2026-10-23T16:08:50.412911+00:00 UTC / 2026-10-24T00:08:50.412911+08:00 MYT.
 Canonical spec: root AGENTS.md, REQUIREMENTS_SYSTEM.md, REQUIREMENTS_BACKEND.md, REQUIREMENTS_FRONTEND.md, IMPLEMENTATION_BLUEPRINT.md, REVIEW_DECISIONS.md; original v2.2 source checksums in docs/V2_2_SOURCE_CHECKSUMS.json verified byte-for-byte. CODEX_PROMPT.md read completely from attachment; supplied analysis-only excerpts do not replace the user's implementation authorization. Legacy docs are compatibility references.
 Repo: jiahui-1101/MouManTAI. Initial fetched main ec3ffbc970ab38abca8468abfe0466ff0464b998; latest integrated main 3efa7f23fc2842664f1164cc1dce363f7371bdd3, merged into feature only at 88a6869.
-Current branch: codex/feat-v2-2-supplier-contracts, stacked on codex/feat-v2-2-backend. Last code/test snapshot: 7e14477; last pushed documentation HEAD ac350ab (authoritative latest HEAD: git rev-parse HEAD / GitHub).
+Current branch: codex/feat-v2-2-supplier-contracts, stacked on codex/feat-v2-2-backend. Last code/test snapshot: 7e14477; previously pushed documentation HEAD 9bbcfcc (authoritative latest HEAD: git rev-parse HEAD / GitHub).
 PRs: #48 https://github.com/jiahui-1101/MouManTAI/pull/48 (base main); #49 https://github.com/jiahui-1101/MouManTAI/pull/49 (base codex/feat-v2-2-backend). Both DRAFT and UNMERGED.
 Owners/review: #48 requested Gan0117 / mavisbong41 / Sheng554; #49 Gan0117 / mavisbong41 / jiahui-1101. P2 is contributing author meishuet16; no self-approval. Shared schema/activation owner reviews pending. User explicitly confirmed S1–S5 are unratified; safe preparatory work authorized, no invented owner approval.
 
@@ -24,8 +24,8 @@ Two reviewable draft PRs pushed, source docs deployed, existing authorities pres
 
 ## Next executable tasks (priority order)
 
-1. Finish Linux Python3.12 source-snapshot 7e14477 cumulative backend/P2/P4 and strict migrated PostgreSQL root regression using dedicated DBs; inspect every failure. Docker image build in progress at this checkpoint.
-2. Record exact counts/logs/current CI for both PR heads; update TEAM_LOG and PR descriptions, push final docs. Keep PRs draft/unmerged and stacked dependency explicit.
+1. Review docs/BACKEND_V2_2_VALIDATION.md: final source7e14477 Linux portable 1254 passed / 146 skipped; strict migrated PostgreSQL 565 passed / zero skipped. Code validation is complete for these increments; policy/durable feature activation remains gated.
+2. Await P1/P4/P5 and supplier-owner reviews on draft #48/#49. Preserve stacking; neither is authorized to merge. PR #49 has local cumulative Linux/PG evidence; main-only CI filter does not automatically run on its feature-branch base.
 3. P1/P5 review durable OrderContext/OrderRequest linkage + issue storage; require trusted identity and atomic version/outbox before wiring pure clarification. No new review/message/commitment authority.
 4. P5/P2 review business ports/reservation saga and shared ConstraintSpec/joint evaluator projection; S1/S5 owner ratification required before acceptance/milestone activation. Do not duplicate evaluator or infer reservation from legacy CONFIRMED.
 5. Supplier owner/P1/P5 approve category/offer provenance persistence and selection audit; examples are not approved policy. P3/P5 independently review exact single-use approval semantics before any execution extension.
@@ -38,12 +38,12 @@ No new ORM, table, column or Alembic migration. Existing single head 0017_p1_rea
 
 - From backend: `python -m pytest tests/v2_2 -o addopts= -q --tb=short` -> 134 passed / 5 existing warnings, Windows Python3.14, final code 7e14477.
 - Scoped `python -m ruff check app/orders app/integrations app/conversations app/suppliers tests/v2_2 --select F,E4,E7,E9` and compileall passed. Original six Markdown files intentionally retain source hard-break spaces: code `git diff --check -- backend` and whole-diff check with core.whitespace=-blank-at-eol pass. Default source Markdown whitespace warning is documented, not concealed.
-- Earlier strict PG focused checkpoint -> 144 passed / 7 warnings on ec3ffbc-derived code; superseded by new-base final validation, do not treat as final coverage.
+- FINAL source7e14477: Linux cumulative backend/P2/P4 1254 passed / 146 portable skips; clean strict PostgreSQL16 backend 565 passed / ZERO skipped. Exact commands, JUnit counts and environments in BACKEND_V2_2_VALIDATION.md. Earlier 144-test PG checkpoint is superseded.
 - P2 standalone -> 288 passed / 1 warning.
 - Windows P1 isolated DB: `P1_AI_ENABLED=false P1_TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:15462/moumantai_v22_p1_test MOUMANTAI_SYNTHETIC_MODE=1 GMAIL_AUTO_START=false TELEGRAM_AUTO_START=false python -m pytest app/context/tests -o addopts= -q --tb=short --basetemp=D:/dunno/0.SDC/v22-tests-20261023-p1-r2 --junitxml=../backend-v22-p1-r2.xml` -> 616 passed / 7 skipped / 1 OCR failure. No assertion removed or changed.
 - Initial broad run -> 857 passed / 11 skipped / 475 setup errors (WinError5 system pytest temp). Fresh-basetemp combined and standalone P4 runs interrupted for extreme Windows file-backed SQLite fixture latency; no complete pass claimed.
 - Windows strict core concurrent with P1 -> 542 passed / 7 setup errors / 1 race failure; invalid acceptance evidence due shared-test-DB fixture interference. All relevant schemas were disposable; rerun independently in Linux required.
-- Raw JUnit artifacts under D:/dunno/0.SDC/backend-v2-2-validation-20261023; local logs backend-v22-*.log (ignored). Linux build uses tracked git archive only, no credentials/ignored .env, official python:3.12-slim and backend[dev]. Frontend unchanged; local frontend tests/build NOT_RUN. CI status pending final head.
+- Raw JUnit artifacts under D:/dunno/0.SDC/backend-v2-2-validation-20261023; local logs backend-v22-*.log (ignored). Linux build uses tracked git archive only, no credentials/ignored .env, official python:3.12-slim and backend[dev]. Frontend unchanged; local frontend tests/build NOT_RUN. PR #48 exact head 741976d: five CI jobs passed; #49 no automatic main-targeted CI, manually validated source7e14477. See validation report.
 
 ## Blockers / policy decisions
 
@@ -57,11 +57,11 @@ No new ORM, table, column or Alembic migration. Existing single head 0017_p1_rea
 
 ## Safety & runtime modes
 
-SYNTHETIC tests only; source hashes/evidence refs prove consistency not external authenticity. No order acceptance/reservation, live channel send, purchase, emergency approval/execution, real payment or deployment performed. Legacy CTA gates unchanged. No direct main push, PR merge, auto-merge, force-push or unrelated checkout modification. Owned temporary PostgreSQL16 container moumantai-v22-disposable loopback15462; separate task DBs for P1/core/Linux/migration. Root test fixture truncates all application schemas, so NEVER share its database with concurrently running P1 schema tests. Read-only teammate architecture audit has not been received; no speculative findings attributed to it.
+SYNTHETIC tests only; source hashes/evidence refs prove consistency not external authenticity. No new v2.2 acceptance/reservation activation, live channel send, purchase, real payment or deployment. Legacy synthetic approvals/actions were exercised only in disposable regression fixtures; their existing CTA gates remain unchanged. No direct main push, PR merge, auto-merge, force-push or unrelated checkout modification. Owned temporary PostgreSQL16 containers moumantai-v22-disposable (loopback15462) and moumantai-v22-pg-memory are now STOPPED; separate task DBs were used for P1/core/Linux/migration. No background test/service remains running. Root test fixture truncates all application schemas, so NEVER share its database with concurrently running P1 schema tests. Read-only teammate architecture audit has not been received; no speculative findings attributed to it.
 
 ## PR / merge status
 
-#48 DRAFT UNMERGED, base main; #49 DRAFT UNMERGED stacked on #48. Reviewers requested; approvals pending. CI must be checked on final pushed heads; old empty workflow list is not proof of green. Do not merge either PR or retarget stacked PR without reconciling its dependency after human review.
+#48 DRAFT UNMERGED, base main; #49 DRAFT UNMERGED stacked on #48. Reviewers requested; approvals pending. Exact #48 head 741976d CI run39981862097: all five jobs success. #49 source code7e14477 manually passed cumulative Linux/PG; main-only workflow does not automatically cover its stacked feature base. Documentation-only follow-ups preserve code snapshot evidence. Do not merge either PR or retarget stacked PR without reconciling its dependency after human review.
 
 ## Resume instructions
 
@@ -96,3 +96,7 @@ SYNTHETIC tests only; source hashes/evidence refs prove consistency not external
 - 2026-10-23T16:04:32.184130+00:00: Final local Linux runs on ordinary Docker overlay storage were IO-bound (PostgreSQL TRUNCATE waiting DataFileImmediateSync, file-backed SQLite likewise slow); interrupted and restarted full suites with task-owned tmpfs test scratch and a NEW separate PostgreSQL16 container moumantai-v22-pg-memory on tmpfs. Fsync/default PostgreSQL settings unchanged; no physical disk crash durability claim. Tests, scope and assertions unchanged; no skips/deselection added. Exact source snapshot remains 7e14477, official Python3.12 image. Portable container network=none; strict container shares only new disposable DB network. Final logs linux-portable-ram.log and linux-strict-pg-ram.log. Old partial logs retained as interrupted, not passed.
 
 - 2026-10-23T16:06:13.420663+00:00: Linux portable cumulative source7e14477 PASSED: 1254 passed / 146 skipped / 79 warnings in 106.16s. Command is full backend/tests + P2 + P4, no deselection; PG-only skips expected in portable mode. First tmpfs strict PG completed 556 passed / 8 skipped / 1 failure: failure was explicit test safety guard requiring TEST_DATABASE_URL database name p4_test_*, and eight skips required P4_TEST_DATABASE_URL; not a domain race failure. Corrected harness to new p4_test_v22_linux_final and provided P4_TEST_DATABASE_URL/P1_DATABASE_URL exactly as CI; FULL strict suite rerunning unchanged. No product/test assertion changed.
+
+- 2026-10-23T16:08:50.412911+00:00: FINAL clean Linux PostgreSQL16 strict full backend/tests PASSED: 565 passed / 0 skipped / 40 warnings in45.84s, source7e14477. Fresh p4_test_v22_linux_clean and moumantai_v22_migration_clean, exact CI-compatible P1/P4/test URLs, unchanged assertions; JUnit independently confirms zero failures/errors/skips. Prior reused migrationDB run had DuplicateTable because legacy migration test resets public but leaves p1_dev across runs; fresh migration DB resolves harness issue, no code change. Linux portable:1254 passed/146 skipped/79 warnings in106.16s. New test suite134 passed, all included. Final report docs/BACKEND_V2_2_VALIDATION.md; TEAM_LOG updated. No more code edits after7e14477. Both PRs remain draft/unmerged. Next actual engineering task is reviewed durable P1 issue/OrderRequest adapter, not redoing audit or bypassing policy.
+
+- 2026-10-23T16:10:57.970467+00:00: PR #48/#49 descriptions updated with final code coverage and explicit activation limits; both draft/unmerged, reviews pending. Remote main rechecked via ls-remote: still3efa7f23fc2842664f1164cc1dce363f7371bdd3. Both owned PostgreSQL containers stopped after test completion; test containers removed automatically. Final docs-only commit/push next; source7e14477 remains validated. Original P2 checkout is not used for implementation. Preserve this worktree for PR feedback; do not archive or merge.
