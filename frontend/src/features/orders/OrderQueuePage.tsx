@@ -84,6 +84,7 @@ export function OrderQueuePage({ source = unavailableOrderQueueSource }: OrderQu
       <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>Refresh queue</button></header>
     <p className="oq-notice">Pending acceptance is a request only. Feasibility and recommendations do not accept orders or reserve resources.</p>
     <p><Link to="/orders/portfolio">Portfolio Comparison</Link> · Source-backed comparison, subject to Backend availability.</p>
+    <p><Link to="/orders/calendar">Production & Delivery Calendar</Link> · Source-backed schedules and requested dates; availability may be unknown.</p>
     <fieldset className="oq-status"><legend>Order status</legend>{statusViews.map(view => <button type="button"
       key={view.value} aria-pressed={filters.status === view.value} onClick={() => update('status', view.value)}>{view.label}</button>)}</fieldset>
     <div className="oq-filters">

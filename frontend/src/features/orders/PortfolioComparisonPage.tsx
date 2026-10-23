@@ -104,6 +104,7 @@ export function PortfolioComparisonPage({ source = unavailablePortfolioSource }:
       <p>Compare source-provided order and resource scenarios, constraints and uncertainty before separate order review.</p>
       <Link to="/orders">Back to Order Decision Queue</Link></div>
       <button className="foundation-button foundation-button-secondary" type="button" disabled={query.isFetching} onClick={refresh}>Refresh portfolio</button></header>
+    <p><Link to="/orders/calendar">Production & Delivery Calendar</Link> · Scenario inclusion does not create scheduled work.</p>
     <UncertaintyNote kind="conditional">{executionNotice} Operational acceptance, reservation and scenario saving are unavailable here.</UncertaintyNote>
     <div className="pc-source"><StatusBadge state="UNKNOWN" label={data ? 'Source response received · read only' : 'Backend data unavailable'} />
       <EvidenceTierBadge evidenceTier={data?.evidenceTier ?? 'TARGET'} {...(data ? { integrationMode: data.integrationMode } : {})} />
