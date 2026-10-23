@@ -7,6 +7,7 @@ export interface NavigationItem {
   to?: string;
   /** Detail routes stay under their business parent without becoming sidebar destinations. */
   activeFor?: string[];
+  activePrefixes?: readonly string[];
   children?: NavigationItem[];
 }
 
@@ -49,7 +50,15 @@ export const navigation: NavigationItem[] = [
 export function isItemActive(item: NavigationItem, pathname: string): boolean {
   if (item.to && (pathname === item.to || (item.to !== "/" && pathname.startsWith(`${item.to}/`)))) return true;
   if (item.activeFor?.some(path => path === pathname || (path !== "/" && path.endsWith("/") && pathname.startsWith(path)))) return true;
+  if (item.activePrefixes?.some(prefix => pathname.startsWith(prefix))) return true;
   return item.children?.some(child => isItemActive(child, pathname)) ?? false;
+}
+
+export function isNavigationItemActive(item: { to?: string; activePrefixes?: readonly string[]; activeFor?: string[] }, pathname: string): boolean {
+  if (item.to && (pathname === item.to || (item.to !== "/" && pathname.startsWith(`${item.to}/`)))) return true;
+  if (item.activePrefixes?.some((prefix) => pathname.startsWith(prefix))) return true;
+  if (item.activeFor?.some((path) => path === pathname || (path !== "/" && path.endsWith("/") && pathname.startsWith(path)))) return true;
+  return false;
 }
 
 export function activeAncestors(items: NavigationItem[], pathname: string): string[] {
