@@ -12,21 +12,21 @@ describe("shared sidebar navigation", () => {
   beforeEach(() => window.localStorage.clear());
   afterEach(() => { cleanup(); window.localStorage.clear(); });
 
-  it("expands the active parent and keeps unavailable destinations disabled", () => {
+  it("expands the active parent and keeps all destinations accessible as active links", () => {
     mount("/activity");
     expect(screen.getByRole("button", { name: "Insights" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("link", { name: "Activity" })).toHaveClass("is-active");
     expect(screen.getByRole("button", { name: "Insights" })).toHaveClass("is-active");
     expect(screen.queryByRole("link", { name: "Forecasts" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Planning" }));
-    expect(screen.getByText("Forecasts").closest(".sidebar-item")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("link", { name: "Forecasts" })).toHaveAttribute("href", "/planning/forecasts");
   });
 
-  it("filters actual menu entries without creating routes for unavailable pages", () => {
+  it("filters menu entries and opens matching submenus with clickable links", () => {
     mount();
     fireEvent.change(screen.getByRole("searchbox", { name: "Search menu" }), { target: { value: "offer" } });
     expect(screen.getByRole("button", { name: "Suppliers" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("Offer Comparison").closest(".sidebar-item")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("link", { name: "Offer Comparison" })).toHaveAttribute("href", "/suppliers/compare");
     expect(screen.queryByRole("link", { name: "Overview" })).not.toBeInTheDocument();
   });
 

@@ -26,6 +26,7 @@ button, a, input, select { font: inherit; }
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
 }
+.breadcrumbs { display: none !important; }
 .sr-only {
   position: absolute;
   top: -9999px;
@@ -691,6 +692,7 @@ button, a, input, select { font: inherit; }
 }
 
 /* Accessibility */
+.breadcrumbs { display: none !important; }
 .sr-only {
   position: absolute;
   width: 1px;
@@ -733,6 +735,7 @@ button, a, input, select { font: inherit; }
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
 }
+.breadcrumbs { display: none !important; }
 .sr-only {
   position: absolute;
   top: -9999px;
@@ -773,6 +776,7 @@ button, a, input, select { font: inherit; }
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
 }
+.breadcrumbs { display: none !important; }
 .sr-only {
   position: absolute;
   top: -9999px;

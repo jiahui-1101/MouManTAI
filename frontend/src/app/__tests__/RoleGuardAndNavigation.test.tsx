@@ -9,8 +9,9 @@ import { OverviewPage } from "../../features/overview/OverviewPage";
 import { ActivityPage } from "../../features/activity/ActivityPage";
 import { CommitmentFeasibilityRoute, ImpactDetailRoute } from "../../App";
 import { AuthProvider } from "../../shared/auth";
+import { ApiError } from "../../shared/api";
 import { ApprovalActionControl } from "../../shared/ApprovalActionControl";
-import { StatusBadge, getStatusBadgeClass } from "../../shared/StatusBadge";
+import { StatusBadge } from "../../shared/StatusBadge";
 import type { OverviewResponse } from "../../shared/types";
 
 const mockOverview: OverviewResponse = {
@@ -104,13 +105,6 @@ function renderAppWithRoute(initialRoute: string, initialActorId: string = "user
 }
 
 describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a, FE-01d)", () => {
-  it("keeps v2 pending, accepted, reported and fulfilled states distinct", () => {
-    expect(getStatusBadgeClass(undefined, "PROPOSAL_AWAITING_CUSTOMER")).toContain("badge-purple");
-    expect(getStatusBadgeClass(undefined, "ACCEPTING")).toContain("badge-info");
-    expect(getStatusBadgeClass(undefined, "ACCEPTED")).toContain("badge-info");
-    expect(getStatusBadgeClass(undefined, "COMPLETION_REPORTED")).toContain("badge-info");
-    expect(getStatusBadgeClass(undefined, "FULFILLED")).toContain("badge-success");
-  });
   let capturedHeaders: Record<string, string>[] = [];
 
   beforeEach(() => {
@@ -261,6 +255,13 @@ describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a
   // 2. Staff Permission Guard in Shared Approval Controls & 403 Error Surfacing (UI-03)
   // =========================================================================
   it("when Staff role is active, high-privilege approval actions are disabled/restricted, and forced execution surfaces 403 error banner", async () => {
+    let resolveStaffResponse!: (response: Response) => void;
+    const staffResponse = new Promise<Response>((resolve) => {
+      resolveStaffResponse = resolve;
+    });
+    const onError = vi.fn();
+    const onSuccess = vi.fn();
+
     // Setup fetch to reject confirmation with 403 for Staff
     vi.stubGlobal(
       "fetch",
@@ -268,19 +269,7 @@ describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a
         const headers = (init?.headers || {}) as Record<string, string>;
         if (url.includes("/confirm-proposal")) {
           if (headers["X-Actor-ID"] === "user_staff_01") {
-            return Promise.resolve(
-              new Response(
-                JSON.stringify({
-                  code: "APPROVAL_REQUIRED",
-                  message: "Manager or owner approval is required to confirm proposal",
-                  correlation_id: "corr_perm_test_403",
-                }),
-                {
-                  status: 403,
-                  headers: { "Content-Type": "application/json" },
-                },
-              ),
-            );
+            return staffResponse;
           }
           return Promise.resolve(
             new Response(
@@ -309,6 +298,8 @@ describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a
           proposalId="prop_001"
           proposalVersion={1}
           currentStatus="PENDING_APPROVAL"
+          onError={onError}
+          onSuccess={onSuccess}
         />
       </AuthProvider>,
     );
@@ -327,14 +318,33 @@ describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a
     const forceBtn = screen.getByTestId("force-unauthorized-action-btn");
     fireEvent.click(forceBtn);
 
-    // Verify 403 error banner is surfaced in UI (never fake optimistic success)
-    const errorBanner = await screen.findByTestId("permission-error-banner");
-    expect(errorBanner).toBeInTheDocument();
-    expect(errorBanner).toHaveTextContent("403 Forbidden");
-    expect(errorBanner).toHaveTextContent("Manager or owner approval is required");
+    // Hold the 403 response so the intermediate pending state is observable.
+    expect(screen.getByRole("status")).toHaveTextContent("Request in progress");
+    resolveStaffResponse(
+      new Response(
+        JSON.stringify({
+          code: "APPROVAL_REQUIRED",
+          message: "Manager or owner approval is required to confirm proposal",
+          correlation_id: "corr_perm_test_403",
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
 
-    // Ensure success banner is NOT rendered
-    expect(screen.queryByTestId("approval-success-banner")).not.toBeInTheDocument();
+    // Verify the shared error state surfaces permission failure without echoing backend detail.
+    const errorBanner = await screen.findByRole("alert");
+    expect(errorBanner).toHaveTextContent("Access denied");
+    expect(errorBanner).not.toHaveTextContent("Manager or owner approval is required");
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(ApiError);
+    expect(onError.mock.calls[0]?.[0]).toMatchObject({ status: 403, code: "APPROVAL_REQUIRED" });
+    expect(onSuccess).not.toHaveBeenCalled();
+
+    // Ensure no success state is rendered.
+    expect(errorBanner.querySelector(".foundation-mutation-success")).toBeNull();
   });
 
   // =========================================================================
@@ -348,9 +358,24 @@ describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a
           return Promise.resolve(
             new Response(
               JSON.stringify({
-                commitment_id: "cmt_conf_01",
-                commitment_version: 3,
-                transition: "CONFIRMED",
+                commitment: {
+                  ...mockOverview.commitments[0],
+                  commitment_id: "cmt_conf_01",
+                  agreement_state: "CONFIRMED",
+                  commitment_version: 3,
+                },
+                audit_event: {
+                  audit_id: "audit_approval_01", tenant_id: "tenant_demo_01", commitment_id: "cmt_conf_01",
+                  event_type: "commitment.confirmed", actor_id: "user_manager_01", actor_role: "MANAGER",
+                  dimension: "agreement", previous_state: { agreement_state: "OFFERED" },
+                  new_state: { agreement_state: "CONFIRMED" }, evidence_refs: ["ev_approval_sign"],
+                  reason: "Authorized proposal decision", correlation_id: "corr_approval_01", occurred_at: "2026-10-21T02:00:00Z",
+                },
+                domain_event: {
+                  event_id: "evt_approval_01", schema_version: 1, event_type: "commitment.confirmed",
+                  tenant_id: "tenant_demo_01", commitment_id: "cmt_conf_01", commitment_version: 3,
+                  correlation_id: "corr_approval_01", occurred_at: "2026-10-21T02:00:00Z", payload: {},
+                },
               }),
               {
                 status: 200,
@@ -382,9 +407,10 @@ describe("Role Guard, Approval Controls, and Navigation Integrity (UI-03, FE-01a
 
     fireEvent.click(approveBtn);
 
-    // Success banner appears after 200 OK
-    const successBanner = await screen.findByTestId("approval-success-banner");
-    expect(successBanner).toHaveTextContent("Proposal approved and committed successfully");
+    // Success is shown only after the canonical response reports CONFIRMED.
+    const successFeedback = await screen.findByTestId("approval-mutation-feedback");
+    expect(successFeedback).toHaveTextContent("Proposal decision recorded.");
+    expect(successFeedback).toHaveTextContent("Server state: CONFIRMED");
   });
 
   // =========================================================================

@@ -1,3 +1,24 @@
+export { ConfirmationDialog } from "./ConfirmationDialog";
+export type { ConfirmationDialogProps } from "./ConfirmationDialog";
+export { EmptyState } from "./EmptyState";
+export type { EmptyStateKind, EmptyStateProps } from "./EmptyState";
+export { ErrorState, classifyUiError } from "./ErrorState";
+export type { ErrorStateProps, UiErrorKind } from "./ErrorState";
+export { EvidenceTierBadge } from "./EvidenceTierBadge";
+export type { EvidenceTier, EvidenceTierBadgeProps, IntegrationMode } from "./EvidenceTierBadge";
+export { LastUpdated } from "./LastUpdated";
+export type { LastUpdatedProps } from "./LastUpdated";
+export { MutationStateView } from "./mutationState";
+export type { MutationState, MutationStateViewProps } from "./mutationState";
+export { StateTimeline } from "./StateTimeline";
+export type { StateTimelineProps, TimelineStage, TimelineStatus } from "./StateTimeline";
+export { UncertaintyNote } from "./UncertaintyNote";
+export type { UncertaintyKind, UncertaintyNoteProps } from "./UncertaintyNote";
+export { VersionConflictBanner } from "./VersionConflictBanner";
+export type { VersionConflictBannerProps } from "./VersionConflictBanner";
+export { StatusBadge } from "./StatusBadge";
+export type { StatusBadgeProps, StatusDimension } from "./StatusBadge";
+
 import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
 
 type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "danger";
@@ -24,14 +45,6 @@ export function SearchField({ label, id, ...props }: Omit<InputHTMLAttributes<HT
 
 export function DataTable({ children, className = "", ...props }: HTMLAttributes<HTMLTableElement>) {
   return <div className="ui-table-scroll"><table className={`ui-table ${className}`.trim()} {...props}>{children}</table></div>;
-}
-
-export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
-  return <div className="ui-state ui-empty"><h3>{title}</h3>{description && <p>{description}</p>}{action}</div>;
-}
-
-export function ErrorState({ title = "Unable to load", description, onRetry }: { title?: string; description?: string; onRetry?: () => void }) {
-  return <div className="ui-state ui-error" role="alert"><h3>{title}</h3>{description && <p>{description}</p>}{onRetry && <Button onClick={onRetry}>Retry</Button>}</div>;
 }
 
 export function LoadingState({ label = "Loading…" }: { label?: string }) {

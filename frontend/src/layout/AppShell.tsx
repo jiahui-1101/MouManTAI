@@ -49,7 +49,7 @@ export function Breadcrumbs() {
   });
 
   return (
-    <nav aria-label="Breadcrumb" className="breadcrumbs" data-testid="shell-breadcrumbs">
+    <nav aria-label="Breadcrumb" className="breadcrumbs sr-only" data-testid="shell-breadcrumbs">
       <ol>
         {crumbs.map((crumb, idx) => (
           <li key={crumb.path || idx}>
