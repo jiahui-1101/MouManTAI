@@ -72,3 +72,12 @@ def test_date_only_deadline_keeps_relation_without_inventing_midnight():
     field = delivery("Deliver before 2026-10-24")
     assert field.value == "2026-10-24" and field.qualifier == "DATE_ONLY"
     assert field.metadata["date_relation"] == "DEADLINE"
+
+
+def test_dahoutian_and_bangwan():
+    field = delivery("大后天傍晚6点送100个汉堡")
+    assert field.validation_status == "VALID"
+    assert field.value == "2026-10-23T18:00:00+08:00"
+    assert field.qualifier == "EXACT"
+
+

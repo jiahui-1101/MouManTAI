@@ -43,6 +43,18 @@ def test_check_eligibility_success():
     assert reasons == []
 
 
+def test_check_eligibility_multi_item_success():
+    publisher = CoreContextPublisher()
+    ctx = make_valid_context("tenant_01", "ctx_01")
+    ctx.requested_items = [
+        RequestedItem(sku="SKU_BREAD_01", quantity="100", unit="pcs"),
+        RequestedItem(sku="SKU_BURGER_02", quantity="50", unit="pcs"),
+    ]
+    is_eligible, reasons = publisher.check_eligibility(ctx)
+    assert is_eligible is True
+    assert reasons == []
+
+
 def test_check_eligibility_ineligible_status():
     publisher = CoreContextPublisher()
     ctx = make_valid_context("tenant_01", "ctx_01")
@@ -189,10 +201,86 @@ def test_publish_confirmed_commitment_amendment_becomes_proposal(pg_engine):
         causation_id=ctx_id_2,
     )
 
-    from app.core.models import CommitmentRecord
+    from app.core.models import CommitmentProposalRecord, CommitmentRecord, OutboxEventRecord
+    from app.core.events import CoreEventType
     with Session(pg_engine) as session:
-        with pytest.raises(IneligibleContextError, match="P5 amendment integration required"):
-            publisher.publish_to_core(session, req_context_2, saved_2)
+        amended_com = publisher.publish_to_core(session, req_context_2, saved_2)
+        assert amended_com.commitment_id == com_1.commitment_id
+
         record = session.get(CommitmentRecord, (tenant_id, com_1.commitment_id))
-        assert record.agreement_state == AgreementState.CONFIRMED.value
+        assert record is not None
+        # State transitions to OFFERED with version increment
+        assert record.agreement_state == AgreementState.OFFERED.value
+        assert record.commitment_version >= 2
+        # Invariant 3: Original agreed terms preserved!
         assert Decimal(record.terms["quantity"]) == Decimal("100")
+
+        # Active proposal created with amended terms
+        prop = session.scalars(
+            select(CommitmentProposalRecord).where(
+                CommitmentProposalRecord.tenant_id == tenant_id,
+                CommitmentProposalRecord.commitment_id == com_1.commitment_id,
+                CommitmentProposalRecord.status == "ACTIVE",
+            )
+        ).first()
+        assert prop is not None
+        assert prop.revised_terms["quantity"] == "150"
+
+        # Outbox event emitted for the proposal
+        outbox_evt = session.scalars(
+            select(OutboxEventRecord).where(
+                OutboxEventRecord.tenant_id == tenant_id,
+                OutboxEventRecord.commitment_id == com_1.commitment_id,
+                OutboxEventRecord.event_type == CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value,
+            )
+        ).first()
+        assert outbox_evt is not None
+        assert outbox_evt.payload["proposal_id"] == prop.proposal_id
+
+
+def test_publish_multi_item_to_core_with_db(pg_engine):
+    from app.core.models import CommitmentRecord
+    from app.db.base import Base
+    with pg_engine.begin() as conn:
+        Base.metadata.create_all(conn)
+
+    repo = PostgresMessageRepository(pg_engine)
+    tenant_id = "tenant_test_multi_pub"
+    ctx_id = f"ctx_{uuid4().hex[:12]}"
+    ctx = make_valid_context(tenant_id, ctx_id, "ORD-MULTI-PUB-001")
+    ctx.requested_items = [
+        RequestedItem(sku="SKU_BREAD_01", quantity="100", unit="pcs"),
+        RequestedItem(sku="SKU_BURGER_02", quantity="50", unit="pcs"),
+    ]
+    saved = repo.save_order_context(ctx, change_type="INITIAL_CREATION", actor_id="usr_01", actor_role="OPERATOR")
+
+    publisher = CoreContextPublisher()
+    req_context = RequestContext(
+        tenant_id=tenant_id,
+        actor_id="usr_01",
+        actor_role="OPERATOR",
+        correlation_id=f"corr_{uuid4().hex[:8]}",
+        causation_id=ctx_id,
+    )
+
+    with Session(pg_engine) as session:
+        commitment = publisher.publish_to_core(session, req_context, saved)
+
+    assert commitment.commitment_id.startswith("com_")
+    assert commitment.tenant_id == tenant_id
+    assert commitment.order_id == "ORD-MULTI-PUB-001"
+    assert commitment.agreement_state == AgreementState.REQUESTED
+    # First item backwards-compat
+    assert commitment.terms.sku == "SKU_BREAD_01"
+    assert commitment.terms.quantity == Decimal("100")
+
+    # In database, record.terms["items"] has both items
+    with Session(pg_engine) as session:
+        rec = session.get(CommitmentRecord, (tenant_id, commitment.commitment_id))
+        assert rec is not None
+        assert "items" in rec.terms
+        assert len(rec.terms["items"]) == 2
+        assert rec.terms["items"][0]["sku"] == "SKU_BREAD_01"
+        assert rec.terms["items"][0]["quantity"] == "100"
+        assert rec.terms["items"][1]["sku"] == "SKU_BURGER_02"
+        assert rec.terms["items"][1]["quantity"] == "50" 

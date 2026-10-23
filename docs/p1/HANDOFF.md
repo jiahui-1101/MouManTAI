@@ -1,3 +1,13 @@
+# Current P1 handoff — phase 2 audit
+
+**Previous COMPLETE declarations below are withdrawn and retained only as history.** Current branch `feat/p1-phase2-refinement`; current work/commands/results: [PHASE2_CHECKPOINT.md](PHASE2_CHECKPOINT.md). The earlier audit snapshot is [EXTRACTION_PIPELINE_AUDIT.md](EXTRACTION_PIPELINE_AUDIT.md).
+
+P5 D-037 amendment proposals and multi-item `terms.items` are now available and targeted integration-tested. Main mounts P1, but still uses synthetic development tenant/repository dependencies. There is no P1 Alembic migration in this checkout; actual shared head is `0011_p4_confirmations`. Do not create a competing branch off the historical `0010` head or edit shared migrations without P5 coordination.
+
+Current local fixes: bounded/revalidated raw-observation cache, coalesced calls and honest failure/cache telemetry; tentative/history/inquiry guards; no pack-to-piece conversion; default GLiNER stage with L2 explicit-only. Historical messages were scanned in a PostgreSQL READ ONLY transaction and were not reprocessed, republished or edited. See checkpoint for coverage and remaining semantic review.
+
+---
+
 # P1 BATCH 8 Handoff — 2026-10-22 (Final P1 Acceptance and Delivery)
 
 Active branch: `feat/p1-ai-pipeline`; commits for this batch:

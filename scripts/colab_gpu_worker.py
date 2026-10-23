@@ -18,7 +18,8 @@ def health():
     import torch
     cuda = torch.cuda.is_available()
     return {"status": "reachable", "cuda_available": cuda,
-            "device_reported": torch.cuda.get_device_name(0) if cuda else None,
+            "device_reported": torch.cuda.get_device_name(0) if cuda else "CPU",
+            "device": runtime.device,
             "model_loaded": bool(runtime.loaded)}
 
 @app.post("/infer", response_model=InferenceOutput)
@@ -33,7 +34,7 @@ def infer(request: InferenceInput, authorization: str | None = Header(None)):
     try:
         return runtime.predict(request)
     except Exception:
-        raise HTTPException(503, "CUDA model inference unavailable") from None
+        raise HTTPException(503, "Model inference unavailable") from None
     finally:
         gate.release()
 

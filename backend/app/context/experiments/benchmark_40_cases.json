@@ -1,0 +1,449 @@
+{
+  "version": "benchmark-40-multilingual-v1",
+  "base_timestamp": "2026-10-20T10:00:00+08:00",
+  "timezone": "Asia/Kuala_Lumpur",
+  "cases": [
+    {
+      "id": "tc-01",
+      "category": "simple_order",
+      "language": "en",
+      "text": "Need 15 pcs burgers tomorrow 3pm",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "15"},
+        "unit": {"status": "VALID", "value": "pcs"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T15:00:00+08:00", "qualifier": "EXACT"}
+      }
+    },
+    {
+      "id": "tc-02",
+      "category": "simple_order",
+      "language": "zh",
+      "text": "订购50个汉堡明天下午4点送达",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "50"},
+        "unit": {"status": "VALID", "value": "pcs"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T16:00:00+08:00", "qualifier": "EXACT"}
+      }
+    },
+    {
+      "id": "tc-03",
+      "category": "simple_order",
+      "language": "ms",
+      "text": "nak order 20 biji burger esok sebelum pukul 3 petang",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "20"},
+        "unit": {"status": "VALID", "value": "pcs"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T15:00:00+08:00", "qualifier": "DEADLINE"}
+      }
+    },
+    {
+      "id": "tc-04",
+      "category": "simple_order",
+      "language": "mixed",
+      "text": "Hi boss, reorder 30 pcs roti burger tomorrow 11am",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "30"},
+        "unit": {"status": "VALID", "value": "pcs"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T11:00:00+08:00", "qualifier": "EXACT"}
+      }
+    },
+    {
+      "id": "tc-05",
+      "category": "informal_spelling",
+      "language": "en",
+      "text": "yo bro need 40 burgers tmrw 2pm",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "40"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T14:00:00+08:00", "qualifier": "EXACT"}
+      }
+    },
+    {
+      "id": "tc-06",
+      "category": "informal_spelling",
+      "language": "en",
+      "text": "can deliver 25 pcs buns 2moro 10am",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BREAD"},
+        "quantity": {"status": "VALID", "value": "25"},
+        "unit": {"status": "VALID", "value": "pcs"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T10:00:00+08:00", "qualifier": "EXACT"}
+      }
+    },
+    {
+      "id": "tc-07",
+      "category": "informal_spelling",
+      "language": "ms",
+      "text": "boss esok nak 35 biji burger petang pukul 5",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "35"},
+        "unit": {"status": "VALID", "value": "pcs"}
+      }
+    },
+    {
+      "id": "tc-08",
+      "category": "informal_spelling",
+      "language": "mixed",
+      "text": "boss morning! send 60 burger tomorrow before 12pm can ah",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "60"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T12:00:00+08:00", "qualifier": "DEADLINE"}
+      }
+    },
+    {
+      "id": "tc-09",
+      "category": "multiple_products",
+      "language": "en",
+      "text": "Please deliver 20 burgers and 30 buns tomorrow at 4pm",
+      "expected": {
+        "quantity": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-10",
+      "category": "multiple_products",
+      "language": "zh",
+      "text": "需要40个汉堡和20个面包，后天上午10点",
+      "expected": {
+        "quantity": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-11",
+      "category": "multiple_products",
+      "language": "ms",
+      "text": "50 burger dan 20 roti untuk lusa pukul 2 petang",
+      "expected": {
+        "quantity": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-12",
+      "category": "relative_dates_deadlines",
+      "language": "en",
+      "text": "Send 50 pcs burgers by 2026-10-23 15:00",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "50"},
+        "unit": {"status": "VALID", "value": "pcs"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-23T15:00:00+08:00", "qualifier": "DEADLINE"}
+      }
+    },
+    {
+      "id": "tc-13",
+      "category": "relative_dates_deadlines",
+      "language": "en",
+      "text": "100 burgers day after tomorrow 2pm",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "100"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-22T14:00:00+08:00", "qualifier": "EXACT"}
+      }
+    },
+    {
+      "id": "tc-14",
+      "category": "relative_dates_deadlines",
+      "language": "zh",
+      "text": "大后天傍晚6点需要30盒汉堡",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "INVALID"},
+        "unit": {"status": "INVALID"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-23T18:00:00+08:00", "qualifier": "EXACT"}
+      }
+    },
+    {
+      "id": "tc-15",
+      "category": "relative_dates_deadlines",
+      "language": "zh",
+      "text": "3天后下午2点要45个面包",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BREAD"},
+        "quantity": {"status": "VALID", "value": "45"},
+        "unit": {"status": "VALID", "value": "pcs"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-23T14:00:00+08:00", "qualifier": "EXACT"}
+      }
+    },
+    {
+      "id": "tc-16",
+      "category": "relative_dates_deadlines",
+      "language": "ms",
+      "text": "lusa sebelum pukul 4 petang hantar 80 biji burger",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "80"},
+        "unit": {"status": "VALID", "value": "pcs"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-22T16:00:00+08:00", "qualifier": "DEADLINE"}
+      }
+    },
+    {
+      "id": "tc-17",
+      "category": "relative_dates_deadlines",
+      "language": "ms",
+      "text": "tulat pukul 10 pagi nak 25 burger",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "25"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-23T10:00:00+08:00", "qualifier": "EXACT"}
+      }
+    },
+    {
+      "id": "tc-18",
+      "category": "ambiguous_requests",
+      "language": "en",
+      "text": "need 40 burgers tomorrow around 3pm maybe",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "40"},
+        "requested_delivery_at": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-19",
+      "category": "ambiguous_requests",
+      "language": "zh",
+      "text": "大概明天下午两点送50个汉堡过来，再定时间",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "requested_delivery_at": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-20",
+      "category": "ambiguous_requests",
+      "language": "ms",
+      "text": "esok mungkin pukul 3 petang nak 30 burger tengok dulu",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "30"},
+        "requested_delivery_at": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-21",
+      "category": "ambiguous_requests",
+      "language": "en",
+      "text": "need 50 burgers ASAP",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "50"},
+        "requested_delivery_at": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-22",
+      "category": "ambiguous_requests",
+      "language": "mixed",
+      "text": "send same as last time tomorrow 2pm ya boss",
+      "expected": {
+        "sku": {"status": "UNRESOLVED"},
+        "quantity": {"status": "MISSING"}
+      }
+    },
+    {
+      "id": "tc-23",
+      "category": "missing_information",
+      "language": "en",
+      "text": "need burgers tomorrow at 3pm",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "MISSING"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T15:00:00+08:00"}
+      }
+    },
+    {
+      "id": "tc-24",
+      "category": "missing_information",
+      "language": "en",
+      "text": "urgent 40 pcs burgers to Subang depot",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "40"},
+        "unit": {"status": "VALID", "value": "pcs"},
+        "requested_delivery_at": {"status": "MISSING"}
+      }
+    },
+    {
+      "id": "tc-25",
+      "category": "missing_information",
+      "language": "zh",
+      "text": "明天下午5点前送50个",
+      "expected": {
+        "sku": {"status": "UNRESOLVED"},
+        "quantity": {"status": "UNRESOLVED"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T17:00:00+08:00"}
+      }
+    },
+    {
+      "id": "tc-26",
+      "category": "missing_information",
+      "language": "ms",
+      "text": "hantar 30 burger pukul 4 petang",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "30"},
+        "requested_delivery_at": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-27",
+      "category": "missing_information",
+      "language": "en",
+      "text": "40 pcs burgers tomorrow",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "40"},
+        "unit": {"status": "VALID", "value": "pcs"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21", "qualifier": "DATE_ONLY"}
+      }
+    },
+    {
+      "id": "tc-28",
+      "category": "order_changes",
+      "language": "en",
+      "text": "Please change my order to 80 burgers tomorrow 3pm",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "80"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T15:00:00+08:00"}
+      }
+    },
+    {
+      "id": "tc-29",
+      "category": "order_changes",
+      "language": "zh",
+      "text": "之前的单改一下，改要60个汉堡明天下午2点",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "60"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T14:00:00+08:00"}
+      }
+    },
+    {
+      "id": "tc-30",
+      "category": "order_changes",
+      "language": "ms",
+      "text": "tukar order semalam, nak 50 burger esok pukul 1 tengah hari",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "50"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T13:00:00+08:00"}
+      }
+    },
+    {
+      "id": "tc-31",
+      "category": "conflicting_instructions",
+      "language": "en",
+      "text": "Send 40 burgers tomorrow at 2pm or 5pm",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "UNRESOLVED"},
+        "requested_delivery_at": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-32",
+      "category": "conflicting_instructions",
+      "language": "zh",
+      "text": "送30个面包，明天或者下周一送来",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BREAD"},
+        "quantity": {"status": "UNRESOLVED"},
+        "requested_delivery_at": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-33",
+      "category": "conflicting_instructions",
+      "language": "en",
+      "text": "Need 20 burgers actually make it 50 burgers tomorrow 3pm",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-34",
+      "category": "follow_up_reference",
+      "language": "en",
+      "text": "Regarding ORD-1001, add 20 pcs burgers tomorrow before 4pm",
+      "expected": {
+        "order_id": {"status": "UNRESOLVED", "value": "ORD-1001"},
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "20"},
+        "unit": {"status": "VALID", "value": "pcs"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T16:00:00+08:00", "qualifier": "DEADLINE"}
+      }
+    },
+    {
+      "id": "tc-35",
+      "category": "follow_up_reference",
+      "language": "en",
+      "text": "Hi any update on ORD-2042?",
+      "expected": {
+        "order_id": {"status": "UNRESOLVED", "value": "ORD-2042"},
+        "sku": {"status": "UNRESOLVED"},
+        "quantity": {"status": "MISSING"}
+      }
+    },
+    {
+      "id": "tc-36",
+      "category": "follow_up_reference",
+      "language": "en",
+      "text": "For ORD-1001, delivery time is confirmed at 2026-10-22T14:00:00+08:00",
+      "expected": {
+        "order_id": {"status": "UNRESOLVED", "value": "ORD-1001"},
+        "requested_delivery_at": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-37",
+      "category": "unknown_skus",
+      "language": "en",
+      "text": "Need 20 boxes pizza tomorrow before 12pm",
+      "expected": {
+        "sku": {"status": "UNRESOLVED"},
+        "quantity": {"status": "UNRESOLVED"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T12:00:00+08:00"}
+      }
+    },
+    {
+      "id": "tc-38",
+      "category": "unknown_skus",
+      "language": "ms",
+      "text": "nak order 50 bungkus nasi lemak esok pagi pukul 8",
+      "expected": {
+        "sku": {"status": "UNRESOLVED"},
+        "quantity": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-39",
+      "category": "unknown_skus",
+      "language": "zh",
+      "text": "明早10点要30份炸鸡翅",
+      "expected": {
+        "sku": {"status": "UNRESOLVED"},
+        "quantity": {"status": "UNRESOLVED"}
+      }
+    },
+    {
+      "id": "tc-40",
+      "category": "attachments_ocr",
+      "language": "en",
+      "text": "Hi boss, already transferred payment. See attached bank receipt. 40 pcs burgers tomorrow 3pm",
+      "expected": {
+        "sku": {"status": "VALID", "value": "BURGER"},
+        "quantity": {"status": "VALID", "value": "40"},
+        "unit": {"status": "VALID", "value": "pcs"},
+        "requested_delivery_at": {"status": "VALID", "value": "2026-10-21T15:00:00+08:00"}
+      }
+    }
+  ]
+}

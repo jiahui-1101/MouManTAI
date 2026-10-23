@@ -11,7 +11,7 @@ from .context_service import ContextService
 from .core_publisher import CoreContextPublisher, IneligibleContextError
 from .document_extractor import extract_pdf_document
 from .document_schemas import AttachmentRecord, DocumentExtractionResult
-from .dependencies import development_context, local_repository
+from .dependencies import development_context, local_repository, resolve_actor
 from app.core.dependencies import ACTOR_ROLES, RequestContext
 from sqlalchemy.orm import Session
 from .ingestion import IngestionService
@@ -33,6 +33,7 @@ from .order_context_schemas import (
     OrderContextVersionRecord,
 )
 from .repository import ContextNotFound, MessageRepository, StaleContextVersion
+from .review_catalog import approved_review_products, review_item_errors
 from .schemas import Channel, ProcessingStatus, RawMessageEnvelope
 
 router = APIRouter(tags=["P1 synthetic ingestion — provisional"])
@@ -44,6 +45,19 @@ errors = {403: {"model": ApiError}, 503: {"model": ApiError}}
 @router.get("/dev/p1/config", response_model=DevelopmentContext)
 def local_config(tenant: Tenant) -> DevelopmentContext:
     return tenant
+
+
+@router.get("/v1/contexts/catalog", response_model=list[dict[str, str]])
+def review_catalog(tenant: Tenant, repository: Repository) -> list[dict[str, str]]:
+    return approved_review_products(tenant.tenant_id, getattr(repository, "catalog", ()))
+
+
+def _check_review_items(tenant_id, items, repository):
+    from .order_context_schemas import RequestedItem
+    reasons = review_item_errors(tenant_id, [RequestedItem.model_validate(i) for i in items],
+                                getattr(repository, "catalog", ()))
+    if reasons:
+        raise HTTPException(status_code=422, detail={"message": "Product mapping required", "reasons": reasons})
 
 
 @router.post("/v1/messages/ingest", response_model=IngestResponse, status_code=201,
@@ -133,8 +147,7 @@ def decide_message_association(
     x_actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
     x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
 ) -> MessageAssociationRecord:
-    actor_id = x_actor_id or "user_staff_01"
-    actor_role = x_actor_role or "STAFF"
+    actor_id, actor_role = resolve_actor(x_actor_id, x_actor_role)
     return repository.decide_association(tenant.tenant_id, message_id, request, actor_id=actor_id, actor_role=actor_role)
 
 
@@ -177,8 +190,14 @@ def review_order_context(
     x_actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
     x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
 ) -> OrderContextRecord:
-    actor_id = x_actor_id or "user_staff_01"
-    actor_role = x_actor_role or "STAFF"
+    actor_id, actor_role = resolve_actor(x_actor_id, x_actor_role)
+    if request.action in {"EDIT_FIELD", "ACCEPT_EXTRACTION"}:
+        current = repository.get_order_context(tenant.tenant_id, context_id)
+        if current is None:
+            raise HTTPException(status_code=404, detail="Order context not found")
+        if current.context_version != request.expected_context_version:
+            raise StaleContextVersion(f"Context version mismatch: expected {request.expected_context_version}, got {current.context_version}")
+        _check_review_items(tenant.tenant_id, request.field_edits.get("requested_items", current.requested_items), repository)
     svc = ContextService(repository)
     return svc.review_context(tenant.tenant_id, context_id, request, actor_id=actor_id, actor_role=actor_role)
 
@@ -193,8 +212,9 @@ def update_order_context(
     x_actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
     x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
 ) -> OrderContextRecord:
-    actor_id = x_actor_id or "user_staff_01"
-    actor_role = x_actor_role or "STAFF"
+    actor_id, actor_role = resolve_actor(x_actor_id, x_actor_role)
+    if request.requested_items is not None:
+        _check_review_items(tenant.tenant_id, request.requested_items, repository)
     svc = ContextService(repository)
     return svc.update_context(tenant.tenant_id, context_id, request, actor_id=actor_id, actor_role=actor_role)
 
@@ -231,6 +251,7 @@ def publish_order_context_to_core(
     if ctx is None:
         raise HTTPException(status_code=404, detail="Order context not found")
 
+    _check_review_items(tenant.tenant_id, ctx.requested_items, repository)
     publisher = CoreContextPublisher()
     is_eligible, reasons = publisher.check_eligibility(ctx)
     if not is_eligible:
@@ -242,8 +263,7 @@ def publish_order_context_to_core(
             },
         )
 
-    actor_id = x_actor_id or "user_staff_01"
-    actor_role = x_actor_role or "STAFF"
+    actor_id, actor_role = resolve_actor(x_actor_id, x_actor_role)
     actor_role = ACTOR_ROLES.get(actor_id)
     if actor_role not in {"STAFF", "MANAGER", "OWNER"}:
         raise HTTPException(status_code=403, detail="Known synthetic human actor required; role headers cannot authorize publication")
@@ -284,29 +304,49 @@ def publish_order_context_to_core(
     return refetched
 
 
-@router.post("/v1/attachments/upload", response_model=AttachmentRecord, status_code=201,
-             responses={**errors, 400: {"model": ApiError}, 413: {"model": ApiError}, 415: {"model": ApiError}})
-async def upload_attachment(
-    tenant: Tenant,
-    repository: Repository,
-    file: UploadFile = File(...),
-) -> AttachmentRecord:
-    content = await file.read()
-    media_type, filename = validate_attachment(file.filename or "attachment.bin", content, file.content_type)
-    content_sha256 = hashlib.sha256(content).hexdigest()
-    attachment_id = f"att_{uuid4().hex[:12]}"
-    evidence_ref = f"ev_att_{uuid4().hex[:12]}"
+try:
+    import python_multipart  # type: ignore[import-not-found]
+    _has_multipart = True
+except ImportError:
+    try:
+        import multipart  # type: ignore[import-not-found]
+        _has_multipart = True
+    except ImportError:
+        _has_multipart = False
 
-    record = AttachmentRecord(
-        attachment_id=attachment_id,
-        tenant_id=tenant.tenant_id,
-        evidence_ref=evidence_ref,
-        filename=filename,
-        media_type=media_type,
-        size_bytes=len(content),
-        content_sha256=content_sha256,
-    )
-    return repository.save_attachment(tenant.tenant_id, record, content)
+
+if _has_multipart:
+    @router.post("/v1/attachments/upload", response_model=AttachmentRecord, status_code=201,
+                 responses={**errors, 400: {"model": ApiError}, 413: {"model": ApiError}, 415: {"model": ApiError}})
+    async def upload_attachment(
+        tenant: Tenant,
+        repository: Repository,
+        file: UploadFile = File(...),
+    ) -> AttachmentRecord:
+        content = await file.read()
+        media_type, filename = validate_attachment(file.filename or "attachment.bin", content, file.content_type)
+        content_sha256 = hashlib.sha256(content).hexdigest()
+        attachment_id = f"att_{uuid4().hex[:12]}"
+        evidence_ref = f"ev_att_{uuid4().hex[:12]}"
+
+        record = AttachmentRecord(
+            attachment_id=attachment_id,
+            tenant_id=tenant.tenant_id,
+            evidence_ref=evidence_ref,
+            filename=filename,
+            media_type=media_type,
+            size_bytes=len(content),
+            content_sha256=content_sha256,
+        )
+        return repository.save_attachment(tenant.tenant_id, record, content)
+else:
+    @router.post("/v1/attachments/upload", response_model=AttachmentRecord, status_code=501,
+                 responses={**errors, 501: {"model": ApiError}})
+    async def upload_attachment_unavailable(
+        tenant: Tenant,
+        repository: Repository,
+    ) -> AttachmentRecord:
+        raise HTTPException(status_code=501, detail="Form data upload requires python-multipart to be installed")
 
 
 @router.get("/v1/attachments/{evidence_ref}/content",

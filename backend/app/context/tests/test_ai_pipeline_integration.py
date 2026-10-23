@@ -154,7 +154,7 @@ def test_pipeline_protects_valid_rule_fields_from_model_disagreements(pg_engine)
 
 def test_pipeline_falls_back_to_rules_on_endpoint_unavailable(pg_engine):
     """When endpoint raises InferenceFailure, rule fields are preserved and attempt diagnostic notes fallback."""
-    text = "Need burgers tomorrow"
+    text = "Need 40 or 50 burgers tomorrow"  # Real ambiguity, rather than an absent quantity a model cannot supply.
     endpoint = FakeEndpoint(fail_error=InferenceFailure("unavailable"))
     svc = ModelProposalService(endpoint=endpoint, enabled=True, stages=("qwen",))
     repo = PostgresMessageRepository(pg_engine, proposal_service=svc)

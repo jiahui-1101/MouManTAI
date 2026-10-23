@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.context.router import router as context_router
 from app.core.errors import DomainError
 from app.core.router import router as core_router
 from app.recovery.router import router as recovery_router
@@ -56,6 +57,7 @@ app.include_router(core_router)
 app.include_router(recovery_router)
 app.include_router(communication_router)
 app.include_router(feasibility_read_router)
+app.include_router(context_router)
 if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
     isolated_dependencies = [Depends(require_isolated_e2e_key)]
     app.include_router(feasibility_assessment_router, dependencies=isolated_dependencies)

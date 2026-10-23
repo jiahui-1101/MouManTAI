@@ -404,12 +404,40 @@ def test_e2e_06_confirmed_commitment_changes_become_proposals(pg_engine):
         causation_id=ctx_id_2,
     )
 
+    from app.core.models import CommitmentProposalRecord, OutboxEventRecord
+    from app.core.events import CoreEventType
     with Session(pg_engine) as session:
-        with pytest.raises(IneligibleContextError, match="P5 amendment integration required"):
-            publisher.publish_to_core(session, req_context_2, saved_2)
+        amended_com = publisher.publish_to_core(session, req_context_2, saved_2)
+        assert amended_com.commitment_id == com_1.commitment_id
         record = session.get(CommitmentRecord, (tenant_id, com_1.commitment_id))
-        assert record.agreement_state == AgreementState.CONFIRMED.value
+        assert record is not None
+        # State transitions to OFFERED with version increment
+        assert record.agreement_state == AgreementState.OFFERED.value
+        assert record.commitment_version >= 2
+        # Invariant 3: Original agreed terms preserved!
         assert Decimal(record.terms["quantity"]) == Decimal("100")
+
+        # Active proposal created with amended terms
+        prop = session.scalars(
+            select(CommitmentProposalRecord).where(
+                CommitmentProposalRecord.tenant_id == tenant_id,
+                CommitmentProposalRecord.commitment_id == com_1.commitment_id,
+                CommitmentProposalRecord.status == "ACTIVE",
+            )
+        ).first()
+        assert prop is not None
+        assert prop.revised_terms["quantity"] == "200"
+
+        # Outbox event emitted for the proposal
+        outbox_evt = session.scalars(
+            select(OutboxEventRecord).where(
+                OutboxEventRecord.tenant_id == tenant_id,
+                OutboxEventRecord.commitment_id == com_1.commitment_id,
+                OutboxEventRecord.event_type == CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value,
+            )
+        ).first()
+        assert outbox_evt is not None
+        assert outbox_evt.payload["proposal_id"] == prop.proposal_id
 
 
 # =============================================================================

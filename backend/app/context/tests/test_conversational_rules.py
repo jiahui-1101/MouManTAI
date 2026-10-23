@@ -51,7 +51,20 @@ def test_missing_timezone_does_not_block_quantity_or_invent_date():
     assert fields["requested_delivery_at"].validation_status == "UNRESOLVED"
 
 
-@pytest.mark.parametrize('text', ['40 burger esok sebelum pukul 3 petang', '40个burger明天再定时间'])
+@pytest.mark.parametrize('text', ['40个burger明天再定时间', '40 burger esok belum pasti'])
 def test_unsupported_or_tentative_delivery_is_explicitly_unresolved(text):
     fields = {f.field_name: f for f in extract(text).fields}
     assert fields['requested_delivery_at'].validation_status == 'UNRESOLVED'
+
+
+def test_malay_delivery_expression_resolved():
+    # now is 2026-10-20T10:00:00+08:00
+    # esok is 2026-10-21, pukul 3 petang is 15:00, sebelum is DEADLINE
+    result = extract("40 burger esok sebelum pukul 3 petang")
+    fields = {f.field_name: f for f in result.fields}
+    deliv = fields['requested_delivery_at']
+    assert deliv.validation_status == 'VALID'
+    assert deliv.value == '2026-10-21T15:00:00+08:00'
+    assert deliv.qualifier == 'DEADLINE'
+    assert fields['quantity'].value == '40'
+    assert fields['sku'].value == 'BURGER'

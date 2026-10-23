@@ -107,9 +107,9 @@ def run_demo() -> dict:
         context_version=1,
         requested_items=[RequestedItem(sku="BURGER", quantity="50", unit="pcs")],
         requested_delivery_at=now,
-        delivery_qualifier="BEFORE",
+        delivery_qualifier="DEADLINE",
         source_message_ids=[ingested.message_id],
-        field_evidence={"sku": [{"quote": "burgers", "start": 8, "end": 15, "method": "RULE"}]},
+        field_evidence={"sku": [{"evidence_id": f"ev_{ingested.message_id}_sku", "quote": "burgers", "start": 8, "end": 15, "method": "RULE"}]},
         created_at=now,
         updated_at=now,
     )

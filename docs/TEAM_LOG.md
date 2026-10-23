@@ -1666,6 +1666,40 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Suggested Commit: feat(p4): add durable follow-up scheduling and escalation
 
 Append this section only; do not overwrite other members' TEAM_LOG records.
+
+## 2026-10-22 — P1 phase 2 correctness/cache and integration evidence
+
+- Branch `feat/p1-phase2-refinement`; preserve Main/P5 merge and concurrent contributor work. Local commits only, no push/merge/resource provisioning/L2 inference.
+- `0e0f328`: bounded source-grounded observation cache, tenant/model/endpoint isolation, current validation on reuse, coalesced requests and honest cache/failure telemetry. `6d4f910`: tentative/historical/inquiry request guards, no implicit pack-to-piece conversion, default GLiNER-only factory. `683ed73`: actual D-037 generated-order amendment proposal/replay safety. `e170eb4`: READ ONLY all-current-tenant historical audit.
+- Final backend command: `.venv/Scripts/python.exe -m pytest backend/app/context/tests backend/tests -o addopts='' -q -ra --tb=short -k 'not test_thread_concurrent_reservations_prevent_overallocation'` with private test DB and models disabled: **531 passed, 2 skipped, 1 deselected, 6 warnings, 187.45s**. Skips: explicit real-model opt-in; exclusion: known Windows native SQLite concurrency crash. Frontend: **401 passed, 5 skipped** (LIVE_API opt-in); application TypeScript/build passed, bundle-size warning only.
+- Existing endpoint health 200; one real GLiNER-only 40-case runner reproduced Product/Quantity/Unit/Delivery F1 87.9/90.6/100/96.6 and Malay 6/10. This is combined rule/candidate entity scoring, not final BusinessContext accuracy or independent CPU/GPU attestation. No measured accuracy uplift claimed; no L2 calls. Do not present the mean including skipped calls as pure CPU inference latency.
+- Historical read-only evidence: **177/177** accessible current-tenant messages scanned, 0 audit processing errors/writes/model calls; 3 stored/current VALID-pair differences, 160 with missing/unresolved current-rule fields. Detailed local ignored report contains original text/fields/context/attempt evidence. Semantic gold correctness and historical unnecessary/missed calls remain unverified; no automatic corrections/reprocessing/publication performed.
+- P5 D-037 amendment/multi-item/no-guessed-date implementation is now available and tested; old P1 blanket block already removed upstream. **BLOCK-P1-PHASE2-WIRING**: no P1 Alembic migration in checkout; actual current head is `0011_p4_confirmations` (not obsolete 0010). Main mounts P1 using local synthetic repository/tenant dependencies; production trusted auth/tenant/session wiring and DATE_ONLY/EXACT mapping require joint P5/P2 review. Shared migrations/modules not independently changed. Review lock order against D-041 jointly.
+- Withdrawn old COMPLETE, static GPU success, dollar-cap/account-spend and teardown declarations; removed credential-bearing startup examples. Current checkpoint: `docs/p1/PHASE2_CHECKPOINT.md`; prior pre-Main-merge audit snapshot: `docs/p1/EXTRACTION_PIPELINE_AUDIT.md`. Task remains partial: semantic review, normalized business-field evaluation, routing/circuit gaps and new merged-host UI confirmation remain listed with exact next commands. Unrelated concurrent ReviewDrawer edits are preserved and excluded from these commits.
+
+
+## 2026-10-22 — P1 L2 Phase 1 (offline implementation only)
+
+- `75b5c87`: default-disabled selective Qwen3 escalation after L0/L1, multi-item/meaningful ambiguity handling, strict adapter Pydantic/source/domain validation, HUMAN-over-rule conflict precedence, bounded timeout and honest attempt/cache counts. Existing transport has zero automatic POST retries. Worker now refuses Qwen CPU loading.
+- Reused pinned `Qwen/Qwen3-4B-Instruct-2507` and existing worker/protocol; no actual model/endpoint invocation, dependency installation, download, GPU provisioning or L2 deployment. No shared code/contracts changed. Review Drawer work preserved; no push/merge/PR.
+- Targeted command/paths in `docs/p1/L2_PHASE1_CHECKPOINT.md`: **85 passed, 0 failed/skipped in 4.64s**, including PostgreSQL review persistence/reprocessing and zero Core/outbox effects. Real smoke prepared but not executed; old outage test now uses actual ambiguity rather than inventing missing facts.
+- Phase 1 complete; real L2 quality/CUDA remains UNVERIFIED. Stop until user supplies a working GPU endpoint. Exact future verification command/config and remaining earlier integration tasks are recorded in the checkpoint. No new P5 handoff requested.
+
+
+## 2026-10-22 — P1 workstreams 4–5: bounded accuracy and saved-history semantics
+
+- `4e5ba29`: longest approved multilingual compound alias matching, full observation/catalog gates (no first-number stripping), literal Chinese/Malay/noon clocks, completed-feedback/cancellation safeguards, singleton explicit amendment extraction. No new catalog SKU, contract or authoritative state mutation. **205 focused tests passed in 4.62s**, including PostgreSQL; models disabled/mocked in regression.
+- Exactly one final real 40-case GLiNER benchmark after fixes, 12 requests/12 responses, CPU reported. Product F1 87.9→94.3%, recall 78.4→89.2%; quantity F1 90.6→94.5%, recall 82.8→89.7%; delivery F1 96.6→100%, unit 100%; Malay 60→90%, overall 36/40 (90%). SKU false accept remains 0 on this dataset. Recall targets 90% remain missed. One pizza-quantity case regresses because unsafe stripping from unknown-product quote is now rejected. Entity/candidate metrics, not final BusinessContext accuracy; benchmark labels/scorer unchanged, no repeated tuning run, no Qwen/GPU startup/install.
+- `3c4ac2d`: offline original-source/evidence/normalized-field verification from saved 177-record snapshot; **7 verifier tests passed in 0.32s**. 36 retrospective text annotations, all 177 individually classified: 30 VERIFIED_CORRECT, 13 VERIFIED_INCORRECT, 26 AMBIGUOUS, 108 INSUFFICIENT_EVIDENCE, 0 NOT_REVIEWED. Only 43 conclusive literal-field verdicts; full customer intent/context review lineage not independently proved. Model semantic annotation alone is not ground truth; numeric/time/source checks support conclusive findings.
+- No historical DB scan/query, mutation/reprocessing/publication, push/merge/PR or unrelated workstream edits. Full per-message results `.local/advanced-historical-semantics-final.json`; benchmark/raw responses `.local/advanced-final-benchmark.json` / `advanced-final-model-responses.json`. Exact commands, hashes, limits and next focused evidence needs: `docs/p1/ADVANCED_ACCURACY_AUDIT.md`. Workstream 4 bounded optimization DONE with target misses; Workstream 5 PARTIAL because 134 records remain ambiguous/insufficient. Stop here; other workstreams stay deferred.
+
+
+## 2026-10-23 — P1 judge review/catalog boundary safety
+
+- `1136566`: P1 tenant-scoped configured catalog lookup and HTTP review/patch/publish SKU/unit guards; no new product approval or shared contract change.
+- `3e0fa9b`: retain available unknown candidate evidence/item groups in Drawer; prevent raw-name SKU prefill, automatic unit defaults, first-item candidate overwrite, unsaved-field acceptance and implicit conflict clearing.
+- Actual focused validation: backend 26 passed (including PostgreSQL mapping/refresh and preserved source evidence); frontend 44 passed; TypeScript/Vite build passed with bundle-size warning. No GPU, benchmark, historical writes, push/merge/PR.
+- Existing live backend still returns 404 for new `/v1/context-catalog`; restart/live browser validation deferred to avoid interrupting active extraction agent. Protected extraction/merge/storage changes preserved. Unknown source fields not emitted upstream cannot be reconstructed by this UI. Checkpoint and exact test paths: `docs/p1/JUDGE_REVIEW_CHECKPOINT.md`.
 # MouManTAI — Team Execution Log & Decision Register
 
 ### 2026-10-22 — P5: Fix Alembic logger reconfiguration and outbox warning throttle test

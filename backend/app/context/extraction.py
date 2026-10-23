@@ -48,6 +48,6 @@ def prepare_model_proposal_service(endpoint=None, *, enabled: bool | None = None
         if env_stages:
             stage_tuple = tuple(s.strip() for s in env_stages.split(",") if s.strip())
         else:
-            stage_tuple = ("qwen",)
+            stage_tuple = ("gliner",)  # L2 requires an explicit P1_AI_STAGES opt-in.
 
     return ModelProposalService(endpoint, enabled=is_enabled, stages=stage_tuple)

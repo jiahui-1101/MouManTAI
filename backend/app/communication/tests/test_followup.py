@@ -241,7 +241,8 @@ def test_policy_grants_idempotency_and_tenant_boundaries(graph):
 def test_migration_parent_rollback_preserves_all_other_tables(graph):
     engine, cfg, _, _, _, _ = graph
     scripts = ScriptDirectory.from_config(cfg)
-    assert scripts.get_heads() == ["0015_p4_followup"]
+    heads = scripts.get_heads()
+    assert len(heads) == 1 and "0015_p4_followup" in {r.revision for r in scripts.iterate_revisions(heads[0], "base")}
     assert scripts.get_revision("0015_p4_followup").down_revision == "0014_merge_p3_p4_confirmations"
     before = set(inspect(engine).get_table_names())
     alembic_command.downgrade(cfg, "0014_merge_p3_p4_confirmations")

@@ -33,7 +33,7 @@ def test_reprocess_operation_id_replays_but_fresh_operation_preserves_history(pg
 
 def test_rules_only_skipped_model_has_no_runtime_success(pg_engine):
     endpoint = FakeEndpoint()
-    repo = PostgresMessageRepository(pg_engine, proposal_service=ModelProposalService(endpoint, enabled=True))
+    repo = PostgresMessageRepository(pg_engine, proposal_service=ModelProposalService(endpoint, enabled=True, stages=('gliner', 'qwen')))
     env = make_envelope('Need 15 burgers tomorrow')
     env.business_timezone = None
     m = repo.ingest(env, NOW).message

@@ -1,3 +1,5 @@
+> Historical proposal, not execution/acceptance evidence. The proposed dollar cap is not implemented as a provider spending control; listed pricing, automatic teardown and GPU evaluation claims were not independently verified. Do not provision resources from this note. Current status: [PHASE2_CHECKPOINT.md](PHASE2_CHECKPOINT.md).
+
 # P1 BATCH 6 — Stage A: GPU Model Deployment & Evaluation Proposal
 
 **Document Version**: `p1-ai-gpu-v1`  
