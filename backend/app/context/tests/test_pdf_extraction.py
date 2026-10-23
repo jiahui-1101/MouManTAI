@@ -2,8 +2,9 @@
 
 import io
 from typing import Sequence
-import pymupdf
 import pytest
+
+pymupdf = pytest.importorskip("pymupdf", reason="pymupdf is required for PDF extraction tests")
 from fastapi.testclient import TestClient
 
 from app.context.dependencies import development_context, local_repository
@@ -27,9 +28,12 @@ def shared_repo():
     url = os.environ.get("P1_DATABASE_URL")
     if not url:
         pytest.skip("P1_DATABASE_URL not set")
-    engine = create_p1_engine(url)
-    initialize_p1_schema(engine)
-    return PostgresMessageRepository(engine)
+    try:
+        engine = create_p1_engine(url)
+        initialize_p1_schema(engine)
+        return PostgresMessageRepository(engine)
+    except Exception as exc:
+        pytest.skip(f"P1 database unavailable: {exc}")
 
 
 def create_synthetic_pdf(pages_text: Sequence[str]) -> bytes:
