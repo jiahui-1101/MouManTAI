@@ -330,7 +330,7 @@ def test_postgres_stale_p4_proposal_cannot_overwrite_newer_proposal(p4_isolated_
             created_at=NOW,
             updated_at=NOW,
         ))
-        session.flush()
+        session.commit()
 
         dispatcher = OutboxDispatcher()
         dispatcher.register_subscriber(
