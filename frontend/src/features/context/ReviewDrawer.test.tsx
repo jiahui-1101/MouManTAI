@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ReviewDrawer } from './ReviewDrawer';
+import { ReviewDrawer, getSuggestedClarification } from './ReviewDrawer';
 import { operationalApi } from './operationalApi';
 import * as reviewApi from './operationalApi';
 import type { OrderContextRecord } from './types';
@@ -335,5 +335,34 @@ describe('ReviewDrawer component', () => {
 
     fireEvent.click(screen.getByLabelText(/Close drawer/i));
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('renders AI suggested clarification preview and allows adopting it as reviewer note', () => {
+    const missingUnitContext: OrderContextRecord = {
+      ...baseContext,
+      requested_items: [],
+      missing_fields: ['unit'],
+      field_evidence: {
+        sku: [{ quote: 'burgers', normalized_value: 'BURGER', method: 'RULE' }],
+        quantity: [{ quote: '50', normalized_value: '50', method: 'RULE' }],
+      },
+    };
+
+    const suggested = getSuggestedClarification(missingUnitContext);
+    expect(suggested).toBe('Could you please confirm the unit for the 50 burger (e.g., pcs or boxes)?');
+
+    render(
+      <ReviewDrawer context={missingUnitContext} isOpen={true} onClose={onClose} onUpdated={onUpdated} />
+    );
+
+    expect(screen.getByTestId('p1-suggested-clarification')).toBeInTheDocument();
+    expect(screen.getByText(/AI Suggested Clarification \(P4 Draft Preview\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Could you please confirm the unit for the 50 burger/i)).toBeInTheDocument();
+
+    const noteTextarea = screen.getByLabelText(/Reviewer Note/i) as HTMLTextAreaElement;
+    expect(noteTextarea.value).toBe('');
+
+    fireEvent.click(screen.getByRole('button', { name: /Adopt as Clarification Note/i }));
+    expect(noteTextarea.value).toBe('Could you please confirm the unit for the 50 burger (e.g., pcs or boxes)?');
   });
 });

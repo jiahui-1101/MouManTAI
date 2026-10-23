@@ -187,6 +187,9 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
       {(context.conflicts?.length ?? 0) > 0 && (
         <div className="p1-conflict-box" role="alert">
           <h4>Security / Term Conflicts Detected</h4>
+          <p style={{ margin: '2px 0 6px 0', fontSize: '12px', color: '#7f1d1d' }}>
+            Pending authorization, rescheduling policy, and term review constraints:
+          </p>
           <ul>
             {(context.conflicts ?? []).map((conf, idx) => (
               <li key={idx}>{conf}</li>
@@ -220,6 +223,14 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
             {context.requested_delivery_at
               ? new Date(context.requested_delivery_at).toLocaleString()
               : 'Not specified'}
+            {Boolean(
+              (context.field_evidence?.requested_delivery_at?.[0]?.normalization_metadata as Record<string, string> | undefined)?.extraction_correctness === 'CONFIRMED_PARSED' ||
+              (context.field_evidence?.requested_delivery_at?.[0]?.normalization_metadata as Record<string, string> | undefined)?.rescheduling === 'true'
+            ) && (
+              <span className="p1-dim-badge" style={{ marginLeft: '6px', background: '#e0f2fe', color: '#0369a1', fontSize: '11px' }}>
+                Parsed, Pending Authorization
+              </span>
+            )}
           </span>
         </div>
         <div className="p1-dim-item">

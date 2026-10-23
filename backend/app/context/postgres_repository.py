@@ -829,6 +829,60 @@ class PostgresMessageRepository:
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
 
+    def get_latest_active_context_by_customer(
+        self, tenant_id: str, customer_id: str
+    ) -> OrderContextRecord | None:
+        try:
+            with Session(self.engine) as session:
+                stmt = (
+                    select(OrderContext)
+                    .where(
+                        OrderContext.tenant_id == tenant_id,
+                        OrderContext.customer_id == customer_id,
+                        OrderContext.core_commitment_id.is_(None),
+                        OrderContext.status.in_(["INFORMATION_PARTIAL", "UNRESOLVED", "CONFLICT"]),
+                    )
+                    .order_by(OrderContext.updated_at.desc())
+                    .limit(1)
+                )
+                row = session.scalar(stmt)
+                if row is None:
+                    return None
+                return order_context_record(row)
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Context lookup temporarily unavailable") from None
+
+    def get_latest_active_context_by_sender(
+        self, tenant_id: str, sender_identity_id: str
+    ) -> OrderContextRecord | None:
+        try:
+            with Session(self.engine) as session:
+                recent_msgs = session.scalars(
+                    select(InboundMessage)
+                    .where(InboundMessage.tenant_id == tenant_id)
+                    .order_by(InboundMessage.ingested_at.desc())
+                    .limit(30)
+                ).all()
+                matching_ids = [
+                    m.message_id for m in recent_msgs
+                    if isinstance(m.raw, dict) and m.raw.get("sender_identity_id") == sender_identity_id
+                ]
+                for msg_id in matching_ids:
+                    row = session.scalar(
+                        select(OrderContext)
+                        .where(
+                            OrderContext.tenant_id == tenant_id,
+                            OrderContext.source_message_ids.contains([msg_id]),
+                            OrderContext.core_commitment_id.is_(None),
+                            OrderContext.status.in_(["INFORMATION_PARTIAL", "UNRESOLVED", "CONFLICT"]),
+                        )
+                    )
+                    if row is not None:
+                        return order_context_record(row)
+                return None
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Context lookup temporarily unavailable") from None
+
     def save_order_context(
         self,
         record: OrderContextRecord,

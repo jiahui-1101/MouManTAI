@@ -1,4 +1,4 @@
-"""PromiseFlow P1 Comprehensive Evaluation Runner.
+"""MouManTAI P1 Comprehensive Evaluation Runner.
 
 Evaluates extraction accuracy, robustness, and safety across:
 - Mode 'rules': L0 deterministic rules only (runs offline)
@@ -448,7 +448,7 @@ async def run_case_inference(mode: str, case: dict, msg: StoredMessage, endpoint
 
 
 async def run_evaluation_async(mode: str, dataset_file: Path, output_file: Path, endpoint_url_override: Optional[str] = None):
-    print(f"=== Starting PromiseFlow P1 Evaluation (Mode: {mode}) ===")
+    print(f"=== Starting MouManTAI P1 Evaluation (Mode: {mode}) ===")
     dataset = load_dataset(dataset_file)
     base_ts = datetime.fromisoformat(dataset["base_timestamp"])
     cases = dataset["cases"]

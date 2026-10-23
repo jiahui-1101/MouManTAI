@@ -167,6 +167,8 @@ def upgrade():
 
 
 def downgrade():
+    if op.get_bind().dialect.name != 'postgresql':
+        return
     # Destructive by definition: only execute as a deliberate rollback. Never
     # drop schema CASCADE (could remove unrelated objects); leave shared Core.
     op.drop_table('order_contexts', schema="p1_dev")

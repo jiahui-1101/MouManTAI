@@ -1,4 +1,4 @@
-"""Generate an independent 50-case holdout evaluation dataset for PromiseFlow P1."""
+"""Generate an independent 50-case holdout evaluation dataset for MouManTAI P1."""
 import json
 from pathlib import Path
 

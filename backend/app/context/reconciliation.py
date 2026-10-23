@@ -1,4 +1,4 @@
-"""Canonical Field Reconciliation and Deduplication for PromiseFlow P1.
+"""Canonical Field Reconciliation and Deduplication for MouManTAI P1.
 
 Enforces:
 1. P1 extracts strictly ONLY the allowed canonical fields:

@@ -8,7 +8,10 @@ import re
 import uuid
 from typing import Any, Sequence
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None  # type: ignore[assignment]
 
 from .deterministic_extraction import ORDER_RE, PROVISIONAL_PRODUCTS, ProductAlias
 from .document_schemas import AttachmentRecord, BoundingBox, DocumentEvidence, DocumentExtractionResult
@@ -326,6 +329,8 @@ def extract_pdf_document(
     if not any(t.strip() for t in page_texts):
         # Image-only / Scanned PDF detected: fallback to OCR
         try:
+            if np is None:
+                raise ImportError("numpy is required for PDF OCR fallback")
             from PIL import Image
             ocr = get_ocr_engine()
             ocr_evidence: list[DocumentEvidence] = []
@@ -479,6 +484,20 @@ def extract_image_ocr(
             evidence_items=[],
             is_payment_notice=False,
             diagnostic=f"Image dimensions {width}x{height} exceed maximum allowed {MAX_IMAGE_DIMENSION}x{MAX_IMAGE_DIMENSION} limit",
+        )
+
+    if np is None:
+        return DocumentExtractionResult(
+            attachment_id=attachment.attachment_id,
+            evidence_ref=attachment.evidence_ref,
+            status="FAILED",
+            document_type="IMAGE",
+            page_count=1,
+            text_content="",
+            extracted_fields=[],
+            evidence_items=[],
+            is_payment_notice=False,
+            diagnostic="numpy is required for image OCR",
         )
 
     try:

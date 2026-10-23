@@ -1,4 +1,4 @@
-"""Generate the comprehensive 130-case evaluation dataset for PromiseFlow P1."""
+"""Generate the comprehensive 130-case evaluation dataset for MouManTAI P1."""
 import json
 from pathlib import Path
 

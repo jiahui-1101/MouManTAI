@@ -72,6 +72,7 @@ UNIT_NORMALIZATION: dict[str, str] = {
     "bag": "bag", "bags": "bag",
     "cup": "cup", "cups": "cup", "杯": "cup", "cawan": "cup",
     "bottle": "bottle", "bottles": "bottle", "瓶": "bottle", "botol": "bottle",
+    "jar": "jar", "jars": "jar",
     "carton": "carton", "cartons": "carton", "karton": "carton",
     "tray": "tray", "trays": "tray", "盘": "tray", "盤": "tray",
     "set": "set", "sets": "set", "份": "set",
@@ -1188,10 +1189,30 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     ]
 
     if not mentions:
-        fields.extend([
-            field("sku", None, "UNRESOLVED"),
-            field("quantity", None, "UNRESOLVED" if numbers else "MISSING", [m.span() for m in numbers]),
-        ])
+        # Check if this message is a follow-up specifying standalone quantity / unit (e.g. "50 pcs", "pcs please", "50 boxes")
+        standalone_m = re.search(
+            r'\b(?:(?P<qty>[0-9]+)\s*)?(?P<unit>pcs|pc|piece|pieces|keping|biji|box|boxes|kotak|kg|kilogram|kilograms|kilo|pack|packs|paket|bungkus)\b|'
+            r'(?:(?P<qty_zh>[0-9]+)\s*)?(?P<unit_zh>[个支盒箱包])',
+            text,
+            re.IGNORECASE,
+        )
+        if standalone_m:
+            raw_u = standalone_m.group("unit") or standalone_m.group("unit_zh")
+            raw_q = standalone_m.group("qty") or standalone_m.group("qty_zh")
+            norm_u = UNIT_NORMALIZATION.get(raw_u.lower()) if raw_u else None
+            u_span = standalone_m.span("unit") if standalone_m.group("unit") else standalone_m.span("unit_zh")
+            fields.append(field("sku", None, "MISSING", metadata={"group_id": "g1"}))
+            if raw_q:
+                q_span = standalone_m.span("qty") if standalone_m.group("qty") else standalone_m.span("qty_zh")
+                fields.append(field("quantity", raw_q, "VALID", [q_span], metadata={"group_id": "g1", "resolved_by_rule": "true"}))
+            else:
+                fields.append(field("quantity", None, "UNRESOLVED" if numbers else "MISSING", [m.span() for m in numbers], metadata={"group_id": "g1"}))
+            fields.append(field("unit", norm_u or raw_u, "VALID", [u_span], metadata={"group_id": "g1", "resolved_by_rule": "true", "normalized_unit": norm_u or raw_u}))
+        else:
+            fields.extend([
+                field("sku", None, "UNRESOLVED"),
+                field("quantity", None, "UNRESOLVED" if numbers else "MISSING", [m.span() for m in numbers]),
+            ])
     else:
         for idx, (_, product, mention) in enumerate(mentions, start=1):
             ambiguous = any(
@@ -1234,6 +1255,10 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
         unsafe_matches = [
             m for m in UNSAFE_ASSOCIATION_RE.finditer(item_clause)
             if not any(s <= (sent_start + m.start()) and (sent_start + m.end()) <= e for s, e in delivery_spans + packaging_spans)
+            and not (m.group().lower() in ("and", "dan") and re.match(
+                r"\s+(?:please\s+)?(?:deliver|delivery|send|ship|hantar)\s+"
+                r"(?:on|by|tomorrow|today|esok|at|before|after|pada|sebelum)\b",
+                item_clause[m.end():], re.IGNORECASE))
         ]
         if len(mentions) != 1 or unsafe_matches or len(numbers) > 1:
             fields.append(field("quantity", None, "UNRESOLVED", [m.span() for m in numbers]))

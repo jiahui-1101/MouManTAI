@@ -218,6 +218,34 @@ class ContextService:
 
             existing_context = self.repo.get_order_context_by_order(tenant_id, target_order_id)
 
+        # If not referenced by explicit order_id, check for active uncommitted context for this customer or sender
+        # ONLY if there are no association conflicts (e.g. referencing someone else's order or unverified reference)
+        cust_id = assoc.verified_customer.customer_id if assoc.verified_customer else None
+        has_assoc_conflict = bool(assoc.conflicts)
+        if existing_context is None and not has_assoc_conflict and cust_id and hasattr(self.repo, "get_latest_active_context_by_customer"):
+            existing_context = self.repo.get_latest_active_context_by_customer(tenant_id, cust_id)
+
+        if existing_context is None and not has_assoc_conflict and message.raw.sender_identity_id and hasattr(self.repo, "get_latest_active_context_by_sender"):
+            existing_context = self.repo.get_latest_active_context_by_sender(tenant_id, message.raw.sender_identity_id)
+
+        # Security Guard: PO Reference and Identity Ownership Check
+        # An order reference alone is NEVER authorization. Never associate an order belonging to another customer.
+        if existing_context is not None:
+            # 1. Enforce strict tenant boundary
+            if existing_context.tenant_id != tenant_id:
+                existing_context = None
+            # 2. Enforce customer ownership boundary
+            elif (
+                existing_context.customer_id
+                and assoc.verified_customer
+                and existing_context.customer_id != assoc.verified_customer.customer_id
+            ):
+                # Security conflict: message belongs to a different customer than the existing context
+                assoc.conflicts.append(
+                    f"Security Conflict: Message sender {assoc.verified_customer.customer_id} cannot access context {existing_context.context_id} owned by {existing_context.customer_id}"
+                )
+                existing_context = None
+
 
 
         now = datetime.now(timezone.utc)
@@ -242,7 +270,14 @@ class ContextService:
 
                 conflicts.append(f"Incoming {name} from message {message_id} requires review; existing value preserved")
 
-            # Detect item conflicts
+            # Detect item conflicts and merge follow-up clarifications across conversational messages
+            incoming_sku = None
+            incoming_qty = None
+            incoming_unit = None
+            for gid, grp in item_groups.items():
+                if grp.get("sku"): incoming_sku = grp["sku"]
+                if grp.get("quantity"): incoming_qty = grp["quantity"]
+                if grp.get("unit"): incoming_unit = grp["unit"]
 
             if new_items and existing_context.requested_items:
 
@@ -267,6 +302,46 @@ class ContextService:
             elif new_items and not existing_context.requested_items:
 
                 existing_context.requested_items = new_items
+
+            elif not new_items and existing_context.requested_items:
+                # Existing context already has items; check incoming partial terms for conflicts
+                ex_it = existing_context.requested_items[0]
+                if incoming_sku and incoming_sku != ex_it.sku:
+                    conflicts.append(f"Product conflict: existing {ex_it.sku} vs message {message_id} {incoming_sku}")
+                if incoming_qty and incoming_qty != ex_it.quantity:
+                    conflicts.append(f"Quantity conflict: existing {ex_it.quantity} vs message {message_id} {incoming_qty}")
+                if incoming_unit and incoming_unit != ex_it.unit:
+                    conflicts.append(f"Unit conflict: existing {ex_it.unit} vs message {message_id} {incoming_unit}")
+
+            elif not new_items and not existing_context.requested_items:
+                # Follow-up message supplied partial/clarified item terms (e.g. unit 'pcs' or quantity '50')
+                prev_ev = existing_context.field_evidence or {}
+                prev_sku = None
+                for ev_sku in prev_ev.get("sku", []):
+                    if ev_sku.get("normalized_value"):
+                        prev_sku = str(ev_sku["normalized_value"]).strip()
+                        break
+                prev_qty = None
+                for ev_q in prev_ev.get("quantity", []):
+                    if ev_q.get("normalized_value"):
+                        prev_qty = str(ev_q["normalized_value"]).strip()
+                        break
+                prev_unit = None
+                for ev_u in prev_ev.get("unit", []):
+                    if ev_u.get("normalized_value"):
+                        prev_unit = str(ev_u["normalized_value"]).strip()
+                        break
+
+                resolved_sku = incoming_sku or prev_sku
+                resolved_qty = incoming_qty or prev_qty
+                resolved_unit = incoming_unit or prev_unit
+
+                if resolved_sku and resolved_qty and resolved_unit:
+                    try:
+                        merged_item = RequestedItem(sku=resolved_sku, quantity=resolved_qty, unit=resolved_unit)
+                        existing_context.requested_items = [merged_item]
+                    except Exception:
+                        pass
 
 
 
@@ -393,6 +468,10 @@ class ContextService:
 
 
             # Determine readiness
+            if existing_context.requested_items:
+                # Completely assembled items satisfy sku, quantity, and unit
+                missing_item_fields = [f for f in missing_item_fields if f not in ("sku", "quantity", "unit", "requested_items")]
+
             missing = sorted(set(missing + missing_item_fields))
 
             if conflicts:

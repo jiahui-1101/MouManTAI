@@ -12,6 +12,41 @@ export interface ReviewDrawerProps {
   catalogLoader?: () => Promise<{ sku: string; unit: string }[]>;
 }
 
+export function getSuggestedClarification(context: OrderContextRecord): string | null {
+  const missing = context.missing_fields || [];
+  const conflicts = context.conflicts || [];
+
+  const sku = context.requested_items?.[0]?.sku ||
+    (context.field_evidence?.sku?.[0]?.normalized_value || context.field_evidence?.sku?.[0]?.quote || '') as string;
+  const qty = context.requested_items?.[0]?.quantity ||
+    (context.field_evidence?.quantity?.[0]?.normalized_value || context.field_evidence?.quantity?.[0]?.quote || '') as string;
+  const unit = context.requested_items?.[0]?.unit ||
+    (context.field_evidence?.unit?.[0]?.normalized_value || context.field_evidence?.unit?.[0]?.quote || '') as string;
+
+  const isUnitMissing = missing.includes('unit') || (!unit && Boolean(sku || qty));
+  const isDeliveryMissing = missing.includes('requested_delivery_at') || (!context.requested_delivery_at && !(context.field_evidence?.requested_delivery_at?.length));
+
+  if (isUnitMissing && qty && sku) {
+    return `Could you please confirm the unit for the ${qty} ${sku.toLowerCase()} (e.g., pcs or boxes)?`;
+  }
+  if (isUnitMissing && qty) {
+    return `Could you please confirm the unit for the ${qty} items requested (e.g., pcs or boxes)?`;
+  }
+  if (isDeliveryMissing) {
+    return 'Could you please confirm your preferred delivery date and time?';
+  }
+  if (missing.includes('quantity')) {
+    return `Could you please specify the quantity needed for ${sku || 'your order'}?`;
+  }
+  if (missing.includes('sku') || missing.includes('requested_items')) {
+    return 'Could you please clarify which item or product you would like to order?';
+  }
+  if (conflicts.length > 0) {
+    return `Could you please clarify the following order details: ${conflicts[0]}?`;
+  }
+  return null;
+}
+
 export function ReviewDrawer(props: ReviewDrawerProps) {
   if (!props.isOpen) return null;
   return <ReviewDrawerForm key={`${props.context.context_id}:${props.context.context_version}`} {...props} />;
@@ -43,6 +78,7 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
   const [catalogState, setCatalogState] = useState('loading');
   const [targetItem, setTargetItem] = useState('');
   const [conflictsReviewed, setConflictsReviewed] = useState(false);
+  const suggestedClarification = getSuggestedClarification(context);
 
   useEffect(() => {
     let active = true;
@@ -358,6 +394,14 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
                 {evidenceDelivery && (
                   <span className="p1-form-hint" style={{ color: '#0369a1', display: 'block', marginTop: '4px' }}>
                     Extracted date/time: <strong>{evidenceDelivery}</strong> {evidenceQualifier ? `(${evidenceQualifier})` : ''}
+                    {Boolean(
+                      (context.field_evidence?.requested_delivery_at?.[0]?.normalization_metadata as Record<string, string> | undefined)?.extraction_correctness === 'CONFIRMED_PARSED' ||
+                      (context.field_evidence?.requested_delivery_at?.[0]?.normalization_metadata as Record<string, string> | undefined)?.rescheduling === 'true'
+                    ) && (
+                      <span className="p1-dim-badge" style={{ display: 'inline-block', marginLeft: '6px', background: '#e0f2fe', color: '#0369a1', fontSize: '10px' }}>
+                        Parsed, Pending Authorization
+                      </span>
+                    )}
                     {!deliveryAt.includes('T') && !deliveryAt.endsWith('Z') && (
                       <span style={{ display: 'block', marginTop: '2px' }}>
                         Enter full ISO timestamp with offset (e.g. {evidenceDelivery.split('T')[0]}T15:00:00+08:00) to confirm delivery.
@@ -405,6 +449,47 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
 
           <section className="p1-drawer-section">
             <h4>Audit Reason & Notes</h4>
+            {suggestedClarification && (
+              <div
+                className="p1-suggested-clarification-card"
+                data-testid="p1-suggested-clarification"
+                style={{
+                  background: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '6px',
+                  padding: '10px 12px',
+                  marginBottom: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e40af' }}>
+                    AI Suggested Clarification (P4 Draft Preview)
+                  </span>
+                  <span style={{ fontSize: '10px', background: '#dbeafe', color: '#1d4ed8', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                    Requires Staff Approval
+                  </span>
+                </div>
+                <p style={{ margin: '4px 0 8px 0', fontSize: '12px', color: '#1e3a8a', fontStyle: 'italic' }}>
+                  &ldquo;{suggestedClarification}&rdquo;
+                </p>
+                <button
+                  type="button"
+                  className="p1-btn-subtle"
+                  style={{
+                    fontSize: '11px',
+                    padding: '3px 8px',
+                    background: '#ffffff',
+                    border: '1px solid #93c5fd',
+                    color: '#1d4ed8',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setNote(suggestedClarification)}
+                >
+                  Adopt as Clarification Note
+                </button>
+              </div>
+            )}
             <div className="p1-form-group">
               <label htmlFor="p1-input-audit-note">Reviewer Note</label>
               <textarea
