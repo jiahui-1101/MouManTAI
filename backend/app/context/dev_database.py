@@ -35,12 +35,14 @@ from .repository import PersistenceUnavailable
 
 
 def create_p1_engine(url: str | None = None) -> Engine:
-    value = url or os.environ.get("P1_DATABASE_URL")
+    value = url or os.environ.get("P1_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not value:
         raise PersistenceUnavailable("P1 development PostgreSQL is not configured")
     try:
         parsed = make_url(value)
-        if parsed.drivername != "postgresql+psycopg":
+        if parsed.drivername == "postgresql":
+            parsed = parsed.set(drivername="postgresql+psycopg")
+        elif parsed.drivername != "postgresql+psycopg":
             raise ValueError("PostgreSQL with psycopg is required")
         return create_engine(parsed, pool_pre_ping=True, connect_args={"connect_timeout": 3},
                              isolation_level="READ COMMITTED", hide_parameters=True)
