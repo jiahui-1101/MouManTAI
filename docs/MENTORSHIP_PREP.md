@@ -1,6 +1,6 @@
 # Alpha Red mentorship preparation — PromiseFlow
 
-**For the 25 October 2026 submission.** PromiseFlow is the presentation name; this repository and app still say MouManTAI. The synchronized main snapshot reviewed here is `b078755` (23 October). The [README](../README.md) gives the product and demo narrative. This brief distinguishes the intended four-capability workflow from what has been observed in code and tests.
+**For the 25 October 2026 submission.** PromiseFlow is the presentation name; this repository and app still say MouManTAI. The main snapshot at the start of this showcase update is `34ce33a` (23 October). The [README](../README.md) gives the product and demo narrative. This brief distinguishes the intended four-capability workflow from what has been observed in code and tests. The inbox's WhatsApp, Email and Telegram examples are synthetic envelopes; no official channel connector is live.
 
 ## Five highest-priority questions to ask live
 
