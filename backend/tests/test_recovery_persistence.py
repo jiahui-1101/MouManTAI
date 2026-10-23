@@ -617,35 +617,44 @@ def test_strict_case_query_detects_multiple_active_rows_without_unique_index(ses
     repository = SqlAlchemyRecoveryRepository()
     case, _, _ = repository.create_or_get_active_case(session, _candidate(commitment, trigger), trigger)
     session.commit()
+    active_index = next(
+        index for index in RecoveryCaseRecord.__table__.indexes
+        if index.name == "uq_recovery_cases_one_active_per_commitment"
+    )
     with test_engine.begin() as connection:
         connection.execute(text("DROP INDEX uq_recovery_cases_one_active_per_commitment"))
-    original = session.get(RecoveryCaseRecord, (commitment.tenant_id, case.case_id))
-    assert original is not None
-    second = _trigger(commitment, event_id="evt_second_active", assessment_id="fa_second_active")
-    second_case = case.model_copy(update={
-        "case_id": "rc_second_active",
-        "trigger_events": [second],
-    })
-    session.add(RecoveryCaseRecord(
-        tenant_id=commitment.tenant_id,
-        case_id=second_case.case_id,
-        commitment_id=commitment.commitment_id,
-        risk_episode_id=second.event_id,
-        opening_event_id=second.event_id,
-        status=second_case.status.value,
-        case_version=second_case.case_version,
-        commitment_version=second_case.commitment_version,
-        payload_schema_version=1,
-        case_payload=second_case.model_dump(mode="json"),
-        resolution_refs=[],
-        created_at=second_case.created_at,
-        updated_at=second_case.updated_at,
-    ))
-    session.add(repository._trigger_record(second, second_case.case_id))
-    session.flush()
-    with pytest.raises(DomainError) as error:
-        repository.get_active_case(session, commitment.tenant_id, commitment.commitment_id)
-    assert error.value.code == "RECOVERY_CASE_INTEGRITY_ERROR"
+    try:
+        original = session.get(RecoveryCaseRecord, (commitment.tenant_id, case.case_id))
+        assert original is not None
+        second = _trigger(commitment, event_id="evt_second_active", assessment_id="fa_second_active")
+        second_case = case.model_copy(update={
+            "case_id": "rc_second_active",
+            "trigger_events": [second],
+        })
+        session.add(RecoveryCaseRecord(
+            tenant_id=commitment.tenant_id,
+            case_id=second_case.case_id,
+            commitment_id=commitment.commitment_id,
+            risk_episode_id=second.event_id,
+            opening_event_id=second.event_id,
+            status=second_case.status.value,
+            case_version=second_case.case_version,
+            commitment_version=second_case.commitment_version,
+            payload_schema_version=1,
+            case_payload=second_case.model_dump(mode="json"),
+            resolution_refs=[],
+            created_at=second_case.created_at,
+            updated_at=second_case.updated_at,
+        ))
+        session.add(repository._trigger_record(second, second_case.case_id))
+        session.flush()
+        with pytest.raises(DomainError) as error:
+            repository.get_active_case(session, commitment.tenant_id, commitment.commitment_id)
+        assert error.value.code == "RECOVERY_CASE_INTEGRITY_ERROR"
+    finally:
+        session.rollback()
+        with test_engine.begin() as connection:
+            active_index.create(connection, checkfirst=True)
 
 
 def test_strict_case_query_does_not_autoflush_or_take_session_ownership(session) -> None:
