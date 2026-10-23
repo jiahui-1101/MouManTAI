@@ -67,6 +67,26 @@ app.dependency_overrides[get_assessment_history] = lambda: AuthoritativeAssessme
 app.dependency_overrides[get_impact_reader] = lambda: AuthoritativeImpactReader()
 
 
+@app.on_event("startup")
+def on_startup() -> None:
+    try:
+        from app.context.channels.manager import get_channel_manager
+        get_channel_manager().start_configured_workers()
+    except Exception as exc:
+        import logging
+        logging.getLogger("moumantai.startup").warning("Channel workers startup skipped: %s", exc)
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    try:
+        from app.context.channels.manager import get_channel_manager
+        get_channel_manager().stop_all_workers()
+    except Exception as exc:
+        import logging
+        logging.getLogger("moumantai.shutdown").warning("Channel workers shutdown error: %s", exc)
+
+
 @app.exception_handler(DomainError)
 async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
     correlation_id = exc.correlation_id or request.headers.get("X-Correlation-ID") or f"corr_{uuid4().hex}"

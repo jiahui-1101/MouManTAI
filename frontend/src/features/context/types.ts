@@ -8,7 +8,12 @@ export type BusinessContext = components['schemas']['BusinessContext'];
 export type ContextReview = components['schemas']['ContextReview'];
 export type InboxRecord = components['schemas']['InboxRecord'];
 export type InboxPreview = components['schemas']['InboxPreview'];
-export type StoredMessage = components['schemas']['StoredMessage'] & { extractor_version?: string | null };
+export type StoredMessage = components['schemas']['StoredMessage'] & {
+  extractor_version?: string | null;
+  provider?: string | null;
+  source_label?: string;
+  synthetic_provider?: string | null;
+};
 export type MessagePage = Omit<components['schemas']['MessagePage'], 'items'> & { items: StoredMessage[] };
 export type IngestResponse = Omit<components['schemas']['IngestResponse'], 'message'> & { message: StoredMessage };
 export type DevelopmentContext = components['schemas']['DevelopmentContext'];

@@ -37,3 +37,9 @@ Thumbs.db
 output/
 tmp/
 
+
+# Secrets and credentials
+secrets/
+backend/secrets/
+*credentials*.json
+*token*.json
