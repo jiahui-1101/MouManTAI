@@ -1,58 +1,71 @@
 # MouManTAI 2.2 Backend — Living Handoff
 
-Updated (UTC and MYT): 2026-10-23; exact test/checkpoint times appended below.
-Canonical spec: Implementation Baseline Review v2.2, root six Markdown files; source hashes `docs/V2_2_SOURCE_CHECKSUMS.json`. CODEX_PROMPT.md read from extracted attachment outside repo. Archive `docs/legacy/AGENT_RULES_V1.md` is noncanonical.
-Repo: jiahui-1101/MouManTAI; origin/main observed `ec3ffbc970ab38abca8468abfe0466ff0464b998`; current branch `codex/feat-v2-2-supplier-contracts` stacked on `codex/feat-v2-2-backend`; starting HEAD same; PR https://github.com/jiahui-1101/MouManTAI/pull/48 (DRAFT, UNMERGED), current pushed code a6421e8.
-Task: cross-owner backend; BE-STATE, BE-ORB-01, BE-CUS-01, BE-REPLY-01, BE-ORD-02, BE-STAT-01; prepare contracts without unratified activation.
-Reviewers: P5 Gan0117 (Core/shared), P1 mavisbong41 (context), P4 Sheng554 (reply/communication); P2 meishuet16 (feasibility compatibility); P3 affected only if recovery changes. S1–S5 remain pending: user explicitly reaffirmed they are not formally ratified (see checkpoint below).
+Updated: 2026-10-23T15:58:38.132311+00:00 UTC / 2026-10-23T23:58:38.132311+08:00 MYT.
+Canonical spec: root AGENTS.md, REQUIREMENTS_SYSTEM.md, REQUIREMENTS_BACKEND.md, REQUIREMENTS_FRONTEND.md, IMPLEMENTATION_BLUEPRINT.md, REVIEW_DECISIONS.md; original v2.2 source checksums in docs/V2_2_SOURCE_CHECKSUMS.json verified byte-for-byte. CODEX_PROMPT.md read completely from attachment; supplied analysis-only excerpts do not replace the user's implementation authorization. Legacy docs are compatibility references.
+Repo: jiahui-1101/MouManTAI. Initial fetched main ec3ffbc970ab38abca8468abfe0466ff0464b998; latest integrated main 3efa7f23fc2842664f1164cc1dce363f7371bdd3, merged into feature only at 88a6869.
+Current branch: codex/feat-v2-2-supplier-contracts, stacked on codex/feat-v2-2-backend. Last code/test snapshot: 7e14477; last pushed documentation HEAD ac350ab (authoritative latest HEAD: git rev-parse HEAD / GitHub).
+PRs: #48 https://github.com/jiahui-1101/MouManTAI/pull/48 (base main); #49 https://github.com/jiahui-1101/MouManTAI/pull/49 (base codex/feat-v2-2-backend). Both DRAFT and UNMERGED.
+Owners/review: #48 requested Gan0117 / mavisbong41 / Sheng554; #49 Gan0117 / mavisbong41 / jiahui-1101. P2 is contributing author meishuet16; no self-approval. Shared schema/activation owner reviews pending. User explicitly confirmed S1–S5 are unratified; safe preparatory work authorized, no invented owner approval.
 
 ## Snapshot / phase table
 
-| Slice | Requirements | Implemented | Tested | Integrated | Evidence | Acceptance | Code refs | Validation commit |
+| Slice | Requirement IDs | Implemented | Tested | Integrated | Evidence tier | Acceptance | Code refs | Validation snapshot |
 |---|---|---|---|---|---|---|---|---|
-| 0 | Blueprint 8–9 | Audit/docs | 68 baseline tests passed | Code inventories | VALIDATED code audit only | PASS | REPOSITORY_BASELINE / LEGACY_REUSE_MATRIX | ec3ffbc |
-| A | BE-STATE / BE-ORB-01 | Immutable terms + typed ports | 44 passed | Pure only, no acceptance | VALIDATED validators; TARGET workflow | PARTIAL / PRODUCTION-GATED | app/orders/terms.py; app/integrations/business_ports.py | 0eccb0b |
-| B | BE-REPLY / BE-CLAR | Factual allowlist/generator + per-issue reducer | 50 new tests passed | Pure only; P1/P4 persistence not wired | VALIDATED mechanisms; TARGET workflow | PARTIAL / PRODUCTION-GATED | app/conversations | next code commit |
-| C preview | BE-STAT-01 / BE-STATE | Isolated terms check + persisted Core status projection | 12 API tests, 144 PG checkpoint | API + disposable DB, no UI | DEMO-ONLY | PARTIAL / PRODUCTION-GATED | orders/router.py, status.py | next code commit |
-| C–G activation | order saga/optimization/supplier/CTA/status/extensions | Existing legacy retained; no v2.2 mutation activation | NOT_RUN full target | No | TARGET | BLOCKED pending prerequisites | matrix | None |
-
-| E preparation | BE-SUP-01/02/04 | Immutable quotes/specs, hard comparison, configurable EXAMPLE categories | 22 supplier tests; 134 cumulative new tests | Pure only, no API/storage | VALIDATED mechanics | PARTIAL / PRODUCTION-GATED | suppliers/comparison.py | 7e14477 |
+| 0 | Blueprint 8–9 | Sources, audit, entity/route map | Source hashes, Alembic head, baseline tests | Existing code inventory | VALIDATED audit only | PASS | REPOSITORY_BASELINE, LEGACY_REUSE_MATRIX | ec3ffbc + upstream diff 3efa7f2 |
+| A | BE-STATE / BE-ORB-01 | Immutable exact terms/hash/diff/guards; typed ports/receipts | 45 tests | Pure contracts, no order activation | VALIDATED mechanics | PARTIAL / PRODUCTION-GATED | orders/terms.py; integrations/business_ports.py | 7e14477 |
+| B | BE-CUS-01 / BE-REPLY-01 / BE-ORD-02 | Public allowlist/template fallback; independent issue reducer/timer decisions | 54 tests | Pure; P1/P4 durable adapter not wired | VALIDATED mechanics | PARTIAL / PRODUCTION-GATED | conversations/ | 7e14477 |
+| C preview | BE-STAT-01 / BE-STATE | Key-gated terms check and Core/audit status read projection; safe 422 handler | 13 API tests, including real Core HTTP lifecycle + DB readback | API + test DB; UI not connected | DEMO-ONLY journey | PARTIAL / PRODUCTION-GATED | orders/router.py; status.py; main.py | 7e14477 |
+| E preparation | BE-SUP-01/02/04 | Immutable offers/specs/requirements, hard comparison, unapproved configurable examples | 22 tests; cumulative 134 passed | Pure; no API/storage/selection | VALIDATED mechanics | PARTIAL / PRODUCTION-GATED | suppliers/comparison.py | 7e14477 |
+| C/D/F/G activation | Acceptance/reservation saga, joint portfolio optimization, supplier selection, CTA extensions, milestone/feedback, forecast/memory/RFQ | Legacy retained; new target not activated/implemented | Full target NOT_RUN | No v2.2 complete journey | TARGET | BLOCKED on explicit prerequisites below | plan/matrix | None |
 
 ## Work completed since previous checkpoint
 
-Initial checkpoint: worktree isolated, fetched actual latest main, read supplied sources completely, deployed byte-identical canonical docs, verified concrete existing authorities. No code/schema modification yet. See compact baseline rather than duplicating teammate architecture audit.
+Two reviewable draft PRs pushed, source docs deployed, existing authorities preserved. Independent review findings fixed with failing-then-passing regressions (global age, configured time windows, DST fold, singleton choice, Decimal bound, elapsed supplier deadline and strict safety booleans). New main's default-deny synthetic identity and scoped fulfilment evidence preserved; no migration or lifecycle/schema replacement. Two internal preview routes never authorize acceptance or customer disclosure. P4 remains sole outbound authority.
 
 ## Next executable tasks (priority order)
 
-Execute A1/A2 test-first in BACKEND_V2_2_PLAN.md; then B1/B2 and read-only gated C. Review and commit each coherent slice; continue independent safe tasks if a later activation gate blocks.
+1. Finish Linux Python3.12 source-snapshot 7e14477 cumulative backend/P2/P4 and strict migrated PostgreSQL root regression using dedicated DBs; inspect every failure. Docker image build in progress at this checkpoint.
+2. Record exact counts/logs/current CI for both PR heads; update TEAM_LOG and PR descriptions, push final docs. Keep PRs draft/unmerged and stacked dependency explicit.
+3. P1/P5 review durable OrderContext/OrderRequest linkage + issue storage; require trusted identity and atomic version/outbox before wiring pure clarification. No new review/message/commitment authority.
+4. P5/P2 review business ports/reservation saga and shared ConstraintSpec/joint evaluator projection; S1/S5 owner ratification required before acceptance/milestone activation. Do not duplicate evaluator or infer reservation from legacy CONFIRMED.
+5. Supplier owner/P1/P5 approve category/offer provenance persistence and selection audit; examples are not approved policy. P3/P5 independently review exact single-use approval semantics before any execution extension.
 
 ## Contracts & migrations
 
-No migrations. Single existing head 0017_p1_real_channel_provenance. Existing p1_dev inbound/context/reviews, Core commitments, P4 communication_outbound_messages and P3 recovery_cases remain authorities. New DTOs do not replace legacy Core schemas or instantiate another database.
+No new ORM, table, column or Alembic migration. Existing single head 0017_p1_real_channel_provenance. P1 p1_dev.inbound_messages/order_contexts/context_reviews; Core commitments/proposals; P4 communication_outbound_messages; P3 recovery_cases remain authorities. v2.2 DTOs are preparatory, not alternate mutable domain truth. BusinessDataReader returns actual P2 EvaluationSnapshot; no second calculator. New internal endpoints: POST /v1/backend-v2/terms/check and GET /v1/backend-v2/commitments/{commitment_id}/status-preview. Require MOUMANTAI_SYNTHETIC_MODE=1, MOUMANTAI_ISOLATED_E2E=1, configured >=32-char key and manager, refuse ENVIRONMENT=production. No accept/send/issue transition/selection endpoint.
 
 ## Evidence and commands
 
-From backend: `python -m alembic heads` -> one head 0017. Baseline focused pytest command in REPOSITORY_BASELINE -> 68 passed / 5 existing warnings. Docker available; attempted new disposable PostgreSQL 16 container `moumantai-v22-disposable` on loopback 15462; startup result pending. No existing/dev/prod database touched.
+- From backend: `python -m pytest tests/v2_2 -o addopts= -q --tb=short` -> 134 passed / 5 existing warnings, Windows Python3.14, final code 7e14477.
+- Scoped `python -m ruff check app/orders app/integrations app/conversations app/suppliers tests/v2_2 --select F,E4,E7,E9` and compileall passed. Original six Markdown files intentionally retain source hard-break spaces: code `git diff --check -- backend` and whole-diff check with core.whitespace=-blank-at-eol pass. Default source Markdown whitespace warning is documented, not concealed.
+- Earlier strict PG focused checkpoint -> 144 passed / 7 warnings on ec3ffbc-derived code; superseded by new-base final validation, do not treat as final coverage.
+- P2 standalone -> 288 passed / 1 warning.
+- Windows P1 isolated DB: `P1_AI_ENABLED=false P1_TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:15462/moumantai_v22_p1_test MOUMANTAI_SYNTHETIC_MODE=1 GMAIL_AUTO_START=false TELEGRAM_AUTO_START=false python -m pytest app/context/tests -o addopts= -q --tb=short --basetemp=D:/dunno/0.SDC/v22-tests-20261023-p1-r2 --junitxml=../backend-v22-p1-r2.xml` -> 616 passed / 7 skipped / 1 OCR failure. No assertion removed or changed.
+- Initial broad run -> 857 passed / 11 skipped / 475 setup errors (WinError5 system pytest temp). Fresh-basetemp combined and standalone P4 runs interrupted for extreme Windows file-backed SQLite fixture latency; no complete pass claimed.
+- Windows strict core concurrent with P1 -> 542 passed / 7 setup errors / 1 race failure; invalid acceptance evidence due shared-test-DB fixture interference. All relevant schemas were disposable; rerun independently in Linux required.
+- Raw JUnit artifacts under D:/dunno/0.SDC/backend-v2-2-validation-20261023; local logs backend-v22-*.log (ignored). Linux build uses tracked git archive only, no credentials/ignored .env, official python:3.12-slim and backend[dev]. Frontend unchanged; local frontend tests/build NOT_RUN. CI status pending final head.
 
 ## Blockers / policy decisions
 
-- BLOCK-S1 | product/P5 | initial exact terms and pricing assent not ratified | no acceptance activation | safe pure contracts | explicit signoff and persistence mapping.
-- BLOCK-S5 | product/P1/P4 | tenant clarification/consent/completion policy absent | no default business timers/sends | caller-supplied policy for pure mechanisms.
-- BLOCK-AUTH | P5 | legacy header role registry is synthetic | no production mutation | isolated key only.
-- BLOCK-PORTS | P5/P2 | no official Orbyte contract or shared portfolio ConstraintSpec | no real reservation/CP-SAT guarantee | typed seams.
-- BLOCK-PROVIDER | P4 | Replit endpoint not verified | no live generation claim | factual template or review.
+- BLOCK-S1 | product/P5 | exact original assent/price policy not ratified | no acceptance/reservation activation | pure hash/guards | owner signoff + reviewed durable saga.
+- BLOCK-S5 | product/P1/P4 | real reminder/expiry/consent/milestone/completion policy absent | no production defaults or sends | caller-supplied policy + template drafts.
+- BLOCK-AUTH | P5 | no verified production actor/customer-link provider | no production/customer API | synthetic isolated manager only.
+- BLOCK-PORTS | P5/P2 | no official Orbyte command contract / shared joint portfolio ConstraintSpec | no real reservation or solver guarantee | typed ports, one existing evaluator.
+- BLOCK-PROVIDER | P4 | no verified Replit inference endpoint | no LIVE generation | approved factual template or review, no Qwen wording substitution.
+- BLOCK-SUPPLIER | designated supplier owner/P1/P5 | versioned category/offer identity/evidence persistence not reviewed | no selection/purchase or verified supply activation | pure compare, EXAMPLE configs UNKNOWN.
+- BLOCK-OCR | P1 | existing image OCR acceptance test returns FAILED without functioning PaddleOCR | legacy P1 full suite not green | keep failure visible; install/verify owner OCR runtime separately, never fake OCR.
 
 ## Safety & runtime modes
 
-No send, purchase, approval, execution, acceptance, inventory mutation or deployment. Legacy emergency approval remains intact. Synthetic tests only. Pure hash/evidence checks prove consistency, not sender authenticity.
+SYNTHETIC tests only; source hashes/evidence refs prove consistency not external authenticity. No order acceptance/reservation, live channel send, purchase, emergency approval/execution, real payment or deployment performed. Legacy CTA gates unchanged. No direct main push, PR merge, auto-merge, force-push or unrelated checkout modification. Owned temporary PostgreSQL16 container moumantai-v22-disposable loopback15462; separate task DBs for P1/core/Linux/migration. Root test fixture truncates all application schemas, so NEVER share its database with concurrently running P1 schema tests. Read-only teammate architecture audit has not been received; no speculative findings attributed to it.
 
 ## PR / merge status
 
-No PR yet; all work will remain UNMERGED. #38 merged upstream; #39/#40/#42 open draft at audit, no dependencies copied. No teammate audit findings received yet.
+#48 DRAFT UNMERGED, base main; #49 DRAFT UNMERGED stacked on #48. Reviewers requested; approvals pending. CI must be checked on final pushed heads; old empty workflow list is not proof of green. Do not merge either PR or retarget stacked PR without reconciling its dependency after human review.
 
 ## Resume instructions
 
-`git -C C:/Users/User/.codex/worktrees/backend-v2-2/MouManTAI status --short --branch`; read this file and BACKEND_V2_2_PLAN.md. Run tests from backend. Do not edit original checkout, recreate worktree, redo source import, merge, or enable unsigned policy. Fetch and compare main before reconciling new findings.
+`git -C C:/Users/User/.codex/worktrees/backend-v2-2/MouManTAI status --short --branch` then read this summary and appended checkpoints. Current full code branch codex/feat-v2-2-supplier-contracts. `git fetch origin --prune`; compare new main before incorporating any change into the feature branch only. Start with docs/BACKEND_V2_2_PLAN.md and actual validators/tests; do not redo Phase0/source import or create another worktree. No migration until reviewed entity map/policy, no acceptance from provided original DTO. Linux validation image source snapshot is 7e14477; documentation-only follow-ups do not change code coverage. Update this file at every meaningful checkpoint; preserve history below.
 
 ## Chronological checkpoints (append only)
 
@@ -75,3 +88,5 @@ No PR yet; all work will remain UNMERGED. #38 merged upstream; #39/#40/#42 open 
 - 2026-10-23T15:53:59.932594+00:00: New supplier branch codex/feat-v2-2-supplier-contracts from 741976d, intended PR base codex/feat-v2-2-backend (#48), not an independent merge candidate. Supplier review reproduced elapsed-deadline MATCHES and numeric 1->boolean coercion; tests RED then fixed with REQUIREMENT_EXPIRED and StrictStr/StrictBool. Cumulative new suite -> 134 passed / 5 existing warnings (2.03s); supplier tests 22 passed, no live/spec-policy activation. Preparing Linux Python3.12 validation (same family as CI) because Windows per-file SQLite fixture runs are extremely slow. Official python:3.12-slim downloaded; no application dependency change. PR #48 code stays separate; this branch adds only supplier pure contracts/examples/tests and handoff updates.
 
 - 2026-10-23T15:56:08.429351+00:00: Source snapshot 7e14477 exported with git archive (tracked files only, no .env/ignored secrets). Docker test image uses official Python3.12, backend[dev] and Ruff only; install/build still running. Windows isolated P1 suite -> 616 passed / 7 skipped / 1 pre-existing OCR failure, exact test test_batch8_acceptance.py::test_e2e_11_pdf_image_evidence_traceable_payment_unverified expects SUCCESS from unavailable PaddleOCR engine. No failed test removed. Windows full strict root run with earlier DB interference -> 542 passed / 7 setup errors / 1 race failure, not accepted as clean evidence. P4 Windows file-backed suite interrupted for extreme fixture IO latency, not failed/passed assertion evidence. Linux runs will use separate dedicated core PG/migration DBs; no P1 concurrency sharing. Supplier code reviewed, both findings reproduced and fixed. Commit 7e14477; ready for stacked draft PR with honest gaps.
+
+- 2026-10-23T15:58:38.132311+00:00: PR #49 created/attached and reviewers requested; current summary rewritten to reconcile stale initial placeholders while preserving append-only checkpoints. Both PRs remain draft/unmerged; Linux validation pending.
