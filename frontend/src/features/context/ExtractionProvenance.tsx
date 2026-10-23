@@ -12,6 +12,7 @@ export function ExtractionProvenance({ attempt }: { attempt: ExtractionAttemptRe
   const isExplicitDeterministic = attempt.extractor_version?.startsWith('p1-deterministic-');
   const anyModelAttempted = Object.values(runtime ?? {}).some(v => v.attempted === true);
   const isAiPipeline = (attempt.extractor_version?.startsWith('p1-ai-pipeline-') || anyModelAttempted || Boolean(runtime));
+  const modelStatus = accepted > 0 ? 'USED · accepted fields' : diagnostic.fallback ? 'FALLBACK · rules retained' : diagnostic.configured === false ? 'NOT CONFIGURED' : anyModelAttempted ? 'ATTEMPTED · no accepted fields' : diagnostic.configured === true ? 'CONFIGURED · no model call proven' : 'UNVERIFIED';
 
   return (
     <div className="p1-provenance-card" aria-label="Extraction provenance">
@@ -30,6 +31,8 @@ export function ExtractionProvenance({ attempt }: { attempt: ExtractionAttemptRe
           <span className="p1-prov-chip">Pipeline version: {attempt.extractor_version}</span>
         </div>
       </div>
+
+      <p className="p1-prov-notice">Model status: <strong>{modelStatus}</strong>. Only persisted attempt evidence is shown.</p>
 
       {isAiPipeline && (
         <>
@@ -82,7 +85,7 @@ export function ExtractionProvenance({ attempt }: { attempt: ExtractionAttemptRe
             </div>
           )}
 
-          {anyModelAttempted && (
+          {(anyModelAttempted || Object.keys(outcomes ?? {}).length > 0 || modelFields.length > 0) && (
             <div className="p1-prov-footer-notes">
               {diagnostic.configured === true && (
                 <p className="p1-prov-notice">

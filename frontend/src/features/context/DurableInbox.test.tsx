@@ -239,7 +239,7 @@ function fakeApi(): OperationalApi {
 async function openComposer(api: OperationalApi) {
   render(<DurableInbox api={api} />);
   await screen.findByText('0 persisted messages');
-  fireEvent.click(screen.getByRole('button', { name: '+ New synthetic message' }));
+  fireEvent.click(screen.getByRole('button', { name: '+ Add test message' }));
 }
 
 afterEach(() => vi.restoreAllMocks());

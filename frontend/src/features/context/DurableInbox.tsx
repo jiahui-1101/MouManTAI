@@ -132,9 +132,10 @@ const PAGE_SIZE = 15;
 
 function formatChannel(channel: string | undefined): string {
 
-  if (!channel) return 'WhatsApp';
+  if (!channel) return 'Unknown';
 
   const clean = channel.replace(/^SYNTHETIC_/, '');
+  if (clean === 'WHATSAPP') return 'WhatsApp';
 
   return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
 
@@ -302,7 +303,8 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
   return <div className="p1-inbox">
 
-    <header className="p1-page-heading"><div><h1>Message Inbox</h1><p>Receive synthetic messages and inspect their original content.</p></div><button type="button" className="p1-primary" disabled={resource.state !== 'ready' || composing} onClick={() => { setSaved(null); setComposing(true); }}>+ New synthetic message</button></header>
+    <header className="p1-page-heading"><div><h1>Message Inbox</h1><p>Start with the original customer or supplier message, then review the extracted business context.</p></div><button type="button" className="p1-secondary" disabled={resource.state !== 'ready' || composing} onClick={() => { setSaved(null); setComposing(true); }}>+ Add test message</button></header>
+    <section className="p1-channel-guide" aria-label="Supported message sources"><div><strong>Message sources</strong><p>WhatsApp · Email · Telegram</p></div><span>Synthetic adapters for local demos; no live account connection.</span><span>Message → extraction evidence → human review → publish</span></section>
 
     <div className="p1-tabs"><span className="p1-active-label">Persisted messages</span><span className="p1-demo-label">Local PostgreSQL · synthetic channel only</span></div>
 
@@ -360,9 +362,9 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
       </tr></thead>
 
-      <tbody>{sortMessages(resource.page.items, sortBy, sortDir).map(message => <tr key={message.message_id} className="p1-inbox-row"><td className="p1-date"><time dateTime={message.ingested_at}>{formatTime(message.ingested_at)}</time></td><td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => select(message.message_id, event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary p1-subtle-id">{message.raw.provider_message_id}</span></td><td className="p1-source-cell"><span className="p1-orbyte-source-badge">{formatChannel(message.raw.channel)}</span></td><td><span className={`p1-orbyte-status-badge is-${message.processing_status === 'PROCESSED' ? 'valid' : message.processing_status === 'PROCESSING' ? 'attention' : message.processing_status === 'PROCESSING_FAILED' ? 'conflict' : 'neutral'}`}>{message.processing_status}</span></td><td className="p1-identity">{message.processing_status === 'PROCESSED' ? (message.extractor_version?.startsWith('p1-ai-pipeline-') ? <span className="p1-orbyte-status-badge is-model">Model review</span> : <span className="p1-orbyte-status-badge is-valid">Extracted (RULE)</span>) : message.processing_status === 'PROCESSING' ? <span className="p1-orbyte-status-badge is-attention">Extracting…</span> : message.processing_status === 'PROCESSING_FAILED' ? <span className="p1-orbyte-status-badge is-conflict">Extraction failed</span> : <span className="p1-orbyte-status-badge is-neutral">Awaiting extraction</span>}</td><td className="p1-subtle-text">Not associated</td><td className="p1-subtle-text">Not started</td><td className="p1-actions-cell"><div className="p1-orbyte-actions-group"><button type="button" className="p1-orbyte-action-icon-btn" aria-label={`View message ${message.raw.provider_message_id}`} title="Inspect message details" onClick={event => select(message.message_id, event.currentTarget)}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button type="button" className="p1-orbyte-action-icon-btn is-sync" disabled={processingId === message.message_id} aria-label={`Reprocess message ${message.raw.provider_message_id}`} title={message.processing_status === 'PROCESSED' ? 'Reprocess extraction' : 'Run extraction'} onClick={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={processingId === message.message_id ? 'p1-spin' : ''}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button></div></td></tr>)}</tbody></table>
+      <tbody>{sortMessages(resource.page.items, sortBy, sortDir).map(message => <tr key={message.message_id} className="p1-inbox-row"><td className="p1-date"><time dateTime={message.ingested_at}>{formatTime(message.ingested_at)}</time></td><td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => select(message.message_id, event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary p1-subtle-id">{message.raw.provider_message_id}</span></td><td className="p1-source-cell"><span className="p1-orbyte-source-badge">{formatChannel(message.raw.channel)}</span></td><td><span className={`p1-orbyte-status-badge is-${message.processing_status === 'PROCESSED' ? 'valid' : message.processing_status === 'PROCESSING' ? 'attention' : message.processing_status === 'PROCESSING_FAILED' ? 'conflict' : 'neutral'}`}>{message.processing_status}</span></td><td className="p1-identity">{message.processing_status === 'PROCESSED' ? (message.extractor_version?.startsWith('p1-ai-pipeline-') ? <span className="p1-orbyte-status-badge is-model">AI pipeline · inspect trace</span> : <span className="p1-orbyte-status-badge is-valid">Extracted (RULE)</span>) : message.processing_status === 'PROCESSING' ? <span className="p1-orbyte-status-badge is-attention">Extracting…</span> : message.processing_status === 'PROCESSING_FAILED' ? <span className="p1-orbyte-status-badge is-conflict">Extraction failed</span> : <span className="p1-orbyte-status-badge is-neutral">Awaiting extraction</span>}</td><td className="p1-subtle-text">Inspect detail</td><td className="p1-subtle-text">Inspect detail</td><td className="p1-actions-cell"><div className="p1-orbyte-actions-group"><button type="button" className="p1-orbyte-action-icon-btn" aria-label={`View message ${message.raw.provider_message_id}`} title="Inspect message details" onClick={event => select(message.message_id, event.currentTarget)}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button type="button" className="p1-orbyte-action-icon-btn is-sync" disabled={processingId === message.message_id} aria-label={`Reprocess message ${message.raw.provider_message_id}`} title={message.processing_status === 'PROCESSED' ? 'Reprocess extraction' : 'Run extraction'} onClick={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={processingId === message.message_id ? 'p1-spin' : ''}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button></div></td></tr>)}</tbody></table>
 
-    </div>{resource.page.items.length === 0 && <p role="status" className="p1-empty">No persisted messages match this view. Submit a synthetic message to begin.</p>}
+    </div>{resource.page.items.length === 0 && <p role="status" className="p1-empty">No persisted messages match this view. Add a test message to begin.</p>}
 
       <footer className="p1-table-footer"><span className="p1-footer-count">Showing {resource.page.items.length ? offset + 1 : 0} to {Math.min(offset + resource.page.items.length, resource.page.total)} of {resource.page.total} entries</span><div className="p1-orbyte-pagination"><div className="p1-rows-per-page"><span>Rows per page:</span><span className="p1-rows-badge">15</span></div><div className="p1-pagination-controls"><button type="button" className="p1-page-btn" disabled={offset === 0} aria-label="Previous" onClick={() => setOffset(n => Math.max(0, n - PAGE_SIZE))}>‹</button><span className="p1-page-active">{Math.floor(offset / PAGE_SIZE) + 1}</span><button type="button" className="p1-page-btn" disabled={offset + PAGE_SIZE >= resource.page.total || offset + PAGE_SIZE > 10_000} aria-label="Next" onClick={() => setOffset(n => n + PAGE_SIZE)}>›</button></div></div></footer>
 
@@ -840,7 +842,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
         <div><dt>Information</dt><dd>{extraction ? `Extracted (${(extraction.fields ?? []).length} fields)` : 'Not extracted'}</dd></div>
 
-        <div><dt>Identity</dt><dd>{association ? association.status : 'Not associated'}</dd></div>
+        <div><dt>Identity</dt><dd>{association ? association.status : 'Unavailable'}</dd></div>
 
         <div><dt>Review</dt><dd>{association?.last_decision ? association.last_decision.decision : 'Not started'}</dd></div>
 
@@ -920,7 +922,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
             {(extraction.fields ?? []).length > 0 ? (
 
-              <div className="p1-field-table-wrapper">
+              <div className="p1-field-table-wrapper" role="region" aria-label="Extracted fields, scroll horizontally on small screens" tabIndex={0}>
 
                 <table className="p1-field-table" aria-label="Extracted candidate fields">
 

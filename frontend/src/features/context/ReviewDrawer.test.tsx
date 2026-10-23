@@ -356,7 +356,7 @@ describe('ReviewDrawer component', () => {
     );
 
     expect(screen.getByTestId('p1-suggested-clarification')).toBeInTheDocument();
-    expect(screen.getByText(/AI Suggested Clarification \(P4 Draft Preview\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Suggested clarification \(rule template\)/i)).toBeInTheDocument();
     expect(screen.getByText(/Could you please confirm the unit for the 50 burger/i)).toBeInTheDocument();
 
     const noteTextarea = screen.getByLabelText(/Reviewer Note/i) as HTMLTextAreaElement;

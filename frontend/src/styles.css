@@ -1397,3 +1397,11 @@ button, a, input, select { font: inherit; }
 .btn-outline-danger:hover {
   background: rgba(153, 27, 27, 0.2);
 }
+
+.product-journey { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(230px, 1fr); gap: 24px; margin-bottom: 20px; }
+.product-journey h3 { margin: 4px 0 8px; }
+.product-journey p { line-height: 1.55; }
+.product-journey nav { display: grid; gap: 8px; align-content: center; }
+.product-journey nav a { display: block; padding: 9px 12px; border: 1px solid #dbe3ee; border-radius: 8px; color: #164e83; text-decoration: none; font-weight: 600; }
+.product-journey nav a:hover, .product-journey nav a:focus-visible { background: #eef6ff; }
+@media (max-width: 720px) { .product-journey { grid-template-columns: 1fr; } }
