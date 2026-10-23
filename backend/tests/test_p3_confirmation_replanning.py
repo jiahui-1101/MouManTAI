@@ -43,6 +43,7 @@ from app.recovery.confirmation_responses import (
     CONSUMER_NAME,
     P3ConfirmationContextResolver,
     P3ConfirmationResponseConsumer,
+    _json_payloads_match_exactly,
     register_p3_confirmation_response_consumer,
 )
 from app.recovery.durable_actions import DurableActionService
@@ -65,6 +66,23 @@ from app.recovery.service import RecoveryPlanner
 from tests.test_p2_persisted_sources import _prepared_review
 
 pytest_plugins = ("app.communication.tests.test_migration_persistence",)
+
+
+@pytest.mark.parametrize(
+    ("left", "right", "matches"),
+    [
+        (True, 1, False),
+        (1, 1.0, False),
+        (1, "1", False),
+        ({"rows": [{"verified": True}]}, {"rows": [{"verified": 1}]}, False),
+        ({"rows": [{"verified": True}]}, {"rows": [{"verified": True}]}, True),
+        ({"first": 1, "second": [True]}, {"second": [True], "first": 1}, True),
+        ([1, 2], [2, 1], False),
+        ({"first": 1}, {"first": 1, "extra": None}, False),
+    ],
+)
+def test_audit_json_comparison_is_type_exact(left, right, matches):
+    assert _json_payloads_match_exactly(left, right) is matches
 
 
 class _TestOnlyReplanPublisher:
@@ -420,6 +438,7 @@ def _persist_authorized_offer_transition(
         "commitment_version": previous_version,
         "plans": [plan],
         "status": RecoveryCaseStatus.OPTIONS_READY,
+        "storage_mode": "DURABLE_DATABASE",
     })
     core = session.get(CommitmentRecord, (commitment.tenant_id, commitment.commitment_id))
     if core is None:
@@ -443,6 +462,8 @@ def _persist_authorized_offer_transition(
         core.agreement_state = "OFFERED"
         core.commitment_version = offered_version
         core.updated_at = offered_at
+    core.terms = commitment.terms.model_dump(mode="json")
+    session.flush()
 
     case_row = session.get(RecoveryCaseRecord, (case.tenant_id, case.case_id))
     if case_row is None:
@@ -468,6 +489,7 @@ def _persist_authorized_offer_transition(
         case_row.commitment_version = previous_version
         case_row.case_payload = case.model_dump(mode="json")
         case_row.updated_at = case.updated_at
+    session.flush()
 
     plan_row = session.get(RecoveryPlanRecord, (plan.tenant_id, plan.plan_id, plan.plan_version))
     values = {
@@ -491,6 +513,7 @@ def _persist_authorized_offer_transition(
     else:
         for key, value in values.items():
             setattr(plan_row, key, value)
+    session.flush()
 
     approval_id = f"approval_{plan.plan_id}_v{plan.plan_version}"
     approval_audit_id = f"audit_{approval_id}"
@@ -519,6 +542,7 @@ def _persist_authorized_offer_transition(
         proposal.status = "ACTIVE"
         proposal.evidence_refs = refs
         proposal.updated_at = offered_at
+    session.flush()
 
     approval = ManagerApprovalRecord(
         tenant_id=plan.tenant_id,
@@ -878,6 +902,9 @@ def test_stale_response_is_reconciled_once_without_invalidating_newer_plan(sessi
     case_row.case_version = case.case_version
     case_row.case_payload = case.model_dump(mode="json")
     prior_plan_row.status = "SUPERSEDED"
+    assert session.query(RecoveryPlanRecord).filter_by(
+        tenant_id=case.tenant_id, plan_id=plan.plan_id,
+    ).count() == 1
     session.add(RecoveryPlanRecord(
         tenant_id=case.tenant_id,
         plan_id=newer.plan_id,
@@ -894,6 +921,10 @@ def test_stale_response_is_reconciled_once_without_invalidating_newer_plan(sessi
         created_at=case.created_at,
     ))
     session.flush()
+    plan_count_before = session.query(RecoveryPlanRecord).filter_by(
+        tenant_id=case.tenant_id, plan_id=plan.plan_id,
+    ).count()
+    assert plan_count_before == 2
 
     consumer = P3ConfirmationResponseConsumer(PendingRecoveryEventPublisher())
     assert OutboxDispatcher.execute_consumer(session, event, CONSUMER_NAME, consumer) is True
@@ -915,6 +946,9 @@ def test_stale_response_is_reconciled_once_without_invalidating_newer_plan(sessi
     assert OutboxDispatcher.execute_consumer(session, event, CONSUMER_NAME, consumer) is False
     session.refresh(saved_case)
     assert len(saved_case.case_payload["customer_response_events"]) == response_count
+    assert session.query(RecoveryPlanRecord).filter_by(
+        tenant_id=case.tenant_id, plan_id=plan.plan_id,
+    ).count() == plan_count_before
     assert session.query(AuditEventRecord).filter_by(
         tenant_id=event.tenant_id,
         causation_id=event.event_id,
@@ -1097,6 +1131,10 @@ def _assert_counteroffer_success(session, setup, evaluate_calls, result):
     assert next_plan.evaluation.commitment_version == 1
     successor = session.get(RecoveryPlanRecord, (setup["plan"].tenant_id, next_plan.plan_id, 2))
     assert successor is not None and successor.core_commitment_version == 3
+    plan_versions = [row[0] for row in session.query(RecoveryPlanRecord.plan_version).filter_by(
+        tenant_id=setup["plan"].tenant_id, plan_id=next_plan.plan_id,
+    ).order_by(RecoveryPlanRecord.plan_version).all()]
+    assert plan_versions == [1, 2]
     assert next_plan.proposal_id == proposal_id_for_plan(setup["plan"].plan_id, 2)
     assert next_plan.proposal_version == 2
     assert next_plan.approval_state.value == "PENDING"
@@ -1121,6 +1159,10 @@ def test_counteroffer_creates_fresh_p2_evaluated_v2_after_legitimate_2_to_3_offe
 @pytest.mark.parametrize("tamper", ["unrelated_version", "proposal_identity", "offer_audit"])
 def test_counteroffer_rejects_unproven_or_unrelated_core_advances(session, tamper):
     setup = _counteroffer_fixture(session)
+    plan_count_before = session.query(RecoveryPlanRecord).filter_by(
+        tenant_id=setup["plan"].tenant_id, plan_id=setup["plan"].plan_id,
+    ).count()
+    assert plan_count_before == 1
     event = setup["response_event"]
     if tamper == "unrelated_version":
         core = session.get(CommitmentRecord, (setup["commitment"].tenant_id, setup["commitment"].commitment_id))
@@ -1146,6 +1188,12 @@ def test_counteroffer_rejects_unproven_or_unrelated_core_advances(session, tampe
             response_event=event,
         )
     assert error.value.code == "CORE_OFFER_PROVENANCE_INVALID"
+    assert session.query(RecoveryPlanRecord).filter_by(
+        tenant_id=setup["plan"].tenant_id, plan_id=setup["plan"].plan_id,
+    ).count() == plan_count_before
+    assert session.get(RecoveryPlanRecord, (
+        setup["plan"].tenant_id, setup["plan"].plan_id, 2,
+    )) is None
 
 
 @pytest.mark.parametrize("migrated", ["postgresql"], indirect=True)
@@ -1176,6 +1224,10 @@ def test_postgresql_p4_audit_payload_validation_avoids_json_equality(
         with pytest.raises(DomainError) as missing:
             P3ConfirmationResponseConsumer._validate_p4_evidence(session, event)
         assert missing.value.code == "P4_RESPONSE_AUDIT_MISSING"
+        audit.new_state = {**original_payload, "proposal_version": float(original_payload["proposal_version"])}
+        with pytest.raises(DomainError) as wrong_type:
+            P3ConfirmationResponseConsumer._validate_p4_evidence(session, event)
+        assert wrong_type.value.code == "P4_RESPONSE_AUDIT_MISSING"
         audit.new_state = original_payload
         duplicate = {column.name: getattr(audit, column.name) for column in AuditEventRecord.__table__.columns}
         duplicate["audit_id"] = f"audit_duplicate_{intent.lower()}_response"
@@ -1267,6 +1319,77 @@ def test_postgresql_counteroffer_persists_p2_checked_v2_with_fresh_approval_pend
     with Session(engine) as session:
         setup, evaluate_calls, result = _run_counteroffer_replan(session, monkeypatch)
         _assert_counteroffer_success(session, setup, evaluate_calls, result)
+
+
+@pytest.mark.parametrize("migrated", ["postgresql"], indirect=True)
+def test_postgresql_counteroffer_duplicate_delivery_does_not_add_plan_rows(migrated, monkeypatch):
+    engine, _ = migrated
+    assert engine.dialect.name == "postgresql"
+    with Session(engine) as session:
+        setup = _counteroffer_fixture(session)
+        monkeypatch.setattr(
+            "app.feasibility.persisted_sources.read_snapshot",
+            lambda _db, _tenant: setup["snapshot"],
+        )
+        response_context = SimpleNamespace(
+            tenant_id=setup["commitment"].tenant_id,
+            commitment_id=setup["commitment"].commitment_id,
+            recovery_case_id=setup["case"].case_id,
+            plan_id=setup["plan"].plan_id,
+            plan_version=setup["plan"].plan_version,
+            proposal_id=setup["proposal"].proposal_id,
+            proposal_version=setup["proposal"].proposal_version,
+            intent="COUNTEROFFER",
+        )
+        resolver = SimpleNamespace(resolve=lambda _db, _event: response_context)
+        monkeypatch.setattr(
+            P3ConfirmationResponseConsumer,
+            "_counteroffer_terms",
+            staticmethod(lambda _db, _event: {"quantity": "70"}),
+        )
+        event = DomainEvent(
+            event_id="evt_counteroffer_duplicate_delivery",
+            schema_version=1,
+            event_type="confirmation.counteroffer_received",
+            tenant_id=setup["commitment"].tenant_id,
+            commitment_id=setup["commitment"].commitment_id,
+            commitment_version=setup["response_event"].commitment_version,
+            correlation_id="corr_counteroffer_duplicate_delivery",
+            causation_id="decision_counteroffer_duplicate_delivery",
+            occurred_at=setup["response_event"].occurred_at,
+            payload={
+                "confirmation_id": "confirmation_counteroffer_duplicate_delivery",
+                "communication_id": "communication_counteroffer_duplicate_delivery",
+                "outbound_id": "outbound_counteroffer_duplicate_delivery",
+                "proposal_id": response_context.proposal_id,
+                "proposal_version": response_context.proposal_version,
+                "terms_digest": "sha256:counteroffer-terms",
+                "response_state": "COUNTEROFFER_RECEIVED",
+                "evidence_refs": ["p4:counteroffer-evidence"],
+                "evidence_scope": "P4_EVIDENCE_ONLY",
+                "integration_mode": "SYNTHETIC_ONLY",
+                "decision_id": "decision_counteroffer_duplicate_delivery",
+                "attempt_id": "attempt_counteroffer_duplicate_delivery",
+                "intent": "COUNTEROFFER",
+                "proposed_changes": {"quantity": "70"},
+            },
+        )
+        consumer = P3ConfirmationResponseConsumer(_TestOnlyReplanPublisher(), resolver=resolver)
+
+        assert OutboxDispatcher.execute_consumer(session, event, CONSUMER_NAME, consumer) is True
+        plan_versions = session.scalars(select(RecoveryPlanRecord.plan_version).where(
+            RecoveryPlanRecord.tenant_id == event.tenant_id,
+            RecoveryPlanRecord.plan_id == setup["plan"].plan_id,
+        ).order_by(RecoveryPlanRecord.plan_version)).all()
+        assert plan_versions == [1, 2]
+        assert session.get(ProcessedEventRecord, (event.tenant_id, event.event_id, CONSUMER_NAME)) is not None
+
+        assert OutboxDispatcher.execute_consumer(session, event, CONSUMER_NAME, consumer) is False
+        consumer(session, event)
+        assert session.scalars(select(RecoveryPlanRecord.plan_version).where(
+            RecoveryPlanRecord.tenant_id == event.tenant_id,
+            RecoveryPlanRecord.plan_id == setup["plan"].plan_id,
+        ).order_by(RecoveryPlanRecord.plan_version)).all() == [1, 2]
 
 
 def test_invalidated_plan_version_cannot_start_a_durable_action(monkeypatch):
