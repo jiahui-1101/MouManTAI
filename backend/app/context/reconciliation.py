@@ -228,6 +228,8 @@ def reconcile_canonical_fields(
         # --- B. Quantity ---
         qty_field = group_fields.get("quantity")
         model_qty = model_items.get(gid, {}).get("quantity")
+        unit_field = group_fields.get("unit")
+        model_unit = model_items.get(gid, {}).get("unit")
 
         if qty_field is not None and qty_field.value is not None:
             # Rule quantity: if it was INVALID (e.g. incompatible unit in rules), map to UNRESOLVED for operational context
@@ -281,9 +283,6 @@ def reconcile_canonical_fields(
             final_qty = qty_field or ExtractedField(field_name="quantity", value=None, validation_status="MISSING", evidence=[])
 
         # --- C. Unit ---
-        unit_field = group_fields.get("unit")
-        model_unit = model_items.get(gid, {}).get("unit")
-
         if unit_field is not None and unit_field.value is not None:
             # Explicit unit (VALID or UNRESOLVED due to catalog support) is authoritative; do not overwrite with model guess
             norm_val = unit_field.metadata.get("normalized_unit") or UNIT_NORMALIZATION.get(unit_field.value.lower(), unit_field.value)

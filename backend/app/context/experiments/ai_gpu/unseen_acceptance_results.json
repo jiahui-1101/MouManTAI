@@ -1,0 +1,1053 @@
+{
+  "summary": {
+    "total_cases": 26,
+    "product_metrics": {
+      "tp": 20,
+      "fp": 1,
+      "fn": 3,
+      "precision": 0.9524,
+      "recall": 0.8696,
+      "f1": 0.9091
+    },
+    "quantity_metrics": {
+      "tp": 20,
+      "fp": 1,
+      "fn": 3,
+      "precision": 0.9524,
+      "recall": 0.8696,
+      "f1": 0.9091
+    },
+    "unit_accuracy": {
+      "correct": 20,
+      "total": 23,
+      "rate": 0.8696
+    },
+    "delivery_accuracy": {
+      "correct": 25,
+      "total": 26,
+      "rate": 0.9615
+    },
+    "multi_item_exact_match": {
+      "correct": 2,
+      "total": 4,
+      "rate": 0.5
+    },
+    "message_level_exact_match": {
+      "correct": 22,
+      "total": 26,
+      "rate": 0.8462
+    },
+    "unsafe_auto_accept": {
+      "count": 0,
+      "rate": 0.0
+    },
+    "human_review_routing": {
+      "correct": 24,
+      "total": 26,
+      "rate": 0.9231
+    },
+    "gpu_telemetry_samples": [
+      {
+        "case_id": "unseen-05-en-multi",
+        "runtime_reported": {
+          "gliner": {
+            "attempted": true,
+            "succeeded": true,
+            "cached": false,
+            "model": "urchade/gliner_multi-v2.1",
+            "revision": "443d26d654e0324125a96bebd8e796c14ff2efe6",
+            "device": "NVIDIA RTX A5000",
+            "inference_seconds": 0.06011467595817521
+          },
+          "qwen": {
+            "attempted": true,
+            "succeeded": true,
+            "cached": false,
+            "model": "Qwen/Qwen3-4B-Instruct-2507",
+            "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+            "device": "NVIDIA RTX A5000",
+            "inference_seconds": 5.576635044999421
+          }
+        },
+        "model_outcomes": {
+          "gliner": "proposals_only",
+          "qwen": "proposals_only"
+        }
+      },
+      {
+        "case_id": "unseen-06-zh-multi",
+        "runtime_reported": {
+          "gliner": {
+            "attempted": true,
+            "succeeded": true,
+            "cached": false,
+            "model": "urchade/gliner_multi-v2.1",
+            "revision": "443d26d654e0324125a96bebd8e796c14ff2efe6",
+            "device": "NVIDIA RTX A5000",
+            "inference_seconds": 0.055937847995664924
+          },
+          "qwen": {
+            "attempted": true,
+            "succeeded": true,
+            "cached": false,
+            "model": "Qwen/Qwen3-4B-Instruct-2507",
+            "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+            "device": "NVIDIA RTX A5000",
+            "inference_seconds": 3.0937166300136596
+          }
+        },
+        "model_outcomes": {
+          "gliner": "proposals_only",
+          "qwen": "proposals_only"
+        }
+      },
+      {
+        "case_id": "unseen-07-ms-multi",
+        "runtime_reported": {
+          "gliner": {
+            "attempted": true,
+            "succeeded": true,
+            "cached": false,
+            "model": "urchade/gliner_multi-v2.1",
+            "revision": "443d26d654e0324125a96bebd8e796c14ff2efe6",
+            "device": "NVIDIA RTX A5000",
+            "inference_seconds": 0.05249444500077516
+          },
+          "qwen": {
+            "attempted": true,
+            "succeeded": true,
+            "cached": false,
+            "model": "Qwen/Qwen3-4B-Instruct-2507",
+            "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+            "device": "NVIDIA RTX A5000",
+            "inference_seconds": 5.523244127980433
+          }
+        },
+        "model_outcomes": {
+          "gliner": "proposals_only",
+          "qwen": "proposals_only"
+        }
+      },
+      {
+        "case_id": "unseen-08-mixed-multi",
+        "runtime_reported": {
+          "gliner": {
+            "attempted": true,
+            "succeeded": true,
+            "cached": false,
+            "model": "urchade/gliner_multi-v2.1",
+            "revision": "443d26d654e0324125a96bebd8e796c14ff2efe6",
+            "device": "NVIDIA RTX A5000",
+            "inference_seconds": 0.051195336040109396
+          },
+          "qwen": {
+            "attempted": true,
+            "succeeded": true,
+            "cached": false,
+            "model": "Qwen/Qwen3-4B-Instruct-2507",
+            "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+            "device": "NVIDIA RTX A5000",
+            "inference_seconds": 3.261960291012656
+          }
+        },
+        "model_outcomes": {
+          "gliner": "proposals_only",
+          "qwen": "proposals_only"
+        }
+      },
+      {
+        "case_id": "unseen-16-delivery-window",
+        "runtime_reported": {
+          "gliner": {
+            "attempted": true,
+            "succeeded": true,
+            "cached": false,
+            "model": "urchade/gliner_multi-v2.1",
+            "revision": "443d26d654e0324125a96bebd8e796c14ff2efe6",
+            "device": "NVIDIA RTX A5000",
+            "inference_seconds": 0.05597130401292816
+          }
+        },
+        "model_outcomes": {
+          "gliner": "proposals_only",
+          "qwen": "l1_sufficient"
+        }
+      }
+    ]
+  },
+  "cases": [
+    {
+      "case_id": "unseen-01-en-single",
+      "category": "single_item",
+      "text": "Hi, please send 35 pcs burgers tomorrow before 2:00 PM.",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "35",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "35",
+          "unit": "pcs"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T14:00:00",
+      "expected_delivery": "2026-10-22T14:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-02-zh-single",
+      "category": "single_item",
+      "text": "\u4f60\u597d\uff0c\u6211\u4eec\u60f3\u8981\u8ba2\u8d2d25\u4e2a\u6c49\u5821\uff0c\u660e\u5929\u4e0a\u534810\u70b9\u524d\u9001\u8fc7\u6765\u3002",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "25",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "25",
+          "unit": "pcs"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T10:00:00",
+      "expected_delivery": "2026-10-22T10:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-03-ms-single",
+      "category": "single_item",
+      "text": "Selamat pagi, boleh tolong hantar 15 biji roti burger esok sebelum 3 petang?",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "15",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "15",
+          "unit": "pcs"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T15:00:00",
+      "expected_delivery": "2026-10-22T15:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-04-mixed-single",
+      "category": "single_item",
+      "text": "Boss, nak order 50 pcs burger for tomorrow before 11am can?",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "50",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "50",
+          "unit": "pcs"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T11:00:00",
+      "expected_delivery": "2026-10-22T11:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-05-en-multi",
+      "category": "multi_item",
+      "text": "Please deliver 20 pcs burgers and 10 boxes buns tomorrow before 4pm.",
+      "extractor_version": "p1-ai-pipeline-v2",
+      "model_outcomes": {
+        "gliner": "proposals_only",
+        "qwen": "proposals_only"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "20",
+          "unit": "pcs"
+        },
+        {
+          "sku": "BUN",
+          "quantity": "10",
+          "unit": "box"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "20",
+          "unit": "pcs"
+        },
+        {
+          "sku": "BUN",
+          "quantity": "10",
+          "unit": "box"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T16:00:00",
+      "expected_delivery": "2026-10-22T16:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-06-zh-multi",
+      "category": "multi_item",
+      "text": "\u6211\u4eec\u9700\u898130\u4e2a\u6c49\u5821\u548c15\u5305\u9762\u5305\uff0c\u660e\u5929\u4e0b\u53482\u70b9\u524d\u9001\u8fbe\u3002",
+      "extractor_version": "p1-ai-pipeline-v2",
+      "model_outcomes": {
+        "gliner": "proposals_only",
+        "qwen": "proposals_only"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "30",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "30",
+          "unit": "pcs"
+        },
+        {
+          "sku": "BREAD",
+          "quantity": "15",
+          "unit": "pack"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T14:00:00",
+      "expected_delivery": "2026-10-22T14:00:00",
+      "context_status": "INFORMATION_PARTIAL",
+      "requires_review": false,
+      "msg_exact": false,
+      "is_unsafe": false,
+      "is_routing_correct": false,
+      "conflicts": [],
+      "missing_fields": [
+        "quantity",
+        "unit"
+      ]
+    },
+    {
+      "case_id": "unseen-07-ms-multi",
+      "category": "multi_item",
+      "text": "Tolong siapkan 25 biji roti dan 20 bungkus nasi lemak esok sebelum pukul 1 petang.",
+      "extractor_version": "p1-ai-pipeline-v2",
+      "model_outcomes": {
+        "gliner": "proposals_only",
+        "qwen": "proposals_only"
+      },
+      "accepted_model_fields": 4,
+      "predicted_items": [],
+      "expected_items": [
+        {
+          "sku": "BREAD",
+          "quantity": "25",
+          "unit": "pcs"
+        },
+        {
+          "sku": "RICE",
+          "quantity": "20",
+          "unit": "pack"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T13:00:00",
+      "expected_delivery": "2026-10-22T13:00:00",
+      "context_status": "CONFLICT",
+      "requires_review": false,
+      "msg_exact": false,
+      "is_unsafe": false,
+      "is_routing_correct": false,
+      "conflicts": [
+        "Unknown product; map to an approved SKU or leave unresolved"
+      ],
+      "missing_fields": [
+        "quantity",
+        "requested_items",
+        "sku_mapping",
+        "unit"
+      ]
+    },
+    {
+      "case_id": "unseen-08-mixed-multi",
+      "category": "multi_item",
+      "text": "Hi boss, need 40 pcs burger and 5 box buns for delivery esok sebelum 10 pagi ya.",
+      "extractor_version": "p1-ai-pipeline-v2",
+      "model_outcomes": {
+        "gliner": "proposals_only",
+        "qwen": "proposals_only"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "40",
+          "unit": "pcs"
+        },
+        {
+          "sku": "BUN",
+          "quantity": "5",
+          "unit": "box"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "40",
+          "unit": "pcs"
+        },
+        {
+          "sku": "BUN",
+          "quantity": "5",
+          "unit": "box"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T10:00:00",
+      "expected_delivery": "2026-10-22T10:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-09-unit-box",
+      "category": "unit_variation",
+      "text": "Order 12 boxes buns tomorrow by 3pm.",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BUN",
+          "quantity": "12",
+          "unit": "box"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BUN",
+          "quantity": "12",
+          "unit": "box"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T15:00:00",
+      "expected_delivery": "2026-10-22T15:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-10-ms-ketul",
+      "category": "unit_variation",
+      "text": "Mahu 30 ketul burger untuk kenduri esok sebelum 2 petang.",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "30",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "30",
+          "unit": "pcs"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T14:00:00",
+      "expected_delivery": "2026-10-22T14:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-11-zh-li",
+      "category": "unit_variation",
+      "text": "\u6211\u4eec\u898150\u7c92\u6c49\u5821\uff0c\u660e\u5929\u4e2d\u534812\u70b9\u524d\u9001\u8fc7\u6765\u3002",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "50",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "50",
+          "unit": "pcs"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T12:00:00",
+      "expected_delivery": "2026-10-22T12:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-12-large-quantity",
+      "category": "quantity_variation",
+      "text": "Please prepare 250 pcs burgers for our corporate seminar tomorrow by 11am.",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "250",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "250",
+          "unit": "pcs"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T11:00:00",
+      "expected_delivery": "2026-10-22T11:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-13-relative-afternoon",
+      "category": "delivery_date",
+      "text": "Can we get 18 burgers delivered tomorrow before 1:30pm?",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [],
+      "expected_items": [],
+      "predicted_delivery": "2026-10-22T13:30:00",
+      "expected_delivery": "2026-10-22T13:30:00",
+      "context_status": "INFORMATION_PARTIAL",
+      "requires_review": true,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": [
+        "requested_items",
+        "unit"
+      ]
+    },
+    {
+      "case_id": "unseen-14-day-after-tomorrow",
+      "category": "delivery_date",
+      "text": "Tolong hantar 20 biji burger lusa sebelum 10 pagi.",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "20",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "20",
+          "unit": "pcs"
+        }
+      ],
+      "predicted_delivery": "2026-10-23T10:00:00",
+      "expected_delivery": "2026-10-23T10:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-15-weekday-friday",
+      "category": "delivery_date",
+      "text": "Kindly deliver 30 boxes buns this Friday before 3pm.",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BUN",
+          "quantity": "30",
+          "unit": "box"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BUN",
+          "quantity": "30",
+          "unit": "box"
+        }
+      ],
+      "predicted_delivery": "2026-10-23T15:00:00",
+      "expected_delivery": "2026-10-23T15:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-16-delivery-window",
+      "category": "delivery_date",
+      "text": "Need 20 pcs burgers tomorrow between 2pm and 4pm.",
+      "extractor_version": "p1-ai-pipeline-v2",
+      "model_outcomes": {
+        "gliner": "proposals_only",
+        "qwen": "l1_sufficient"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "20",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "20",
+          "unit": "pcs"
+        }
+      ],
+      "predicted_delivery": null,
+      "expected_delivery": null,
+      "context_status": "INFORMATION_PARTIAL",
+      "requires_review": true,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": [
+        "requested_delivery_at"
+      ]
+    },
+    {
+      "case_id": "unseen-17-quantity-self-correction",
+      "category": "corrections",
+      "text": "Please send 10 burgers, actually sorry make that 15 burgers tomorrow before 2pm.",
+      "extractor_version": "p1-ai-pipeline-v2",
+      "model_outcomes": {
+        "gliner": "proposals_only",
+        "qwen": "incomplete_or_invalid_output"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [],
+      "expected_items": [],
+      "predicted_delivery": "2026-10-22T14:00:00",
+      "expected_delivery": "2026-10-22T14:00:00",
+      "context_status": "INFORMATION_PARTIAL",
+      "requires_review": true,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": [
+        "requested_items",
+        "unit"
+      ]
+    },
+    {
+      "case_id": "unseen-18-delivery-self-correction",
+      "category": "corrections",
+      "text": "\u660e\u5929\u900120\u4e2a\u6c49\u5821\uff0c\u539f\u5b9a\u4e0a\u534810\u70b9\uff0c\u6539\u5728\u4e0b\u53483\u70b9\u9001\u3002",
+      "extractor_version": "p1-ai-pipeline-v2",
+      "model_outcomes": {
+        "gliner": "proposals_only",
+        "qwen": "proposals_only"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "20",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "20",
+          "unit": "pcs"
+        }
+      ],
+      "predicted_delivery": null,
+      "expected_delivery": null,
+      "context_status": "INFORMATION_PARTIAL",
+      "requires_review": true,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": [
+        "requested_delivery_at"
+      ]
+    },
+    {
+      "case_id": "unseen-19-non-catalog-product",
+      "category": "ambiguous_requests",
+      "text": "Can you send 20 boxes salads and 10 cups milk tomorrow before 12pm?",
+      "extractor_version": "p1-ai-pipeline-v2",
+      "model_outcomes": {
+        "gliner": "proposals_only",
+        "qwen": "proposals_only"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [],
+      "expected_items": [],
+      "predicted_delivery": "2026-10-22T12:00:00",
+      "expected_delivery": "2026-10-22T12:00:00",
+      "context_status": "CONFLICT",
+      "requires_review": true,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [
+        "Unknown product; map to an approved SKU or leave unresolved"
+      ],
+      "missing_fields": [
+        "requested_items",
+        "sku_mapping"
+      ]
+    },
+    {
+      "case_id": "unseen-20-ambiguous-quantity-people",
+      "category": "ambiguous_requests",
+      "text": "Need burgers for about 40 guests tomorrow before 1pm.",
+      "extractor_version": "p1-ai-pipeline-v2",
+      "model_outcomes": {
+        "gliner": "proposals_only",
+        "qwen": "l1_sufficient"
+      },
+      "accepted_model_fields": 1,
+      "predicted_items": [],
+      "expected_items": [],
+      "predicted_delivery": null,
+      "expected_delivery": "2026-10-22T13:00:00",
+      "context_status": "INFORMATION_PARTIAL",
+      "requires_review": true,
+      "msg_exact": false,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": [
+        "requested_delivery_at",
+        "requested_items",
+        "unit"
+      ]
+    },
+    {
+      "case_id": "unseen-21-rojak-en-zh-ms",
+      "category": "mixed_language",
+      "text": "Halo boss, nak order 25 pcs \u6c49\u5821 tomorrow before 3pm boleh?",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "25",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "25",
+          "unit": "pcs"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T15:00:00",
+      "expected_delivery": "2026-10-22T15:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-22-mixed-ms-en",
+      "category": "mixed_language",
+      "text": "Hi, tolong arrange 15 boxes buns for delivery esok morning before 10am.",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BUN",
+          "quantity": "15",
+          "unit": "box"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BUN",
+          "quantity": "15",
+          "unit": "box"
+        }
+      ],
+      "predicted_delivery": "2026-10-22T10:00:00",
+      "expected_delivery": "2026-10-22T10:00:00",
+      "context_status": "INFORMATION_READY",
+      "requires_review": false,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": []
+    },
+    {
+      "case_id": "unseen-23-missing-quantity",
+      "category": "missing_information",
+      "text": "Please send burgers tomorrow before 2pm to the main outlet.",
+      "extractor_version": "p1-ai-pipeline-v2",
+      "model_outcomes": {
+        "gliner": "proposals_only",
+        "qwen": "l1_sufficient"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [],
+      "expected_items": [],
+      "predicted_delivery": "2026-10-22T14:00:00",
+      "expected_delivery": "2026-10-22T14:00:00",
+      "context_status": "INFORMATION_PARTIAL",
+      "requires_review": true,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": [
+        "quantity",
+        "requested_items",
+        "unit"
+      ]
+    },
+    {
+      "case_id": "unseen-24-missing-delivery",
+      "category": "missing_information",
+      "text": "We would like to order 30 pcs burgers for our team.",
+      "extractor_version": "p1-deterministic-v6",
+      "model_outcomes": {
+        "gliner": "not_needed",
+        "qwen": "not_needed"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "30",
+          "unit": "pcs"
+        }
+      ],
+      "expected_items": [
+        {
+          "sku": "BURGER",
+          "quantity": "30",
+          "unit": "pcs"
+        }
+      ],
+      "predicted_delivery": null,
+      "expected_delivery": null,
+      "context_status": "INFORMATION_PARTIAL",
+      "requires_review": true,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": [
+        "requested_delivery_at"
+      ]
+    },
+    {
+      "case_id": "unseen-25-either-or-conflict",
+      "category": "conflicting_evidence",
+      "text": "Please deliver 10 burgers or 10 boxes buns tomorrow before 3pm depending on chef.",
+      "extractor_version": "p1-ai-pipeline-v2",
+      "model_outcomes": {
+        "gliner": "proposals_only",
+        "qwen": "incomplete_or_invalid_output"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [
+        {
+          "sku": "BUN",
+          "quantity": "10",
+          "unit": "box"
+        }
+      ],
+      "expected_items": [],
+      "predicted_delivery": "2026-10-22T15:00:00",
+      "expected_delivery": "2026-10-22T15:00:00",
+      "context_status": "INFORMATION_PARTIAL",
+      "requires_review": true,
+      "msg_exact": false,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [],
+      "missing_fields": [
+        "unit"
+      ]
+    },
+    {
+      "case_id": "unseen-26-weekday-calendar-conflict",
+      "category": "conflicting_evidence",
+      "text": "Please deliver 20 burgers on Friday 21 October 2026 before 2pm.",
+      "extractor_version": "p1-ai-pipeline-v2",
+      "model_outcomes": {
+        "gliner": "proposals_only",
+        "qwen": "proposals_only"
+      },
+      "accepted_model_fields": 0,
+      "predicted_items": [],
+      "expected_items": [],
+      "predicted_delivery": null,
+      "expected_delivery": null,
+      "context_status": "CONFLICT",
+      "requires_review": true,
+      "msg_exact": true,
+      "is_unsafe": false,
+      "is_routing_correct": true,
+      "conflicts": [
+        "Weekday/date conflict: 2026-10-21 is Wednesday, not Friday; manual review required"
+      ],
+      "missing_fields": [
+        "requested_delivery_at",
+        "requested_items",
+        "unit"
+      ]
+    }
+  ]
+}

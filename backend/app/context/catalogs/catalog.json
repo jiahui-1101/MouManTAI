@@ -1,0 +1,90 @@
+[
+  {
+    "tenant_id": "synthetic_tenant_a",
+    "sku": "BURGER",
+    "unit": "pcs",
+    "aliases": [
+      "burger",
+      "burgers",
+      "beef burger",
+      "beef burgers",
+      "chicken burger",
+      "chicken burgers",
+      "roti burger",
+      "bgr",
+      "bgrs",
+      "hbg",
+      "buhger",
+      "汉堡",
+      "汉堡包",
+      "漢堡",
+      "漢堡包"
+    ],
+    "source_ref": "catalog:approved:synthetic_tenant_a:burger"
+  },
+  {
+    "tenant_id": "synthetic_tenant_a",
+    "sku": "BREAD",
+    "unit": "pcs",
+    "aliases": [
+      "bread",
+      "white bread",
+      "面包",
+      "roti",
+      "roti bakar"
+    ],
+    "source_ref": "catalog:approved:synthetic_tenant_a:bread"
+  },
+  {
+    "tenant_id": "synthetic_tenant_a",
+    "sku": "BREAD",
+    "unit": "pack",
+    "aliases": [
+      "bread",
+      "white bread",
+      "面包",
+      "roti",
+      "roti bakar"
+    ],
+    "source_ref": "catalog:approved:synthetic_tenant_a:bread_pack"
+  },
+  {
+    "tenant_id": "synthetic_tenant_a",
+    "sku": "BUN",
+    "unit": "box",
+    "aliases": [
+      "bun",
+      "buns",
+      "dinner rolls",
+      "包子",
+      "roti bun"
+    ],
+    "source_ref": "catalog:approved:synthetic_tenant_a:bun"
+  },
+  {
+    "tenant_id": "synthetic_tenant_a",
+    "sku": "RICE",
+    "unit": "pcs",
+    "aliases": [
+      "rice",
+      "nasi lemak",
+      "fried rice",
+      "米饭",
+      "炒饭"
+    ],
+    "source_ref": "catalog:approved:synthetic_tenant_a:rice"
+  },
+  {
+    "tenant_id": "synthetic_tenant_a",
+    "sku": "RICE",
+    "unit": "pack",
+    "aliases": [
+      "rice",
+      "nasi lemak",
+      "fried rice",
+      "米饭",
+      "炒饭"
+    ],
+    "source_ref": "catalog:approved:synthetic_tenant_a:rice_pack"
+  }
+]

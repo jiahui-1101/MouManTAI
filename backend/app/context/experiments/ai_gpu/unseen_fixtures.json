@@ -1,0 +1,310 @@
+{
+  "version": "p1-unseen-acceptance-v1",
+  "reference_timestamp": "2026-10-21T09:00:00+08:00",
+  "business_timezone": "Asia/Kuala_Lumpur",
+  "tenant_id": "synthetic_tenant_a",
+  "cases": [
+    {
+      "id": "unseen-01-en-single",
+      "category": "single_item",
+      "language": "en",
+      "text": "Hi, please send 35 pcs burgers tomorrow before 2:00 PM.",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "35", "unit": "pcs"}
+      ],
+      "expected_delivery_date": "2026-10-22T14:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-02-zh-single",
+      "category": "single_item",
+      "language": "zh",
+      "text": "你好，我们想要订购25个汉堡，明天上午10点前送过来。",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "25", "unit": "pcs"}
+      ],
+      "expected_delivery_date": "2026-10-22T10:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-03-ms-single",
+      "category": "single_item",
+      "language": "ms",
+      "text": "Selamat pagi, boleh tolong hantar 15 biji roti burger esok sebelum 3 petang?",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "15", "unit": "pcs"}
+      ],
+      "expected_delivery_date": "2026-10-22T15:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-04-mixed-single",
+      "category": "single_item",
+      "language": "mixed",
+      "text": "Boss, nak order 50 pcs burger for tomorrow before 11am can?",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "50", "unit": "pcs"}
+      ],
+      "expected_delivery_date": "2026-10-22T11:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-05-en-multi",
+      "category": "multi_item",
+      "language": "en",
+      "text": "Please deliver 20 pcs burgers and 10 boxes buns tomorrow before 4pm.",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "20", "unit": "pcs"},
+        {"sku": "BUN", "quantity": "10", "unit": "box"}
+      ],
+      "expected_delivery_date": "2026-10-22T16:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-06-zh-multi",
+      "category": "multi_item",
+      "language": "zh",
+      "text": "我们需要30个汉堡和15包面包，明天下午2点前送达。",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "30", "unit": "pcs"},
+        {"sku": "BREAD", "quantity": "15", "unit": "pack"}
+      ],
+      "expected_delivery_date": "2026-10-22T14:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-07-ms-multi",
+      "category": "multi_item",
+      "language": "ms",
+      "text": "Tolong siapkan 25 biji roti dan 20 bungkus nasi lemak esok sebelum pukul 1 petang.",
+      "expected_items": [
+        {"sku": "BREAD", "quantity": "25", "unit": "pcs"},
+        {"sku": "RICE", "quantity": "20", "unit": "pack"}
+      ],
+      "expected_delivery_date": "2026-10-22T13:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-08-mixed-multi",
+      "category": "multi_item",
+      "language": "mixed",
+      "text": "Hi boss, need 40 pcs burger and 5 box buns for delivery esok sebelum 10 pagi ya.",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "40", "unit": "pcs"},
+        {"sku": "BUN", "quantity": "5", "unit": "box"}
+      ],
+      "expected_delivery_date": "2026-10-22T10:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-09-unit-box",
+      "category": "unit_variation",
+      "language": "en",
+      "text": "Order 12 boxes buns tomorrow by 3pm.",
+      "expected_items": [
+        {"sku": "BUN", "quantity": "12", "unit": "box"}
+      ],
+      "expected_delivery_date": "2026-10-22T15:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-10-ms-ketul",
+      "category": "unit_variation",
+      "language": "ms",
+      "text": "Mahu 30 ketul burger untuk kenduri esok sebelum 2 petang.",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "30", "unit": "pcs"}
+      ],
+      "expected_delivery_date": "2026-10-22T14:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-11-zh-li",
+      "category": "unit_variation",
+      "language": "zh",
+      "text": "我们要50粒汉堡，明天中午12点前送过来。",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "50", "unit": "pcs"}
+      ],
+      "expected_delivery_date": "2026-10-22T12:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-12-large-quantity",
+      "category": "quantity_variation",
+      "language": "en",
+      "text": "Please prepare 250 pcs burgers for our corporate seminar tomorrow by 11am.",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "250", "unit": "pcs"}
+      ],
+      "expected_delivery_date": "2026-10-22T11:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-13-relative-afternoon",
+      "category": "delivery_date",
+      "language": "en",
+      "text": "Can we get 18 burgers delivered tomorrow before 1:30pm?",
+      "expected_items": [],
+      "expected_delivery_date": "2026-10-22T13:30:00",
+      "requires_review": true,
+      "expected_routing": "REVIEW"
+    },
+    {
+      "id": "unseen-14-day-after-tomorrow",
+      "category": "delivery_date",
+      "language": "ms",
+      "text": "Tolong hantar 20 biji burger lusa sebelum 10 pagi.",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "20", "unit": "pcs"}
+      ],
+      "expected_delivery_date": "2026-10-23T10:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-15-weekday-friday",
+      "category": "delivery_date",
+      "language": "en",
+      "text": "Kindly deliver 30 boxes buns this Friday before 3pm.",
+      "expected_items": [
+        {"sku": "BUN", "quantity": "30", "unit": "box"}
+      ],
+      "expected_delivery_date": "2026-10-23T15:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-16-delivery-window",
+      "category": "delivery_date",
+      "language": "en",
+      "text": "Need 20 pcs burgers tomorrow between 2pm and 4pm.",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "20", "unit": "pcs"}
+      ],
+      "expected_delivery_date": null,
+      "requires_review": true,
+      "expected_routing": "REVIEW"
+    },
+    {
+      "id": "unseen-17-quantity-self-correction",
+      "category": "corrections",
+      "language": "en",
+      "text": "Please send 10 burgers, actually sorry make that 15 burgers tomorrow before 2pm.",
+      "expected_items": [],
+      "expected_delivery_date": "2026-10-22T14:00:00",
+      "requires_review": true,
+      "expected_routing": "REVIEW"
+    },
+    {
+      "id": "unseen-18-delivery-self-correction",
+      "category": "corrections",
+      "language": "zh",
+      "text": "明天送20个汉堡，原定上午10点，改在下午3点送。",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "20", "unit": "pcs"}
+      ],
+      "expected_delivery_date": null,
+      "requires_review": true,
+      "expected_routing": "REVIEW"
+    },
+    {
+      "id": "unseen-19-non-catalog-product",
+      "category": "ambiguous_requests",
+      "language": "en",
+      "text": "Can you send 20 boxes salads and 10 cups milk tomorrow before 12pm?",
+      "expected_items": [],
+      "expected_delivery_date": "2026-10-22T12:00:00",
+      "requires_review": true,
+      "expected_routing": "REVIEW"
+    },
+    {
+      "id": "unseen-20-ambiguous-quantity-people",
+      "category": "ambiguous_requests",
+      "language": "en",
+      "text": "Need burgers for about 40 guests tomorrow before 1pm.",
+      "expected_items": [],
+      "expected_delivery_date": "2026-10-22T13:00:00",
+      "requires_review": true,
+      "expected_routing": "REVIEW"
+    },
+    {
+      "id": "unseen-21-rojak-en-zh-ms",
+      "category": "mixed_language",
+      "language": "mixed",
+      "text": "Halo boss, nak order 25 pcs 汉堡 tomorrow before 3pm boleh?",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "25", "unit": "pcs"}
+      ],
+      "expected_delivery_date": "2026-10-22T15:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-22-mixed-ms-en",
+      "category": "mixed_language",
+      "language": "mixed",
+      "text": "Hi, tolong arrange 15 boxes buns for delivery esok morning before 10am.",
+      "expected_items": [
+        {"sku": "BUN", "quantity": "15", "unit": "box"}
+      ],
+      "expected_delivery_date": "2026-10-22T10:00:00",
+      "requires_review": false,
+      "expected_routing": "READY"
+    },
+    {
+      "id": "unseen-23-missing-quantity",
+      "category": "missing_information",
+      "language": "en",
+      "text": "Please send burgers tomorrow before 2pm to the main outlet.",
+      "expected_items": [],
+      "expected_delivery_date": "2026-10-22T14:00:00",
+      "requires_review": true,
+      "expected_routing": "REVIEW"
+    },
+    {
+      "id": "unseen-24-missing-delivery",
+      "category": "missing_information",
+      "language": "en",
+      "text": "We would like to order 30 pcs burgers for our team.",
+      "expected_items": [
+        {"sku": "BURGER", "quantity": "30", "unit": "pcs"}
+      ],
+      "expected_delivery_date": null,
+      "requires_review": true,
+      "expected_routing": "REVIEW"
+    },
+    {
+      "id": "unseen-25-either-or-conflict",
+      "category": "conflicting_evidence",
+      "language": "en",
+      "text": "Please deliver 10 burgers or 10 boxes buns tomorrow before 3pm depending on chef.",
+      "expected_items": [],
+      "expected_delivery_date": "2026-10-22T15:00:00",
+      "requires_review": true,
+      "expected_routing": "REVIEW"
+    },
+    {
+      "id": "unseen-26-weekday-calendar-conflict",
+      "category": "conflicting_evidence",
+      "language": "en",
+      "text": "Please deliver 20 burgers on Friday 21 October 2026 before 2pm.",
+      "expected_items": [],
+      "expected_delivery_date": null,
+      "requires_review": true,
+      "expected_routing": "REVIEW"
+    }
+  ]
+}
