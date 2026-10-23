@@ -273,6 +273,65 @@ class ConfirmationAttemptRecord(Base):
     )
 
 
+class FollowUpTaskRecord(Base):
+    __tablename__ = "communication_followup_tasks"
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    communication_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    confirmation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    commitment_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    proposal_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    proposal_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    request_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    command_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason_code: Mapped[str | None] = mapped_column(String(128))
+    reminders_sent: Mapped[int] = mapped_column(Integer, nullable=False)
+    next_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    escalation_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_reminder_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "confirmation_id"],
+            ["communication_confirmation_sessions.tenant_id", "communication_confirmation_sessions.confirmation_id"],
+            name="fk_followup_confirmation"),
+        ForeignKeyConstraint(["tenant_id", "communication_id"],
+            ["communication_requests.tenant_id", "communication_requests.communication_id"], name="fk_followup_request"),
+        UniqueConstraint("tenant_id", "communication_id", name="uq_followup_one_request"),
+        UniqueConstraint("tenant_id", "confirmation_id", name="uq_followup_one_confirmation"),
+        UniqueConstraint("tenant_id", "request_key", name="uq_followup_request_key"),
+        CheckConstraint("proposal_version >= 1 AND reminders_sent >= 0 AND reminders_sent <= 3", name="ck_followup_counts"),
+        CheckConstraint("status IN ('WAITING','BLOCKED','DISPATCHING','CANCELLED','ESCALATED')", name="ck_followup_status"),
+        Index("ix_followup_due", "tenant_id", "status", "next_due_at"),
+    )
+
+
+class ReminderAttemptRecord(Base):
+    __tablename__ = "communication_reminder_attempts"
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    reminder_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    evidence_refs: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_reference: Mapped[str | None] = mapped_column(String(128))
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "task_id"],
+            ["communication_followup_tasks.tenant_id", "communication_followup_tasks.task_id"], name="fk_reminder_task"),
+        UniqueConstraint("tenant_id", "task_id", "sequence", name="uq_reminder_sequence"),
+        CheckConstraint("sequence >= 1 AND sequence <= 3", name="ck_reminder_sequence"),
+        CheckConstraint("status IN ('SENT','FAILED','DELIVERY_UNKNOWN')", name="ck_reminder_status"),
+        CheckConstraint("channel IN ('MOCK_EMAIL','MOCK_WHATSAPP','MOCK_TELEGRAM')", name="ck_reminder_channel"),
+    )
+
+
 class ConfirmationDecisionRecord(Base):
     __tablename__ = "communication_confirmation_decisions"
     tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)

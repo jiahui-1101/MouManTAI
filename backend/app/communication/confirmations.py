@@ -76,6 +76,9 @@ class ConfirmationService:
         return value
 
     def _session(self, context, confirmation_id, *, lock=False):
+        if lock:
+            from .followup import lock_confirmation
+            return lock_confirmation(self.db, context, confirmation_id)
         query = select(ConfirmationSessionRecord).where(ConfirmationSessionRecord.tenant_id == context.tenant_id,
             ConfirmationSessionRecord.confirmation_id == confirmation_id).execution_options(populate_existing=True)
         row = self.db.scalar(query.with_for_update() if lock else query)
@@ -184,6 +187,8 @@ class ConfirmationService:
             if row.revoked_at is None:
                 row.revoked_at = now
                 self._event(context, row, "confirmation.revoked", now)
+                from .followup import cancel_for_confirmation
+                cancel_for_confirmation(self.db, context, row, "CONFIRMATION_REVOKED", now)
             result = self.view(row, now)
             self.db.commit()
             return result
@@ -259,6 +264,9 @@ class ConfirmationService:
             row.state = TERMINAL.get(classified.intent, "CLARIFICATION_REQUIRED" if classified.intent == "CLARIFICATION" else "UNRESOLVED")
             row.consumed_at = now if terminal else None
             self._event(context, row, EVENTS[classified.intent], now, reply=reply, decision=decision)
+            if terminal:
+                from .followup import cancel_for_confirmation
+                cancel_for_confirmation(self.db, context, row, "CUSTOMER_" + classified.intent, now)
             result = self.attempt_view(attempt, decision)
             self.db.commit()
             return result
@@ -282,6 +290,10 @@ class ConfirmationService:
         payload["integration_mode"] = "SYNTHETIC_ONLY"
         if decision:
             payload.update(decision_id=decision.decision_id, attempt_id=decision.attempt_id, intent=decision.intent)
+            if event_type == EVENTS["COUNTEROFFER"]:
+                # Approved additive v1 field: only the validated server-side
+                # decision, never client identity/acceptance flags or Core terms.
+                payload["proposed_changes"] = decision.proposed_changes
         event = create_domain_event(event_type=event_type, tenant_id=context.tenant_id,
             commitment_id=basis.reference.commitment_id, commitment_version=basis.reference.commitment_version,
             correlation_id=context.correlation_id, causation_id=reply.message_id if reply else context.causation_id,
