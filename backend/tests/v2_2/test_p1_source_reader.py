@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from types import SimpleNamespace
 
+import pytest
+
 TENANT = "tenant_a"
 CUSTOMER = "customer_a"
 CONTEXT = "context_a"
@@ -332,6 +334,38 @@ def test_unresolvable_evidence_span_requires_review_before_mapping():
     assert result.status == "REVIEW_REQUIRED"
     assert result.candidate is None
     assert "SOURCE_EVIDENCE_PROVENANCE_UNVERIFIED" in result.reason_codes
+
+
+@pytest.mark.parametrize(
+    "unsupported_evidence",
+    [
+        {"method": "OCR", "method_version": "ocr-v1"},
+        {"method": "PDF_TEXT", "method_version": "pdf-text-v1"},
+        {
+            "evidence_id": None,
+            "message_id": None,
+            "method": "OCR",
+            "method_version": "ocr-v1",
+            "evidence_ref": "attachment-only-reference",
+        },
+    ],
+)
+def test_unsupported_document_or_attachment_evidence_fails_closed(unsupported_evidence):
+    snapshot = make_snapshot()
+    entry = {**snapshot.context.field_evidence["sku"][0], **unsupported_evidence}
+    snapshot.context.field_evidence["sku"] = [entry]
+    snapshot.context_versions = (
+        snapshot.context_versions[0].model_copy(
+            update={"snapshot": snapshot.context.model_dump(mode="json")}
+        ),
+    )
+
+    result, _ = read(snapshot)
+
+    assert result.status == "REVIEW_REQUIRED"
+    assert result.candidate is None
+    assert result.reason_codes == ("SOURCE_EVIDENCE_PROVENANCE_UNVERIFIED",)
+    assert "attachment-only-reference" not in str(result.model_dump(mode="json"))
 
 
 def test_current_context_must_equal_its_authoritative_version_snapshot():
