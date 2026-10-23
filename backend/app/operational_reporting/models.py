@@ -86,6 +86,8 @@ class OrderFacts:
 
 @dataclass(frozen=True)
 class StatusProjection:
+    """A status supplied by the authoritative order-status reader, not calculated here."""
+
     tenant_id: str
     order_id: str
     commitment_id: str
@@ -125,3 +127,22 @@ class Template:
     identity: str
     version: str
     milestone: Milestone
+
+
+def status_matches(
+    facts: OrderFacts, status: StatusProjection, *, as_of: datetime, max_age_seconds: int = 3600
+) -> bool:
+    """Check coherence; the caller must still establish the reader's authority."""
+
+    times = (as_of, facts.snapshot_at, facts.updated_at, status.snapshot_at)
+    if any(t.tzinfo is None or t.utcoffset() is None for t in times):
+        return False
+    return (
+        (status.tenant_id, status.order_id, status.commitment_id, status.customer_id)
+        == (facts.tenant_id, facts.order_id, facts.commitment_id, facts.customer_id)
+        and facts.source_version == facts.aggregate_version == status.aggregate_version
+        and facts.aggregate_version >= 1
+        and status.snapshot_at == facts.snapshot_at
+        and facts.updated_at <= facts.snapshot_at <= as_of
+        and 0 <= (as_of - facts.snapshot_at).total_seconds() <= max_age_seconds
+    )

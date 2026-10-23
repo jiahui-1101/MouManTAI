@@ -8,6 +8,8 @@ from enum import StrEnum
 from hashlib import sha256
 
 from .models import (
+    EventKind,
+    EvidenceTier,
     Milestone,
     OperationalEvent,
     OrderFacts,
@@ -15,8 +17,8 @@ from .models import (
     SendHistory,
     StatusProjection,
     Template,
+    status_matches,
 )
-from .projection import project_status
 
 
 class Eligibility(StrEnum):
@@ -24,6 +26,15 @@ class Eligibility(StrEnum):
     BLOCKED = "BLOCKED"
     ALREADY_HANDLED = "ALREADY_HANDLED"
     UNKNOWN = "UNKNOWN"
+
+
+_EVENT_TO_MILESTONE = {
+    EventKind.ACCEPTED: Milestone.ORDER_ACCEPTED,
+    EventKind.PREPARING: Milestone.PREPARING,
+    EventKind.READY: Milestone.READY,
+    EventKind.OUT_FOR_DELIVERY: Milestone.OUT_FOR_DELIVERY,
+    EventKind.FULFILLED: Milestone.COMPLETED,
+}
 
 
 @dataclass(frozen=True)
@@ -65,6 +76,7 @@ def _recipient_gate(
 
 def plan_milestone(
     facts: OrderFacts,
+    status: StatusProjection,
     event: OperationalEvent,
     recipient: RecipientPolicy,
     template: Template,
@@ -86,9 +98,18 @@ def plan_milestone(
         return NotificationPlan(Eligibility.BLOCKED, "EVENT_BINDING_MISMATCH")
     if not event.verified or event not in facts.events:
         return NotificationPlan(Eligibility.BLOCKED, "EVENT_NOT_VERIFIED_IN_SNAPSHOT")
-    status = project_status(facts, as_of=as_of, max_age_seconds=max_age_seconds)
+    if event.occurred_at.tzinfo is None or event.occurred_at.utcoffset() is None:
+        return NotificationPlan(Eligibility.UNKNOWN, "EVENT_TIME_UNKNOWN")
+    if not status_matches(facts, status, as_of=as_of, max_age_seconds=max_age_seconds):
+        return NotificationPlan(Eligibility.UNKNOWN, "STATUS_READER_STALE_OR_MISMATCHED")
     if status.milestone == Milestone.NOT_AVAILABLE:
-        return NotificationPlan(Eligibility.UNKNOWN, status.diagnostics[0])
+        return NotificationPlan(
+            Eligibility.UNKNOWN, status.diagnostics[0] if status.diagnostics else "STATUS_UNKNOWN"
+        )
+    if status.evidence_tier not in (EvidenceTier.VERIFIED, EvidenceTier.DEMO_ONLY):
+        return NotificationPlan(Eligibility.UNKNOWN, "STATUS_EVIDENCE_UNKNOWN")
+    if _EVENT_TO_MILESTONE.get(event.kind) != status.milestone:
+        return NotificationPlan(Eligibility.BLOCKED, "EVENT_MILESTONE_MISMATCH")
     if (
         status.source_event_id != event.event_id
         or event.aggregate_version > facts.aggregate_version
@@ -125,6 +146,7 @@ def plan_milestone(
 
 def feedback_readiness(
     facts: OrderFacts,
+    status: StatusProjection,
     recipient: RecipientPolicy,
     history: SendHistory,
     *,
@@ -135,10 +157,23 @@ def feedback_readiness(
         return NotificationPlan(*gate)
     if not history.complete:
         return NotificationPlan(Eligibility.UNKNOWN, "SEND_HISTORY_UNKNOWN")
-    status: StatusProjection = project_status(facts, as_of=as_of)
+    if not status_matches(facts, status, as_of=as_of):
+        return NotificationPlan(Eligibility.UNKNOWN, "STATUS_READER_STALE_OR_MISMATCHED")
     if status.milestone != Milestone.COMPLETED or facts.fulfilment_state != "FULFILLED":
         return NotificationPlan(Eligibility.BLOCKED, "FULFILMENT_NOT_VERIFIED")
-    completed = next(e for e in facts.events if e.event_id == status.source_event_id)
+    if status.evidence_tier not in (EvidenceTier.VERIFIED, EvidenceTier.DEMO_ONLY):
+        return NotificationPlan(Eligibility.UNKNOWN, "FULFILMENT_EVIDENCE_UNKNOWN")
+    completed = next((e for e in facts.events if e.event_id == status.source_event_id), None)
+    if completed is None or not completed.verified or completed.kind != EventKind.FULFILLED:
+        return NotificationPlan(Eligibility.UNKNOWN, "FULFILMENT_EVENT_MISSING")
+    if (completed.tenant_id, completed.order_id, completed.commitment_id) != (
+        facts.tenant_id,
+        facts.order_id,
+        facts.commitment_id,
+    ):
+        return NotificationPlan(Eligibility.UNKNOWN, "FULFILMENT_BINDING_MISMATCH")
+    if completed.occurred_at.tzinfo is None or completed.occurred_at.utcoffset() is None:
+        return NotificationPlan(Eligibility.UNKNOWN, "FULFILMENT_TIME_UNKNOWN")
     key = _key(
         facts.tenant_id,
         facts.order_id,

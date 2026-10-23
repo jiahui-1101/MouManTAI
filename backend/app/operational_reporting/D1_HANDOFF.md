@@ -2,9 +2,23 @@
 
 This module is pure and read-only. Its dataclasses are **trusted-reader transfer
 shapes**, not authentication or evidence verification. Do not expose them as
-request-body claims. `project_status`, `plan_milestone`, `aggregate_daily`, and
+request-body claims. `plan_milestone`, `aggregate_daily`, and
 `feedback_readiness` are the entry points. No API route, database table,
 fulfilment write, or outbound send is included.
+
+## PR #48 ownership correction
+
+Draft PR #48 (`codex/feat-v2-2-backend`, head `741976d`) already owns
+`app/orders/status.py::read_status_preview`. It reads Core Commitment and
+fulfilment audit, refuses to infer accepted status from legacy `CONFIRMED`,
+and projects `COMPLETED` only from scoped synthetic fulfilment proof. Its
+status preview tests are in `backend/tests/v2_2/test_api.py`. Its separate
+conversation clarification and reply preparation modules are unrelated to D1.
+The Backend D pure status projection from the first D1 commit overlapped this
+reader and was removed in the follow-up correction. The original commit remains
+in branch history for review. `StatusProjection` here is now an input contract
+for the one authoritative status owner, not a second projection algorithm.
+PR #48 is unmerged and is not imported into this main-based branch.
 
 ## Verified reuse and required integration seam
 
@@ -20,11 +34,13 @@ fulfilment write, or outbound send is included.
 - P4 `OutboundMessageRecord` and recipient preferences are in
   `app/communication/models.py`. P4 remains the only send/history owner.
 
-A future server-side adapter must read a tenant-authorized Core Commitment,
-reconciled acceptance and reservation receipts, versioned domain/operational
-events, evidence with verified source/tier, and a consistent snapshot watermark
-in one coherent read. It must map these into `OrderFacts`, excluding unverified
-client claims. A separate trusted P4 reader must supply recipient verification,
+A future server-side adapter owned by the order-status/Core integration must
+extend or reuse PR #48's single status reader. It must obtain a tenant-authorized
+Core Commitment, reconciled acceptance and reservation receipts, versioned
+domain/operational events, evidence with verified source/tier, and a consistent
+snapshot watermark in one coherent read. It must map these into `OrderFacts`
+and the corresponding `StatusProjection`, excluding unverified client claims.
+A separate trusted P4 reader must supply recipient verification,
 consent/policy/channel capability and a complete send-history lookup. P4 must
 atomically enforce the returned deduplication key when it eventually sends.
 The pending authority for accepted/reservation and interim operational event
@@ -32,13 +48,14 @@ types prevents a real route or automatic milestone wiring in D1.
 
 `aggregate_daily` includes only supplied orders. Its denominator is due orders
 in that supplied source window; the caller must guarantee complete tenant/day
-pagination and authorization. Coverage measures due orders whose status facts
-pass the projection. Optional actuals require separately evidenced planned and
+pagination and authorization. Coverage measures due orders with a fresh, bound
+status from the status owner. Optional actuals require separately evidenced planned and
 actual values with matching units; absent duration is unmeasured. Feedback
 text has no path back into evidence or business state.
 
 ## Next bounded Backend D increment
 
 After Core and P4 agree on authoritative accepted/reservation and operational
-event readers, add a server-only adapter and identity-scoped read endpoint;
-integrate milestone intents through P4's existing outbox/history authority.
+event readers, the PR #48 order-status owner should extend its existing reader
+and add an identity-scoped read endpoint. Backend D can then consume that
+reader's status and integrate milestone intents through P4's outbox/history.

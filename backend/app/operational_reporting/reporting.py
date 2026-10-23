@@ -7,8 +7,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from .models import EventKind, EvidenceTier, Milestone, OrderFacts
-from .projection import project_status
+from .models import EventKind, EvidenceTier, Milestone, OrderFacts, StatusProjection, status_matches
 
 
 @dataclass(frozen=True)
@@ -67,6 +66,8 @@ def _measurement(
         for ref in (planned_ref, actual_ref)
     ):
         return None
+    if refs[planned_ref].kind != "PLAN" or refs[actual_ref].kind != "ACTUAL":
+        return None
     return Measurement(planned, actual, unit)
 
 
@@ -74,7 +75,7 @@ def aggregate_daily(
     tenant_id: str,
     business_date: date,
     timezone: str,
-    orders: tuple[OrderFacts, ...],
+    orders: tuple[tuple[OrderFacts, StatusProjection], ...],
     *,
     as_of: datetime,
 ) -> DailyReport:
@@ -91,45 +92,68 @@ def aggregate_daily(
     seen: set[str] = set()
     eligible = 0
     covered = 0
-    for facts in orders:
+    for facts, status in orders:
         if facts.tenant_id != tenant_id or facts.order_id in seen:
             raise ValueError("tenant mismatch or duplicate order")
         seen.add(facts.order_id)
-        status = project_status(facts, as_of=as_of)
-        accepted_events = [e for e in facts.events if e.kind == EventKind.ACCEPTED and e.verified]
-        fulfilled_events = [e for e in facts.events if e.kind == EventKind.FULFILLED and e.verified]
+        valid_status = status_matches(facts, status, as_of=as_of)
+        milestone = status.milestone if valid_status else Milestone.NOT_AVAILABLE
+        trusted_events = [
+            e
+            for e in facts.events
+            if e.verified
+            and e.occurred_at.tzinfo is not None
+            and e.occurred_at.utcoffset() is not None
+            and e.occurred_at <= facts.snapshot_at
+        ]
+        accepted_events = [e for e in trusted_events if e.kind == EventKind.ACCEPTED]
+        fulfilled_events = [e for e in trusted_events if e.kind == EventKind.FULFILLED]
         due_today = (
             facts.due_at is not None
             and facts.due_at.tzinfo is not None
+            and facts.due_at.utcoffset() is not None
             and start <= facts.due_at.astimezone(zone) < end
         )
-        accepted_today = status.milestone != Milestone.NOT_AVAILABLE and any(
+        covered_status = milestone != Milestone.NOT_AVAILABLE and status.evidence_tier in (
+            EvidenceTier.VERIFIED,
+            EvidenceTier.DEMO_ONLY,
+        )
+        accepted_today = covered_status and any(
             start <= e.occurred_at.astimezone(zone) < end for e in accepted_events
         )
-        fulfilled_today = status.milestone == Milestone.COMPLETED and any(
-            start <= e.occurred_at.astimezone(zone) < end for e in fulfilled_events
+        completion = next(
+            (e for e in fulfilled_events if e.event_id == status.source_event_id), None
         )
+        fulfilled_today = (
+            milestone == Milestone.COMPLETED
+            and facts.fulfilment_state == "FULFILLED"
+            and completion is not None
+            and start <= completion.occurred_at.astimezone(zone) < end
+        )
+        if status.evidence_tier not in (EvidenceTier.VERIFIED, EvidenceTier.DEMO_ONLY):
+            fulfilled_today = False
         if accepted_today:
             counts["accepted"] += 1
         if due_today:
             counts["due"] += 1
             eligible += 1
-            if status.milestone != Milestone.NOT_AVAILABLE:
+            if covered_status:
                 covered += 1
             else:
                 counts["unknown"] += 1
         if fulfilled_today:
             counts["fulfilled"] += 1
-            completion = next(e for e in fulfilled_events if e.event_id == status.source_event_id)
             if facts.due_at is None:
                 limitations.add("DUE_TIME_MISSING")
+            elif facts.due_at.tzinfo is None or facts.due_at.utcoffset() is None:
+                limitations.add("DUE_TIME_UNKNOWN")
             elif completion.occurred_at <= facts.due_at:
                 counts["on_time"] += 1
             else:
                 counts["late"] += 1
-        if status.milestone == Milestone.COMPLETION_REPORTED and any(
+        if milestone == Milestone.COMPLETION_REPORTED and any(
             start <= e.occurred_at.astimezone(zone) < end
-            for e in facts.events
+            for e in trusted_events
             if e.kind == EventKind.COMPLETION_REPORTED
         ):
             counts["reported"] += 1
@@ -153,7 +177,7 @@ def aggregate_daily(
         )
         if due_today and (quantity is None or duration is None):
             limitations.add("OPTIONAL_ACTUALS_PARTIAL")
-        if due_today and status.milestone == Milestone.NOT_AVAILABLE:
+        if due_today and not covered_status:
             limitations.add("STATUS_EVIDENCE_PARTIAL")
         if due_today or accepted_today or fulfilled_today:
             actuals.append(
