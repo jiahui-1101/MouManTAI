@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -75,6 +75,7 @@ pytest_plugins = ("app.communication.tests.test_migration_persistence",)
         (1, 1.0, False),
         (1, "1", False),
         ({"rows": [{"verified": True}]}, {"rows": [{"verified": 1}]}, False),
+        ({"rows": [{"quantity": 1}]}, {"rows": [{"quantity": 1.0}]}, False),
         ({"rows": [{"verified": True}]}, {"rows": [{"verified": True}]}, True),
         ({"first": 1, "second": [True]}, {"second": [True], "first": 1}, True),
         ([1, 2], [2, 1], False),
@@ -1194,6 +1195,102 @@ def test_counteroffer_rejects_unproven_or_unrelated_core_advances(session, tampe
     assert session.get(RecoveryPlanRecord, (
         setup["plan"].tenant_id, setup["plan"].plan_id, 2,
     )) is None
+
+
+@pytest.mark.parametrize(
+    ("evidence", "field", "wrong_value"),
+    [
+        ("outbox", "proposal_version", True),
+        ("outbox", "proposal_version", 1.0),
+        ("approval_audit", "plan_version", True),
+        ("approval_audit", "commitment_version", 2.0),
+        ("offer_audit_before", "commitment_version", 2.0),
+        ("offer_audit_after", "commitment_version", 3.0),
+    ],
+)
+def test_core_offer_evidence_rejects_type_coercing_json(
+    session, evidence, field, wrong_value,
+):
+    setup = _counteroffer_fixture(session)
+    offer = session.scalar(select(OutboxEventRecord).where(
+        OutboxEventRecord.event_type == CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value,
+    ))
+    assert offer is not None
+    proof = DurablePlanService().require_authorized_offer_transition
+    arguments = {
+        "tenant_id": setup["commitment"].tenant_id,
+        "commitment": session.get(CommitmentRecord, (
+            setup["commitment"].tenant_id, setup["commitment"].commitment_id,
+        )),
+        "case_record": setup["case_record"],
+        "prior_plan_record": setup["plan_record"],
+        "prior_plan": setup["plan"],
+        "proposal": setup["proposal"],
+        "approval": setup["approval"],
+        "response_event": setup["response_event"],
+    }
+    proof(session, **arguments)
+
+    if evidence == "outbox":
+        offer.payload = {**offer.payload, field: wrong_value}
+    else:
+        audit_id = (setup["approval"].audit_id if evidence == "approval_audit"
+                    else offer.payload["audit_id"])
+        audit = session.get(AuditEventRecord, audit_id)
+        assert audit is not None
+        state_field = "previous_state" if evidence == "offer_audit_before" else "new_state"
+        state = getattr(audit, state_field)
+        setattr(audit, state_field, {**state, field: wrong_value})
+
+    with pytest.raises(DomainError) as error:
+        proof(session, **arguments)
+    assert error.value.code == "CORE_OFFER_PROVENANCE_INVALID"
+    assert session.get(RecoveryPlanRecord, (
+        setup["plan"].tenant_id, setup["plan"].plan_id, 2,
+    )) is None
+
+
+@pytest.mark.parametrize("migrated", ["postgresql"], indirect=True)
+@pytest.mark.parametrize("evidence", ["outbox", "offer_audit"])
+def test_postgresql_core_offer_json_version_types_fail_closed(migrated, evidence):
+    engine, _ = migrated
+    assert engine.dialect.name == "postgresql"
+    with Session(engine) as session:
+        setup = _counteroffer_fixture(session)
+        offer = session.scalar(select(OutboxEventRecord).where(
+            OutboxEventRecord.event_type == CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value,
+        ))
+        assert offer is not None
+        if evidence == "outbox":
+            session.execute(update(OutboxEventRecord).where(
+                OutboxEventRecord.event_id == offer.event_id,
+            ).values(payload={**offer.payload, "proposal_version": 1.0}))
+        else:
+            audit = session.get(AuditEventRecord, offer.payload["audit_id"])
+            assert audit is not None
+            session.execute(update(AuditEventRecord).where(
+                AuditEventRecord.audit_id == audit.audit_id,
+            ).values(new_state={**audit.new_state, "commitment_version": True}))
+        session.expire_all()
+
+        with pytest.raises(DomainError) as error:
+            DurablePlanService().require_authorized_offer_transition(
+                session,
+                tenant_id=setup["commitment"].tenant_id,
+                commitment=session.get(CommitmentRecord, (
+                    setup["commitment"].tenant_id, setup["commitment"].commitment_id,
+                )),
+                case_record=setup["case_record"],
+                prior_plan_record=setup["plan_record"],
+                prior_plan=setup["plan"],
+                proposal=setup["proposal"],
+                approval=setup["approval"],
+                response_event=setup["response_event"],
+            )
+        assert error.value.code == "CORE_OFFER_PROVENANCE_INVALID"
+        assert session.get(RecoveryPlanRecord, (
+            setup["plan"].tenant_id, setup["plan"].plan_id, 2,
+        )) is None
 
 
 @pytest.mark.parametrize("migrated", ["postgresql"], indirect=True)

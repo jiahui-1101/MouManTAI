@@ -55,6 +55,22 @@ if TYPE_CHECKING:
     from app.core.manager_approval import ManagerApprovalRecord
 
 
+def _json_payloads_match_exactly(left: object, right: object) -> bool:
+    """Compare structured JSON without Python's bool/int or int/float coercion."""
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _json_payloads_match_exactly(value, right[key])
+            for key, value in left.items()
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _json_payloads_match_exactly(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
 class RecoveryPlanRecord(Base):
     __tablename__ = "recovery_plan_versions"
 
@@ -169,7 +185,7 @@ class DurablePlanService:
             != (tenant_id, prior_plan.commitment_id, expected_proposal_id,
                 expected_proposal_version, "ACTIVE")
             or proposal.revised_terms is None
-            or offered_terms != approved_terms
+            or not _json_payloads_match_exactly(offered_terms, approved_terms)
             or list(proposal.evidence_refs or []) != expected_refs
             or (approval.tenant_id, approval.commitment_id, approval.case_id,
                 approval.plan_id, approval.plan_version, approval.proposal_id,
@@ -179,7 +195,7 @@ class DurablePlanService:
                 expected_proposal_version, original_version, "APPROVED")
             or approval.actor_role not in {"MANAGER", "OWNER"}
             or "CREATE_DELIVERY_CHANGE_PROPOSAL" not in approval.action_scope
-            or approval.approved_terms != offered_terms
+            or not _json_payloads_match_exactly(approval.approved_terms, offered_terms)
             or not original_version
             or original_version <= evaluated_version
             or current_version != original_version + 1
@@ -197,8 +213,12 @@ class DurablePlanService:
             or approval_audit.new_state.get("approval_id") != approval.approval_id
             or approval_audit.new_state.get("decision") != "APPROVED"
             or approval_audit.new_state.get("plan_id") != prior_plan.plan_id
-            or approval_audit.new_state.get("plan_version") != prior_plan.plan_version
-            or approval_audit.new_state.get("commitment_version") != original_version
+            or not _json_payloads_match_exactly(
+                approval_audit.new_state.get("plan_version"), prior_plan.plan_version,
+            )
+            or not _json_payloads_match_exactly(
+                approval_audit.new_state.get("commitment_version"), original_version,
+            )
         ):
             reject()
 
@@ -227,7 +247,7 @@ class DurablePlanService:
         }
         offer_audit = db.get(AuditEventRecord, audit_id)
         if (
-            payload != expected_offer_payload
+            not _json_payloads_match_exactly(payload, expected_offer_payload)
             or offer.causation_id != approval.approval_id
             or offer.commitment_version != current_version
             or aware(offer.occurred_at) > aware(response_event.occurred_at)
@@ -263,8 +283,8 @@ class DurablePlanService:
             or not isinstance(offer_audit.new_state, dict)
             or set(offer_audit.previous_state) != state_fields
             or set(offer_audit.new_state) != state_fields
-            or offer_audit.previous_state != expected_before
-            or offer_audit.new_state != expected_after
+            or not _json_payloads_match_exactly(offer_audit.previous_state, expected_before)
+            or not _json_payloads_match_exactly(offer_audit.new_state, expected_after)
         ):
             reject()
 

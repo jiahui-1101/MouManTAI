@@ -52,7 +52,7 @@ from app.recovery.models import (
     RecoveryPlanVersion,
 )
 
-from .durable_plans import DurablePlanService, RecoveryPlanRecord
+from .durable_plans import DurablePlanService, RecoveryPlanRecord, _json_payloads_match_exactly
 from .persistence import RecoveryCaseRecord, SqlAlchemyRecoveryRepository
 from .proposal_identity import require_proposal_binding
 
@@ -61,22 +61,6 @@ _RESPONSE_INTENTS = {
     "confirmation.counteroffer_received": ("COUNTEROFFER", "COUNTEROFFER_RECEIVED"),
 }
 CONSUMER_NAME = "p3.confirmation_response.v1"
-
-
-def _json_payloads_match_exactly(left: object, right: object) -> bool:
-    """Compare structured JSON without Python's bool/int or int/float coercion."""
-    if type(left) is not type(right):
-        return False
-    if isinstance(left, dict):
-        return left.keys() == right.keys() and all(
-            _json_payloads_match_exactly(value, right[key])
-            for key, value in left.items()
-        )
-    if isinstance(left, list):
-        return len(left) == len(right) and all(
-            _json_payloads_match_exactly(a, b) for a, b in zip(left, right)
-        )
-    return left == right
 
 
 class TrustedP3RecoveryResponseContext(ContractModel):
