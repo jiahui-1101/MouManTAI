@@ -4,7 +4,7 @@ import { isNavigationItemActive, navigation } from "./navigation";
 describe("business navigation", () => {
   it("uses business labels and only links to existing destinations", () => {
     expect(navigation.map((item) => item.label)).toEqual([
-      "Overview", "Activity", "Customer Inbox", "Commitment Feasibility", "Recovery Case", "Communications",
+      "Overview", "Activity", "Customer Inbox", "Orders", "Commitment Feasibility", "Recovery Case", "Communications",
     ]);
     expect(navigation.every((item) => !/\bP[1-5]\b/.test(item.label))).toBe(true);
   });
@@ -15,5 +15,16 @@ describe("business navigation", () => {
     expect(isNavigationItemActive(commitments, "/impact/fa_001")).toBe(true);
     expect(isNavigationItemActive(communications, "/confirmations/conf_001")).toBe(true);
     expect(isNavigationItemActive(communications, "/communications/follow-ups")).toBe(true);
+  });
+
+  it("keeps Orders active for order detail routes", () => {
+    const orders = navigation.find((item) => item.to === "/orders");
+    const inbox = navigation.find((item) => item.to === "/inbox");
+  
+    expect(orders).toBeDefined();
+    expect(inbox).toBeDefined();
+  
+    expect(isNavigationItemActive(orders!, "/orders/123")).toBe(true);
+    expect(isNavigationItemActive(inbox!, "/orders/123")).toBe(false);
   });
 });
