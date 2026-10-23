@@ -56,11 +56,11 @@ describe('Order Decision Queue', () => {
     expect(screen.getByText('Synthetic Bob')).toBeInTheDocument();
     expect(screen.queryByText('Request only · no reservation')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Rejected' }));
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/orders/rejected');
+    expect(screen.getByRole('link', { name: /^View Details/ })).toHaveAttribute('href', '/orders/rejected');
     fireEvent.click(screen.getByRole('button', { name: 'Other / unknown' }));
     expect(screen.getByText('FUTURE_STATE')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Pending acceptance' }));
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/orders/order%2Fone');
+    expect(screen.getByRole('link', { name: /^View Details/ })).toHaveAttribute('href', '/orders/order%2Fone');
   });
   it('provides status-specific empty states', async () => {
     setup(sourceFor({ items: [], coverage: 'complete' }));
@@ -71,7 +71,7 @@ describe('Order Decision Queue', () => {
   it.each(['Synthetic Alice', 'bread', 'order/one'])('searches %s case-insensitively', async search => {
     setup(sourceFor()); await screen.findByRole('table');
     fireEvent.change(screen.getByLabelText('Search order, customer or product'), { target: { value: search } });
-    expect(screen.getByRole('link')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^View Details/ })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Search order, customer or product'), { target: { value: 'absent' } });
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
@@ -81,10 +81,10 @@ describe('Order Decision Queue', () => {
     const select = screen.getByLabelText(label);
     const second = within(select).getAllByRole('option')[1] as HTMLOptionElement;
     fireEvent.change(select, { target: { value: second.value } });
-    expect(screen.getAllByRole('link').length).toBeLessThan(items.length);
+    expect(screen.getAllByRole('link', { name: /^View Details/ }).length).toBeLessThan(items.length);
     fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
     expect(select).toHaveValue('');
-    expect(screen.getAllByRole('link')).toHaveLength(1);
+    expect(screen.getAllByRole('link', { name: /^View Details/ })).toHaveLength(1);
   });
   it('combines customer, product and inclusive original-received business dates', async () => {
     setup(sourceFor()); await screen.findByRole('table');

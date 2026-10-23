@@ -1,0 +1,30 @@
+.portfolio-comparison { display: grid; gap: 1.25rem; color: var(--text-primary, #e2e8f0); min-width: 0; }
+.portfolio-comparison h1 { font-size: clamp(1.6rem, 3vw, 2.25rem); margin: .25rem 0; }
+.portfolio-comparison h2 { margin: .3rem 0; font-size: 1.25rem; }
+.portfolio-comparison h3 { font-size: 1.05rem; }
+.portfolio-comparison p { line-height: 1.65; margin: .4rem 0; }
+.portfolio-comparison a { color: #7dd3fc; text-decoration: underline; text-underline-offset: .2em; }
+.pc-header { display: flex; justify-content: space-between; align-items: start; gap: 1rem; }
+.pc-header button { flex-shrink: 0; }
+.pc-eyebrow { color: #94a3b8; font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; }
+.pc-source, .pc-card, .pc-selection { border: 1px solid #334155; border-radius: .75rem; padding: 1.15rem; background: #0f172a; overflow-wrap: anywhere; }
+.pc-source { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem 1.5rem; }
+.pc-selection { display: flex; flex-wrap: wrap; gap: 1rem; }
+.pc-selection label { display: grid; grid-template-columns: auto 1fr; gap: .35rem .6rem; cursor: pointer; }
+.pc-selection label span { grid-column: 2; color: #94a3b8; font-size: .85rem; }
+.pc-selection input { accent-color: #38bdf8; }
+.pc-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
+.pc-card dl { margin: 1rem 0; }
+.pc-card dl > div { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 1px solid #1e293b; padding: .5rem 0; }
+.pc-card dd { margin: 0; text-align: right; }
+.pc-card dt, .pc-scroll small { color: #94a3b8; }
+.pc-scroll { overflow-x: auto; max-width: 100%; border: 1px solid #334155; border-radius: .6rem; }
+.pc-scroll table { border-collapse: collapse; width: 100%; min-width: 38rem; }
+.pc-scroll caption { text-align: left; padding: 1rem; color: #cbd5e1; }
+.pc-scroll th, .pc-scroll td { text-align: left; vertical-align: top; padding: .9rem; border-top: 1px solid #334155; min-width: 10rem; overflow-wrap: anywhere; }
+.pc-scroll th { background: #172033; font-weight: 600; }
+.pc-scroll small { display: block; margin-top: .4rem; font-weight: 400; }
+.pc-scroll tr[data-difference="true"] td { border-left: 2px solid #38bdf8; }
+.portfolio-comparison :focus-visible { outline: 2px solid #7dd3fc; outline-offset: 4px; }
+@media (max-width: 640px) { .pc-header { flex-direction: column; } .pc-header button { width: 100%; } .pc-selection { flex-direction: column; } .pc-card { padding: .85rem; } }
+.pc-source { --orbyte-text-muted: #94a3b8; --orbyte-text: #e2e8f0; }
