@@ -25,7 +25,7 @@ Date: 2026-10-24 (Asia/Kuala_Lumpur)
 | `python -m pytest tests/v2_2/test_terms.py -o addopts= -q --tb=short` | 44 passed after fix. |
 | `python -m pytest tests/v2_2 -o addopts= -q --tb=short` | 122 passed, 5 warnings. |
 | Selected P1/Core command: `python -m pytest app/context/tests/test_order_context_storage.py app/context/tests/test_association_models_and_storage.py app/context/tests/test_context_api.py app/context/tests/test_review_readiness.py app/context/tests/test_core_publisher.py app/context/tests/test_p2_consumer.py tests/test_core_api.py tests/test_core_assessment_writer_provenance.py -o addopts= -q --tb=short` | 21 passed, 22 PostgreSQL-gated skipped, 5 warnings. |
-| Full portable backend `tests` suite with `REQUIRE_POSTGRES=0`, database URL vars unset and task-local `--basetemp` | 514 passed, 31 PostgreSQL-gated skipped, 12 warnings. No shared/development database used. |
+| Full portable backend suite (run from `backend`; environment had `REQUIRE_POSTGRES=0` and all database URL variables unset): `python -m pytest tests -q -rs -o addopts= --basetemp="C:\Users\User\.codex\worktrees\backend-a-order-terms-hardening\pytest-tmp-final"` | 514 passed, 31 PostgreSQL-gated skipped, 12 warnings. No shared/development database used. |
 | PR #50 compatibility overlay: at actual PR #50 HEAD `fd7be2e2dae0b3275ea344f9f4d567b836c93cb1`, overlaid the foundation `terms.py`, retained PR #50 tests, then ran `python -m pytest tests/v2_2 -o addopts= -q --tb=short` | 176 passed, 5 warnings. Scratch worktree was restored clean and archived after the run. |
 | `python -m ruff check --select E,F,I --ignore E501 app/orders/terms.py tests/v2_2/test_terms.py` | Passed. |
 | `python -m compileall -q app/orders/terms.py` | Passed. |
