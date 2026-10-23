@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -59,9 +59,16 @@ export interface AppProps {
   queryClient?: QueryClient;
   initialTenantId?: string;
   initialActorId?: string;
+  /** Additional exact-path page registrations for the shared shell integration pass. */
+  routeExtensions?: readonly AppRouteRegistration[];
 }
 
-export function App({ queryClient, initialTenantId, initialActorId }: AppProps = {}) {
+export interface AppRouteRegistration {
+  path: string;
+  element: ReactNode;
+}
+
+export function App({ queryClient, initialTenantId, initialActorId, routeExtensions = [] }: AppProps = {}) {
   const [defaultClient] = useState(
     () =>
       queryClient ??
@@ -93,6 +100,9 @@ export function App({ queryClient, initialTenantId, initialActorId }: AppProps =
               <Route path="/communications" element={<CommunicationCenterPage />} />
               <Route path="/confirmations/:id" element={<ConfirmationWorkspacePage />} />
               <Route path="/communications/follow-ups" element={<FollowUpQueuePage />}/>
+              {routeExtensions.map((route) => (
+                <Route key={route.path} path={route.path} element={route.element} />
+              ))}
               <Route path="*" element={<FeaturePlaceholder owner="Shared shell" title="Page not found" />} />
             </Route>
           </Routes>

@@ -3,6 +3,7 @@ import { ApiError, confirmProposal } from "./api";
 import { useAuth } from "./auth";
 import { StatusBadge } from "./StatusBadge";
 import { useToast } from "./Toast";
+import { MutationStateView, type MutationState } from "./mutationState";
 import type { CommitmentTerms } from "./types";
 
 export interface ApprovalActionControlProps {
@@ -39,16 +40,14 @@ export function ApprovalActionControl({
   const toast = useToast();
 
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [mutationState, setMutationState] = useState<MutationState>({ status: "idle" });
 
   const handleExecute = async () => {
     setIsLoading(true);
-    setErrorMessage(null);
-    setSuccessMessage(null);
+    setMutationState({ status: "pending" });
 
     try {
-      await confirmProposal(
+      const result = await confirmProposal(
         commitmentId,
         {
           proposal_id: proposalId,
@@ -61,29 +60,30 @@ export function ApprovalActionControl({
         authHeaders,
       );
 
-      // Only show success when API actually returns 200 OK
-      const successText = "Proposal approved and committed successfully.";
-      setSuccessMessage(successText);
-      toast.success(successText);
-      if (onSuccess) {
-        onSuccess();
+      const agreementState = result?.commitment?.agreement_state;
+      if (!agreementState) {
+        setMutationState({
+          status: "failure",
+          error: new TypeError("The response did not include an authoritative commitment state."),
+          operationMayHaveApplied: true,
+        });
+      } else if (agreementState !== "CONFIRMED") {
+        const pendingText = `Decision received; current agreement state is ${agreementState}. Terms are not confirmed.`;
+        setMutationState({ status: "pending", message: pendingText });
+        toast.info(pendingText);
+      } else {
+        const successText = "Proposal decision recorded.";
+        setMutationState({ status: "success", message: successText, authoritativeState: agreementState });
+        toast.success(successText);
+        onSuccess?.();
       }
     } catch (err: unknown) {
-      let msg = "An error occurred during approval.";
-      if (err instanceof ApiError) {
-        if (err.status === 403) {
-          msg = `403 Forbidden: ${err.message || "Staff is not authorized to approve proposals."}`;
-        } else {
-          msg = `${err.code}: ${err.message}`;
-        }
-      } else if (err instanceof Error) {
-        msg = err.message;
-      }
-      setErrorMessage(msg);
-      toast.error(msg);
-      if (onError) {
-        onError(err);
-      }
+      setMutationState({
+        status: "failure",
+        error: err,
+        operationMayHaveApplied: !(err instanceof ApiError) || err.status >= 500,
+      });
+      onError?.(err);
     } finally {
       setIsLoading(false);
     }
@@ -113,19 +113,9 @@ export function ApprovalActionControl({
         </div>
       )}
 
-      {/* 403 or API Error Banner */}
-      {errorMessage && (
-        <div role="alert" className="error-banner" data-testid="permission-error-banner">
-          <span className="error-icon">🚫</span>
-          <span>{errorMessage}</span>
-        </div>
-      )}
-
-      {/* Success Banner (Never shown optimistically) */}
-      {successMessage && (
-        <div role="status" className="success-banner" data-testid="approval-success-banner">
-          <span className="success-icon">✅</span>
-          <span>{successMessage}</span>
+      {mutationState.status !== "idle" && (
+        <div data-testid="approval-mutation-feedback">
+          <MutationStateView state={mutationState} />
         </div>
       )}
 
