@@ -4,17 +4,29 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, DateTime, ForeignKeyConstraint, Index, Integer, String, select
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    DateTime,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    String,
+    select,
+)
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.dependencies import RequestContext
 from app.core.errors import DomainError
+from app.core.events import CoreEventType
+from app.core.models import AuditEventRecord, CommitmentProposalRecord, OutboxEventRecord
 from app.core.schemas import (
     AgreementState,
     ApprovalState,
     CommitmentTerms,
+    DomainEvent,
     ExecutionState,
     FeasibilityState,
 )
@@ -39,6 +51,9 @@ from .proposal_identity import proposal_id_for_plan
 from .ranking import RankingCandidate, rank_candidates
 from .trigger_persistence import PersistedCoreAssessmentLookup
 
+if TYPE_CHECKING:
+    from app.core.manager_approval import ManagerApprovalRecord
+
 
 class RecoveryPlanRecord(Base):
     __tablename__ = "recovery_plan_versions"
@@ -58,6 +73,10 @@ class RecoveryPlanRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
+        CheckConstraint(
+            "core_commitment_version > evaluated_commitment_version",
+            name="ck_recovery_plan_core_after_evaluation",
+        ),
         Index("ix_recovery_plan_case", "tenant_id", "case_id"),
         ForeignKeyConstraint(
             ["tenant_id", "case_id", "commitment_id"],
@@ -82,6 +101,172 @@ class DurablePlanService:
         self.cases = SqlAlchemyRecoveryRepository()
         self.core = CommitmentService()
         self.proof = PersistedCoreAssessmentLookup()
+
+    @staticmethod
+    def require_authorized_offer_transition(
+        db: Session,
+        *,
+        tenant_id: str,
+        commitment,
+        case_record: RecoveryCaseRecord,
+        prior_plan_record: RecoveryPlanRecord,
+        prior_plan: RecoveryPlanVersion,
+        proposal: CommitmentProposalRecord,
+        approval: ManagerApprovalRecord,
+        response_event: DomainEvent,
+    ) -> None:
+        """Prove this exact approved P3 offer caused the current Core version.
+
+        A version increment by itself is never accepted as provenance. The
+        proposal row, durable approval, Core proposal-offered outbox event and
+        its immutable before/after audit record must all agree.
+        """
+        def reject() -> None:
+            raise DomainError(
+                "CORE_OFFER_PROVENANCE_INVALID",
+                "The current Core proposal is not proven to be this approved Recovery plan's offer",
+                status_code=409,
+            )
+
+        def value(raw):
+            return raw.value if hasattr(raw, "value") else raw
+
+        def aware(raw: datetime) -> datetime:
+            return raw if raw.tzinfo is not None else raw.replace(tzinfo=UTC)
+
+        try:
+            expected_proposal_id, expected_proposal_version = proposal_id_for_plan(
+                prior_plan.plan_id, prior_plan.plan_version,
+            ), prior_plan.plan_version
+            approved_terms = CommitmentTerms.model_validate(approval.approved_terms).model_dump(mode="json")
+            offered_terms = CommitmentTerms.model_validate(proposal.revised_terms).model_dump(mode="json")
+        except Exception as exc:
+            raise DomainError(
+                "CORE_OFFER_PROVENANCE_INVALID",
+                "Persisted Core offer or approval terms are malformed",
+                status_code=409,
+            ) from exc
+
+        original_version = prior_plan.core_commitment_version
+        current_version = commitment.commitment_version
+        evaluated_version = prior_plan_record.evaluated_commitment_version
+        expected_refs = [approval.audit_id, prior_plan_record.assessment_id, prior_plan_record.snapshot_id]
+        if (
+            not tenant_id
+            or (commitment.tenant_id, commitment.commitment_id, current_version)
+            != (tenant_id, prior_plan.commitment_id, response_event.commitment_version)
+            or value(commitment.agreement_state) != AgreementState.OFFERED.value
+            or (case_record.tenant_id, case_record.case_id, case_record.commitment_id)
+            != (tenant_id, prior_plan.recovery_case_id, prior_plan.commitment_id)
+            or (prior_plan_record.tenant_id, prior_plan_record.plan_id, prior_plan_record.plan_version,
+                prior_plan_record.case_id, prior_plan_record.commitment_id,
+                prior_plan_record.core_commitment_version, evaluated_version)
+            != (tenant_id, prior_plan.plan_id, prior_plan.plan_version,
+                prior_plan.recovery_case_id, prior_plan.commitment_id, original_version,
+                prior_plan.evaluation.commitment_version)
+            or (proposal.tenant_id, proposal.commitment_id, proposal.proposal_id,
+                proposal.proposal_version, proposal.status)
+            != (tenant_id, prior_plan.commitment_id, expected_proposal_id,
+                expected_proposal_version, "ACTIVE")
+            or proposal.revised_terms is None
+            or offered_terms != approved_terms
+            or list(proposal.evidence_refs or []) != expected_refs
+            or (approval.tenant_id, approval.commitment_id, approval.case_id,
+                approval.plan_id, approval.plan_version, approval.proposal_id,
+                approval.proposal_version, approval.commitment_version, approval.decision)
+            != (tenant_id, prior_plan.commitment_id, prior_plan.recovery_case_id,
+                prior_plan.plan_id, prior_plan.plan_version, expected_proposal_id,
+                expected_proposal_version, original_version, "APPROVED")
+            or approval.actor_role not in {"MANAGER", "OWNER"}
+            or "CREATE_DELIVERY_CHANGE_PROPOSAL" not in approval.action_scope
+            or approval.approved_terms != offered_terms
+            or not original_version
+            or original_version <= evaluated_version
+            or current_version != original_version + 1
+        ):
+            reject()
+
+        approval_audit = db.get(AuditEventRecord, approval.audit_id)
+        if (
+            approval_audit is None
+            or (approval_audit.tenant_id, approval_audit.commitment_id,
+                approval_audit.event_type, approval_audit.actor_id, approval_audit.actor_role)
+            != (tenant_id, prior_plan.commitment_id, "recovery.plan_approved",
+                approval.actor_id, approval.actor_role)
+            or not isinstance(approval_audit.new_state, dict)
+            or approval_audit.new_state.get("approval_id") != approval.approval_id
+            or approval_audit.new_state.get("decision") != "APPROVED"
+            or approval_audit.new_state.get("plan_id") != prior_plan.plan_id
+            or approval_audit.new_state.get("plan_version") != prior_plan.plan_version
+            or approval_audit.new_state.get("commitment_version") != original_version
+        ):
+            reject()
+
+        offer_events = db.scalars(select(OutboxEventRecord).where(
+            OutboxEventRecord.tenant_id == tenant_id,
+            OutboxEventRecord.commitment_id == prior_plan.commitment_id,
+            OutboxEventRecord.event_type == CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value,
+            OutboxEventRecord.commitment_version == current_version,
+            OutboxEventRecord.causation_id == approval.approval_id,
+        ).order_by(OutboxEventRecord.occurred_at, OutboxEventRecord.event_id)).all()
+        if len(offer_events) != 1:
+            reject()
+        offer = offer_events[0]
+        payload = offer.payload
+        if not isinstance(payload, dict):
+            reject()
+        audit_id = payload.get("audit_id")
+        if not isinstance(audit_id, str) or not audit_id:
+            reject()
+        expected_offer_payload = {
+            "commitment_id": prior_plan.commitment_id,
+            "proposal_id": expected_proposal_id,
+            "proposal_version": expected_proposal_version,
+            "audit_id": audit_id,
+            "evidence_refs": expected_refs,
+        }
+        offer_audit = db.get(AuditEventRecord, audit_id)
+        if (
+            payload != expected_offer_payload
+            or offer.causation_id != approval.approval_id
+            or offer.commitment_version != current_version
+            or aware(offer.occurred_at) > aware(response_event.occurred_at)
+            or offer_audit is None
+            or (offer_audit.tenant_id, offer_audit.commitment_id, offer_audit.event_type,
+                offer_audit.dimension, offer_audit.causation_id, offer_audit.correlation_id)
+            != (tenant_id, prior_plan.commitment_id, CoreEventType.COMMITMENT_PROPOSAL_OFFERED.value,
+                "agreement", approval.approval_id, offer.correlation_id)
+            or offer_audit.evidence_refs != expected_refs
+            or aware(offer_audit.occurred_at) != aware(offer.occurred_at)
+        ):
+            reject()
+
+        state_fields = {
+            "agreement_state", "feasibility_state", "risk_state", "recovery_state",
+            "fulfilment_state", "commitment_version",
+        }
+        expected_after = {
+            "agreement_state": AgreementState.OFFERED.value,
+            "feasibility_state": value(commitment.feasibility_state),
+            "risk_state": value(commitment.risk_state),
+            "recovery_state": value(commitment.recovery_state),
+            "fulfilment_state": value(commitment.fulfilment_state),
+            "commitment_version": current_version,
+        }
+        expected_before = {
+            **expected_after,
+            "agreement_state": AgreementState.CONFIRMED.value,
+            "commitment_version": original_version,
+        }
+        if (
+            not isinstance(offer_audit.previous_state, dict)
+            or not isinstance(offer_audit.new_state, dict)
+            or set(offer_audit.previous_state) != state_fields
+            or set(offer_audit.new_state) != state_fields
+            or offer_audit.previous_state != expected_before
+            or offer_audit.new_state != expected_after
+        ):
+            reject()
 
     def _current(self, db: Session, context: RequestContext, commitment_id: str):
         commitment = self.core.get(db, context, commitment_id)
@@ -154,6 +339,7 @@ class DurablePlanService:
         prior_plan_record: RecoveryPlanRecord,
         prior_plan: RecoveryPlanVersion,
         proposal,
+        approval: ManagerApprovalRecord,
         counteroffer: dict[str, str],
         response_event,
     ):
@@ -165,6 +351,17 @@ class DurablePlanService:
         now = response_event.occurred_at
         if proposal.revised_terms is None:
             raise DomainError("P4_PROPOSAL_TERMS_MISSING", "Linked proposal terms are unavailable", status_code=409)
+        self.require_authorized_offer_transition(
+            db,
+            tenant_id=tenant_id,
+            commitment=commitment,
+            case_record=case_record,
+            prior_plan_record=prior_plan_record,
+            prior_plan=prior_plan,
+            proposal=proposal,
+            approval=approval,
+            response_event=response_event,
+        )
         original_terms = CommitmentTerms.model_validate(proposal.revised_terms)
         revised_data = original_terms.model_dump(mode="json")
         if "quantity" in counteroffer:
@@ -195,8 +392,8 @@ class DurablePlanService:
             prior_plan.snapshot_id, prior_plan.snapshot_version,
         ):
             raise DomainError("SNAPSHOT_DRIFT_CONFLICT", "Counteroffer source snapshot advanced", status_code=409)
-        if commitment.commitment_version != prior_plan.core_commitment_version:
-            raise DomainError("COMMITMENT_VERSION_CONFLICT", "Counteroffer plan is stale", status_code=409)
+        if commitment.commitment_version != response_event.commitment_version:
+            raise DomainError("COMMITMENT_VERSION_CONFLICT", "Counteroffer response does not match current Core", status_code=409)
         source = next((row for row in snapshot.operational.confirmed_commitments
                        if row.commitment_id == commitment.commitment_id), None)
         if source is None or source.commitment_version != prior_plan.evaluation.commitment_version:
@@ -344,6 +541,12 @@ class DurablePlanService:
                        if row.commitment_id == commitment_id), None)
         if source is None or source.commitment_version != assessment.commitment_version:
             raise DomainError("P2_COMMITMENT_BINDING_MISMATCH", "Evaluated source version is missing", status_code=409)
+        if commitment.commitment_version <= assessment.commitment_version:
+            raise DomainError(
+                "P2_COMMITMENT_BINDING_MISMATCH",
+                "The authoritative recovery version must advance beyond its evaluated source version",
+                status_code=409,
+            )
         if len(source.lines) != 1 or (
             source.lines[0].sku_id, source.lines[0].quantity, source.lines[0].unit,
             source.delivery_deadline,
