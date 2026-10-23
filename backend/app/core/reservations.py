@@ -255,20 +255,10 @@ def reserve_resource(
             status_code=400,
         )
 
-    # Fast-path idempotency check: check if reservation already exists
-    existing = session.scalar(
-        select(ResourceReservationRecord).where(
-            ResourceReservationRecord.tenant_id == tenant_id,
-            ResourceReservationRecord.idempotency_key == idempotency_key,
-        )
-    )
-    if existing is not None:
-        return existing
-
     now = _now()
 
     with _RESERVATION_LOCK:
-        # Re-check idempotency under lock in case of concurrent first-call
+        # Idempotency check: return existing reservation if already processed
         existing = session.scalar(
             select(ResourceReservationRecord).where(
                 ResourceReservationRecord.tenant_id == tenant_id,
