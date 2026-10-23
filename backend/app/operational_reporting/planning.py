@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from hashlib import sha256
 
@@ -17,8 +17,8 @@ from .models import (
     SendHistory,
     StatusProjection,
     Template,
-    status_matches,
 )
+from .validation import validate_events
 
 
 class Eligibility(StrEnum):
@@ -55,7 +55,7 @@ def _key(*parts: str) -> str:
 
 
 def _recipient_gate(
-    facts: OrderFacts, recipient: RecipientPolicy
+    facts: OrderFacts, recipient: RecipientPolicy, as_of: datetime
 ) -> tuple[Eligibility, str] | None:
     if (recipient.tenant_id, recipient.order_id, recipient.customer_id) != (
         facts.tenant_id,
@@ -69,6 +69,16 @@ def _recipient_gate(
         return Eligibility.BLOCKED, "CHANNEL_UNAVAILABLE"
     if recipient.consent is None or recipient.policy_allows is None or not recipient.policy_version:
         return Eligibility.UNKNOWN, "POLICY_UNKNOWN"
+    if (
+        as_of.tzinfo is None
+        or as_of.utcoffset() is None
+        or recipient.valid_until is None
+        or recipient.valid_until.tzinfo is None
+        or recipient.valid_until.utcoffset() is None
+    ):
+        return Eligibility.UNKNOWN, "POLICY_EXPIRY_UNKNOWN"
+    if recipient.valid_until.astimezone(UTC) <= as_of.astimezone(UTC):
+        return Eligibility.BLOCKED, "POLICY_EXPIRED"
     if not recipient.consent or not recipient.policy_allows:
         return Eligibility.BLOCKED, "POLICY_DENIED"
     return None
@@ -85,7 +95,7 @@ def plan_milestone(
     as_of: datetime,
     max_age_seconds: int = 3600,
 ) -> NotificationPlan:
-    gate = _recipient_gate(facts, recipient)
+    gate = _recipient_gate(facts, recipient, as_of)
     if gate:
         return NotificationPlan(*gate)
     if not history.complete:
@@ -96,18 +106,22 @@ def plan_milestone(
         facts.commitment_id,
     ):
         return NotificationPlan(Eligibility.BLOCKED, "EVENT_BINDING_MISMATCH")
-    if not event.verified or event not in facts.events:
+    validation = validate_events(facts, status, as_of=as_of, max_age_seconds=max_age_seconds)
+    if not validation.usable:
+        return NotificationPlan(Eligibility.UNKNOWN, validation.diagnostics[0])
+    if not event.verified or event not in validation.events:
         return NotificationPlan(Eligibility.BLOCKED, "EVENT_NOT_VERIFIED_IN_SNAPSHOT")
     if event.occurred_at.tzinfo is None or event.occurred_at.utcoffset() is None:
         return NotificationPlan(Eligibility.UNKNOWN, "EVENT_TIME_UNKNOWN")
-    if not status_matches(facts, status, as_of=as_of, max_age_seconds=max_age_seconds):
-        return NotificationPlan(Eligibility.UNKNOWN, "STATUS_READER_STALE_OR_MISMATCHED")
     if status.milestone == Milestone.NOT_AVAILABLE:
         return NotificationPlan(
             Eligibility.UNKNOWN, status.diagnostics[0] if status.diagnostics else "STATUS_UNKNOWN"
         )
-    if status.evidence_tier not in (EvidenceTier.VERIFIED, EvidenceTier.DEMO_ONLY):
-        return NotificationPlan(Eligibility.UNKNOWN, "STATUS_EVIDENCE_UNKNOWN")
+    if (
+        status.evidence_tier != EvidenceTier.VERIFIED
+        or validation.tier_for(event.event_id) != EvidenceTier.VERIFIED
+    ):
+        return NotificationPlan(Eligibility.UNKNOWN, "NON_LIVE_EVIDENCE_NOT_SENDABLE")
     if _EVENT_TO_MILESTONE.get(event.kind) != status.milestone:
         return NotificationPlan(Eligibility.BLOCKED, "EVENT_MILESTONE_MISMATCH")
     if (
@@ -117,7 +131,9 @@ def plan_milestone(
         return NotificationPlan(Eligibility.BLOCKED, "EVENT_SUPERSEDED")
     if template.milestone != status.milestone or not template.identity or not template.version:
         return NotificationPlan(Eligibility.BLOCKED, "TEMPLATE_MISMATCH")
-    if (as_of - event.occurred_at).total_seconds() > max_age_seconds:
+    if (
+        as_of.astimezone(UTC) - event.occurred_at.astimezone(UTC)
+    ).total_seconds() > max_age_seconds:
         return NotificationPlan(Eligibility.BLOCKED, "EVENT_STALE")
     key = _key(
         facts.tenant_id,
@@ -152,18 +168,22 @@ def feedback_readiness(
     *,
     as_of: datetime,
 ) -> NotificationPlan:
-    gate = _recipient_gate(facts, recipient)
+    gate = _recipient_gate(facts, recipient, as_of)
     if gate:
         return NotificationPlan(*gate)
     if not history.complete:
         return NotificationPlan(Eligibility.UNKNOWN, "SEND_HISTORY_UNKNOWN")
-    if not status_matches(facts, status, as_of=as_of):
-        return NotificationPlan(Eligibility.UNKNOWN, "STATUS_READER_STALE_OR_MISMATCHED")
+    validation = validate_events(facts, status, as_of=as_of)
+    if not validation.usable:
+        return NotificationPlan(Eligibility.UNKNOWN, validation.diagnostics[0])
     if status.milestone != Milestone.COMPLETED or facts.fulfilment_state != "FULFILLED":
         return NotificationPlan(Eligibility.BLOCKED, "FULFILMENT_NOT_VERIFIED")
-    if status.evidence_tier not in (EvidenceTier.VERIFIED, EvidenceTier.DEMO_ONLY):
-        return NotificationPlan(Eligibility.UNKNOWN, "FULFILMENT_EVIDENCE_UNKNOWN")
-    completed = next((e for e in facts.events if e.event_id == status.source_event_id), None)
+    if (
+        status.evidence_tier != EvidenceTier.VERIFIED
+        or validation.tier_for(status.source_event_id or "") != EvidenceTier.VERIFIED
+    ):
+        return NotificationPlan(Eligibility.UNKNOWN, "NON_LIVE_FULFILMENT_NOT_INVITABLE")
+    completed = next((e for e in validation.events if e.event_id == status.source_event_id), None)
     if completed is None or not completed.verified or completed.kind != EventKind.FULFILLED:
         return NotificationPlan(Eligibility.UNKNOWN, "FULFILMENT_EVENT_MISSING")
     if (completed.tenant_id, completed.order_id, completed.commitment_id) != (

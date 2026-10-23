@@ -47,11 +47,40 @@ The pending authority for accepted/reservation and interim operational event
 types prevents a real route or automatic milestone wiring in D1.
 
 `aggregate_daily` includes only supplied orders. Its denominator is due orders
-in that supplied source window; the caller must guarantee complete tenant/day
-pagination and authorization. Coverage measures due orders with a fresh, bound
+in that supplied source window; the caller must supply authorized tenant/day
+pagination and an honest completeness statement. Coverage measures due orders with a fresh, bound
 status from the status owner. Optional actuals require separately evidenced planned and
 actual values with matching units; absent duration is unmeasured. Feedback
 text has no path back into evidence or business state.
+
+## D2 reliability boundary
+
+`validation.py::validate_events` checks event IDs, tenant/order/commitment and
+version bindings, source window, timestamps, evidence references/kinds/tiers,
+and the supplied status source. Identical replays collapse. Conflicting IDs,
+versions, evidence or stale source/status fail closed for that order. This is
+structural consistency only: `verified=True`, evidence tier and the source
+manifest must be populated from authenticated repositories, not a request.
+It does not prove an acceptance receipt, reservation or provider receipt.
+
+`ReportingSource` now carries the requested tenant/day window, watermark,
+pagination and missing-source state. A report with incomplete pagination or
+missing sources returns `source_complete=False` and explicit limitations;
+`data_coverage` remains a separate ratio over the supplied due-order subset.
+The future reader must atomically establish that its page set and watermark
+cover the requested population before marking it complete. D2 has no database
+reader and cannot independently verify that assertion.
+
+`DEMO_ONLY` evidence can still be represented for isolated diagnostics. It
+cannot produce a live-eligible milestone or feedback intent and is excluded
+from verified fulfilment and live evidence coverage. No execution-mode flag
+was invented. A later production path requires a status-owner evidence
+contract and P4 policy review. Current P4 recipient preference persistence
+only constrains `TRANSACTIONAL_REVISED_TERMS` consent; it does not authorize
+milestone or feedback sends. The future P4 adapter must supply a verified,
+purpose-specific, unexpired recipient/policy result and complete send history,
+then atomically enforce the existing proposed dedup key. D2 does not alter
+recipient-level dedup scope or P4 records.
 
 ## Next bounded Backend D increment
 

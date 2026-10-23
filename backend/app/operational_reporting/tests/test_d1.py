@@ -3,6 +3,7 @@
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from app.operational_reporting.models import (
     EventKind,
@@ -12,6 +13,7 @@ from app.operational_reporting.models import (
     OperationalEvent,
     OrderFacts,
     RecipientPolicy,
+    ReportingSource,
     SendHistory,
     StatusProjection,
     Template,
@@ -47,8 +49,12 @@ def facts(*, events=None, fulfilment="NOT_STARTED", due=None):
         (
             Evidence("accept", "ACCEPTANCE", EvidenceTier.VERIFIED, "t", "c"),
             Evidence("reserve", "RESERVATION", EvidenceTier.VERIFIED, "t", "c"),
+            Evidence("ready", "OPERATIONAL_READY", EvidenceTier.VERIFIED, "t", "c"),
+            Evidence("report", "COMPLETION_REPORT", EvidenceTier.REPORTED, "t", "c"),
             Evidence("done", "FULFILMENT", EvidenceTier.VERIFIED, "t", "c"),
         ),
+        NOW - timedelta(days=3),
+        NOW,
     )
 
 
@@ -70,7 +76,17 @@ def status(order, milestone=Milestone.ORDER_ACCEPTED, *, tier=EvidenceTier.VERIF
 def recipient(**changes):
     return replace(
         RecipientPolicy(
-            "t", "o", "customer", "identity", "MOCK_EMAIL", True, True, True, True, "policy-1"
+            "t",
+            "o",
+            "customer",
+            "identity",
+            "MOCK_EMAIL",
+            True,
+            True,
+            True,
+            True,
+            "policy-1",
+            NOW + timedelta(hours=1),
         ),
         **changes,
     )
@@ -83,6 +99,18 @@ def plan(order=None, projected=None, source=None, target=None, history=None, bou
     target = target or Template("accepted", "v1", Milestone.ORDER_ACCEPTED)
     history = history or SendHistory(True, frozenset())
     return plan_milestone(order, projected, source, bound or recipient(), target, history, as_of=at)
+
+
+def manifest(day, tz):
+    zone = ZoneInfo(tz)
+    return ReportingSource(
+        "t",
+        datetime(day.year, day.month, day.day, tzinfo=zone),
+        datetime(day.year, day.month, day.day, tzinfo=zone) + timedelta(days=1),
+        NOW,
+        False,
+        False,
+    )
 
 
 def test_exact_milestone_intent_and_dedup():
@@ -131,7 +159,12 @@ def test_stale_mismatched_unknown_and_superseded_status():
         plan(order=order, projected=replace(projected, evidence_tier=EvidenceTier.UNKNOWN)).result
         == Eligibility.UNKNOWN
     )
-    assert plan(at=NOW + timedelta(hours=2)).result == Eligibility.UNKNOWN
+    assert (
+        plan(
+            at=NOW + timedelta(hours=2), bound=recipient(valid_until=NOW + timedelta(hours=3))
+        ).result
+        == Eligibility.UNKNOWN
+    )
     assert plan(source=replace(event(), verified=False)).result == Eligibility.BLOCKED
     old, new = event(), event(EventKind.READY, 2, refs=("ready",))
     order = facts(events=(old, new))
@@ -209,6 +242,7 @@ def test_daily_timezone_on_time_and_late_boundary():
         "Asia/Singapore",
         ((order, status(order, Milestone.COMPLETED)),),
         as_of=NOW,
+        source=manifest(date(2026, 10, 24), "Asia/Singapore"),
     )
     assert (
         report.due_orders,
@@ -224,6 +258,7 @@ def test_daily_timezone_on_time_and_late_boundary():
         "Asia/Singapore",
         ((late, status(late, Milestone.COMPLETED)),),
         as_of=NOW,
+        source=manifest(date(2026, 10, 24), "Asia/Singapore"),
     )
     assert (report.on_time_fulfilled_orders, report.late_fulfilled_orders) == (0, 1)
 
@@ -231,7 +266,7 @@ def test_daily_timezone_on_time_and_late_boundary():
 def test_partial_coverage_reported_completion_and_unknown_actuals():
     due = NOW - timedelta(minutes=5)
     one = facts(due=due)
-    two = replace(facts(events=(), due=due), order_id="other", commitment_id="other")
+    two = replace(facts(events=(), due=due), order_id="other", commitment_id="other", evidence=())
     report_event = event(EventKind.COMPLETION_REPORTED, 2, refs=("report",))
     three = facts(events=(event(), report_event), fulfilment="UNVERIFIED", due=due)
     three = replace(
@@ -239,6 +274,7 @@ def test_partial_coverage_reported_completion_and_unknown_actuals():
         order_id="third",
         commitment_id="third",
         events=tuple(replace(e, order_id="third", commitment_id="third") for e in three.events),
+        evidence=tuple(replace(e, commitment_id="third") for e in three.evidence),
     )
     report = aggregate_daily(
         "t",
@@ -247,13 +283,14 @@ def test_partial_coverage_reported_completion_and_unknown_actuals():
         (
             (one, status(one)),
             (two, status(two, Milestone.NOT_AVAILABLE)),
-            (three, status(three, Milestone.COMPLETION_REPORTED)),
+            (three, status(three, Milestone.COMPLETION_REPORTED, tier=EvidenceTier.REPORTED)),
         ),
         as_of=NOW,
+        source=manifest(due.date(), "UTC"),
     )
     assert report.eligible_denominator == 3
-    assert report.data_coverage == Decimal(2) / Decimal(3)
-    assert report.missing_unknown_evidence == 1
+    assert report.data_coverage == Decimal(1) / Decimal(3)
+    assert report.missing_unknown_evidence == 2
     assert report.completion_reported_unverified == 1
     assert report.verified_fulfilled_orders == 0
     assert all(item.duration is None for item in report.actuals)
@@ -277,8 +314,22 @@ def test_optional_actuals_require_evidence_and_matching_units():
             Evidence("actual", "ACTUAL", EvidenceTier.VERIFIED, "t", "c"),
         ),
     )
-    report = aggregate_daily("t", NOW.date(), "UTC", ((order, status(order)),), as_of=NOW)
+    report = aggregate_daily(
+        "t",
+        NOW.date(),
+        "UTC",
+        ((order, status(order)),),
+        as_of=NOW,
+        source=manifest(NOW.date(), "UTC"),
+    )
     assert report.actuals[0].quantity is not None and report.actuals[0].duration is None
     mismatch = replace(order, actual_quantity_unit="units")
-    report = aggregate_daily("t", NOW.date(), "UTC", ((mismatch, status(mismatch)),), as_of=NOW)
+    report = aggregate_daily(
+        "t",
+        NOW.date(),
+        "UTC",
+        ((mismatch, status(mismatch)),),
+        as_of=NOW,
+        source=manifest(NOW.date(), "UTC"),
+    )
     assert report.actuals[0].quantity is None

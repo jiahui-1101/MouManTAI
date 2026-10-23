@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -71,6 +71,8 @@ class OrderFacts:
     due_at: datetime | None
     events: tuple[OperationalEvent, ...]
     evidence: tuple[Evidence, ...]
+    event_window_start: datetime | None = None
+    event_window_end: datetime | None = None
     planned_quantity: Decimal | None = None
     actual_quantity: Decimal | None = None
     quantity_unit: str | None = None
@@ -112,6 +114,7 @@ class RecipientPolicy:
     consent: bool | None
     policy_allows: bool | None
     policy_version: str | None
+    valid_until: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -129,6 +132,19 @@ class Template:
     milestone: Milestone
 
 
+@dataclass(frozen=True)
+class ReportingSource:
+    """Trusted reader's statement about the supplied tenant/day population."""
+
+    tenant_id: str
+    window_start: datetime
+    window_end: datetime
+    watermark_at: datetime
+    complete: bool
+    pagination_complete: bool
+    missing_sources: tuple[str, ...] = ()
+
+
 def status_matches(
     facts: OrderFacts, status: StatusProjection, *, as_of: datetime, max_age_seconds: int = 3600
 ) -> bool:
@@ -140,9 +156,17 @@ def status_matches(
     return (
         (status.tenant_id, status.order_id, status.commitment_id, status.customer_id)
         == (facts.tenant_id, facts.order_id, facts.commitment_id, facts.customer_id)
+        and all(
+            type(v) is int
+            for v in (facts.source_version, facts.aggregate_version, status.aggregate_version)
+        )
         and facts.source_version == facts.aggregate_version == status.aggregate_version
         and facts.aggregate_version >= 1
         and status.snapshot_at == facts.snapshot_at
-        and facts.updated_at <= facts.snapshot_at <= as_of
-        and 0 <= (as_of - facts.snapshot_at).total_seconds() <= max_age_seconds
+        and facts.updated_at.astimezone(UTC)
+        <= facts.snapshot_at.astimezone(UTC)
+        <= as_of.astimezone(UTC)
+        and 0
+        <= (as_of.astimezone(UTC) - facts.snapshot_at.astimezone(UTC)).total_seconds()
+        <= max_age_seconds
     )
