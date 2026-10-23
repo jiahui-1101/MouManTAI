@@ -78,6 +78,32 @@ describe("RecoveryCaseRoutePage", () => {
     expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
   });
 
+  it("shows persisted rejection and counteroffer outcomes with exact evidence without action controls", async () => {
+    const caseData = {
+      ...persistedCase(),
+      status: "NEEDS_REPLAN",
+      customer_response_events: [{
+        event_id: "evt_response_1",
+        confirmation_id: "cnf_1",
+        proposal_id: "prop_2",
+        proposal_version: 3,
+        intent: "COUNTEROFFER" as const,
+        outcome: "REPLANNED" as const,
+        proposed_terms: { quantity: "12", deadline: "2026-11-02T17:00:00+08:00" },
+        evidence_refs: ["inbound:msg_55", "confirmation:cnf_1"],
+        received_at: "2026-10-22T10:00:00+08:00",
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn(() => response(caseData)));
+    renderRoute();
+
+    expect(await screen.findByText("COUNTEROFFER · REPLANNED")).toBeInTheDocument();
+    expect(screen.getByText("Proposal prop_2 · v3")).toBeInTheDocument();
+    expect(screen.getByText(/quantity: 12/)).toBeInTheDocument();
+    expect(screen.getByText(/inbound:msg_55/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /approve|execute|run recovery/i })).not.toBeInTheDocument();
+  });
+
   it("shows a loading state while the authoritative case request is pending", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
     renderRoute();

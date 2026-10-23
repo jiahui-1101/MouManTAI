@@ -66,10 +66,16 @@ class ActionFailedPayload(ContractModel):
     reason_codes: tuple[str, ...] = Field(min_length=1)
 
 
+class PlanVersionReference(ContractModel):
+    plan_id: str = Field(min_length=1)
+    plan_version: int = Field(ge=1)
+
+
 class ReplanRequiredPayload(ContractModel):
     reason_code: str
     source_event_id: str | None = None
     invalidated_plan_ids: tuple[str, ...] = ()
+    invalidated_plan_versions: tuple[PlanVersionReference, ...] = ()
 
 
 class CommunicationRequestedPayload(ContractModel):
@@ -181,9 +187,12 @@ class P5OutboxPublisherAdapter:
 
     def publish(self, event: RecoveryDomainEvent, *, db: Session | None = None,
                 context: RequestContext | None = None) -> EventPublicationReceipt:
-        # Only this value currently exists in P5 CoreEventType. The remaining
-        # P3 event names stay local until a coordinated shared-contract change.
-        if event.event_type != RecoveryEventType.COMMUNICATION_REQUESTED:
+        # These P3 events are proposed additions to the P5 shared contract.
+        # They remain usable only through an explicitly injected P5 boundary.
+        if event.event_type not in {
+            RecoveryEventType.COMMUNICATION_REQUESTED,
+            RecoveryEventType.REPLAN_REQUIRED,
+        }:
             return EventPublicationReceipt(
                 event_id=event.event_id, status=EventPublicationStatus.INTEGRATION_PENDING,
                 detail_code="P5_CORE_EVENT_TYPE_UNSUPPORTED", attempted_at=datetime.now(UTC),

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import Field
 from sqlalchemy import select
@@ -13,7 +13,7 @@ from app.core.errors import DomainError
 from app.core.events import create_domain_event
 from app.core.manager_approval import ManagerApprovalService, trusted_isolated_manager
 from app.core.models import CommitmentProposalRecord, CommitmentRecord, OutboxEventRecord
-from app.core.schemas import CommitmentTerms, ContractModel, ProposalCreateRequest
+from app.core.schemas import AgreementState, CommitmentTerms, ContractModel, ProposalCreateRequest
 from app.core.service import CommitmentService
 from app.feasibility.persisted_sources import read_snapshot
 from app.feasibility.production import ProposedChanges
@@ -21,6 +21,7 @@ from app.feasibility.service import evaluate
 
 from .durable_plans import RecoveryPlanRecord
 from .models import RecoveryPlanVersion
+from .proposal_identity import proposal_id_for_plan, require_proposal_binding
 
 
 class RequestCommunicationInput(ContractModel):
@@ -52,6 +53,16 @@ class DurableCommunicationHandoff:
         plan = db.get(RecoveryPlanRecord, (context.tenant_id, plan_id, command.expected_plan_version))
         if plan is None:
             raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Recovery plan was not found", status_code=404)
+        if plan.status != "PENDING_APPROVAL":
+            raise DomainError("PLAN_VERSION_NOT_ACTIVE", "This plan version is no longer actionable", status_code=409)
+        typed = RecoveryPlanVersion.model_validate(plan.payload)
+        if (typed.tenant_id, typed.commitment_id, typed.plan_id, typed.plan_version) != (
+            context.tenant_id, plan.commitment_id, plan_id, plan.plan_version,
+        ):
+            raise DomainError("RECOVERY_PLAN_BINDING_MISMATCH", "Persisted plan identity is inconsistent", status_code=409)
+        proposal_id, proposal_version = require_proposal_binding(
+            plan_id, plan.plan_version, typed.proposal_id, typed.proposal_version,
+        )
         commitment = db.scalar(select(CommitmentRecord).where(
             CommitmentRecord.tenant_id == context.tenant_id,
             CommitmentRecord.commitment_id == plan.commitment_id,
@@ -68,10 +79,19 @@ class DurableCommunicationHandoff:
                 plan_id, plan.plan_version,
             ):
                 continue
-            proposal = db.get(CommitmentProposalRecord, (context.tenant_id, source.payload["proposal_id"]))
-            if proposal is None or proposal.status != "ACTIVE" or commitment.commitment_version != source.commitment_version:
+            if (source.payload.get("proposal_id"), source.payload.get("proposal_version")) != (
+                proposal_id, proposal_version,
+            ):
+                raise DomainError("PROPOSAL_PLAN_IDENTITY_CONFLICT", "Offered proposal does not match plan version", status_code=409)
+            proposal = db.get(CommitmentProposalRecord, (context.tenant_id, proposal_id))
+            if (proposal is None or proposal.status != "ACTIVE"
+                or proposal.proposal_version != proposal_version
+                or proposal.commitment_id != plan.commitment_id
+                or commitment.commitment_version != source.commitment_version):
                 raise DomainError("PROPOSAL_SUPERSEDED", "Communication proposal is no longer current", status_code=409)
             approval = ManagerApprovalService().require_active(db, context, plan)
+            if (approval.proposal_id, approval.proposal_version) != (proposal_id, proposal_version):
+                raise DomainError("APPROVAL_SCOPE_CONFLICT", "Manager approval binds another proposal", status_code=409)
             if approval.approval_id != source.payload["approval_id"]:
                 raise DomainError("APPROVAL_SUPERSEDED", "Communication approval is no longer current", status_code=409)
             return CommunicationHandoffView(
@@ -91,11 +111,12 @@ class DurableCommunicationHandoff:
             snapshot.operational.snapshot_version,
         ):
             raise DomainError("SNAPSHOT_DRIFT_CONFLICT", "Proposal source is stale", status_code=409)
-        typed = RecoveryPlanVersion.model_validate(plan.payload)
         action = next((item for item in typed.actions if item.type == "CREATE_DELIVERY_CHANGE_PROPOSAL"), None)
         if typed.option_id != "revised_schedule" or action is None or not typed.customer_confirmation_required:
             raise DomainError("PROPOSAL_NOT_ALLOWED", "Plan has no customer terms proposal", status_code=409)
         approval = ManagerApprovalService().require_active(db, context, plan)
+        if (approval.proposal_id, approval.proposal_version) != (proposal_id, proposal_version):
+            raise DomainError("APPROVAL_SCOPE_CONFLICT", "Manager approval binds another proposal", status_code=409)
         if "CREATE_DELIVERY_CHANGE_PROPOSAL" not in approval.action_scope:
             raise DomainError("APPROVAL_SCOPE_CONFLICT", "Manager did not approve revised terms", status_code=409)
         revised = CommitmentTerms.model_validate({
@@ -110,14 +131,29 @@ class DurableCommunicationHandoff:
         if source is None or source.commitment_version != plan.evaluated_commitment_version:
             raise DomainError("P2_COMMITMENT_BINDING_MISMATCH", "P2 source changed", status_code=409)
         current = CommitmentService().get(db, context, plan.commitment_id)
-        historical = current.model_copy(update={"commitment_version": plan.evaluated_commitment_version})
+        if current.agreement_state == AgreementState.OFFERED:
+            prior_offer = db.scalar(select(CommitmentProposalRecord).where(
+                CommitmentProposalRecord.tenant_id == context.tenant_id,
+                CommitmentProposalRecord.commitment_id == plan.commitment_id,
+                CommitmentProposalRecord.status == "ACTIVE",
+                CommitmentProposalRecord.proposal_version < proposal_version,
+            ))
+            if prior_offer is None or prior_offer.proposal_id != proposal_id_for_plan(
+                plan_id, prior_offer.proposal_version,
+            ):
+                raise DomainError("PROPOSAL_SOURCE_CONFLICT", "No prior active offer supports replanning", status_code=409)
+        elif current.agreement_state != AgreementState.CONFIRMED:
+            raise DomainError("PROPOSAL_SOURCE_CONFLICT", "Commitment is not eligible for a recovery offer", status_code=409)
+        historical = current.model_copy(update={
+            "commitment_version": plan.evaluated_commitment_version,
+            "agreement_state": AgreementState.CONFIRMED,
+        })
         proposed = ProposedChanges.model_validate(typed.actions[0].parameters["proposal"])
         result = evaluate(snapshot, proposed, historical)
         if (result.status, result.solver_status.value, result.snapshot_id) != (
             typed.feasibility_status, typed.evaluation.solver_status, plan.snapshot_id,
         ) or result.status not in {"FEASIBLE", "CONDITIONAL"}:
             raise DomainError("PLAN_REVALIDATION_FAILED", "P2 result changed", status_code=409)
-        proposal_id = plan_id
         if db.get(CommitmentProposalRecord, (context.tenant_id, proposal_id)) is not None:
             raise DomainError("PROPOSAL_ID_CONFLICT", "Proposal identity is already in use", status_code=409)
         trusted = RequestContext(context.tenant_id, manager_id, "MANAGER", context.correlation_id,
@@ -126,7 +162,7 @@ class DurableCommunicationHandoff:
             offered = CommitmentService().create_proposal(
                 db, trusted, plan.commitment_id,
                 ProposalCreateRequest(
-                    proposal_id=proposal_id, proposal_version=plan.plan_version,
+                    proposal_id=proposal_id, proposal_version=proposal_version,
                     expected_commitment_version=plan.core_commitment_version,
                     revised_terms=revised, reason=f"Approved recovery plan {plan_id} v{plan.plan_version}",
                     evidence_refs=[approval.audit_id, plan.assessment_id, plan.snapshot_id],
@@ -140,7 +176,7 @@ class DurableCommunicationHandoff:
                 correlation_id=context.correlation_id, causation_id=approval.approval_id,
                 payload={"commitment_id": plan.commitment_id, "plan_id": plan_id,
                          "plan_version": plan.plan_version, "proposal_id": proposal_id,
-                         "proposal_version": plan.plan_version, "snapshot_id": plan.snapshot_id,
+                         "proposal_version": proposal_version, "snapshot_id": plan.snapshot_id,
                          "snapshot_version": plan.snapshot_version, "approval_id": approval.approval_id,
                          "approval_evidence_ref": approval.audit_id,
                          "approved_terms": revised.model_dump(mode="json")},
@@ -150,7 +186,7 @@ class DurableCommunicationHandoff:
                 event_type=event.event_type, commitment_id=plan.commitment_id,
                 commitment_version=event.commitment_version,
                 correlation_id=event.correlation_id, causation_id=event.causation_id,
-                occurred_at=datetime.now(timezone.utc), payload=event.payload,
+                occurred_at=datetime.now(UTC), payload=event.payload,
                 attempts=0, status="PENDING",
             ))
             db.commit()
@@ -160,7 +196,7 @@ class DurableCommunicationHandoff:
         return CommunicationHandoffView(
             tenant_id=context.tenant_id, commitment_id=plan.commitment_id,
             plan_id=plan_id, plan_version=plan.plan_version,
-            proposal_id=proposal_id, proposal_version=plan.plan_version,
+            proposal_id=proposal_id, proposal_version=proposal_version,
             approval_id=approval.approval_id, source_event_id=event.event_id,
             commitment_version=offered.commitment.commitment_version,
             approved_terms=revised,

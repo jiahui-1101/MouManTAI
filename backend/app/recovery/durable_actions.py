@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKeyConstraint, Integer, JSON, String, UniqueConstraint, select
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKeyConstraint,
+    Integer,
+    String,
+    UniqueConstraint,
+    select,
+)
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.action_evidence import stage_failed_internal_task, stage_verified_internal_task
@@ -85,7 +93,7 @@ class DurableActionService:
             tenant_id=tenant_id, task_id=f"task_{uuid4().hex[:16]}",
             commitment_id=commitment_id, plan_id=plan.plan_id,
             plan_version=plan.plan_version, task_type="INTERNAL_REVIEW",
-            status="OPEN", payload=payload, created_at=datetime.now(timezone.utc),
+            status="OPEN", payload=payload, created_at=datetime.now(UTC),
         )
         db.add(task)
         db.flush()
@@ -124,6 +132,8 @@ class DurableActionService:
             if task is None or task.status != "OPEN":
                 raise DomainError("ACTION_RECEIPT_UNVERIFIED", "Saved task is missing", status_code=500)
             return previous
+        if plan.status != "PENDING_APPROVAL":
+            raise DomainError("PLAN_VERSION_NOT_ACTIVE", "This plan version is no longer actionable", status_code=409)
         commitment = db.scalar(select(CommitmentRecord).where(
             CommitmentRecord.tenant_id == context.tenant_id,
             CommitmentRecord.commitment_id == plan.commitment_id,
@@ -173,7 +183,7 @@ class DurableActionService:
         ).limit(1))
         if already_succeeded is not None:
             raise DomainError("ACTION_ALREADY_EXECUTED", "Plan version already has a verified internal task", status_code=409)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         execution = previous or RecoveryActionExecutionRecord(
             tenant_id=context.tenant_id, execution_id=f"act_{uuid4().hex[:16]}",
             idempotency_key=idempotency_key, commitment_id=plan.commitment_id,
@@ -224,20 +234,20 @@ class DurableActionService:
                         idempotency_key=idempotency_key, commitment_id=plan.commitment_id,
                         plan_id=plan_id, plan_version=plan.plan_version,
                         approval_id=approval.approval_id, status="FAILED",
-                        attempts=attempt_number, created_at=now, updated_at=datetime.now(timezone.utc),
+                        attempts=attempt_number, created_at=now, updated_at=datetime.now(UTC),
                     )
                     db.add(failed)
                 else:
                     failed.status = "FAILED"
                     failed.attempts = attempt_number
-                    failed.updated_at = datetime.now(timezone.utc)
+                    failed.updated_at = datetime.now(UTC)
                 failed.last_error = type(exc).__name__[:128]
                 stage_failed_internal_task(
                     db, context, commitment_id=plan.commitment_id, plan_id=plan_id,
                     execution_id=execution_id, error_code=failed.last_error,
                 )
                 db.commit()
-            except Exception:
+            except Exception:  # noqa: BLE001 - rollback must run for every post-commit failure path.
                 db.rollback()
             raise
         return execution
