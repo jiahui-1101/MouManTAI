@@ -65,9 +65,13 @@ describe("RecoveryCaseRoutePage", () => {
     expect(screen.getByText("evt_risk_100")).toBeInTheDocument();
     expect(screen.getByText(/Assessment assess_100/)).toBeInTheDocument();
     expect(screen.getByText(/Snapshot snapshot_42 · v42/)).toBeInTheDocument();
-    expect(screen.getByText("evidence_stock_100")).toBeInTheDocument();
-    expect(screen.getByRole("note")).toHaveTextContent(/does not approve plans or execute/i);
+    expect(screen.getAllByText("evidence_stock_100")).toHaveLength(2);
+    expect(screen.getByText(/Read-only case view\. This view does not approve plans or execute/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open planning workspace" })).toHaveAttribute("href", "/recovery/com_100/plans");
+    expect(screen.getByRole("link", { name: "Commitment context" })).toHaveAttribute("href", "/commitments/com_100");
+    expect(screen.getByText(/Impact detail unavailable — the case API does not return an impact ID/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Impact assessment/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Communication center" })).toHaveAttribute("href", "/communications");
     expect(screen.queryByRole("button", { name: /approve|execute|run recovery/i })).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/v1/recovery/cases/com_100"),
