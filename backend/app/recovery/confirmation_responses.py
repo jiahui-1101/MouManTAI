@@ -491,7 +491,8 @@ class P3ConfirmationResponseConsumer:
             "terms_digest", "response_state", "evidence_refs", "evidence_scope", "integration_mode",
             "decision_id", "attempt_id", "intent",
         }
-        if set(payload) != required or (
+        allowed = required | ({"proposed_changes"} if intent == "COUNTEROFFER" else set())
+        if not required <= set(payload) <= allowed or (
             payload.get("response_state") != response_state
             or payload.get("evidence_scope") != "P4_EVIDENCE_ONLY"
             or payload.get("integration_mode") != "SYNTHETIC_ONLY"
@@ -553,6 +554,7 @@ class P3ConfirmationResponseConsumer:
             or decision.attempt_id != attempt.attempt_id
             or decision.terminal_confirmation_id != session.confirmation_id
             or decision.intent != intent
+            or ("proposed_changes" in payload and payload["proposed_changes"] != decision.proposed_changes)
             or attempt.confirmation_id != session.confirmation_id
             or attempt.evidence_refs != payload["evidence_refs"]
             or event.causation_id != attempt.inbound_message_id

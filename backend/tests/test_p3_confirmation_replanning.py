@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from app.communication.confirmation_schemas import CreateConfirmation
+from app.communication.models import ConfirmationDecisionRecord
 from app.communication.schemas import CreateCommunicationRequest
 from app.communication.service import CommunicationRequestService
 from app.communication.tests.test_confirmation_integration import (
@@ -33,6 +34,7 @@ from app.recovery.confirmation_responses import (
     CONSUMER_NAME,
     P3ConfirmationContextResolver,
     P3ConfirmationResponseConsumer,
+    register_p3_confirmation_response_consumer,
 )
 from app.recovery.durable_actions import DurableActionService
 from app.recovery.durable_communication import (
@@ -109,6 +111,16 @@ def test_p3_validates_the_real_p4_terminal_event_and_tenant_binding(
     )
     if intent == "COUNTEROFFER":
         assert P3ConfirmationResponseConsumer._counteroffer_terms(session, event) == {"quantity": "80"}
+        decision = session.get(ConfirmationDecisionRecord, (event.tenant_id, event.payload["decision_id"]))
+        assert decision is not None
+        original_changes = decision.proposed_changes
+        decision.proposed_changes = {"quantity": "81"}
+        session.flush()
+        with pytest.raises(DomainError) as error:
+            P3ConfirmationResponseConsumer._validate_p4_evidence(session, event)
+        assert error.value.code == "P4_RESPONSE_BINDING_MISMATCH"
+        decision.proposed_changes = original_changes
+        session.flush()
 
     foreign_event = event.model_copy(update={"tenant_id": "tenant_foreign"})
     with pytest.raises(DomainError) as error:
@@ -539,6 +551,41 @@ def test_stale_response_is_reconciled_once_without_invalidating_newer_plan(sessi
         causation_id=event.event_id,
         event_type="recovery.customer_reject",
     ).count() == audit_count == 1
+
+
+def test_shared_dispatcher_supersedes_stale_p4_event_before_p3_consumer(session, monkeypatch):
+    event = _p4_response_event(session, monkeypatch)
+    case, plan = _persist_exact_p3_plan_for_p4_request(session)
+    commitment = session.get(CommitmentRecord, (event.tenant_id, event.commitment_id))
+    assert commitment is not None
+    commitment.commitment_version = event.commitment_version + 1
+    for row in session.scalars(select(OutboxEventRecord)):
+        if row.event_id != event.event_id:
+            row.status = "PUBLISHED"
+    session.commit()
+
+    dispatcher = OutboxDispatcher()
+    register_p3_confirmation_response_consumer(dispatcher, PendingRecoveryEventPublisher())
+    result = dispatcher.process_outbox_batch(session)
+    assert result.published_count == 1
+    assert session.get(ProcessedEventRecord, (event.tenant_id, event.event_id, CONSUMER_NAME)) is None
+    assert session.get(RecoveryPlanRecord, (case.tenant_id, plan.plan_id, plan.plan_version)).status == "PENDING_APPROVAL"
+    case_row = session.get(RecoveryCaseRecord, (case.tenant_id, case.case_id))
+    assert case_row is not None
+    assert not case_row.case_payload.get("customer_response_events")
+    supersession = session.scalars(select(AuditEventRecord).where(
+        AuditEventRecord.tenant_id == event.tenant_id,
+        AuditEventRecord.causation_id == event.event_id,
+        AuditEventRecord.event_type == "commitment.event_superseded",
+    )).all()
+    assert len(supersession) == 1
+    assert supersession[0].new_state["stale_event_id"] == event.event_id
+    assert dispatcher.process_outbox_batch(session).processed_count == 0
+    assert session.scalars(select(AuditEventRecord).where(
+        AuditEventRecord.tenant_id == event.tenant_id,
+        AuditEventRecord.causation_id == event.event_id,
+        AuditEventRecord.event_type == "commitment.event_superseded",
+    )).all() == supersession
 
 
 def test_p4_confirmation_schema_version_is_enforced(session, monkeypatch):
