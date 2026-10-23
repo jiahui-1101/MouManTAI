@@ -321,9 +321,14 @@ class FollowUpService:
             draft, grant, send_grant = self._validate_dispatch(context, task, row, now)
             reminder = self.db.get(ReminderAttemptRecord, (context.tenant_id, reminder_id))
             reminder.evidence_refs = list(dict.fromkeys(reminder.evidence_refs + grant.evidence_refs + send_grant.evidence_refs))
+            envelope = SendEnvelope(reminder_id, draft)
+            if self.outbound.challenge_delivery is not None:
+                original = self.outbound.repository.by_draft(context.tenant_id, draft.draft_id)
+                protected = self.outbound.challenge_delivery.envelope(self.db, context, original, draft, now)
+                envelope = SendEnvelope(reminder_id, draft, protected.challenge)
             # Locks held through provider and result commit; never blindly retry UNKNOWN.
             try:
-                result = self.outbound.provider.submit(SendEnvelope(reminder_id, draft))
+                result = self.outbound.provider.submit(envelope)
                 if not isinstance(result, ProviderResult) or result.status not in {"SENT", "FAILED", "DELIVERY_UNKNOWN"}:
                     raise ValueError("Invalid result")
                 if result.status == "SENT" and not result.provider_reference:

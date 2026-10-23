@@ -27,6 +27,18 @@ export interface RecoverySnapshotView {
   evidence_refs?: string[];
 }
 
+export interface CustomerResponseView {
+  event_id: string;
+  confirmation_id: string;
+  proposal_id: string;
+  proposal_version: number;
+  intent: "REJECT" | "COUNTEROFFER";
+  outcome: "REPLAN_REQUIRED" | "REPLANNED" | "STALE_IGNORED";
+  proposed_terms?: Record<string, string> | null;
+  evidence_refs: string[];
+  received_at: ISO8601;
+}
+
 /** Read-only subset of the canonical P3 Recovery Case response. */
 export interface RecoveryCaseView {
   case_id: string;
@@ -43,5 +55,6 @@ export interface RecoveryCaseView {
   trigger_assessment?: RecoveryAssessmentView | null;
   operational_snapshot?: RecoverySnapshotView | null;
   trigger_events?: RecoveryTriggerView[];
+  customer_response_events?: CustomerResponseView[];
   evidence_refs?: string[];
 }

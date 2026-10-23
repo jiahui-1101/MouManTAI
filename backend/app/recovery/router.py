@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Annotated
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
@@ -10,9 +10,21 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import RequestContext, get_db, get_request_context
 from app.core.dependencies import RequestContext as CoreRequestContext
 from app.core.errors import DomainError
+from app.core.manager_approval import (
+    ManagerApprovalRecord,
+    ManagerApprovalService,
+    trusted_isolated_manager,
+)
 from app.core.service import CommitmentService
 from app.feasibility.api_dependencies import require_isolated_e2e_key
 
+from .durable_actions import DurableActionService, RecoveryActionExecutionRecord
+from .durable_communication import (
+    CommunicationHandoffView,
+    DurableCommunicationHandoff,
+    RequestCommunicationInput,
+)
+from .durable_plans import DurablePlanService, RecoveryPlanRecord
 from .integrations import (
     ActorContext,
     P5CommitmentReader,
@@ -24,6 +36,8 @@ from .models import (
     ApprovalDecision,
     ApprovalDecisionInput,
     ApprovalRequestInput,
+    DurableActionView,
+    ExecuteRecoveryTaskRequest,
     GenerateRecoveryRequest,
     PlanEvaluation,
     RecoveryCase,
@@ -31,17 +45,9 @@ from .models import (
     RecoveryPlanList,
     RecoveryPlanVersion,
     RecoveryTriggerCaseView,
-    ExecuteRecoveryTaskRequest,
-    DurableActionView,
 )
-from .service import default_recovery_planner, demo_recovery_planner
-from .durable_plans import DurablePlanService
 from .persistence import SqlAlchemyRecoveryRepository
-from app.core.manager_approval import ManagerApprovalRecord, ManagerApprovalService, trusted_isolated_manager
-from .durable_actions import DurableActionService, RecoveryActionExecutionRecord
-from .durable_communication import (
-    CommunicationHandoffView, DurableCommunicationHandoff, RequestCommunicationInput,
-)
+from .service import default_recovery_planner, demo_recovery_planner
 
 router = APIRouter(prefix="/v1/recovery", tags=["recovery"])
 Context = Annotated[RequestContext, Depends(get_request_context)]
@@ -70,7 +76,7 @@ ApprovalActor = Annotated[ActorContext, Depends(get_approval_actor)]
 
 def _stored_utc(value: datetime | None) -> datetime | None:
     # The service writes UTC; SQLite drops tzinfo when it reloads DateTime rows.
-    return value.replace(tzinfo=timezone.utc) if value is not None and value.tzinfo is None else value
+    return value.replace(tzinfo=UTC) if value is not None and value.tzinfo is None else value
 
 
 def _approval_response(row: ManagerApprovalRecord) -> ApprovalDecision:
@@ -106,6 +112,11 @@ def _isolated_decision(
     db: Session, actor: ActorContext, key: str | None, plan_id: str,
     request: ApprovalDecisionInput, decision: str,
 ) -> ApprovalDecision:
+    plan_row = db.get(RecoveryPlanRecord, (actor.tenant_id, plan_id, request.expected_plan_version))
+    if plan_row is None:
+        raise DomainError("RECOVERY_PLAN_NOT_FOUND", "Recovery plan was not found", status_code=404)
+    if plan_row.status != "PENDING_APPROVAL":
+        raise DomainError("PLAN_VERSION_NOT_ACTIVE", "This plan version cannot receive a new decision", status_code=409)
     context = CoreRequestContext(
         tenant_id=actor.tenant_id, actor_id=actor.actor_id, actor_role=actor.actor_role,
         correlation_id=actor.correlation_id, causation_id=actor.causation_id,

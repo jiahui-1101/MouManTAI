@@ -1,4 +1,4 @@
-"""Run actual Alembic migrations; PostgreSQL uses disposable, isolated schemas.
+"""Run actual Alembic migrations; PostgreSQL uses a disposable DB per test.
 
 P4_TEST_DATABASE_URL must name p4_migration_test or start with p4_test_. Never
 point this suite at the application's database. No create_all/stamp is used.
@@ -66,7 +66,7 @@ def config(url=None):
 @pytest.fixture(params=["sqlite", "postgresql"])
 def migrated(request, tmp_path, monkeypatch):
     admin = None
-    schema = None
+    database = None
     if request.param == "postgresql":
         configured = os.getenv("P4_TEST_DATABASE_URL")
         if not configured:
@@ -77,10 +77,13 @@ def migrated(request, tmp_path, monkeypatch):
         ):
             pytest.fail("Refusing non-disposable database; use p4_migration_test or p4_test_* only")
         admin = create_engine(url)
-        schema = f"p4_mig_test_{uuid4().hex}"
-        with admin.begin() as connection:
-            connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        url = url.update_query_dict({"options": f"-csearch_path={schema}"}).render_as_string(hide_password=False)
+        # Migration 0016 owns the fixed p1_dev namespace. A search_path-only
+        # schema cannot isolate it; never reset that shared namespace between
+        # tests. A dedicated generated database isolates the full real graph.
+        database = f"p4_test_{uuid4().hex}"
+        with admin.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+            connection.execute(text(f'CREATE DATABASE "{database}"'))
+        url = url.set(database=database).difference_update_query(["options"]).render_as_string(hide_password=False)
     else:
         url = f"sqlite:///{(tmp_path / 'migrated.sqlite').as_posix()}"
     engine = create_engine(url)
@@ -95,10 +98,12 @@ def migrated(request, tmp_path, monkeypatch):
     finally:
         engine.dispose()
         if admin:
-            # Only the UUID schema created above; never a supplied schema/database.
-            assert schema.startswith("p4_mig_test_") and len(schema) == len("p4_mig_test_") + 32
-            with admin.begin() as connection:
-                connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+            # Only the exact UUID database created above, never the configured
+            # admin/database URL or any development/production database.
+            assert database.startswith("p4_test_") and len(database) == len("p4_test_") + 32
+            assert engine.url.database == database
+            with admin.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+                connection.execute(text(f'DROP DATABASE "{database}" WITH (FORCE)'))
             admin.dispose()
 
 

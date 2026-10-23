@@ -1,6 +1,6 @@
 """P4 deterministic scheduling surface. Authorization is closed by default."""
 from typing import Annotated
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext, get_db, get_request_context
@@ -10,7 +10,10 @@ from .followup import FollowUpService, RuntimeFollowUpAuthority
 from .followup_schemas import CancelFollowUp, FollowUpView, ScheduleFollowUp
 
 
-def get_followup_authority():
+def get_followup_authority(db=Depends(get_db), x_isolated_e2e_key: str | None = Header(default=None)):
+    from .trusted_runtime import enabled, IsolatedPrincipal, IsolatedReminderAuthority
+    if enabled():
+        return IsolatedReminderAuthority(IsolatedPrincipal(db, x_isolated_e2e_key))
     # Neither demo headers nor SEND_MESSAGE policy authorize repeat contact.
     # P5 owns binding authenticated principals to per-policy reminder grants.
     return RuntimeFollowUpAuthority()

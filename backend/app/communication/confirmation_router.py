@@ -14,11 +14,24 @@ from .confirmations import ConfirmationService
 
 
 
-def get_confirmation_access():
+def get_confirmation_access(db=Depends(get_db), x_isolated_e2e_key: str | None = Header(default=None),
+                            x_p4_processor_key: str | None = Header(default=None)):
+    from .trusted_runtime import enabled, IsolatedPrincipal, IsolatedConfirmationAccess
+    if enabled():
+        return IsolatedConfirmationAccess(IsolatedPrincipal(db, x_isolated_e2e_key, processor_key=x_p4_processor_key))
     return RuntimeConfirmationAccess()
 
 
-def get_verified_inbound_authority():
+def get_verified_inbound_authority(db=Depends(get_db), x_isolated_e2e_key: str | None = Header(default=None),
+                                  x_p4_processor_key: str | None = Header(default=None)):
+    from .trusted_runtime import enabled, IsolatedPrincipal, IsolatedPreferenceScope
+    if enabled():
+        from .contacts import get_customer_directory
+        from .inbound_processor import P1BoundReplyAdapter
+        from app.context.postgres_repository import PostgresMessageRepository
+        principal = IsolatedPrincipal(db, x_isolated_e2e_key, processor_key=x_p4_processor_key)
+        return P1BoundReplyAdapter(PostgresMessageRepository(db.get_bind().engine),
+            get_customer_directory(), IsolatedPreferenceScope(principal))
     return UnavailableVerifiedInboundAuthority()
 
 
@@ -64,10 +77,17 @@ def build_confirmation_router(get_draft_authority, get_review_authority):
     @router.post("/{confirmation_id}/respond", response_model=ConfirmationAttemptView)
     def process_response(confirmation_id: str, command: ProcessConfirmationResponse, service: Service, context: Context,
                          challenge: Annotated[str | None, Header(alias="X-Confirmation-Token")] = None):
+        from .inbound_processor import P1BoundReplyAdapter
+        if isinstance(service.inbound, P1BoundReplyAdapter):
+            service.inbound.target = confirmation_id
         return service.respond(context, confirmation_id, command, challenge)
 
 
     @router.post("/{confirmation_id}/revoke", response_model=ConfirmationView)
     def revoke_confirmation(confirmation_id: str, service: Service, context: Context):
         return service.revoke(context, confirmation_id)
+    @router.post("/process-inbound", response_model=ConfirmationAttemptView)
+    def process_p1_response(command: ProcessConfirmationResponse, service: Service, context: Context):
+        from .inbound_processor import process_persisted_inbound
+        return process_persisted_inbound(service, context, command)
     return router
