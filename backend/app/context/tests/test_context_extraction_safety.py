@@ -127,6 +127,25 @@ def test_conversational_followup_merges_missing_unit_without_creating_second_ord
     assert ctx2.status == 'INFORMATION_READY'
     assert ctx2.source_message_ids == [msg1.message_id, msg2.message_id]
 
+    # Verify Core eligibility gate: ctx1 is blocked, ctx2 is eligible
+    publisher = CoreContextPublisher()
+    eligible1, reasons1 = publisher.check_eligibility(ctx1)
+    assert not eligible1
+    assert any("not INFORMATION_READY" in r for r in reasons1)
+
+    eligible2, reasons2 = publisher.check_eligibility(ctx2)
+    assert eligible2
+    assert reasons2 == []
+
+    # Verify database persistence: exactly 1 OrderContext exists, zero duplicate orders created
+    by_msg1 = repo.get_order_context_by_message(msg1.raw.tenant_id, msg1.message_id)
+    by_msg2 = repo.get_order_context_by_message(msg2.raw.tenant_id, msg2.message_id)
+    assert by_msg1 is not None and by_msg2 is not None
+    assert by_msg1.context_id == by_msg2.context_id == ctx1.context_id
+    assert by_msg2.context_version == 2
+    versions = repo.list_context_versions(msg1.raw.tenant_id, ctx1.context_id)
+    assert len(versions) == 2
+
 
 def test_conversational_followup_unit_only_recovers_sku_and_quantity(pg_engine):
     repo = PostgresMessageRepository(pg_engine)
