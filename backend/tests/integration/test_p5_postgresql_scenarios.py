@@ -344,7 +344,9 @@ def test_postgres_stale_p4_proposal_cannot_overwrite_newer_proposal(p4_isolated_
         current_proposal = session.get(CommitmentProposalRecord, ("tenant_a", "proposal_004"))
         assert result.failed_count == 1
         assert event_row.status == "FAILED"
-        assert event_row.last_error and "STALE_PROPOSAL_VERSION" in event_row.last_error
+        assert event_row.last_error
+        assert "Proposal version 3 is stale" in event_row.last_error
+        assert "latest active version is 4" in event_row.last_error
         assert commitment.agreement_state == "OFFERED"
         assert commitment.terms == before_terms
         assert current_proposal is not None and current_proposal.status == "ACTIVE"
