@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../shared/auth';
 import { operationalApi } from './operationalApi';
+import { detectReviewTaskCapability } from './reviewTaskApi';
+import { getConversationIssues, sendClarification } from './clarificationApi';
+import type { ConversationIssuesResponse } from './clarificationModels';
 import type {
   ContextReviewRequest,
   ExtractionAttemptRecord,
@@ -30,6 +33,12 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
   const [filter, setFilter] = useState<ReviewFilterCategory>(initialFilter);
   const [search, setSearch] = useState('');
 
+  // Capability detection & v2.2 task integration state
+  const [taskCapability, setTaskCapability] = useState<'AUTHORITATIVE' | 'PROVISIONAL'>('PROVISIONAL');
+  const [issuesData, setIssuesData] = useState<ConversationIssuesResponse | null>(null);
+  const [dispatching, setDispatching] = useState(false);
+  const [dispatchFeedback, setDispatchFeedback] = useState<string | null>(null);
+
   // Selected item state
   const [selectedMessage, setSelectedMessage] = useState<StoredMessage | null>(null);
   const [selectedExtraction, setSelectedExtraction] = useState<ExtractionAttemptRecord | null>(null);
@@ -51,10 +60,23 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [conflictOccurred, setConflictOccurred] = useState(false);
 
-  // Load catalog on mount
+  // Load catalog and detect backend v2.2 task queue capability on mount
   useEffect(() => {
     operationalApi.getCatalog().then(cat => setCatalog(cat)).catch(() => setCatalog([]));
+    detectReviewTaskCapability().then(setTaskCapability).catch(() => setTaskCapability('PROVISIONAL'));
   }, []);
+
+  // Track clarification issues whenever selection or context changes
+  useEffect(() => {
+    if (!selectedId) {
+      setIssuesData(null);
+      return;
+    }
+    setDispatchFeedback(null);
+    getConversationIssues(selectedId, selectedContext)
+      .then(setIssuesData)
+      .catch(() => setIssuesData(null));
+  }, [selectedId, selectedContext]);
 
   // Load review-relevant messages
   const loadMessages = async () => {
@@ -283,6 +305,39 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
     }
   };
 
+  const handleDispatchClarification = async () => {
+    if (!selectedId) return;
+    setDispatching(true);
+    setDispatchFeedback(null);
+    try {
+      const res = await sendClarification({
+        conversation_id: selectedId,
+        context_id: selectedContext?.context_id,
+        order_id: selectedContext?.order_id || undefined,
+        issue_ids: issuesData?.issues.map(i => i.issue_id) || [],
+        draft_text: suggestedClarification || reviewerNote || 'Please clarify your order details.',
+        channel: selectedMessage?.raw?.channel || 'EMAIL',
+        recipient_identity_id: selectedMessage?.raw?.sender_identity_id || selectedMessage?.raw?.sender_alias || 'customer',
+        approval_note: reviewerNote || undefined,
+      }, {
+        'X-Actor-ID': actorId || 'user_staff_01',
+        'X-Actor-Role': actorRole || 'STAFF',
+      });
+
+      if (res.delivery_status === 'PREVIEW_NOT_SENT') {
+        setDispatchFeedback(
+          `Preview Retained: Outbound endpoint is pending backend release. Clarification remains PREVIEW ONLY · NOT SENT. (${res.error_reason || 'Pending route deployment'})`
+        );
+      } else {
+        setDispatchFeedback(`Clarification dispatched successfully via ${res.delivery_status}.`);
+      }
+    } catch (err) {
+      setDispatchFeedback(err instanceof Error ? err.message : 'Clarification dispatch failed');
+    } finally {
+      setDispatching(false);
+    }
+  };
+
   return (
     <div className="human-review-page" data-testid="human-review-workspace">
       <header className="hr-header">
@@ -291,6 +346,9 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
           <p>Review customer inquiries, unverified model candidates, and context conflicts with full audit protection.</p>
         </div>
         <div className="hr-meta-badges">
+          <span className={`hr-capability-badge is-${taskCapability.toLowerCase()}`}>
+            {taskCapability === 'AUTHORITATIVE' ? 'Backend Queue (v2.2)' : 'Direct Review (v2.1)'}
+          </span>
           <span className="p1-dim-badge">{tenantId}</span>
           <span className="p1-dim-badge">{actorId} · {actorRole}</span>
         </div>
@@ -714,6 +772,38 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
                       />
                     </div>
 
+                    {/* Issues Timeline & Clarification Lane */}
+                    {issuesData && issuesData.issues.length > 0 && (
+                      <div className="hr-issues-timeline-card" aria-label="Clarification Issues Timeline">
+                        <div className="hr-issues-header">
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>
+                            Clarification Issues ({issuesData.issues.length})
+                          </span>
+                          <span style={{ fontSize: '11px', color: '#64748b' }}>
+                            Turns: {issuesData.total_turns_used} / {issuesData.max_turns_allowed} max
+                          </span>
+                        </div>
+                        {issuesData.has_escalated_issues && (
+                          <div className="hr-escalation-alert" role="alert">
+                            ⚠️ Escalated to Human Review: 2 consecutive answered attempts without progress.
+                          </div>
+                        )}
+                        <div style={{ marginTop: '8px' }}>
+                          {issuesData.issues.map(issue => (
+                            <div key={issue.issue_id} className="hr-issue-item">
+                              <div>
+                                <strong style={{ color: '#0f172a' }}>{issue.field_name}: </strong>
+                                <span style={{ color: '#475569' }}>{issue.original_problem}</span>
+                              </div>
+                              <span className="p1-dim-badge" style={{ fontSize: '10px' }}>
+                                {issue.status} (no-progress: {issue.consecutive_no_progress_count})
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Clarification Preview & Note Adoption */}
                     {suggestedClarification && (
                       <div className="hr-clarification-card">
@@ -726,13 +816,39 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
                           </span>
                         </div>
                         <p>&ldquo;{suggestedClarification}&rdquo;</p>
-                        <button
-                          type="button"
-                          className="hr-adopt-btn"
-                          onClick={() => setReviewerNote(suggestedClarification)}
-                        >
-                          Adopt as Clarification Note
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                          <button
+                            type="button"
+                            className="hr-adopt-btn"
+                            onClick={() => setReviewerNote(suggestedClarification)}
+                          >
+                            Adopt as Clarification Note
+                          </button>
+                          <button
+                            type="button"
+                            className="hr-adopt-btn"
+                            style={{ background: '#f8fafc', borderColor: '#cbd5e1', color: '#334155' }}
+                            disabled={dispatching}
+                            onClick={() => void handleDispatchClarification()}
+                          >
+                            {dispatching ? 'Checking route…' : 'Dispatch Clarification Draft'}
+                          </button>
+                        </div>
+                        {dispatchFeedback && (
+                          <div
+                            style={{
+                              marginTop: '8px',
+                              padding: '6px 10px',
+                              background: '#f8fafc',
+                              border: '1px solid #cbd5e1',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              color: '#334155',
+                            }}
+                          >
+                            ℹ️ {dispatchFeedback}
+                          </div>
+                        )}
                       </div>
                     )}
 

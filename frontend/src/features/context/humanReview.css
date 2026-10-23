@@ -447,3 +447,66 @@
   justify-content: space-between;
   align-items: center;
 }
+
+/* Capability Pill & Task Badges */
+.hr-capability-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.hr-capability-badge.is-provisional {
+  background: #f8fafc;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+
+.hr-capability-badge.is-authoritative {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+
+/* Clarification Issues Timeline Panel */
+.hr-issues-timeline-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.hr-issues-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.hr-issue-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
+.hr-escalation-alert {
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 6px;
+}

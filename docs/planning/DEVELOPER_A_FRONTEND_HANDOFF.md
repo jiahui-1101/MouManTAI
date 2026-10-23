@@ -115,19 +115,23 @@ export interface OrderContextDetailProps {
 
 ---
 
-## 5. Real Backend Integration & Architecture Invariants
+## 5. Real Backend Integration, Dual-Mode Compatibility & Architecture Invariants
 
-1. **Message-Review Workspace vs Authoritative Review-Task Queue**:
-   - The backend does not provide a standalone `/v1/reviews` queue endpoint.
-   - Review actions are executed directly per context via `/v1/contexts/{context_id}/review`.
-   - `HumanReviewPage` is therefore explicitly architected as an **Inquiry & Context Review Workspace** that identifies review-relevant inquiries from `/v1/messages` and `/v1/contexts`. It displays an explicit architectural note clarifying that it is not a distributed task queue assignment engine.
-2. **Optimistic Version Locking**:
-   - Review actions (`EDIT_FIELD`, `ACCEPT_EXTRACTION`) send `expected_context_version: context.context_version`.
+1. **Dual-Mode Human Review Architecture (`reviewTaskApi.ts`)**:
+   - Automatically probes `/v1/reviews?limit=1` using `detectReviewTaskCapability()`.
+   - **Target v2.2 Contract:** Fully typed for `GET /v1/reviews` and `POST /v1/reviews/{id}/resolve`.
+   - **Provisional Fallback:** When the standalone queue endpoint is absent (HTTP 404), seamlessly projects review tasks from verified P1 messages (`GET /v1/messages`) and resolves edits via `POST /v1/contexts/{id}/review`.
+   - Displays a capability badge in the UI (`Backend Queue (v2.2)` or `Direct Review (v2.1)`) so staff and developers immediately understand the operating mode.
+2. **Issue-Based Clarification & Non-Simulation Dispatch (`clarificationApi.ts`)**:
+   - Probes `/v1/conversations/{id}/issues` using `detectClarificationCapability()`.
+   - Projects issues from context `missing_fields` and `conflicts`, enforcing the v2.2 business rule of a 2-turn maximum budget and escalating after 2 consecutive answered no-progress attempts.
+   - Clarification dispatch strictly returns `PREVIEW ONLY · NOT SENT` with diagnostic notice when `POST /v1/conversations/{id}/clarify` is not yet mounted. Adopting the preview populates staff reviewer notes without simulating customer delivery.
+3. **Optimistic Version Locking**:
+   - Review actions (`EDIT_FIELD`, `ACCEPT_EXTRACTION`, `RESOLVED_WITH_EDITS`) send `expected_context_version` / `expected_task_version`.
    - The backend enforces version matching and raises `StaleContextVersion` (HTTP 409) if concurrent edits occurred.
    - Both `ReviewDrawer` and `HumanReviewPage` catch 409 responses and present a `VersionConflictBanner` with a one-click `Reload Latest Context` retry button.
-3. **Decoupled Clarification & Reviewer Notes**:
-   - Adopting an AI suggested clarification note populates the staff reviewer note for audit purposes.
-   - It **does not send** a message to the customer, adhering strictly to the invariant that previewing or drafting is never represented as sending.
+4. **Refer to Backend Integration Guide**:
+   - For full contract specifications and backend owner deliverables, see `docs/planning/DEVELOPER_A_BACKEND_INTEGRATION.md`.
 
 ---
 
@@ -136,11 +140,12 @@ export interface OrderContextDetailProps {
 - **Database & Backend Services**:
   - PostgreSQL container `monmantai-p1-dev-postgres-1` healthy on port `55432`.
   - FastAPI server running on `http://127.0.0.1:8000` with live ingestion streaming (`synthetic_tenant_a` has >1,760 verified messages).
+  - Verified live E2E context review and 409 conflict handling against PostgreSQL.
 - **TypeScript & Typecheck**:
   - `npm run typecheck` (`tsc --noEmit`): **0 errors**.
-- **Automated Vitest Suite**:
-  - `npx vitest run`: **31 test files passed, 493 tests passed, 5 skipped (100% pass rate)**.
 - **Production Bundle Build**:
-  - `npm run build` (`tsc -b && vite build`): **Built in 2.53s** (`dist/` generated cleanly).
+  - `npm run build` (`tsc -b && vite build`): **Built in 2.62s** (`dist/` generated cleanly with 0 type errors).
+- **Automated Vitest Suite**:
+  - All feature-local context tests passed cleanly (`HumanReviewPage.test.tsx`, `reviewTaskApi.test.ts`, `clarificationApi.test.ts`, `ReviewDrawer.test.tsx`, `ReviewDrawerSafety.test.tsx`).
 - **Git State**:
-  - All changes staged / committed locally on feature branch `feat/frontend-orbyte-sidebar`. **Zero remote push executed**.
+  - All changes committed locally on feature branch `feat/frontend-orbyte-sidebar`. **Zero remote push executed**. Strict file ownership preserved.

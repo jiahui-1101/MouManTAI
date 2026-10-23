@@ -227,4 +227,29 @@ describe('HumanReviewPage component', () => {
       expect(screen.getByRole('button', { name: /Reload Latest Context/i })).toBeInTheDocument();
     });
   });
+
+  it('renders backend operational capability pill and clarification issues timeline', async () => {
+    renderPage(<HumanReviewPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Direct Review \(v2\.1\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/Clarification Issues/i)).toBeInTheDocument();
+      expect(screen.getByText(/Turns: 0 \/ 2 max/i)).toBeInTheDocument();
+    });
+  });
+
+  it('handles dispatch clarification draft with safe preview non-simulation feedback', async () => {
+    renderPage(<HumanReviewPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Dispatch Clarification Draft/i })).toBeInTheDocument();
+    });
+
+    const dispatchBtn = screen.getByRole('button', { name: /Dispatch Clarification Draft/i });
+    fireEvent.click(dispatchBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Preview Retained: Outbound endpoint is pending backend release/i)).toBeInTheDocument();
+    });
+  });
 });

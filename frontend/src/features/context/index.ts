@@ -7,3 +7,7 @@ export { SyntheticComposer } from './SyntheticComposer';
 export { HumanReviewPage } from './HumanReviewPage';
 export type { ReviewFilterCategory, HumanReviewPageProps } from './HumanReviewPage';
 export * from './types';
+export * from './reviewTaskModels';
+export * from './reviewTaskApi';
+export * from './clarificationModels';
+export * from './clarificationApi';
