@@ -140,6 +140,54 @@ class OutboxDispatcher:
         return is_stale
 
     @staticmethod
+    def is_superseded_p3_response(session: Session, event: DomainEvent) -> bool:
+        """Whether a stale P3 response is bound to one persisted plan version.
+
+        A stale P4 response is safe to close before P3 only when its exact
+        proposal/version resolves to one durable P3 plan for the same tenant
+        and commitment, and that plan was evaluated no later than the P4
+        event's Core version. A stale event without that binding stays
+        ambiguous and must satisfy the mandatory processed-event markers.
+        """
+        if event.event_type not in {
+            "confirmation.rejected",
+            "confirmation.counteroffer_received",
+        }:
+            return False
+        proposal_id = event.payload.get("proposal_id")
+        proposal_version = event.payload.get("proposal_version")
+        if (
+            not event.tenant_id
+            or not event.commitment_id
+            or event.commitment_version is None
+            or not isinstance(proposal_id, str)
+            or not isinstance(proposal_version, int)
+        ):
+            return False
+
+        commitment = session.get(CommitmentRecord, (event.tenant_id, event.commitment_id))
+        if commitment is None or commitment.commitment_version <= event.commitment_version:
+            return False
+
+        # Import locally to keep Core's module initialization independent of P3.
+        from app.recovery.durable_plans import RecoveryPlanRecord
+
+        plans = session.scalars(
+            select(RecoveryPlanRecord).where(
+                RecoveryPlanRecord.tenant_id == event.tenant_id,
+                RecoveryPlanRecord.commitment_id == event.commitment_id,
+                RecoveryPlanRecord.plan_version == proposal_version,
+            )
+        ).all()
+        matching = [
+            plan for plan in plans
+            if plan.payload.get("proposal_id") == proposal_id
+            and plan.payload.get("proposal_version", plan.plan_version) == proposal_version
+            and plan.core_commitment_version <= event.commitment_version
+        ]
+        return len(matching) == 1
+
+    @staticmethod
     def execute_consumer(
         session: Session,
         event: DomainEvent,
@@ -198,9 +246,6 @@ class OutboxDispatcher:
         for record in records:
             event = to_domain_event(record)
 
-            # A newer aggregate version does not prove a required evaluation ran.
-            # Keep an unprocessed mandatory event available for explicit reconciliation;
-            # replaying its stale business update would also be unsafe.
             if self.is_stale_event(session, event):
                 unfinished = []
                 for required_consumer in self.required_subscribers(event.event_type):
@@ -213,9 +258,10 @@ class OutboxDispatcher:
                     )
                     if completed is None:
                         unfinished.append(required_consumer)
-                if unfinished:
+                superseded_p3_response = self.is_superseded_p3_response(session, event)
+                if unfinished and not superseded_p3_response:
                     logger.warning(
-                        "Stale mandatory event awaits subscriber reconciliation: event_id=%s consumers=%s",
+                        "Stale event has no exact superseding P3 plan and awaits subscriber reconciliation: event_id=%s consumers=%s",
                         event.event_id,
                         ",".join(unfinished),
                     )
@@ -233,8 +279,9 @@ class OutboxDispatcher:
                     session.commit()
                     continue
 
-                # The mandatory subscriber completed before the event became stale.
-                # Record supersession once, without reapplying old business state.
+                # Either all mandatory consumers processed this event before it
+                # became stale, or an exact durable P3 plan proves this P4
+                # response is obsolete. Close it without invoking consumers.
                 commitment = (
                     session.get(CommitmentRecord, (event.tenant_id, event.commitment_id))
                     if event.commitment_id

@@ -50,12 +50,7 @@ from app.recovery.persistence import RecoveryCaseRecord, RecoveryCaseTriggerReco
 from app.worker import configure_isolated_subscribers
 
 
-pytestmark = pytest.mark.postgres
-
-
 def _approved_engine():
-    if os.getenv("REQUIRE_POSTGRES") != "1":
-        pytest.skip("PostgreSQL NOT VERIFIED: REQUIRE_POSTGRES=1 is absent")
     raw_url = os.getenv("TEST_DATABASE_URL")
     if not raw_url:
         pytest.skip("PostgreSQL NOT VERIFIED: explicit approved TEST_DATABASE_URL is absent")

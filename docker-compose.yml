@@ -24,6 +24,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-moumantai}:${POSTGRES_PASSWORD:-moumantai}@db:5432/${POSTGRES_DB:-moumantai}
+      # Header-based identity is only for synthetic/test environments; default off.
       MOUMANTAI_SYNTHETIC_MODE: ${MOUMANTAI_SYNTHETIC_MODE:-0}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       P1_AI_ENABLED: ${P1_AI_ENABLED:-false}
@@ -55,6 +56,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-moumantai}:${POSTGRES_PASSWORD:-moumantai}@db:5432/${POSTGRES_DB:-moumantai}
+      # Synthetic/test worker subscriptions only; default off.
       MOUMANTAI_SYNTHETIC_MODE: ${MOUMANTAI_SYNTHETIC_MODE:-0}
       MOUMANTAI_ISOLATED_E2E: ${MOUMANTAI_ISOLATED_E2E:-0}
       MOUMANTAI_ISOLATED_E2E_KEY: ${MOUMANTAI_ISOLATED_E2E_KEY:-}

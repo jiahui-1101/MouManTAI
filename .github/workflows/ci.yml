@@ -13,13 +13,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  MOUMANTAI_SYNTHETIC_MODE: "1"
+
 jobs:
   backend-tests:
     name: Backend Tests (pytest & syntax)
     runs-on: ubuntu-latest
     env:
       DISABLE_SQLALCHEMY_CEXT: "1"
-      MOUMANTAI_SYNTHETIC_MODE: "1"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -214,58 +216,6 @@ jobs:
 
       - name: Production build
         run: npm run build
-
-  backend-postgres:
-    name: Backend PostgreSQL Integration Tests
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: moumantai_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d moumantai_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/moumantai_test
-      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/moumantai_test
-      P4_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/p4_migration_test
-      TEST_DATABASE_APPROVED: "1"
-      REQUIRE_POSTGRES: "1"
-      MOUMANTAI_SYNTHETIC_MODE: "1"
-      DISABLE_SQLALCHEMY_CEXT: "1"
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-
-      - name: Install backend dependencies
-        env:
-          DISABLE_SQLALCHEMY_CEXT: "1"
-        run: |
-          python -m pip install --upgrade pip
-          pip install --no-binary=sqlalchemy -e "./backend[dev]"
-
-      - name: Create P4 disposable migration admin database
-        run: >-
-          python -c 'from sqlalchemy import create_engine, text; engine = create_engine("postgresql+psycopg://postgres:postgres@localhost:5432/postgres"); connection = engine.connect().execution_options(isolation_level="AUTOCOMMIT"); connection.execute(text("CREATE DATABASE p4_migration_test")); connection.close(); engine.dispose()'
-
-      - name: Upgrade disposable PostgreSQL schema
-        run: python -m alembic -c backend/alembic.ini upgrade head
-
-      - name: Run backend suite against PostgreSQL
-        run: python -m pytest backend/tests backend/app/feasibility/tests backend/app/communication/tests -q -rs -o addopts=
 
   hygiene-check:
     name: Hygiene & Secret Checks

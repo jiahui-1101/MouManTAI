@@ -32,7 +32,8 @@ This matrix reflects event names and payloads present in code on the branch base
 - `COUNTEROFFER` is validated and handed to P3; Core does not infer or persist proposed terms.
 - The dispatcher uses `processed_events` and commits the Core transition/audit/outbox with the P4 consumer marker. Rejected and counteroffer events require both named consumers; wildcard subscriptions do not satisfy D-017.
 - Missing named subscribers leave terminal response events `PENDING`. Failed consumers roll back all handlers in that delivery and follow the existing retry/dead-letter policy.
-- A stale terminal event without completed markers for every mandatory subscriber is held as `FAILED` for reconciliation; the dispatcher does not write a supersession audit or invoke P3. P5 review must decide the stale P4 recovery contract before treating that event as resolved.
+- A stale `confirmation.rejected` or `confirmation.counteroffer_received` event is deterministically superseded when its tenant, commitment, proposal ID, and proposal version resolve to exactly one durable P3 plan whose recorded Core version is no later than the event version, and the current Core commitment version has advanced. The dispatcher writes one `commitment.event_superseded` audit, publishes the event, and invokes no subscriber, including P3.
+- For any stale event not proven superseded by that exact P3 plan binding, missing a required `processed_events` marker leaves it `FAILED` for reconciliation (or dead-lettered after the existing retry limit); the dispatcher does not invoke consumers. If all required markers already exist, the stale event is audited and published idempotently.
 
 ## Fulfilment Evidence Policy
 
@@ -46,7 +47,9 @@ Every ref in the request must match the caller's tenant and the target commitmen
 
 ## Synthetic Demo Startup
 
-The API checks `MOUMANTAI_SYNTHETIC_MODE=1` before accepting the fixed server-side `X-Tenant-ID` / `X-Actor-ID` role map. The flag defaults to `0`. Worker subscriptions additionally require `MOUMANTAI_ISOLATED_E2E=1` and a server-owned `MOUMANTAI_ISOLATED_E2E_KEY` of at least 32 characters.
+The API checks `MOUMANTAI_SYNTHETIC_MODE=1` before accepting the fixed server-side `X-Tenant-ID` / `X-Actor-ID` role map. It defaults to `0` (off). These headers resolve to fixed demo actors and are not authentication; enable this flag only for synthetic/test environments and never in production. Worker subscriptions additionally require `MOUMANTAI_ISOLATED_E2E=1` and a server-owned `MOUMANTAI_ISOLATED_E2E_KEY` of at least 32 characters.
+
+The shared `app.main` entrypoint applies the same default-off gate to P1 message, context, attachment and `/dev/p1` routes, which have their own development identity dependency. P1's separate `app.context.dev_app` is explicitly development-only and is not mounted by `app.main`; its smoke runner requires `P1_TEST_DATABASE_URL` ending in `_test`.
 
 PowerShell from the repository root:
 
@@ -57,11 +60,17 @@ $env:MOUMANTAI_ISOLATED_E2E_KEY = "replace_with_server_owned_key_of_at_least_32_
 docker compose up --build
 ```
 
-Replace the key placeholder with a local server-owned value. For API-only work with no background consumers, set `MOUMANTAI_SYNTHETIC_MODE=1` and leave `MOUMANTAI_ISOLATED_E2E=0`.
+Replace the key placeholder with a local server-owned value and do not commit it. For API-only work with no background consumers, set `MOUMANTAI_SYNTHETIC_MODE=1` and leave `MOUMANTAI_ISOLATED_E2E=0`. The root README has PowerShell and bash startup commands; `.env.example` keeps all gates off and contains placeholders only. The Vite development proxy sends actor headers, so its backend must be started with synthetic mode enabled. `scripts/evaluate_metrics.py` also uses header identity and must be invoked with synthetic mode enabled. Seed scripts connect to the database directly and do not bypass API identity checks.
+
+### Demo startup check
+
+Before a reviewer or demo operator starts the API, set `MOUMANTAI_SYNTHETIC_MODE=1` in the environment consumed by the API service (Compose reads the shell value and passes it to `api`). This is the only required variable for header-based API/demo identity. Without it, header identity requests return HTTP `403` with code `SYNTHETIC_IDENTITY_DISABLED`.
+
+For the background confirmation/recovery demo, also set `MOUMANTAI_ISOLATED_E2E=1` and `MOUMANTAI_ISOLATED_E2E_KEY` to a local server-owned value of at least 32 characters; Compose passes these to `worker`. If the flag is unset or `0`, isolated subscribers remain unregistered and their outbox events stay pending. If the flag is `1` but the key is too short or absent, the worker exits with `Isolated E2E worker requires a server-owned mutation key`. Keep both worker gates off outside a synthetic/test environment. `P1_AI_ENABLED=false` is recommended for the offline deterministic demo, but is not an identity gate.
 
 ## PostgreSQL Scenario Status
 
-No PostgreSQL scenario has been run locally. Each status below is **NOT RUN** until the `backend-postgres` CI job reports a result.
+No PostgreSQL scenario has been run locally. Each status below is **NOT RUN** until the existing `backend-postgres` job from PR #38 reports a result.
 
 | Scenario | Status | Where it runs |
 |---|---|---|
@@ -78,4 +87,4 @@ No PostgreSQL scenario has been run locally. Each status below is **NOT RUN** un
 
 ## PostgreSQL CI
 
-The fetched `origin/main` had no `backend-postgres` job. This branch adds a disposable PostgreSQL 16 job, sets `REQUIRE_POSTGRES=1`, migrates the CI service database, and runs the backend plus feasibility and communication suites. No PostgreSQL service was started locally. All PostgreSQL scenario results remain **NOT RUN — needs CI evidence**; BE-03 stays **In progress, pending CI evidence**.
+PR #38 (`feat/p5-postgres-ci`) owns the existing `backend-postgres` job. PostgreSQL scenarios in this branch use the existing `REQUIRE_POSTGRES`-based skip mechanism when PostgreSQL is unavailable locally; after #38 merges, that job is responsible for running them. No PostgreSQL service was started locally, and all PostgreSQL scenarios remain **NOT RUN — no CI output available**; BE-03 stays **In progress, pending CI evidence**.

@@ -957,7 +957,7 @@ def test_stale_response_is_reconciled_once_without_invalidating_newer_plan(sessi
     ).count() == audit_count == 1
 
 
-def test_shared_dispatcher_holds_stale_p4_event_without_required_consumers(session, monkeypatch):
+def test_shared_dispatcher_supersedes_stale_p4_event_before_p3_consumer(session, monkeypatch):
     event = _p4_response_event(session, monkeypatch)
     case, plan = _persist_exact_p3_plan_for_p4_request(session)
     commitment = session.get(CommitmentRecord, (event.tenant_id, event.commitment_id))
@@ -971,11 +971,7 @@ def test_shared_dispatcher_holds_stale_p4_event_without_required_consumers(sessi
     dispatcher = OutboxDispatcher()
     register_p3_confirmation_response_consumer(dispatcher, PendingRecoveryEventPublisher())
     result = dispatcher.process_outbox_batch(session)
-    assert result.failed_count == 1
-    source = session.get(OutboxEventRecord, event.event_id)
-    assert source is not None
-    assert source.status == "FAILED"
-    assert source.last_error == "STALE_MANDATORY_SUBSCRIBER_INCOMPLETE"
+    assert result.published_count == 1
     assert session.get(ProcessedEventRecord, (event.tenant_id, event.event_id, CONSUMER_NAME)) is None
     assert session.get(RecoveryPlanRecord, (case.tenant_id, plan.plan_id, plan.plan_version)).status == "PENDING_APPROVAL"
     case_row = session.get(RecoveryCaseRecord, (case.tenant_id, case.case_id))
@@ -986,7 +982,14 @@ def test_shared_dispatcher_holds_stale_p4_event_without_required_consumers(sessi
         AuditEventRecord.causation_id == event.event_id,
         AuditEventRecord.event_type == "commitment.event_superseded",
     )).all()
-    assert supersession == []
+    assert len(supersession) == 1
+    assert supersession[0].new_state["stale_event_id"] == event.event_id
+    assert dispatcher.process_outbox_batch(session).processed_count == 0
+    assert session.scalars(select(AuditEventRecord).where(
+        AuditEventRecord.tenant_id == event.tenant_id,
+        AuditEventRecord.causation_id == event.event_id,
+        AuditEventRecord.event_type == "commitment.event_superseded",
+    )).all() == supersession
 
 
 def test_p4_confirmation_schema_version_is_enforced(session, monkeypatch):

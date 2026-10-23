@@ -1430,7 +1430,6 @@ def test_portable_dual_boundary_transaction_rollback_and_assessment_provenance(
     assert consumer_audit.new_state["assessment_id"] == assessment_id
 
 
-@pytest.mark.postgres
 def test_postgresql_concurrency_lock_order_safety(postgresql_test_engine) -> None:
     """A second PostgreSQL session promotes the source while assessment holds Core's row lock.
 

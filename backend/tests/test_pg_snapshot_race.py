@@ -22,9 +22,6 @@ from app.feasibility.production_fixtures import build_production_example
 from app.feasibility.service import evaluate
 
 
-pytestmark = pytest.mark.postgres
-
-
 def _tenant_copy(value, tenant):
     if isinstance(value, dict):
         return {key: (tenant if key == "tenant_id" else _tenant_copy(item, tenant))
@@ -35,8 +32,6 @@ def _tenant_copy(value, tenant):
 
 
 def test_postgresql_concurrent_source_promotion_rejects_stale_assessment():
-    if os.getenv("REQUIRE_POSTGRES") != "1":
-        pytest.skip("PostgreSQL NOT VERIFIED: REQUIRE_POSTGRES=1 is absent")
     configured = os.getenv("TEST_DATABASE_URL")
     if not configured:
         pytest.skip("PostgreSQL race NOT VERIFIED: approved TEST_DATABASE_URL absent")

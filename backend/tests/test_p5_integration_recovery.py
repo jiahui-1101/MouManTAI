@@ -27,12 +27,14 @@ from app.core.models import (
 )
 from app.core.outbox import OutboxDispatcher, to_domain_event
 from app.core.schemas import AgreementState, FulfilmentState
+from app.recovery.durable_plans import RecoveryPlanRecord
 from app.recovery.eventing import (
     P5OutboxPublisherAdapter,
     RecoveryEventCoordinator,
     RecoveryEventType,
     ReplanRequiredPayload,
 )
+from app.recovery.persistence import RecoveryCaseRecord
 from app.worker import configure_isolated_subscribers
 
 
@@ -116,6 +118,60 @@ def _p4_terminal_event(session, intent: str):
     return to_domain_event(row)
 
 
+def _make_stale_p4_response(session, event) -> None:
+    commitment = session.get(CommitmentRecord, (event.tenant_id, event.commitment_id))
+    source = session.get(OutboxEventRecord, event.event_id)
+    assert commitment is not None and source is not None
+    commitment.commitment_version = event.commitment_version + 1
+    for row in session.scalars(select(OutboxEventRecord)).all():
+        if row.event_id != event.event_id:
+            row.status = "PUBLISHED"
+    source.status = "PENDING"
+    session.flush()
+
+
+def _persist_exact_plan_for_p4_response(session, event) -> None:
+    now = datetime.now(UTC)
+    case_id = f"case_{event.event_id}"
+    session.add(RecoveryCaseRecord(
+        tenant_id=event.tenant_id,
+        case_id=case_id,
+        commitment_id=event.commitment_id,
+        risk_episode_id=f"episode_{event.event_id}",
+        opening_event_id=f"opening_{event.event_id}",
+        status="OPTIONS_READY",
+        case_version=1,
+        commitment_version=event.commitment_version,
+        payload_schema_version=1,
+        case_payload={},
+        resolution_refs=[],
+        created_at=now,
+        updated_at=now,
+    ))
+    session.flush()
+    version = event.payload["proposal_version"]
+    session.add(RecoveryPlanRecord(
+        tenant_id=event.tenant_id,
+        plan_id=f"plan_{event.event_id}",
+        plan_version=version,
+        case_id=case_id,
+        commitment_id=event.commitment_id,
+        assessment_id=f"assessment_{event.event_id}",
+        snapshot_id=f"snapshot_{event.event_id}",
+        snapshot_version=1,
+        core_commitment_version=event.commitment_version,
+        evaluated_commitment_version=event.commitment_version,
+        payload={
+            "proposal_id": event.payload["proposal_id"],
+            "proposal_version": version,
+            "plan_version": version,
+        },
+        status="PENDING_APPROVAL",
+        created_at=now,
+    ))
+    session.flush()
+
+
 @pytest.mark.parametrize("mode", [None, "0"])
 def test_header_identity_requires_explicit_synthetic_mode(client, monkeypatch, mode) -> None:
     if mode is None:
@@ -123,6 +179,19 @@ def test_header_identity_requires_explicit_synthetic_mode(client, monkeypatch, m
     else:
         monkeypatch.setenv("MOUMANTAI_SYNTHETIC_MODE", mode)
     response = client.get("/v1/overview", headers=_headers("tenant_p5_gate"))
+    assert response.status_code == 403
+    assert response.json()["code"] == "SYNTHETIC_IDENTITY_DISABLED"
+
+
+def test_header_identity_is_available_in_synthetic_mode(client, monkeypatch) -> None:
+    monkeypatch.setenv("MOUMANTAI_SYNTHETIC_MODE", "1")
+    response = client.get("/v1/overview", headers=_headers("tenant_p5_gate_enabled"))
+    assert response.status_code == 200, response.text
+
+
+def test_p1_development_identity_fallback_is_also_gated(client, monkeypatch) -> None:
+    monkeypatch.delenv("MOUMANTAI_SYNTHETIC_MODE", raising=False)
+    response = client.get("/v1/messages", headers=_headers("tenant_p5_gate_p1"))
     assert response.status_code == 403
     assert response.json()["code"] == "SYNTHETIC_IDENTITY_DISABLED"
 
@@ -181,6 +250,61 @@ def test_terminal_response_stays_pending_until_all_named_subscribers_are_registe
     assert result.published_count == 1
     assert source.status == "PUBLISHED"
     assert called == ["wildcard", "wildcard", "wildcard"]
+
+
+def test_known_superseded_stale_p4_response_publishes_without_calling_p3(session) -> None:
+    event = _p4_terminal_event(session, "REJECT")
+    _persist_exact_plan_for_p4_response(session, event)
+    _make_stale_p4_response(session, event)
+    called: list[str] = []
+
+    dispatcher = OutboxDispatcher()
+    dispatcher.register_subscriber(
+        "confirmation.rejected",
+        "p3.confirmation_response.v1",
+        lambda _session, _event: called.append("p3"),
+    )
+    result = dispatcher.process_outbox_batch(session)
+    source = session.get(OutboxEventRecord, event.event_id)
+
+    assert result.published_count == 1
+    assert result.failed_count == 0
+    assert source is not None and source.status == "PUBLISHED"
+    assert called == []
+    assert session.get(
+        ProcessedEventRecord,
+        (event.tenant_id, event.event_id, "p3.confirmation_response.v1"),
+    ) is None
+    assert session.scalar(select(AuditEventRecord).where(
+        AuditEventRecord.tenant_id == event.tenant_id,
+        AuditEventRecord.causation_id == event.event_id,
+        AuditEventRecord.event_type == "commitment.event_superseded",
+    )) is not None
+
+
+def test_ambiguous_stale_p4_response_fails_without_calling_p3(session) -> None:
+    event = _p4_terminal_event(session, "REJECT")
+    _make_stale_p4_response(session, event)
+    called: list[str] = []
+
+    dispatcher = OutboxDispatcher()
+    dispatcher.register_subscriber(
+        "confirmation.rejected",
+        "p3.confirmation_response.v1",
+        lambda _session, _event: called.append("p3"),
+    )
+    result = dispatcher.process_outbox_batch(session)
+    source = session.get(OutboxEventRecord, event.event_id)
+
+    assert result.failed_count == 1
+    assert result.published_count == 0
+    assert source is not None and source.status == "FAILED"
+    assert source.last_error == "STALE_MANDATORY_SUBSCRIBER_INCOMPLETE"
+    assert called == []
+    assert session.get(
+        ProcessedEventRecord,
+        (event.tenant_id, event.event_id, "p3.confirmation_response.v1"),
+    ) is None
 
 
 def test_p4_accept_applies_current_proposal_and_commits_audit_outbox_with_idempotency(session) -> None:
