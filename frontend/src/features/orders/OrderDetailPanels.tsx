@@ -130,7 +130,7 @@ export function DecisionReadinessPanel({ detail: d, now }: { detail: OrderDetail
     {([['Reasons', a?.reasons], ['Hard constraints', a?.constraints], ['Soft preferences', a?.preferences], ['Blocking factors', a?.blockers],
       ['Outstanding conditions', a?.conditions], ['Assumptions', a?.assumptions], ['Assessment evidence references', a?.evidence], ['Missing evidence', a?.missingEvidence]] as [string, string[] | undefined][])
       .map(([label, values]) => <div key={label}><h3>{label}</h3><Values values={values} /></div>)}
-    <p>Acceptance, rejection, proposed terms and amendments are unavailable in Phase 2. They require exact terms, customer assent where applicable, current backend revalidation and authoritative reservation commands.</p>
+    <p>Decision commands remain unavailable until verified backend integration. The Order Decision workspace below separates exact terms, proposals, amendments and recorded outcomes; frontend assessment does not grant execution authority.</p>
     {d.commitmentId && <p>Explicit P1-linked commitment: <Link to={`/commitments/${encodeURIComponent(d.commitmentId)}`}>{d.commitmentId}</Link> (existing commitment workflow; not a pending-order assessment).</p>}
   </section>;
 }

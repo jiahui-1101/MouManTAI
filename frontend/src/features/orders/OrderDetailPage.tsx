@@ -6,13 +6,15 @@ import { useAuth } from '../../shared/auth';
 import { OrderContextDetail } from '../context/OrderContextDetail';
 import type { OrderContextRecord } from '../context/types';
 import { loadLegacyContextDetail, type OrderDetailSource } from './detailApi';
+import type { OrderDecisionSource } from './decisionTypes';
+import { OrderDecisionWorkspace } from './OrderDecisionWorkspace';
 import { OrderSummaryPanel, CustomerRequestPanel, InventoryAssessmentPanel, CapacityAssessmentPanel,
   FeasibilitySummary, PricingProvenancePanel, DecisionReadinessPanel } from './OrderDetailPanels';
 import './orderDetail.css';
 
-export interface OrderDetailPageProps { orderId?: string; source?: OrderDetailSource }
+export interface OrderDetailPageProps { orderId?: string; source?: OrderDetailSource; decisionSource?: OrderDecisionSource }
 
-export function OrderDetailPage({ orderId, source }: OrderDetailPageProps = {}) {
+export function OrderDetailPage({ orderId, source, decisionSource }: OrderDetailPageProps = {}) {
   const params = useParams<{ id: string }>(); const id = orderId ?? params.id ?? '';
   const { authHeaders: auth } = useAuth();
   const legacyHeaders = useMemo(() => authHeaders(auth), [auth]);
@@ -51,6 +53,7 @@ export function OrderDetailPage({ orderId, source }: OrderDetailPageProps = {}) 
         <OrderSummaryPanel detail={d} /><FeasibilitySummary detail={d} now={now} />
         <CustomerRequestPanel detail={d} /><InventoryAssessmentPanel detail={d} /><CapacityAssessmentPanel detail={d} />
         <PricingProvenancePanel detail={d} /><DecisionReadinessPanel detail={d} now={now} />
+        <OrderDecisionWorkspace order={d} now={now} source={decisionSource} />
       </>}
     {id && <section className="od-legacy" id="legacy-order-context" aria-labelledby="od-legacy-title">
       <h2 id="od-legacy-title">Existing P1 context, review & history</h2>
