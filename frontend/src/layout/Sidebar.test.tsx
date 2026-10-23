@@ -105,6 +105,10 @@ describe("shared sidebar navigation", () => {
 
     const roleDropdown = screen.getByRole("listbox", { name: "Select development user role" });
     expect(roleDropdown).toBeInTheDocument();
+    // Header displays clean single line without tenant badge clutter
+    expect(within(roleDropdown).getByText("Switch role")).toBeInTheDocument();
+    expect(within(roleDropdown).queryByText(/tenant_sidebar_test · OWNER/)).not.toBeInTheDocument();
+
     const options = within(roleDropdown).getAllByRole("option");
     expect(options).toHaveLength(3);
     expect(options[0]).toHaveAttribute("aria-selected", "true"); // Owner is selected
@@ -124,5 +128,13 @@ describe("shared sidebar navigation", () => {
     expect(screen.getByRole("listbox", { name: "Select development user role" })).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("listbox", { name: "Select development user role" }), { key: "Escape" });
     expect(screen.queryByRole("listbox", { name: "Select development user role" })).not.toBeInTheDocument();
+  });
+
+  it("only highlights the active navigation item and parent instead of fixing dashboard permanently", () => {
+    mount("/inbox");
+    // Dashboard should NOT be active when on /inbox
+    expect(screen.getByRole("button", { name: "Dashboard" })).not.toHaveClass("is-active");
+    expect(screen.getByRole("button", { name: "Inbox" })).toHaveClass("is-active");
+    expect(screen.getByRole("link", { name: "Customer Messages" })).toHaveClass("is-active");
   });
 });

@@ -228,8 +228,18 @@ export function Sidebar() {
         <img className="sidebar-logo-full" src={fullLogo} alt="MouManTAI × Orbyte" />
         <img className="sidebar-logo-icon" src={iconLogo} alt="" />
       </Link>
-      <button type="button" className="sidebar-toggle" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={() => { setCollapsed(value => !value); setSearch(""); setAccountOpen(false); setOrganizationOpen(false); }} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d={collapsed ? "M10 4v16m3-12 4 4-4 4" : "M10 4v16m7-12-4 4 4 4"}/></svg>
+      <button
+        type="button"
+        className="sidebar-toggle"
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        aria-expanded={!collapsed}
+        onClick={() => { setCollapsed(value => !value); setSearch(""); setAccountOpen(false); setOrganizationOpen(false); }}
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <line x1={collapsed ? "9" : "15"} y1="4" x2={collapsed ? "9" : "15"} y2="20" />
+        </svg>
       </button>
     </div>
 
@@ -249,7 +259,15 @@ export function Sidebar() {
       </div>}
     </div>
 
-    <label className="sidebar-search"><span className="sr-only">Search menu</span><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search menu…" aria-label="Search menu" /></label>
+    <label className="sidebar-search">
+      <span className="sr-only">Search menu</span>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/>
+        <path d="m16 16 5 5"/>
+      </svg>
+      <input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search menu…" aria-label="Search menu" />
+      <kbd className="sidebar-search-kbd" aria-hidden="true">/</kbd>
+    </label>
     <p className="sidebar-caption">Navigation</p>
     <div className="sidebar-links">{filtered.length ? filtered.map(item => renderItem(item)) : <p className="sidebar-no-results" role="status">No matching navigation items</p>}</div>
 
@@ -302,8 +320,7 @@ export function Sidebar() {
           }}
         >
           <div className="sidebar-account-dropdown-header">
-            <small className="sidebar-account-dropdown-label">SWITCH USER ROLE</small>
-            <span className="tenant-badge">{tenantId} · {actorRole}</span>
+            <span className="sidebar-account-dropdown-label">Switch role</span>
           </div>
 
           <div className="sidebar-account-options">

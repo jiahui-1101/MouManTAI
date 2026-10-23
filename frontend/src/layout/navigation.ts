@@ -49,7 +49,7 @@ export const navigation: NavigationItem[] = [
 
 export function isItemActive(item: NavigationItem, pathname: string): boolean {
   if (item.to && (pathname === item.to || (item.to !== "/" && pathname.startsWith(`${item.to}/`)))) return true;
-  if (item.activeFor?.some(path => path === pathname || (path.endsWith("/") && pathname.startsWith(path)))) return true;
+  if (item.activeFor?.some(path => path === pathname || (path !== "/" && path.endsWith("/") && pathname.startsWith(path)))) return true;
   return item.children?.some(child => isItemActive(child, pathname)) ?? false;
 }
 
