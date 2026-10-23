@@ -3482,3 +3482,42 @@ P2 Phase 4 final causal-provenance QA (2026-10-21): test-first regressions again
 - Combined focused P3/P5 tests: 45 passed. Backend CI-equivalent `tests app/feasibility/tests app/communication/tests`: 1078 passed, 89 PostgreSQL-gated skips, 0 failed. Frontend Vitest: 475 passed, 5 skipped; typecheck and production build passed. Ruff, compileall, and `alembic heads` passed. The controlled build retains a >500 kB bundle warning.
 - Dispatcher characterization: stale P4 events are superseded by Core with one `commitment.event_superseded` audit, published without invoking P3, and replay is safe. P5 has not formally resolved whether this Core audit alone satisfies the Recovery Case evidence contract. No dispatcher guard was bypassed.
 - PostgreSQL E2E and `alembic check` remain pending: no explicitly approved disposable `TEST_DATABASE_URL`/`TEST_DATABASE_APPROVED` or P4 test URL is configured here. Production P3 response subscriber and consequential execution remain disabled, including the 503 execution gate. Current P2/P4/P5 reviews and green PR CI are required before merge.
+
+## 2026-10-23 — PostgreSQL Authoritative CI Test Environment & Strict Mode Infrastructure (P5 / D-045 / BE-03)
+
+- **Context**: Resolving `BLOCK-20261021-001` (Docker unavailable locally on WSL1 host). CI on Ubuntu with PostgreSQL 16 service container is established as the authoritative, definitive test execution environment for MouManTAI.
+- **Architectural Policy & Decision (D-045)**:
+  1. **Authoritative CI Environment**: PostgreSQL 16 service in GitHub Actions CI runs the complete `backend/tests` suite under `REQUIRE_POSTGRES=1`. The job is intended to be blocking once green, but will only be marked as a required check in repository branch protection settings after achieving fully green runs.
+  2. **Strict Mode (`REQUIRE_POSTGRES=1`)**: When active, a missing `TEST_DATABASE_URL` or unreachable PostgreSQL database causes tests to immediately FAIL (via `pytest.fail`), never skip. Port rewrites (5432 → 5433) are strictly disabled.
+  3. **F12 Dialect-Binding Guard**: In PG mode, `DATABASE_URL` is pointed to the PostgreSQL suite database (`moumantai_suite`) before `app` is imported in `conftest.py`. Added `test_pg_strict_guard.py` asserting that BOTH `app.db.session.engine` and client request injected sessions have `dialect.name == "postgresql"`.
+  4. **Dynamic Application Isolation**: Between test cases in PG mode, an autouse fixture queries `information_schema.tables` and executes `TRUNCATE TABLE <all_application_tables> RESTART IDENTITY CASCADE` in a dedicated transaction, explicitly excluding `alembic_version`.
+  5. **Separate Migration Database**: `TEST_MIGRATION_DATABASE_URL` (`moumantai_migration`) is dedicated to schema migration tests (e.g. `test_migration_0007.py`), protecting the suite database from schema mutations and revision changes.
+  6. **F2 Connection Hook (Option b)**: Added support in `backend/migrations/env.py` to use a connection passed via `config.attributes["connection"]`, allowing programmatic in-process migrations without environment tampering.
+  7. **Feature Module Separation**: Feature suites (`backend/app/feasibility`, `backend/app/communication`) run in a separate non-blocking job (`backend-features`, `continue-on-error: true`).
+  8. **F7 Model/Migration Drift Allowlist**: Prepared allowlist `{"recovery_cases", "recovery_case_triggers"}` for Stage B drift checks. Guard tests will assert these tables are absent from `target_metadata`, and will fail on purpose when P3's ORM PR merges to signal allowlist removal.
+- **Delivered Changes**:
+  - `backend/migrations/env.py`: Implemented F2 option (b) connection hook in `run_migrations_online`.
+  - `backend/pyproject.toml`: Registered pytest marker `postgres`.
+  - `backend/tests/conftest.py`: Added strict mode handling, F12 `DATABASE_URL` pre-import setting, session-scoped `pg_engine` running Alembic head, dynamic `_truncate_all_application_tables`, and `test_engine` / `session` / `client` adaptation.
+  - `backend/tests/test_migration_0007.py`: Connected migration upgrade/downgrade to `TEST_MIGRATION_DATABASE_URL` under `REQUIRE_POSTGRES=1`.
+  - `backend/tests/test_pg_strict_guard.py`: Created F12 dialect guard test and strict mode verification.
+  - `.github/workflows/ci.yml`: Added `backend-postgres` (PostgreSQL 16 service, two DBs, zero-skip A1 policy, artifact uploads) and `backend-features` (non-blocking).
+  - `docs/evidence/postgres_ci_20261023.log`: Created template for CI log and artifact recording.
+  - `docs/requirements/PERSON_5_CORE_INTEGRATION_REQUIREMENTS.md`: Re-rated BE-03 items to "Implemented, pending CI evidence".
+- **Blocker Status**:
+  - `BLOCK-20261021-001`: Marked **resolution pending CI evidence** (NOT resolved until passing CI run confirmed by P5).
+- **Decision Tracking Note**:
+  - Highest existing decision: `D-044`; assigned: `D-045`. Note for P5: this ID may need renumbering at PR merge time depending on concurrent branch merges.
+- **Teammate Impact Analysis**:
+  - **P1 (Context)**: ZERO impact on P1 local development. CI now passes `P1_DATABASE_URL` pointing to PostgreSQL suite DB for integration tests.
+  - **P2 (Feasibility)**: ZERO impact. Feasibility tests run in `backend-features` job without blocking Core.
+  - **P3 (Recovery)**: ZERO impact on unmerged recovery code. Dedicated migration DB isolates recovery constraint assertions. F7 drift allowlist will be removed when P3 PR merges.
+  - **P4 (Communication)**: ZERO impact on communication schemas or endpoints.
+  - **P5 (Core/DB/Shell)**: Closes critical testing blind spot by establishing authoritative PostgreSQL execution.
+- **Validation**:
+  - Local SQLite regression: `python -m pytest backend/tests -q` (336 passed, 12 skipped, 0 failed in 15.01s). Pass count preserved.
+  - F12 guard test skipped cleanly in SQLite mode (`F12 guard active only when REQUIRE_POSTGRES=1`).
+  - Strict mode verification: `REQUIRE_POSTGRES=1` with missing or unreachable DB raises `Failed` (exit code 1), never skips.
+  - Alembic single head verified: `0016_p1_context_persistence (head)`.
+  - CI YAML syntax verified valid with `yaml.safe_load`.
+- **Pending Acknowledgements**: P2, P3, P4
