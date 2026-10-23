@@ -304,29 +304,49 @@ def publish_order_context_to_core(
     return refetched
 
 
-@router.post("/v1/attachments/upload", response_model=AttachmentRecord, status_code=201,
-             responses={**errors, 400: {"model": ApiError}, 413: {"model": ApiError}, 415: {"model": ApiError}})
-async def upload_attachment(
-    tenant: Tenant,
-    repository: Repository,
-    file: UploadFile = File(...),
-) -> AttachmentRecord:
-    content = await file.read()
-    media_type, filename = validate_attachment(file.filename or "attachment.bin", content, file.content_type)
-    content_sha256 = hashlib.sha256(content).hexdigest()
-    attachment_id = f"att_{uuid4().hex[:12]}"
-    evidence_ref = f"ev_att_{uuid4().hex[:12]}"
+try:
+    import python_multipart  # type: ignore[import-not-found]
+    _has_multipart = True
+except ImportError:
+    try:
+        import multipart  # type: ignore[import-not-found]
+        _has_multipart = True
+    except ImportError:
+        _has_multipart = False
 
-    record = AttachmentRecord(
-        attachment_id=attachment_id,
-        tenant_id=tenant.tenant_id,
-        evidence_ref=evidence_ref,
-        filename=filename,
-        media_type=media_type,
-        size_bytes=len(content),
-        content_sha256=content_sha256,
-    )
-    return repository.save_attachment(tenant.tenant_id, record, content)
+
+if _has_multipart:
+    @router.post("/v1/attachments/upload", response_model=AttachmentRecord, status_code=201,
+                 responses={**errors, 400: {"model": ApiError}, 413: {"model": ApiError}, 415: {"model": ApiError}})
+    async def upload_attachment(
+        tenant: Tenant,
+        repository: Repository,
+        file: UploadFile = File(...),
+    ) -> AttachmentRecord:
+        content = await file.read()
+        media_type, filename = validate_attachment(file.filename or "attachment.bin", content, file.content_type)
+        content_sha256 = hashlib.sha256(content).hexdigest()
+        attachment_id = f"att_{uuid4().hex[:12]}"
+        evidence_ref = f"ev_att_{uuid4().hex[:12]}"
+
+        record = AttachmentRecord(
+            attachment_id=attachment_id,
+            tenant_id=tenant.tenant_id,
+            evidence_ref=evidence_ref,
+            filename=filename,
+            media_type=media_type,
+            size_bytes=len(content),
+            content_sha256=content_sha256,
+        )
+        return repository.save_attachment(tenant.tenant_id, record, content)
+else:
+    @router.post("/v1/attachments/upload", response_model=AttachmentRecord, status_code=501,
+                 responses={**errors, 501: {"model": ApiError}})
+    async def upload_attachment_unavailable(
+        tenant: Tenant,
+        repository: Repository,
+    ) -> AttachmentRecord:
+        raise HTTPException(status_code=501, detail="Form data upload requires python-multipart to be installed")
 
 
 @router.get("/v1/attachments/{evidence_ref}/content",
