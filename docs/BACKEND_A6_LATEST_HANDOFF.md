@@ -4,7 +4,7 @@ Updated: 2026-10-24 (MYT)
 
 ## Status
 
-**DEVELOPMENT COMPLETE — INTEGRATION REVIEW PENDING.** The trusted P1 source reader is implemented and locally tested. Its final validation commit is `acefd0fa8c4f01d55943f1324aee6ef9c7a692c2` on `backend-a/feat-v2-2-p1-trusted-source-reader`, based on PR #50 head `fd7be2e2dae0b3275ea344f9f4d567b836c93cb1`. The requested Draft PR targets `backend-a/feat-v2-2-p1-order-context-mapper` and is **pending publication** in this checkpoint.
+**DEVELOPMENT COMPLETE — INTEGRATION REVIEW PENDING.** The trusted P1 source reader is implemented and locally tested. The validated code/test commit is `acefd0fa8c4f01d55943f1324aee6ef9c7a692c2` on `backend-a/feat-v2-2-p1-trusted-source-reader`, based on PR #50 head `fd7be2e2dae0b3275ea344f9f4d567b836c93cb1`. Documentation publication is tracked separately; the live PR head is the authoritative exact current branch commit.
 
 | Stage | Status | Evidence / gate |
 |---|---|---|
@@ -74,6 +74,8 @@ PostgreSQL validation is **NOT_RUN / BLOCKED**: `P1_TEST_DATABASE_URL`, `P1_DATA
 
 ## Publication and next task
 
-The Draft PR URL, exact published PR head, reviewer requests, and final clean worktree state will be recorded here after branch push and PR creation. No merge, auto-merge, Main push, production communication, acceptance, reservation, or Core transition is authorized or performed.
+Draft PR #55: [https://github.com/jiahui-1101/MouManTAI/pull/55](https://github.com/jiahui-1101/MouManTAI/pull/55), open, Draft, unmerged, and reported mergeable after GitHub completed its initial calculation. It targets `backend-a/feat-v2-2-p1-order-context-mapper` at `fd7be2e2dae0b3275ea344f9f4d567b836c93cb1`; its head is `backend-a/feat-v2-2-p1-trusted-source-reader`. Initial pushed head was `2e860a3cd430cb6538acb7483cf18d83bec0dbac`; this final publication metadata update is documentation-only, so the latest exact SHA is the head shown by PR #55 and the post-push `git rev-parse HEAD` check.
+
+Requested reviewers: P1 `mavisbong41` and P5 `Gan0117`. GitHub compare reports 4 commits ahead / 0 behind the requested base and 11 changed A6 files. No PR-triggered workflow runs were returned for the published head. The worktree was clean after the normal push and is rechecked after this documentation-only follow-up. No merge, auto-merge, Main push, production communication, acceptance, reservation, or Core transition was performed.
 
 Next safe Backend A slice after P1/P5 review: define and implement a trusted tenant-scoped commercial price-source and disclosure-currentness reader, preserving the mapper's fail-closed behavior. Do not add durable OrderRequest storage or acceptance workflow until its identity/version model and P4 assent evidence have explicit owner review; Backend B must approve the reread contract.
