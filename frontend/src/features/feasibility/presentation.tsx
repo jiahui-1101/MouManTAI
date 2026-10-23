@@ -11,7 +11,11 @@ export function SourceNotice({ source }: { source?: P2DataSource }) {
   </p> : null;
 }
 export function LoadFailure({ error, retry }: { error: unknown; retry: () => void }) {
-  return <div className="notice-card"><p role="alert">{errorText(error)}</p><button onClick={retry}>Retry loading</button></div>;
+  return <div className="notice-card p2-load-failure" role="alert">
+    <p className="eyebrow">Data unavailable</p><h2>Could not load this operational view</h2>
+    <p>{errorText(error)}</p><p className="muted">No feasibility or impact result is shown until the source responds.</p>
+    <button onClick={retry}>Retry loading</button>
+  </div>;
 }
 // Local page lifecycle only. P5 owns shared caching/auth/query setup.
 export function useFeatureLoad<T>(source: P2DataSource | undefined, id: string, loader: (source: P2DataSource, id: string) => Promise<T>) {

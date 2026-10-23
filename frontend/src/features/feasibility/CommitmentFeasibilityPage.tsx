@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import type { FeasibilityView, P2DataSource } from "./models";
 import { assessmentCaution, errorText, validateFeasibility, validateRecalculation } from "./data";
 import { Evidence, LoadFailure, SourceNotice, useFeatureLoad } from "./presentation";
@@ -56,6 +56,11 @@ function FeasibilityContent({ initial, source, reload }: { initial: FeasibilityV
       <p className="muted">Calculated against a versioned snapshot. FEASIBLE does not guarantee future delivery.</p></div>
       <div><button disabled={!canRecalculate || pending} onClick={recalculate}>{pending ? "Recalculating…" : "Recalculate"}</button></div>
     </header>
+    <nav className="workflow-links" aria-label="Related workflow pages">
+      <Link to={`/orders/${encodeURIComponent(c.order_id)}`}>Order context</Link>
+      <Link to={`/recovery/${encodeURIComponent(c.commitment_id)}`}>Recovery case</Link>
+      <Link to="/activity">Activity</Link>
+    </nav>
     {!canRecalculate && <p className="p2-warning">Recalculate unavailable: P5 persistence and authorization adapter and authoritative snapshot version are required.</p>}
     {pending && <p role="status">Previous assessment retained while a new assessment is requested.</p>}
     {error !== undefined && <div><p role="alert">{errorText(error)}</p><button onClick={recalculate} disabled={pending}>Retry recalculation</button> <button onClick={reload}>Reload current data</button></div>}

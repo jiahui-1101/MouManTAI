@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import type { CommitmentImpactView, ImpactClassification, ImpactView, P2DataSource } from "./models";
 import { hasEvidenceReferences, validateImpact } from "./data";
 import { Evidence, LoadFailure, SourceNotice, useFeatureLoad } from "./presentation";
@@ -25,6 +25,10 @@ function ImpactContent({ view }: { view: ImpactView }) {
   return <>
     <header className="page-heading"><div><p className="eyebrow">P2 · {view.impact_id}</p><h2>Operational impact detail</h2>
       <p className="muted">Dependency edges discover candidates. Recalculation and causal evidence establish impact.</p></div></header>
+    <nav className="workflow-links" aria-label="Related workflow pages">
+      <Link to="/activity">Activity</Link>
+      {view.candidate_commitment_ids.map(id => <Link key={id} to={`/commitments/${encodeURIComponent(id)}`}>Commitment {id}</Link>)}
+    </nav>
     <section className="notice-card" aria-label="Trigger and snapshots"><h3>Trigger and changed resources</h3>
       <p>{view.event_type} · {view.event_id}</p><p>Snapshots {view.before_snapshot_version} → {view.after_snapshot_version}</p>
       <Evidence refs={view.trigger_evidence_refs} />

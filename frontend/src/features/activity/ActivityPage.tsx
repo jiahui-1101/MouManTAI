@@ -689,9 +689,9 @@ export function TimelineEntryCard({ entry, onSelectCorrelation }: TimelineEntryC
             </Link>
           )}
           {assessmentId && (
-            <Link to={`/impact/${assessmentId}`} className="module-deep-link deep-link-f2">
-              F2 Feasibility ({assessmentId})
-            </Link>
+            <span className="module-deep-link deep-link-f2" title="This is an assessment reference; the impact route needs an impact ID.">
+              F2 assessment {assessmentId}
+            </span>
           )}
           {recoveryCaseId && (
             <Link to={`/recovery/${recoveryCaseId}`} className="module-deep-link deep-link-f3">

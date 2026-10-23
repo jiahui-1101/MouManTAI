@@ -243,7 +243,7 @@ describe('OrderContextDetail component', () => {
 
     await waitFor(() => {
       expect(operationalApi.publishContext).toHaveBeenCalledWith('ctx_mock_1');
-      expect(screen.getByText('Core: com_pub_123')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'View Core commitment: com_pub_123' })).toHaveAttribute('href', '/commitments/com_pub_123');
       expect(screen.getByText(/Successfully published to Core commitment com_pub_123/)).toBeInTheDocument();
     });
   });

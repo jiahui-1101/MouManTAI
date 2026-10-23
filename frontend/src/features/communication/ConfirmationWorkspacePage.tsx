@@ -52,6 +52,7 @@ function Workspace({ id, auth }: { id: string; auth: RequestAuthHeaders }) {
         <div className="cw-grid"><div className="cw-column">
           <section className="cc-panel" aria-label="Proposal and version details"><h3>Proposal & version</h3>
             <p className="cw-version"><code>{value.reference.proposal_id}</code><span>Version {value.reference.proposal_version}</span></p>
+            <nav className="workflow-links" aria-label="Related workflow pages"><Link to={`/commitments/${encodeURIComponent(value.reference.commitment_id)}`}>Commitment feasibility</Link><Link to={`/recovery/${encodeURIComponent(value.reference.commitment_id)}`}>Recovery case</Link></nav>
             <dl className="cc-facts"><Fact label="Commitment ID"><code>{value.reference.commitment_id}</code></Fact>
               <Fact label="Bound commitment version">{value.reference.commitment_version}</Fact>
               <Fact label="Proposal ID"><code>{value.reference.proposal_id}</code></Fact>

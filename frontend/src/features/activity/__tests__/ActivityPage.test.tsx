@@ -254,7 +254,7 @@ describe("ActivityPage (FE-03a–d, UI-02)", () => {
     expect(governanceHighlight).toHaveTextContent("user_manager_01");
   });
 
-  it("renders correlation chain grouping and deep links to /orders/:id, /impact/:id, /recovery/:id, and /confirmations/:id", async () => {
+  it("renders correlation chain grouping and only navigable links backed by matching route IDs", async () => {
     renderActivity();
 
     // Wait for entries to render
@@ -275,8 +275,8 @@ describe("ActivityPage (FE-03a–d, UI-02)", () => {
     const f1Link = screen.getByRole("link", { name: /F1 Order \(ord_101\)/i });
     expect(f1Link).toHaveAttribute("href", "/orders/ord_101");
 
-    const f2Link = screen.getByRole("link", { name: /F2 Feasibility \(asm_eval_01\)/i });
-    expect(f2Link).toHaveAttribute("href", "/impact/asm_eval_01");
+    expect(screen.getByText("F2 assessment asm_eval_01")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /F2 assessment asm_eval_01/i })).not.toBeInTheDocument();
 
     const f3Link = screen.getByRole("link", { name: /F3 Recovery \(rec_case_001\)/i });
     expect(f3Link).toHaveAttribute("href", "/recovery/rec_case_001");
