@@ -151,6 +151,11 @@ def test_response_evidence_and_outbox_never_advance_core(challenge, confirmation
     records = db.scalars(select(OutboxEventRecord).where(OutboxEventRecord.event_type == event)).all()
     assert len(records) == 1 and records[0].causation_id == "inbound_test_001"
     assert records[0].payload["proposal_version"] == 3 and records[0].payload["evidence_scope"] == "P4_EVIDENCE_ONLY"
+    if intent == "COUNTEROFFER":
+        decision = db.get(ConfirmationDecisionRecord, ("tenant_a", records[0].payload["decision_id"]))
+        assert records[0].payload["proposed_changes"] == decision.proposed_changes == {"quantity": "80"}
+    else:
+        assert "proposed_changes" not in records[0].payload
     for model in (OutboxEventRecord, AuditEventRecord):
         for record in db.scalars(select(model).where(model.event_type.like("confirmation.%"))):
             payload = record.payload if isinstance(record, OutboxEventRecord) else record.new_state
