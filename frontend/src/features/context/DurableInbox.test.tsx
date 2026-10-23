@@ -319,7 +319,7 @@ describe('durable synthetic Inbox', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Storage unavailable');
     fireEvent.click(screen.getByRole('button', { name: 'Retry Inbox' }));
     expect(await screen.findByText(/No persisted messages/)).toBeInTheDocument();
-    expect(screen.getByText('Local PostgreSQL · synthetic channel only')).toBeInTheDocument();
+    expect(screen.getByText('Local development identity · provider mode shown per message')).toBeInTheDocument();
   });
 
   it('fetches persisted metadata, retries detail errors and restores focus when closed', async () => {
@@ -353,6 +353,46 @@ describe('durable synthetic Inbox', () => {
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search messages' }), { target: { value: 'burger' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Processing' }), { target: { value: 'RECEIVED' } });
     await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'burger', processing: 'RECEIVED' })));
+  });
+
+  it('shows authoritative identity review and does not claim an unreported customer reply', async () => {
+    const api = fakeApi();
+    vi.mocked(api.list).mockResolvedValue(page([message]));
+    vi.mocked(api.getAssociation).mockResolvedValue({
+      association_id: 'assoc_verified', tenant_id: context.tenant_id, message_id: message.message_id,
+      status: 'LINK_VERIFIED', verified_customer: { customer_id: 'customer_1', tenant_id: context.tenant_id, legal_name: 'Acme Foods', display_name: 'Acme', active: true, verified_channels: ['WHATSAPP'], verified_contacts: [] },
+      verified_order: null, candidates: [], conflicts: [], version: 2, updated_at: timestamp,
+      last_decision: { decision: 'CONFIRMED', target_customer_id: 'customer_1', target_order_id: null, actor_id: 'staff_01', actor_role: 'STAFF', reason: 'Verified source', decided_at: timestamp },
+    });
+    render(<DurableInbox api={api} />);
+    const row = (await screen.findByRole('button', { name: 'View message synthetic_fixed_1' })).closest('tr')!;
+    expect(await within(row).findByText('Verified: Acme')).toBeInTheDocument();
+    expect(within(row).getByText('CONFIRMED')).toBeInTheDocument();
+    expect(within(row).getByText('Not reported')).toBeInTheDocument();
+    expect(api.getAssociation).toHaveBeenCalledWith(message.message_id);
+  });
+
+  it('keeps identity unavailable when the association read fails', async () => {
+    const api = fakeApi();
+    vi.mocked(api.list).mockResolvedValue(page([message]));
+    vi.mocked(api.getAssociation).mockRejectedValue(new Error('Association unavailable'));
+    render(<DurableInbox api={api} />);
+    const row = (await screen.findByRole('button', { name: 'View message synthetic_fixed_1' })).closest('tr')!;
+    expect(await within(row).findAllByText('Unavailable')).toHaveLength(2);
+    expect(within(row).getByText('Not reported')).toBeInTheDocument();
+  });
+
+  it('sorts by original received time through a keyboard-accessible header control', async () => {
+    const api = fakeApi();
+    const older = { ...message, message_id: 'older', raw: { ...raw, provider_message_id: 'older_provider', received_at: '2026-10-20T02:00:00Z' }, ingested_at: '2026-10-23T02:00:00Z' };
+    const newer = { ...message, message_id: 'newer', raw: { ...raw, provider_message_id: 'newer_provider', received_at: '2026-10-22T02:00:00Z' }, ingested_at: '2026-10-21T02:00:00Z' };
+    vi.mocked(api.list).mockResolvedValue(page([older, newer]));
+    render(<DurableInbox api={api} />);
+    await screen.findByText('2 persisted messages');
+    expect(screen.getAllByRole('button', { name: /^View message/ })[0]).toHaveAccessibleName('View message newer_provider');
+    const sort = screen.getByRole('button', { name: 'Received At' });
+    fireEvent.click(sort);
+    expect(screen.getAllByRole('button', { name: /^View message/ })[0]).toHaveAccessibleName('View message older_provider');
   });
 
   it('triggers process extraction from detail panel and displays extracted fields and RULE method', async () => {

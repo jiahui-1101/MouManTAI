@@ -1,20 +1,20 @@
 .recovery-page { display: flex; flex-direction: column; gap: 1.25rem; }
 .recovery-loading { padding: 3rem; text-align: center; color: #94a3b8; }
 .recovery-incident-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
-.recovery-panel, .recovery-detail-card { padding: 1.25rem; background: rgba(15, 23, 42, 0.7); border: 1px solid #1e293b; border-radius: 0.85rem; }
+.recovery-panel, .recovery-detail-card { padding: 20px; background: #ffffff; border: 1px solid rgba(28, 49, 83, 0.12); border-radius: 10px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); color: rgba(28, 49, 83, 0.9); }
 .section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.85rem; }
-.section-header h2 { margin: 0; color: #f8fafc; font-size: 1.1rem; }
+.section-header h2 { margin: 0; color: rgba(28, 49, 83, 0.9); font-size: 18px; font-weight: 700; }
 .recovery-facts { display: grid; gap: 0.65rem; margin: 1rem 0 0; }
 .recovery-facts div { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: 0.75rem; align-items: start; }
 .recovery-facts dt { color: #64748b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .recovery-facts dd { margin: 0; color: #e2e8f0; font-size: 0.84rem; }
 .recovery-constraint-list, .recovery-detail-grid ul { margin: 1rem 0 0; padding-left: 1.15rem; color: #fbbf24; font-size: 0.82rem; line-height: 1.6; }
 .recovery-options-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
-.recovery-option-card { display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem; border: 1px solid #334155; border-radius: 0.75rem; background: #0f172a; }
-.recovery-option-card.selected { border-color: #38bdf8; box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25); }
+.recovery-option-card { display: flex; flex-direction: column; gap: 0.75rem; padding: 18px; border: 1px solid rgba(28, 49, 83, 0.12); border-radius: 10px; background: #ffffff; color: rgba(28, 49, 83, 0.9); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); }
+.recovery-option-card.selected { border-color: #0767e8; box-shadow: 0 0 0 2px rgba(7, 103, 232, 0.2); }
 .recovery-option-header { display: flex; justify-content: space-between; gap: 0.75rem; }
 .recovery-option-kicker { margin: 0 0 0.3rem; color: #fb923c; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
-.recovery-option-card h3 { margin: 0; color: #f8fafc; font-size: 1.05rem; }
+.recovery-option-card h3 { margin: 0; color: rgba(28, 49, 83, 0.9); font-size: 16px; font-weight: 700; }
 .recovery-option-label { margin: 0; color: #cbd5e1; font-size: 0.84rem; }
 .recovery-status-pill, .recovery-status-badge, .recovery-recommended { display: inline-flex; align-items: center; width: fit-content; border-radius: 999px; padding: 0.25rem 0.55rem; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
 .recovery-status-pill { border: 1px solid #334155; color: #cbd5e1; }
