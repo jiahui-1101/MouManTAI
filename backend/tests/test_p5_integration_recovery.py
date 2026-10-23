@@ -160,7 +160,7 @@ def _persist_exact_plan_for_p4_response(session, event) -> None:
         snapshot_id=f"snapshot_{event.event_id}",
         snapshot_version=1,
         core_commitment_version=event.commitment_version,
-        evaluated_commitment_version=event.commitment_version,
+        evaluated_commitment_version=event.commitment_version - 1,
         payload={
             "proposal_id": event.payload["proposal_id"],
             "proposal_version": version,
