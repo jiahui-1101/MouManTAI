@@ -1,24 +1,31 @@
 # PromiseFlow — Intelligent Commitment Assurance & Recovery for SMEs
 
-**The problem.** SMEs struggle to keep customer delivery promises when order messages, inventory, suppliers and production information are disconnected. When something changes, an owner must work out which promises are at risk, what can still be delivered and whom to contact.
+**At a glance**
 
-**The solution.** PromiseFlow connects this information around each customer commitment. It checks feasibility, detects changes that threaten a promise, compares recovery options, and coordinates authorized action and customer confirmation.
+- **Problem:** SMEs struggle to keep delivery promises when order messages, inventory, suppliers and production information are disconnected.
+- **Solution:** Connect that information around each commitment; check feasibility, detect threats, compare recovery options and coordinate authorized action and customer confirmation.
+- **Differentiator:** Protect the promise from the moment it is made through change, decision and evidenced outcome. PromiseFlow is neither another chatbot nor a full ERP.
 
-**The distinction.** We focus on protecting customer commitments from the moment they are made through operational change, recovery decisions and evidenced outcomes. This is neither another chatbot nor a full ERP. The repository and application currently use the development name **MouManTAI**; PromiseFlow is the name used for this mentorship presentation. No code or API has been renamed.
+The repository and application currently use the development name **MouManTAI**; PromiseFlow is the mentorship presentation name. No code or API has been renamed.
 
 > **Status, 23 October 2026:** a synthetic, database-backed prototype has F1–F4 routes and screens. Separate components and selected cross-feature tests work. A single browser-to-worker-to-database journey covering trigger, approved recovery, customer response and outcome has **not** been independently verified on this main snapshot. Consequential authority is limited to explicitly keyed isolated demo mode. There is no live Orbyte or customer-channel connection.
 
 ## 1. Project overview
 
-The intended users are SME owners, operations managers and staff who must keep delivery promises despite changes to supplies, stock or capacity. Missing a change can mean an avoidable late delivery, repeated manual calls and disagreement over what was agreed. These are expected business problems, not measured outcomes of this prototype.
+- **Users:** SME owners, operations managers and staff responsible for customer delivery promises.
+- **Pain point:** A stock, supplier or capacity change can threaten an existing promise before the right person notices.
+- **Why it matters:** The team may face avoidable late delivery, repeated manual calls and disagreement over what was agreed. These are expected problems, not measured outcomes of this prototype.
 
 ## 2. A realistic SME scenario
 
-A caterer promises **100 lunch boxes by 3 pm tomorrow**. The packaging supplier then moves a delivery past the production cutoff. Today, the owner might search messages and spreadsheets, call suppliers, check stock, recalculate the order, choose between alternative packaging or asking for more time, and record the reply manually.
+**A caterer promises 100 lunch boxes by 3 pm tomorrow.** The packaging supplier then moves a delivery past the production cutoff.
 
-In the intended journey, the supplier update triggers a fresh feasibility check for affected commitments. The owner sees the shortage and two options with assumptions, cost and customer impact. A manager authorizes consequential action. A proposed deadline goes to the customer only after review. The response is tied to the precise proposal version; actual packing and delivery still require separate operational evidence.
-
-**What can be shown today:** `/recovery/demo` is a read-only synthetic supplier-delay walkthrough. It compares two strategies while explicitly leaving availability, approval and outcome unproved. Seeded API records show commitment states and audit history. The full caterer journey remains an integration target; selecting a discussion option does not approve or execute it.
+- **Manual response today:** search messages and spreadsheets, call suppliers, check stock, recalculate the order, choose alternative packaging or ask for more time, then record the reply.
+- **Intended PromiseFlow trigger:** the supplier update starts a fresh check of affected commitments.
+- **Decision:** show the shortage and recovery choices with assumptions, cost and customer impact.
+- **Human control:** a manager authorizes consequential action; a proposed new deadline needs customer acceptance.
+- **Outcome:** link the response to the exact proposal version, then track actual packing and delivery with separate operational evidence.
+- **What runs now:** `/recovery/demo` is a read-only synthetic comparison. Seeded API records show commitment states and audit history. Selecting a discussion option records no approval or action; the full caterer journey remains an integration target.
 
 ## 3. Four connected capabilities
 
@@ -29,22 +36,78 @@ In the intended journey, the supplier update triggers a fresh feasibility check 
 | **F3 — Intelligent Recovery & Change-to-Action (P3)** | Compare constrained choices, show trade-offs, request authorization and track permitted action. | Case, plan, approval and action APIs/pages exist. Approval needs trusted isolated actor mode. Current action creates a **synthetic internal review task**, not a purchase or supplier booking. |
 | **F4 — Closed-Loop Communication & Confirmation (P4)** | Prepare an approved message, track mock sending and resolve an explicit customer reply. | Communication, confirmation and follow-up routes/pages are mounted. The provider is mock; affirmative authority is for isolated synthetic runtime, not a real channel. |
 
-The **Shared Commitment Registry (P5)** is the common backbone, not a fifth feature. It keeps tenant and commitment identity, versioned terms, separate agreement/feasibility/risk/recovery/fulfilment states, audit records and outbox events. A request is not yet a confirmed promise; a feasible snapshot is not a delivery guarantee; approval is not execution; and `SENT`, `ACCEPTED` and `FULFILLED` are different facts.
+The **Shared Commitment Registry (P5)** is the common backbone, not a fifth feature. It keeps identity, versioned terms, distinct business states, audit records and outbox events.
+
+```mermaid
+graph TB
+    subgraph sources[Business information]
+        customer[Customer messages]
+        supplier[Supplier updates]
+        operations[Stock and production]
+    end
+    subgraph promise[PromiseFlow - four capabilities]
+        F1[F1 - Understand context] --> F2[F2 - Check feasibility and impact]
+        F2 --> F3[F3 - Compare recovery and approve action]
+        F3 --> F4[F4 - Communicate and confirm]
+    end
+    customer --> F1
+    supplier --> F1
+    operations --> F2
+    F1 <--> registry[(Shared Commitment Registry)]
+    F2 <--> registry
+    F3 <--> registry
+    F4 <--> registry
+    F4 --> customer
+    classDef source fill:#eef3ff,stroke:#6480b0,color:#17243a
+    classDef feature fill:#e8f7f3,stroke:#25806b,color:#123b32
+    classDef core fill:#fff1d9,stroke:#b8791f,color:#59360b
+    class customer,supplier,operations source
+    class F1,F2,F3,F4 feature
+    class registry core
+```
+
+This is a **conceptual map**, not a claim that every source or connector is live. The registry keeps important distinctions visible:
+
+- `REQUESTED` is not `CONFIRMED`; feasibility is tied to a snapshot, not a future guarantee.
+- `APPROVED` is not `EXECUTED`.
+- `SENT`, `ACCEPTED` and `FULFILLED` need different evidence.
 
 ## 4. One complete automated journey — target and present evidence
 
 ```mermaid
 flowchart LR
-    A[Supplier or customer change] --> B[Connected context and commitment]
-    B --> C[Impact and feasibility check]
-    C --> D[Recovery options and trade-offs]
-    D --> E[Manager approval]
-    E --> F[Permitted action or revised offer]
-    F --> G[Customer confirmation]
-    G --> H[Operational outcome and audit]
+    A([Change detected]) --> B[Connect source and commitment]
+    B --> C[Check impact and feasibility]
+    C --> D{Safe recovery option?}
+    D -- No or unknown --> R[Manual review and more evidence]
+    D -- Yes --> E[Compare cost, delay and risk]
+    E --> F{Manager approves?}
+    F -- No --> R
+    F -- Yes --> G{Change customer terms?}
+    G -- No --> I[Track permitted action]
+    G -- Yes --> S[Send revised offer]
+    S --> H{Customer accepts current offer?}
+    H -- No or unclear --> R
+    H -- Yes --> L[Record revised agreement]
+    I --> J[Verify operational outcome]
+    L --> J
+    J --> K([Audit trail])
+    classDef start fill:#dcecff,stroke:#3774a8,color:#123454
+    classDef check fill:#fff1d9,stroke:#b8791f,color:#59360b
+    classDef review fill:#ffe8e8,stroke:#b85b5b,color:#5d2222
+    classDef done fill:#e8f7f3,stroke:#25806b,color:#123b32
+    class A start
+    class D,F,G,H check
+    class R review
+    class I,L,J,K done
 ```
 
-This is the **target** journey. The repository has pieces of every stage and selected service/API integration tests. The normal worker leaves some mandatory subscribers unregistered; isolated mode registers the F2 confirmed-commitment evaluator and F3 risk trigger. P3 response handoff and real-world action remain restricted. An accepted revised offer can update agreement, but only separate trusted operational evidence can mark fulfilment.
+This is the **target** journey. Present evidence and limits:
+
+- Pieces of every stage exist, with selected service/API integration tests.
+- The normal worker leaves some mandatory subscribers unregistered; isolated mode registers the F2 confirmed-commitment evaluator and F3 risk trigger.
+- P3 response handoff and real-world action remain restricted.
+- Customer acceptance can update agreement, but **only separate operational evidence can establish fulfilment**.
 
 ## 5. Innovation and differentiation
 
@@ -55,11 +118,18 @@ This is the **target** journey. The repository has pieces of every stage and sel
 | Generic AI chat | Constrain suggestions with stock, timing, identity, approval and evidence checks. |
 | Order dashboard or ERP | Focus on the lifecycle of the *promise* and recovery across systems, rather than replacing every operational system. |
 
-The design uses change → impact → action, human control of consequential choices, and separate evidence for agreement and fulfilment. These are design distinctions, not proven superiority claims. Reusable adapters and policies could let the lifecycle serve catering, small manufacturing or other delivery-based SMEs once their data is available.
+- **Change → impact → action:** a disruption leads to a checked decision, not only a notification.
+- **Human control:** consequential choices require authorization.
+- **Evidence:** agreement and actual fulfilment are recorded separately.
+- **Reuse:** adapters and policies could serve catering, small manufacturing or other delivery-based SMEs once their data is available.
+
+These are design distinctions, not proven superiority claims.
 
 ## 6. Orbyte ecosystem fit
 
-Conceptually, a connected business hub could provide customer requests, inventory snapshots, supplier updates and approval identities. PromiseFlow would consume those through versioned adapters and publish risk, decision, action and audit events back to the hub. Each SME would map its products, units, cutoff times, approval roles and channels to the common workflow.
+- **Inputs a connected hub could provide:** customer requests, inventory snapshots, supplier updates and approval identities.
+- **PromiseFlow's proposed boundary:** consume versioned inputs and publish risk, decision, action and audit events.
+- **SME configuration:** map products, units, cutoff times, approval roles and channels to the same commitment workflow.
 
 **No official Orbyte API, sandbox or production connection is available.** The repository's event, inventory, contact and channel interfaces are internal or simulated. This is a proposed integration boundary, not an integration claim.
 
@@ -93,9 +163,11 @@ Isolated E2E mutation mode requires a private server-owned key and controlled da
 
 ## 9. Technology and architecture
 
-The codebase is a modular FastAPI backend with Pydantic, SQLAlchemy, Alembic and PostgreSQL configuration; React 19, TypeScript and Vite frontend; DB outbox worker; Pytest and Vitest tests; and Docker Compose. One registry owns authoritative commitment transitions. Version checks, audit references and tenant scopes connect the modules.
-
-Decision logic is **rules first**: known stock, timing, versions and policy determine feasibility and authorization. F1 includes optional extraction/OCR and remote GPU inference paths. Latest main contains a 26-case evaluation artifact for that path, but this audit did not reproduce its remote inference run or establish field performance in an SME pilot. Offline setup uses deterministic rules.
+- **Backend:** modular FastAPI, Pydantic, SQLAlchemy, Alembic and PostgreSQL configuration.
+- **Frontend:** React 19, TypeScript and Vite.
+- **Reliability and tests:** database outbox worker, Pytest, Vitest and Docker Compose.
+- **State ownership:** one registry controls authoritative commitment transitions; tenant scope, versions and audit references connect the modules.
+- **Decision approach:** rules determine feasibility and authorization from known stock, timing, versions and policy. F1 has optional extraction/OCR and remote GPU inference paths. Latest main includes a 26-case evaluation artifact, but this audit did not reproduce remote inference or establish SME pilot performance. The offline setup uses deterministic rules.
 
 ## 10. Installation and local setup
 
@@ -133,18 +205,30 @@ npm.cmd run dev
 
 ## 11. Security and human control
 
-Records and queries carry tenant identity, and server-side handlers check roles, versions and evidence for protected transitions. Recovery approval binds a manager, plan/proposal and snapshot versions; changed or expired authorization cannot be reused. Audit and outbox records preserve the trail. The demonstration uses generated synthetic records and a local mock sender. **Prototype limit:** standard request context maps demo actor IDs from headers; this is not production authentication. Do not put real customer data, payments or public outbound messaging through this setup.
+- **Tenant and role controls:** records and queries carry tenant identity; protected transitions check roles, versions and evidence server-side.
+- **Approval scope:** recovery approval binds a manager, plan/proposal and snapshot versions. Changed or expired authorization cannot be reused.
+- **Traceability:** audit and outbox records preserve the decision trail.
+- **Demo boundary:** generated synthetic records and a local mock sender only.
+- **Prototype limit:** standard request context maps demo actor IDs from headers. This is not production authentication; do not use real customer data, payments or public outbound messaging.
 
 ## 12. Business impact and validation
 
-Expected benefits are less manual coordination, faster impact assessment, fewer overlooked commitments, more consistent recovery decisions and clearer accountability. None is a measured customer outcome here. In a pilot, compare time from supplier change to affected-order identification, time to approved recovery, proportion of at-risk promises found before deadline, duplicate/manual contacts, and cases with complete agreement and fulfilment evidence. Record baseline, sample size and exceptions before claiming improvement.
+- **Expected benefits:** less manual coordination, faster impact assessment, fewer overlooked commitments, more consistent recovery decisions and clearer accountability.
+- **Pilot measures:** time to identify affected orders, time to approve recovery, at-risk promises found before deadline, duplicate/manual contacts, and completeness of agreement and fulfilment evidence.
+- **Evidence standard:** these benefits are **not measured customer outcomes** here. Record a baseline, sample size and exceptions before claiming improvement.
 
 ## 13. Scalability, adoption and business model
 
-The lifecycle could be reused across SMEs by configuring products, stock sources, deadlines, approval limits and channels. A narrow adoption path is one operational workflow and one synthetic-to-real connector pilot, followed by usability observation and measured value. Possible pricing is a small monthly subscription with usage tiers for connected channels or processed commitments; pricing has **not** been validated. Production requires official integration contracts, authenticated tenant membership, consent and channel permissions, monitoring, PostgreSQL concurrency and migration evidence, data protection and pilot validation.
+- **Reuse:** configure products, stock sources, deadlines, approval limits and channels for each SME.
+- **Adoption:** start with one workflow and one synthetic-to-real connector pilot; observe usability and measure value.
+- **Possible pricing:** a small monthly subscription with tiers for connected channels or processed commitments. This has **not** been validated.
+- **Production needs:** official integration contracts, authenticated tenant membership, consent and channel permissions, monitoring, PostgreSQL concurrency and migration evidence, data protection and pilot validation.
 
 ## 14. Team contributions, limitations and roadmap
 
-P1 owns context/inbox; P2 feasibility/impact; P3 recovery; P4 communication/confirmation; P5 registry, shared contracts, routing, outbox and integration. See [AGENTS.md](AGENTS.md), [requirements baseline](docs/REQUIREMENTS_SYSTEM.md), [team log](docs/TEAM_LOG.md) and [mentorship preparation](docs/MENTORSHIP_PREP.md). Requirements assign work; current code and tests determine the status above.
+- **Ownership:** P1 context/inbox; P2 feasibility/impact; P3 recovery; P4 communication/confirmation; P5 registry, shared contracts, routing, outbox and integration.
+- **Before 25 October:** record one reproducible end-to-end synthetic workflow on an approved disposable database, including failure and audit evidence. Check usability and explain partial states.
+- **Later work:** official Orbyte and live channel connections, production authentication and broader SME pilots.
+- **Review:** P5/release owner should review shared documentation before submission.
 
-Before 25 October, prioritize one recorded, reproducible end-to-end synthetic workflow on an approved disposable database, including failure and audit evidence. Then check usability and explain partial states. Official Orbyte and live channel connections, production auth and broader SME pilots are later work. Shared documentation should be reviewed by P5/release owner before submission.
+See [AGENTS.md](AGENTS.md), the [requirements baseline](docs/REQUIREMENTS_SYSTEM.md), [team log](docs/TEAM_LOG.md) and [mentorship preparation](docs/MENTORSHIP_PREP.md). Requirements assign work; current code and tests determine the status above.
