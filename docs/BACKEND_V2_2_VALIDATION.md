@@ -76,8 +76,9 @@ This section records validation on the separate Backend A branch, not PR #48/#49
 - Branch: backend-a/feat-v2-2-p1-order-context-mapper
 - Base: exact PR #48 head 741976d3cdd59352d66a30c5712ce9eca5d3bc16
 - Main at fetch: 3efa7f23fc2842664f1164cc1dce363f7371bdd3
-- Current code checkpoint: mapper/test implementation in the dedicated branch; latest local validation includes follow-up review fixes.
-- PR #48: open Draft, base main, head 741976d3...; PR #49: open Draft, base PR #48 branch, head 62040da0.... No PR has been created yet for this branch.
+- Validated code commit: `c492ac6` (`fix(backend-a): bind candidate evidence to validated sources`); the code did not change after the final local run. The handoff/docs checkpoint committed as `9681f9ad51ef8e6e0b3d250e51d17e7aa77a52be` when PR #50 was opened.
+- PR #50: [open Draft](https://github.com/jiahui-1101/MouManTAI/pull/50), base `codex/feat-v2-2-backend` (PR #48), opened at head `9681f9ad51ef8e6e0b3d250e51d17e7aa77a52be`; P1 `mavisbong41` and P5 `Gan0117` requested. No automatic PR check is reported for this stacked branch; the workflow filter only targets PRs based on `main`.
+- PR #48: open Draft, base `main`, head `741976d3cdd59352d66a30c5712ce9eca5d3bc16`; PR #49: open Draft, base PR #48 branch, head `62040da02b4ec3532ea02d734567e0913996ec2b`. Neither was modified or merged.
 - Requirements: BE-MSG-01, SYS-MSG-04, BE-ORD-01; BE-ORD-ACC-01 is only an input boundary here and its acceptance workflow remains out of scope.
 
 | Status | Evidence |
