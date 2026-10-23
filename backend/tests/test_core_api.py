@@ -112,7 +112,7 @@ def test_complete_9_endpoint_surface_and_patch_forbidden(client: TestClient) -> 
         json={
             "expected_commitment_version": 3,
             "fulfilment_state": "FULFILLED",
-            "evidence_refs": ["ev_pod_delivery_note_001"],
+            "evidence_refs": [f"ev_synthetic_delivery|tenant_test_01|{com_id}|pod_001"],
             "reason": "Delivery completed and signed by recipient",
         },
     )

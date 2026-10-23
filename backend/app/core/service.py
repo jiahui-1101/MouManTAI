@@ -11,6 +11,7 @@ from .commitments import get_overview
 from .dependencies import RequestContext
 from .errors import DomainError
 from .events import CoreEventType, OutboxStatus
+from .fulfilment_evidence import are_trusted_synthetic_delivery_refs
 from .models import AuditEventRecord, CommitmentProposalRecord, CommitmentRecord, OutboxEventRecord
 from .schemas import (
     AgreementState,
@@ -32,6 +33,9 @@ from .schemas import (
     RiskState,
     TimelineEntry,
 )
+
+
+_P4_VERIFIED_CONFIRMATION_AUTHORITY = object()
 
 
 TRANSITIONS: dict[str, dict[str, set[str]]] = {
@@ -483,7 +487,14 @@ class CommitmentService:
         commitment_id: str,
         request: ProposalConfirmRequest,
         commit: bool = True,
+        *,
+        _p4_verified_authority: object | None = None,
     ) -> CommitmentTransitionResponse:
+        trusted_p4 = (
+            _p4_verified_authority is _P4_VERIFIED_CONFIRMATION_AUTHORITY
+            and context.actor_id == "service_p4_confirmation"
+            and context.actor_role == "SERVICE"
+        )
         record = db.scalar(
             select(CommitmentRecord)
             .where(
@@ -510,7 +521,7 @@ class CommitmentService:
                 status_code=409,
             )
 
-        if context.actor_role not in {"OWNER", "MANAGER"}:
+        if context.actor_role not in {"OWNER", "MANAGER"} and not trusted_p4:
             raise DomainError("APPROVAL_REQUIRED", "Manager or owner approval is required to confirm proposal", status_code=403)
 
         if not request.evidence_refs:
@@ -568,7 +579,7 @@ class CommitmentService:
             OutboxEventRecord.commitment_id == commitment_id,
             OutboxEventRecord.event_type == CoreEventType.RECOVERY_COMMUNICATION_REQUESTED.value,
         )).all()
-        if any(source.payload.get("approval_id") and
+        if not trusted_p4 and any(source.payload.get("approval_id") and
                (source.payload.get("proposal_id"), source.payload.get("proposal_version")) == (
                    request.proposal_id, request.proposal_version,
                ) for source in p3_sources):
@@ -668,6 +679,102 @@ class CommitmentService:
             domain_event=_to_event(event),
         )
 
+    def apply_verified_p4_confirmation(self, db: Session, event: DomainEvent, evidence: dict):
+        """Apply a persisted P4 terminal decision in the caller-owned transaction.
+
+        The worker calls this only through the P4 bridge after its durable event,
+        inbound identity, confirmation session, decision, attempt and audit checks.
+        Recheck the envelope bindings here so a mismatched evidence dictionary
+        cannot authorize a Core transition.
+        """
+        payload = event.payload
+        decision = evidence.get("decision")
+        session = evidence.get("session")
+        attempt = evidence.get("attempt")
+        basis = evidence.get("basis")
+        reference = getattr(basis, "reference", None)
+        expected_event = {
+            "ACCEPT": ("confirmation.accepted", "ACCEPTED"),
+            "REJECT": ("confirmation.rejected", "REJECTED"),
+            "COUNTEROFFER": ("confirmation.counteroffer_received", "COUNTEROFFER_RECEIVED"),
+        }
+        intent = getattr(decision, "intent", None)
+        binding = (
+            getattr(event, "schema_version", None) == 1
+            and intent in expected_event
+            and event.event_type == expected_event[intent][0]
+            and payload.get("response_state") == expected_event[intent][1]
+            and payload.get("evidence_scope") == "P4_EVIDENCE_ONLY"
+            and payload.get("integration_mode") == "SYNTHETIC_ONLY"
+            and payload.get("intent") == intent
+            and session is not None
+            and decision is not None
+            and attempt is not None
+            and reference is not None
+            and event.commitment_id == reference.commitment_id
+            and event.commitment_version == reference.commitment_version
+            and payload.get("proposal_id") == reference.proposal_id
+            and payload.get("proposal_version") == reference.proposal_version
+            and payload.get("terms_digest") == basis.terms_digest
+            and payload.get("confirmation_id") == session.confirmation_id
+            and payload.get("confirmation_id") == decision.confirmation_id
+            and payload.get("communication_id") == session.communication_id
+            and payload.get("outbound_id") == session.outbound_id
+            and payload.get("decision_id") == decision.decision_id
+            and payload.get("attempt_id") == attempt.attempt_id
+            and decision.attempt_id == attempt.attempt_id
+            and attempt.confirmation_id == session.confirmation_id
+            and event.causation_id == attempt.inbound_message_id
+            and payload.get("evidence_refs") == attempt.evidence_refs
+            and session.tenant_id == event.tenant_id
+            and decision.tenant_id == event.tenant_id
+            and attempt.tenant_id == event.tenant_id
+            and reference.tenant_id == event.tenant_id
+            and session.recipient_identity_id == basis.recipient_identity_id
+            and session.customer_id == basis.customer_id
+            and session.channel == basis.channel
+            and decision.terminal_confirmation_id == session.confirmation_id
+            and session.state == expected_event[intent][1]
+            and session.consumed_at is not None
+        )
+        if not binding:
+            raise DomainError(
+                "CONFIRMATION_EVIDENCE_MISMATCH",
+                "P4 confirmation evidence does not match the persisted tenant, identity, proposal and response",
+                status_code=409,
+            )
+
+        # P3 owns the meaning and replanning of counteroffers. Core validates
+        # their evidence but does not infer new terms from them.
+        if intent == "COUNTEROFFER":
+            return None
+
+        context = RequestContext(
+            tenant_id=event.tenant_id,
+            actor_id="service_p4_confirmation",
+            actor_role="SERVICE",
+            correlation_id=event.correlation_id,
+            causation_id=event.event_id,
+        )
+        request = ProposalConfirmRequest(
+            proposal_id=reference.proposal_id,
+            proposal_version=reference.proposal_version,
+            expected_commitment_version=reference.commitment_version,
+            decision=intent,
+            evidence_refs=list(attempt.evidence_refs),
+            reason=f"Persisted P4 customer {intent.lower()} for the exact current proposal",
+            causation_id=event.event_id,
+            customer_identity_status=CustomerIdentityStatus.LINK_VERIFIED,
+        )
+        return self.confirm_proposal(
+            db,
+            context,
+            reference.commitment_id,
+            request,
+            commit=False,
+            _p4_verified_authority=_P4_VERIFIED_CONFIRMATION_AUTHORITY,
+        )
+
     def record_fulfilment(
         self,
         db: Session,
@@ -698,49 +805,29 @@ class CommitmentService:
         if context.actor_role not in {"OWNER", "MANAGER"}:
             raise DomainError("APPROVAL_REQUIRED", "Manager or owner evidence is required for fulfilment", status_code=403)
 
-        if not request.evidence_refs:
-            raise DomainError("EVIDENCE_REQUIRED", "Operational fulfilment evidence is required", status_code=422)
-
-        # Operational delivery evidence verification (BE-02h, UT-10, E2E-12)
-        trusted_delivery = any(
-            ref.startswith("ev_ops_delivery_")
-            or ref.startswith("ev_pod_")
-            or ref.startswith("ev_delivery_")
-            or ref.startswith("ev_ops_")
-            or ref.startswith("ev_shipping_")
-            or "delivery" in ref.lower()
-            or "delivered" in ref.lower()
-            or "pod" in ref.lower()
-            for ref in request.evidence_refs
-        )
-        is_only_receipt_or_msg = all(
-            (
-                ref.startswith("ev_receipt_")
-                or ref.startswith("ev_msg_")
-                or ref.startswith("ev_chat_")
-                or ref.startswith("ev_ocr_")
-                or "receipt" in ref.lower()
-            )
-            and not (
-                "delivery" in ref.lower()
-                or "delivered" in ref.lower()
-                or "pod" in ref.lower()
-                or "ops" in ref.lower()
-            )
-            for ref in request.evidence_refs
-        )
-        if not trusted_delivery or is_only_receipt_or_msg:
-            raise DomainError(
-                "INVALID_FULFILMENT_EVIDENCE",
-                "Trusted operational delivery evidence (e.g. ev_ops_delivery_* or ev_pod_*) is required for fulfilment",
-                status_code=422,
-            )
-
         if record.agreement_state != AgreementState.CONFIRMED.value:
             raise DomainError(
                 "INVALID_STATE_TRANSITION",
                 f"Cannot record fulfilment for commitment with agreement state {record.agreement_state}; must be CONFIRMED",
                 status_code=409,
+            )
+
+        if not request.evidence_refs:
+            raise DomainError("EVIDENCE_REQUIRED", "Operational fulfilment evidence is required", status_code=422)
+
+        # The demo has no trusted operational connector. Accept only explicit
+        # synthetic references bound to this tenant and commitment; action
+        # status, message delivery and arbitrary text are not fulfilment proof.
+        if not are_trusted_synthetic_delivery_refs(
+            request.evidence_refs,
+            tenant_id=context.tenant_id,
+            commitment_id=commitment_id,
+        ):
+            raise DomainError(
+                "INVALID_FULFILMENT_EVIDENCE",
+                "Use exact synthetic evidence refs in the form "
+                "ev_synthetic_delivery|<tenant_id>|<commitment_id>|<evidence_id>",
+                status_code=422,
             )
 
         if record.fulfilment_state == FulfilmentState.FULFILLED.value:
