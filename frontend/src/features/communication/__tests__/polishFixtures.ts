@@ -69,6 +69,18 @@ export function createPolishTransport(scenario: QAScenario = "ready", now = Date
       const code = scenario === "409" ? "PROPOSAL_ID_MISMATCH" : scenario === "503" ? "CONFIRMATION_PROCESSOR_AUTH_UNAVAILABLE" : "FORBIDDEN";
       return reply({ code, message: "PRIVATE QA DIAGNOSTICS NOT FOR UI", correlation_id: "corr_demo_error_" + "q".repeat(100) }, Number(scenario));
     }
+    if (url.pathname === "/v1/overview") {
+      return reply({
+        tenant_id: QA_AUTH.tenantId,
+        actor_id: QA_AUTH.actorId,
+        actor_role: "MANAGER",
+        integration_mode: "SYNTHETIC",
+        last_updated_at: data.time(0),
+        counts: { requested: 0, confirmed: 0, at_risk: 0, pending_approval: 0, execution_in_progress: 0, awaiting_confirmation: 0, fulfilled: 0 },
+        attention_queue: [],
+        commitments: [],
+      });
+    }
     if (url.pathname.endsWith("/runtime-capabilities")) return reply({ tenant_id: QA_AUTH.tenantId, mode: "CLOSED",
       label: "Synthetic QA only", can_record_preferences: false, can_revoke_preferences: false, integrated_demo_ready: false,
       blockers: ["CORE_APPROVAL_PRODUCER_UNAVAILABLE"] });

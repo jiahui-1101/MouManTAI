@@ -12,6 +12,7 @@ import { FollowUpQueuePage } from "./features/communication/FollowUpQueuePage";
 import { DurableInbox } from "./features/context/DurableInbox";
 import { OrderDetailPage } from "./features/orders/OrderDetailPage";
 import { OrderQueuePage } from "./features/orders/OrderQueuePage";
+import { HumanReviewPage } from "./features/context/HumanReviewPage";
 import { AuthProvider, useAuth } from "./shared/auth";
 import { apiRequest, authHeaders } from "./shared/api";
 import { createP2PublicApiSource } from "./features/feasibility/apiSource";
@@ -56,17 +57,17 @@ export function ImpactDetailRoute() {
   return <ImpactDetailPage source={source} />;
 }
 
+export interface AppRouteRegistration {
+  path: string;
+  element: ReactNode;
+}
+
 export interface AppProps {
   queryClient?: QueryClient;
   initialTenantId?: string;
   initialActorId?: string;
   /** Additional exact-path page registrations for the shared shell integration pass. */
   routeExtensions?: readonly AppRouteRegistration[];
-}
-
-export interface AppRouteRegistration {
-  path: string;
-  element: ReactNode;
 }
 
 export function App({ queryClient, initialTenantId, initialActorId, routeExtensions = [] }: AppProps = {}) {
@@ -91,17 +92,33 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
             <Route element={<AppShell />}>
               <Route path="/" element={<OverviewPage />} />
               <Route path="/overview" element={<OverviewPage />} />
+              <Route path="/calendar" element={<FeaturePlaceholder owner="Shared shell" title="Calendar" />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/inbox" element={<DurableInbox />} />
+              <Route path="/human-review" element={<HumanReviewPage />} />
               <Route path="/orders" element={<OrderQueuePage />} />
+              <Route path="/orders/pending" element={<FeaturePlaceholder owner="Orders" title="Pending Acceptance" />} />
               <Route path="/orders/:id" element={<OrderDetailPage />} />
+              <Route path="/planning" element={<FeaturePlaceholder owner="Planning" title="Planning" />} />
+              <Route path="/planning/feasibility" element={<FeaturePlaceholder owner="Planning" title="Feasibility" />} />
+              <Route path="/planning/portfolio" element={<FeaturePlaceholder owner="Planning" title="Portfolio Comparison" />} />
+              <Route path="/planning/forecasts" element={<FeaturePlaceholder owner="Planning" title="Forecasts" />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
+              <Route path="/suppliers" element={<FeaturePlaceholder owner="Suppliers" title="Supplier Directory" />} />
+              <Route path="/suppliers/compare" element={<FeaturePlaceholder owner="Suppliers" title="Offer Comparison" />} />
+              <Route path="/suppliers/sourcing" element={<FeaturePlaceholder owner="Suppliers" title="Sourcing" />} />
+              <Route path="/recovery" element={<FeaturePlaceholder owner="Recovery" title="Emergency Cases" />} />
+              <Route path="/recovery/plans" element={<FeaturePlaceholder owner="Recovery" title="Recovery Plans" />} />
               <Route path="/recovery/:id/plans" element={<RecoveryPage />} />
               <Route path="/recovery/:id" element={<RecoveryCaseRoutePage />} />
               <Route path="/communications" element={<CommunicationCenterPage />} />
               <Route path="/confirmations/:id" element={<ConfirmationWorkspacePage />} />
               <Route path="/communications/follow-ups" element={<FollowUpQueuePage />}/>
+              <Route path="/insights" element={<FeaturePlaceholder owner="Insights" title="Insights" />} />
+              <Route path="/insights/performance" element={<FeaturePlaceholder owner="Insights" title="Performance" />} />
+              <Route path="/insights/history" element={<FeaturePlaceholder owner="Insights" title="Decision History" />} />
+              <Route path="/settings" element={<FeaturePlaceholder owner="Settings" title="Settings" />} />
               {routeExtensions.map((route) => (
                 <Route key={route.path} path={route.path} element={route.element} />
               ))}

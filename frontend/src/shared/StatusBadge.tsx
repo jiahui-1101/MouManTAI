@@ -28,10 +28,10 @@ export function getStatusBadgeClass(_dimension: StatusDimension | undefined, sta
   ) {
     return "status-badge badge-warning";
   }
-  if (normalized === "OFFERED" || normalized === "AWAITING_CONFIRMATION" || normalized === "UNRESOLVED_CONFIRMATION") {
+  if (normalized === "OFFERED" || normalized === "AWAITING_CONFIRMATION" || normalized === "UNRESOLVED_CONFIRMATION" || normalized === "PROPOSAL_AWAITING_CUSTOMER") {
     return "status-badge badge-purple";
   }
-  if (normalized === "UNKNOWN" || normalized === "UNKNOWN_FEASIBILITY" || normalized === "NOT_ASSESSED") {
+  if (normalized === "UNKNOWN" || normalized === "UNKNOWN_FEASIBILITY" || normalized === "NOT_ASSESSED" || normalized === "EXECUTION_STATUS_UNKNOWN") {
     return "status-badge badge-unknown";
   }
   if (
@@ -48,7 +48,7 @@ export function getStatusBadgeClass(_dimension: StatusDimension | undefined, sta
   if (normalized === "CONDITIONAL" || normalized === "MANUAL_REVIEW" || normalized === "STALE_PLAN" || normalized === "HIGH") {
     return "status-badge badge-amber";
   }
-  if (normalized === "EXECUTING" || normalized === "APPROVED" || normalized === "MEDIUM" || normalized === "IN_PROGRESS") {
+  if (normalized === "EXECUTING" || normalized === "APPROVED" || normalized === "APPROVED_AWAITING_EXECUTION" || normalized === "ACCEPTING" || normalized === "ACCEPTED" || normalized === "COMPLETION_REPORTED" || normalized === "MEDIUM" || normalized === "IN_PROGRESS") {
     return "status-badge badge-info";
   }
   if (normalized === "CONFIRMED" || normalized === "FEASIBLE" || normalized === "FULFILLED" || normalized === "COMPLETED" || normalized === "RESOLVED") {
