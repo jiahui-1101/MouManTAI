@@ -134,12 +134,60 @@ def reconcile_canonical_fields(
     if not groups:
         groups["g1"] = {}
 
-    # Separate model candidates into items
-    model_items: dict[str, dict[str, ExtractedField]] = {}
+    # Separate model candidates into items and align with existing rule groups by span overlap
+    def _overlaps_group(cand: ExtractedField, g_fields: dict[str, ExtractedField]) -> bool:
+        for ce in cand.evidence:
+            for rf in g_fields.values():
+                # Do not match across groups via an unresolved multi-span rule field (e.g. quantity=None with all numbers)
+                if rf.value is None and len(rf.evidence) > 1:
+                    continue
+                for re_ev in rf.evidence:
+                    if ce.start < re_ev.end and re_ev.start < ce.end:
+                        return True
+        return False
+
+    # First group model candidates by their model-assigned group_id
+    raw_model_groups: dict[str, dict[str, ExtractedField]] = {}
     for c in valid_model_candidates:
         if c.field_name in ("sku", "quantity", "unit"):
-            gid = c.metadata.get("group_id") or "g1"
-            model_items.setdefault(gid, {})[c.field_name] = c
+            raw_gid = c.metadata.get("group_id") or "g1"
+            grp = raw_model_groups.setdefault(raw_gid, {})
+            existing_c = grp.get(c.field_name)
+            # Prefer qwen or candidates with explicit group_id over first-seen gliner span
+            if existing_c is None:
+                grp[c.field_name] = c
+            else:
+                c_ver = (c.evidence[0].method_version.lower() if c.evidence and c.evidence[0].method_version else "")
+                ex_ver = (existing_c.evidence[0].method_version.lower() if existing_c.evidence and existing_c.evidence[0].method_version else "")
+                if "qwen" in c_ver and "qwen" not in ex_ver:
+                    grp[c.field_name] = c
+
+    model_items: dict[str, dict[str, ExtractedField]] = {}
+    for mgid, mfields in raw_model_groups.items():
+        matched_gid = None
+        for rgid, rfields in groups.items():
+            if any(_overlaps_group(mc, rfields) for mc in mfields.values()):
+                matched_gid = rgid
+                break
+        if matched_gid is None:
+            if mgid in groups:
+                matched_gid = mgid
+            elif "g1" in groups and (not groups["g1"].get("sku") or groups["g1"]["sku"].value is None) and "g1" not in model_items:
+                matched_gid = "g1"
+            else:
+                matched_gid = mgid
+                groups.setdefault(matched_gid, {})
+        target_grp = model_items.setdefault(matched_gid, {})
+        for fn, mc in mfields.items():
+            if fn not in target_grp:
+                target_grp[fn] = mc
+
+    # Drop placeholder "g1" if real literal/model groups exist alongside an empty g1
+    if len(groups) > 1 and "g1" in groups:
+        g1_sku = groups["g1"].get("sku")
+        g1_model_sku = model_items.get("g1", {}).get("sku")
+        if (g1_sku is None or g1_sku.value is None) and (g1_model_sku is None or g1_model_sku.value is None):
+            del groups["g1"]
 
     # Exclude packaging breakdown candidates from being treated as canonical order quantities or SKUs
     # e.g., "pack into 4 separate boxes of 20pcs each" -> "4", "20", "each" must NOT become items
@@ -169,7 +217,11 @@ def reconcile_canonical_fields(
                 accepted_model_count += 1
             else:
                 # Unknown SKU remains UNRESOLVED, preserving evidence
-                final_sku = model_sku if not sku_field else sku_field
+                if sku_field is not None and sku_field.value is not None:
+                    final_sku = sku_field
+                else:
+                    final_sku = model_sku
+                    accepted_model_count += 1
         else:
             final_sku = sku_field or ExtractedField(field_name="sku", value=None, validation_status="MISSING", evidence=[])
 
@@ -189,6 +241,22 @@ def reconcile_canonical_fields(
                 )
             else:
                 final_qty = qty_field
+        elif (
+            qty_field is not None
+            and qty_field.value is None
+            and len(qty_field.evidence) > 1
+            and any(
+                re.search(
+                    r'^\s*(?:\b(?:or|atau)\b|或|/)\s*$',
+                    raw_text[qty_field.evidence[i].end:qty_field.evidence[i + 1].start],
+                    re.IGNORECASE,
+                )
+                for i in range(len(qty_field.evidence) - 1)
+                if qty_field.evidence[i].end <= qty_field.evidence[i + 1].start
+            )
+        ):
+            # Disjunctive quantity numbers in rule (e.g. "10 or 12"): keep unresolved None
+            final_qty = qty_field
         elif model_qty is not None and model_qty.value:
             # Check if model quantity is a packaging breakdown number
             is_packaging_number = False
@@ -198,7 +266,10 @@ def reconcile_canonical_fields(
                 ev_end = model_qty.evidence[0].end
                 surrounding = raw_text[max(0, ev_start - 15):min(len(raw_text), ev_end + 15)]
                 if PACKAGING_NOISE_RE.search(surrounding):
-                    is_packaging_number = True
+                    unit_cand = unit_field or model_unit
+                    unit_quote = (unit_cand.evidence[0].quote.lower() if unit_cand and unit_cand.evidence else "")
+                    if not re.search(r"\b(?:box|boxes|kotak|bungkus|pack|packs)\b", unit_quote):
+                        is_packaging_number = True
 
             if is_packaging_number:
                 # Do NOT adopt packaging breakdown numbers as the order quantity
@@ -236,17 +307,21 @@ def reconcile_canonical_fields(
             # Normalize model unit
             norm_u = UNIT_NORMALIZATION.get(model_unit.value.lower(), model_unit.value)
             # Check compatibility with tenant catalog SKU if known
-            sku_val = final_sku.value if final_sku and final_sku.validation_status == "VALID" else None
+            sku_val = final_sku.value if final_sku and final_sku.value in tenant_catalog_skus else None
             allowed_units = tenant_catalog_units.get(sku_val, set()) if sku_val else set()
-            if allowed_units and norm_u not in allowed_units:
-                # Incompatible unit remains UNRESOLVED
+            if not sku_val or (allowed_units and norm_u not in allowed_units) or (final_qty.validation_status != "VALID" and final_qty.metadata.get("domain_supported") != "true"):
+                # Unknown SKU, incompatible unit, or unsupported quantity -> unit remains UNRESOLVED
+                u_meta = model_unit.metadata.copy() if model_unit.metadata else {}
+                if sku_val and allowed_units and norm_u not in allowed_units:
+                    u_meta["reason"] = f"Unit '{norm_u}' incompatible with catalog SKU '{sku_val}'"
                 final_unit = ExtractedField(
                     field_name="unit",
                     value=norm_u,
                     validation_status="UNRESOLVED",
                     evidence=model_unit.evidence,
-                    metadata={"reason": f"Unit '{norm_u}' incompatible with catalog SKU '{sku_val}'"},
+                    metadata=u_meta,
                 )
+                accepted_model_count += 1
             else:
                 final_unit = ExtractedField(
                     field_name="unit",
@@ -277,5 +352,16 @@ def reconcile_canonical_fields(
     if canonical_delivery is not None:
         reconciled.append(canonical_delivery)
     reconciled.extend(canonical_items)
+
+    # Preserve conflicting model proposals for quantity when they disagree with a VALID canonical quantity
+    for c in valid_model_candidates:
+        if (
+            c.field_name == "quantity"
+            and c.value
+            and any(r.field_name == "quantity" and r.validation_status == "VALID" and r.value != c.value for r in reconciled)
+            and c not in reconciled
+        ):
+            reconciled.append(c)
+            accepted_model_count += 1
 
     return reconciled, accepted_model_count

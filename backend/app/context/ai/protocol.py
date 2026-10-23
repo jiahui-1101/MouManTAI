@@ -1,5 +1,6 @@
 """P1-private proposal protocol; not a shared BusinessContext contract."""
 from typing import Literal
+import re
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -66,10 +67,67 @@ class InferenceFailure(Exception):
     """Only fixed error codes cross the boundary; no credential/HTTP body echo."""
 
 
+class RawFallbackObservation(StrictModel):
+    field: Literal["product", "quantity", "unit", "delivery", "order_reference"]
+    message_id: str
+    quote: str = Field(min_length=1, max_length=500)
+    group_id: str | None = Field(default=None, max_length=40)
+    start: int | None = Field(default=None, ge=0)
+    end: int | None = Field(default=None, gt=0)
+
+
+class RawFallbackAnswer(StrictModel):
+    fields: list[RawFallbackObservation] = Field(max_length=40)
+
+
+def _recover_token_bounded_output(answer: InferenceOutput, request: InferenceInput) -> InferenceOutput | None:
+    if not answer.raw_output or answer.finish_reason != "stop":
+        return None
+    try:
+        parsed = RawFallbackAnswer.model_validate_json(answer.raw_output)
+    except Exception:
+        return None
+    sources = {m.id: m.text for m in request.messages}
+    recovered: list[Observation] = []
+    for cand in parsed.fields:
+        source = sources.get(cand.message_id)
+        if source is None:
+            return None
+        start, end = cand.start, cand.end
+        if start is None and end is None:
+            if source.count(cand.quote) == 1:
+                start = source.index(cand.quote)
+                end = start + len(cand.quote)
+            else:
+                matches = list(re.finditer(
+                    r"(?<![A-Za-z0-9])" + re.escape(cand.quote) + r"(?![A-Za-z0-9])",
+                    source,
+                ))
+                if len(matches) == 1:
+                    start, end = matches[0].span()
+        if start is None or end is None or not 0 <= start < end <= len(source) or source[start:end] != cand.quote:
+            return None
+        recovered.append(
+            Observation(
+                field=cand.field,
+                message_id=cand.message_id,
+                quote=cand.quote,
+                start=start,
+                end=end,
+                group_id=cand.group_id,
+            )
+        )
+    return answer.model_copy(update={"status": "ok", "fields": recovered})
+
+
 def validate_evidence(answer: InferenceOutput, request: InferenceInput) -> InferenceOutput:
     expected = MODEL_CONFIG[request.engine]
     if answer.engine != request.engine or (answer.model_id, answer.revision) != expected:
         raise InferenceFailure("model_mismatch")
+    if answer.status == "invalid_output" and answer.finish_reason == "stop":
+        recovered = _recover_token_bounded_output(answer, request)
+        if recovered is not None:
+            answer = recovered
     if answer.status != "ok" or answer.finish_reason != "stop":
         raise InferenceFailure("incomplete_or_invalid_output")
     sources = {m.id: m.text for m in request.messages}

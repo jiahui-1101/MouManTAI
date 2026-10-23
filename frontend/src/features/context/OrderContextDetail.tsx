@@ -259,11 +259,19 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
               </div>
               <ul style={{ margin: '4px 0 8px 18px', padding: 0, color: '#78350f', fontSize: '13px' }}>
                 {context.field_evidence?.sku?.map((ev, i) => {
-                  const qty = context.field_evidence?.quantity?.[i]?.normalized_value ?? context.field_evidence?.quantity?.[i]?.quote ?? '';
-                  const unit = context.field_evidence?.unit?.[i]?.normalized_value ?? context.field_evidence?.unit?.[i]?.quote ?? '';
+                  const meta = ev.normalization_metadata as Record<string, unknown> | undefined;
+                  const gid = String(meta?.group_id ?? ev.group_id ?? '');
+                  const matchedQtyEv = (gid
+                    ? context.field_evidence?.quantity?.find(q => String((q.normalization_metadata as Record<string, unknown> | undefined)?.group_id ?? q.group_id ?? '') === gid)
+                    : undefined) ?? context.field_evidence?.quantity?.[i];
+                  const matchedUnitEv = (gid
+                    ? context.field_evidence?.unit?.find(u => String((u.normalization_metadata as Record<string, unknown> | undefined)?.group_id ?? u.group_id ?? '') === gid)
+                    : undefined) ?? context.field_evidence?.unit?.[i];
+                  const qty = matchedQtyEv?.normalized_value ?? matchedQtyEv?.quote ?? '';
+                  const unit = matchedUnitEv?.normalized_value ?? matchedUnitEv?.quote ?? '';
                   return (
                     <li key={i}>
-                      <strong>"{String(ev.quote ?? ev.normalized_value ?? '')}"</strong>
+                      <strong>"{String(ev.normalized_value ?? ev.quote ?? '')}"</strong>
                       {qty ? ` — Quantity: ${qty}` : ''}
                       {unit ? ` ${unit}` : ''}
                       <span style={{ color: '#92400e', fontSize: '11px', marginLeft: '6px' }}>
@@ -274,7 +282,7 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
                 })}
               </ul>
               <span style={{ fontSize: '12px', color: '#92400e' }}>
-                These items are not yet mapped to authorized catalog SKUs. Click <strong>Review Order</strong> to map them to catalog products.
+                These items are not yet mapped to authorized catalog SKUs. Click <strong>Review &amp; Amend</strong> to map them to catalog products.
               </span>
             </div>
           ) : (

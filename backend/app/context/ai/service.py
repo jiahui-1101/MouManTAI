@@ -107,13 +107,29 @@ class ModelProposalService:
 
         rule_sku_valid = any(f.field_name == "sku" and f.validation_status == "VALID" for f in rules.fields)
         rule_qty_valid = any(f.field_name == "quantity" and f.validation_status == "VALID" for f in rules.fields)
+        rule_unit_valid = any(f.field_name == "unit" and f.validation_status == "VALID" for f in rules.fields)
         rule_del_valid = any(f.field_name == "requested_delivery_at" and f.validation_status == "VALID" for f in rules.fields)
         has_date_keywords = bool(DATE_TIME_PATTERNS.search(message.raw.text)) or any(
             f.field_name == 'requested_delivery_at' and f.evidence for f in rules.fields)
+        has_bare_relative_date = bool(re.search(
+            r'\b(tomorrow|today|tonight|esok|lusa)\b|明天|后天|大后天|今天',
+            message.raw.text,
+            re.IGNORECASE,
+        )) and not any(
+            f.field_name == "requested_delivery_at" and f.qualifier in ("EXACT", "DEADLINE") and f.validation_status == "VALID"
+            for f in rules.fields
+        )
         unresolved_items = any(f.field_name in {'sku', 'quantity', 'unit'}
             and f.validation_status in {'UNRESOLVED', 'CONFLICT', 'INVALID'} and f.evidence for f in rules.fields)
         is_non_order = request_intent(message.raw.text) != 'UNCLASSIFIED' or bool(NON_ORDER_PATTERNS.search(message.raw.text))
         missing_tz_only = (rule_sku_valid and rule_qty_valid and not unresolved_items and not message.raw.business_timezone)
+        standalone_followup_resolved = (
+            not rule_sku_valid
+            and (rule_unit_valid or rule_qty_valid)
+            and not unresolved_items
+            and (not has_date_keywords or rule_del_valid)
+            and any(f.field_name == "sku" and f.validation_status == "MISSING" for f in rules.fields)
+        )
 
         has_only_unsupported_unit = (
             rule_sku_valid and (not has_date_keywords or rule_del_valid)
@@ -122,6 +138,18 @@ class ModelProposalService:
             and not any(f.field_name == "quantity" and f.value is None for f in rules.fields)
             and not any(f.field_name == "sku" and f.validation_status != "VALID" for f in rules.fields)
             and not any(f.field_name == "requested_delivery_at" and f.metadata.get("rescheduling") == "true" for f in rules.fields)
+        )
+        has_resolved_self_correction = (
+            rule_sku_valid
+            and (not has_date_keywords or (rule_del_valid and not has_bare_relative_date))
+            and any(f.field_name == "quantity" and f.value is not None and f.metadata.get("quantity_correction") == "true" for f in rules.fields)
+            and not any(
+                f.field_name in {"sku", "quantity", "unit"}
+                and f.validation_status in {"UNRESOLVED", "CONFLICT", "INVALID"}
+                and f.evidence
+                and f.metadata.get("quantity_correction") != "true"
+                for f in rules.fields
+            )
         )
 
         # Evaluate deterministic sufficiency before calling any model
@@ -134,7 +162,13 @@ class ModelProposalService:
         elif has_only_unsupported_unit:
             needs_l1 = False
             l0_reason = "Missing catalog conversion data or incompatible unit requires authorized review; not escalated to GPU"
-        elif rule_sku_valid and rule_qty_valid and not unresolved_items and (not has_date_keywords or rule_del_valid):
+        elif has_resolved_self_correction:
+            needs_l1 = False
+            l0_reason = "L0 deterministic rules extracted self-corrected quantity and unit for human review"
+        elif standalone_followup_resolved:
+            needs_l1 = False
+            l0_reason = "L0 deterministic rules resolved standalone follow-up unit/quantity clarification"
+        elif rule_sku_valid and rule_qty_valid and not unresolved_items and (not has_date_keywords or (rule_del_valid and not has_bare_relative_date)):
             needs_l1 = False
             l0_reason = "L0 deterministic rules safely resolved all relevant order terms"
         else:

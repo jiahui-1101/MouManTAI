@@ -7,10 +7,27 @@ from __future__ import annotations
 
 
 from datetime import datetime, timezone
-
+import re
 from typing import Any
-
 from uuid import uuid4
+
+EXPLICIT_NEW_ORDER_RE = re.compile(
+    r"\b(?:new\s+order|separate\s+order|another\s+order|different\s+order|second\s+order|additional\s+order|"
+    r"fresh\s+order|independent\s+order|not\s+part\s+of\s+(?:the\s+)?(?:previous|earlier|last)\s+order|"
+    r"pesanan\s+baru|pesanan\s+berasingan|order\s+baru|order\s+lain)\b|"
+    r"(?:新订单|新的订单|另外一单|另一单|单独下单|新的一单)",
+    re.IGNORECASE,
+)
+
+EXPLICIT_FOLLOWUP_RE = re.compile(
+    r"\b(?:for\s+that\s+order|for\s+the\s+(?:earlier|previous|above|same)\s+order|"
+    r"regarding\s+(?:my|the|that|our)\s+order|about\s+(?:my|the|that|our)\s+order|"
+    r"the\s+unit\s+is|unit\s+is|quantity\s+is|update\s+(?:my|the|that)\s+order|"
+    r"add\s+to\s+(?:my|the|that)\s+order|change\s+(?:my|the|that)\s+order|"
+    r"untuk\s+pesanan\s+(?:itu|tadi)|pasal\s+order\s+tadi)\b|"
+    r"(?:关于刚才的订单|针对刚才的订单|刚才那单)",
+    re.IGNORECASE,
+)
 
 
 
@@ -210,23 +227,82 @@ class ContextService:
 
             target_order_id = assoc.verified_order.order_id
 
-
-
         existing_context: OrderContextRecord | None = None
 
-        if target_order_id:
+        # If this exact message was already linked to a context, return or reuse it
+        if hasattr(self.repo, "get_order_context_by_message"):
+            already_linked = self.repo.get_order_context_by_message(tenant_id, message_id)
+            if already_linked is not None and already_linked.tenant_id == tenant_id:
+                existing_context = already_linked
 
+        if existing_context is None and target_order_id:
             existing_context = self.repo.get_order_context_by_order(tenant_id, target_order_id)
 
-        # If not referenced by explicit order_id, check for active uncommitted context for this customer or sender
-        # ONLY if there are no association conflicts (e.g. referencing someone else's order or unverified reference)
+        # If not referenced by explicit order_id, only merge into an active uncommitted context
+        # when the message is an explicit follow-up/clarification and association is unambiguous.
+        # Same sender alone is NEVER sufficient evidence that two messages belong to the same order.
         cust_id = assoc.verified_customer.customer_id if assoc.verified_customer else None
         has_assoc_conflict = bool(assoc.conflicts)
-        if existing_context is None and not has_assoc_conflict and cust_id and hasattr(self.repo, "get_latest_active_context_by_customer"):
-            existing_context = self.repo.get_latest_active_context_by_customer(tenant_id, cust_id)
+        raw_text_msg = message.raw.text or ""
+        is_explicit_new_order = bool(EXPLICIT_NEW_ORDER_RE.search(raw_text_msg))
+        has_thread_or_reply = bool(message.raw.reply_to_provider_message_id or message.raw.thread_ref)
+        has_explicit_followup_cue = bool(EXPLICIT_FOLLOWUP_RE.search(raw_text_msg))
+        has_incoming_sku = any(grp.get("sku") for grp in item_groups.values()) or any(
+            f.field_name == "sku" and f.value for f in attempt.fields
+        )
+        is_partial_clarification = not has_incoming_sku and bool(
+            any(grp.get("unit") or grp.get("quantity") for grp in item_groups.values())
+            or extracted_delivery_at is not None
+        )
+        can_attempt_followup_merge = (
+            not is_explicit_new_order
+            and not has_assoc_conflict
+            and (has_thread_or_reply or has_explicit_followup_cue or is_partial_clarification)
+        )
 
-        if existing_context is None and not has_assoc_conflict and message.raw.sender_identity_id and hasattr(self.repo, "get_latest_active_context_by_sender"):
-            existing_context = self.repo.get_latest_active_context_by_sender(tenant_id, message.raw.sender_identity_id)
+        if existing_context is None and can_attempt_followup_merge:
+            # 1. Check thread_ref / reply_to_provider_message_id first if present
+            if has_thread_or_reply and hasattr(self.repo, "get_contexts_by_thread_or_reply"):
+                thread_ctxs = self.repo.get_contexts_by_thread_or_reply(
+                    tenant_id,
+                    message.raw.sender_identity_id,
+                    message.raw.reply_to_provider_message_id,
+                    message.raw.thread_ref,
+                )
+                if len(thread_ctxs) == 1:
+                    existing_context = thread_ctxs[0]
+                elif len(thread_ctxs) > 1:
+                    assoc.conflicts.append(
+                        "Ambiguous context association: multiple active order contexts match thread/reply reference; manual review required"
+                    )
+
+            # 2. If not resolved via thread/reply and no ambiguity conflict yet, check active contexts for customer/sender
+            if existing_context is None and not assoc.conflicts:
+                candidate_map: dict[str, OrderContextRecord] = {}
+                if cust_id and hasattr(self.repo, "list_active_contexts_by_customer"):
+                    for c in self.repo.list_active_contexts_by_customer(tenant_id, cust_id):
+                        candidate_map[c.context_id] = c
+                elif cust_id and hasattr(self.repo, "get_latest_active_context_by_customer"):
+                    c = self.repo.get_latest_active_context_by_customer(tenant_id, cust_id)
+                    if c is not None:
+                        candidate_map[c.context_id] = c
+
+                if not candidate_map and message.raw.sender_identity_id:
+                    if hasattr(self.repo, "list_active_contexts_by_sender"):
+                        for c in self.repo.list_active_contexts_by_sender(tenant_id, message.raw.sender_identity_id):
+                            candidate_map[c.context_id] = c
+                    elif hasattr(self.repo, "get_latest_active_context_by_sender"):
+                        c = self.repo.get_latest_active_context_by_sender(tenant_id, message.raw.sender_identity_id)
+                        if c is not None:
+                            candidate_map[c.context_id] = c
+
+                active_candidates = list(candidate_map.values())
+                if len(active_candidates) == 1:
+                    existing_context = active_candidates[0]
+                elif len(active_candidates) > 1:
+                    assoc.conflicts.append(
+                        "Ambiguous context association: multiple active order contexts exist for sender without an explicit order reference; manual review required"
+                    )
 
         # Security Guard: PO Reference and Identity Ownership Check
         # An order reference alone is NEVER authorization. Never associate an order belonging to another customer.
@@ -417,12 +493,18 @@ class ContextService:
                         resched_msg = f"Rescheduled delivery: moving from {orig_d} to {req_d}; review required"
                         if resched_msg not in conflicts:
                             conflicts.append(resched_msg)
-                    elif f.metadata.get("correction") == "true":
+                    if f.metadata.get("correction") == "true":
                         orig_d = f.metadata.get("original_delivery_date") or f.metadata.get("original_delivery_quote") or "original date"
                         req_d = f.metadata.get("requested_delivery_date") or f.metadata.get("requested_delivery_quote") or "new date"
                         corr_msg = f"Corrected delivery date: {orig_d} replaced with {req_d}; review required"
                         if corr_msg not in conflicts:
                             conflicts.append(corr_msg)
+                    if f.metadata.get("quantity_correction") == "true":
+                        orig_q = f.metadata.get("original_quantity") or "original quantity"
+                        req_q = f.metadata.get("requested_quantity") or f.value or "new quantity"
+                        qcorr_msg = f"Corrected quantity: {orig_q} replaced with {req_q}; review required"
+                        if qcorr_msg not in conflicts:
+                            conflicts.append(qcorr_msg)
                     elif f.metadata.get("date_range") == "true":
                         range_msg = f"Delivery date window range requires operator confirmation of specific deadline: {f.metadata.get('reason', '')}"
                         if range_msg not in conflicts:
@@ -570,12 +652,18 @@ class ContextService:
                         resched_msg = f"Rescheduled delivery: moving from {orig_d} to {req_d}; review required"
                         if resched_msg not in conflicts:
                             conflicts.append(resched_msg)
-                    elif f.metadata.get("correction") == "true":
+                    if f.metadata.get("correction") == "true":
                         orig_d = f.metadata.get("original_delivery_date") or f.metadata.get("original_delivery_quote") or "original date"
                         req_d = f.metadata.get("requested_delivery_date") or f.metadata.get("requested_delivery_quote") or "new date"
                         corr_msg = f"Corrected delivery date: {orig_d} replaced with {req_d}; review required"
                         if corr_msg not in conflicts:
                             conflicts.append(corr_msg)
+                    if f.metadata.get("quantity_correction") == "true":
+                        orig_q = f.metadata.get("original_quantity") or "original quantity"
+                        req_q = f.metadata.get("requested_quantity") or f.value or "new quantity"
+                        qcorr_msg = f"Corrected quantity: {orig_q} replaced with {req_q}; review required"
+                        if qcorr_msg not in conflicts:
+                            conflicts.append(qcorr_msg)
                     elif f.metadata.get("date_range") == "true":
                         range_msg = f"Delivery date window range requires operator confirmation of specific deadline: {f.metadata.get('reason', '')}"
                         if range_msg not in conflicts:

@@ -53,7 +53,8 @@ class RawAnswer(StrictModel):
 def ground_raw_answer(raw: str, request: InferenceInput) -> Answer:
     """Exact unique quotes may be located deterministically, without asking an
     LLM to do offset arithmetic. Supplied offsets must be correct; duplicates
-    require offsets. No substring repair, translation, fuzzy match or salvage.
+    require offsets or unique standalone token boundary. No substring repair,
+    translation, fuzzy match or salvage.
     """
     parsed = RawAnswer.model_validate_json(raw)
     sources = {m.id: m.text for m in request.messages}
@@ -63,9 +64,17 @@ def ground_raw_answer(raw: str, request: InferenceInput) -> Answer:
         if source is None:
             raise ValueError("Unknown source")
         start, end = candidate.start, candidate.end
-        if start is None and end is None and source.count(candidate.quote) == 1:
-            start = source.index(candidate.quote)
-            end = start + len(candidate.quote)
+        if start is None and end is None:
+            if source.count(candidate.quote) == 1:
+                start = source.index(candidate.quote)
+                end = start + len(candidate.quote)
+            else:
+                token_matches = list(re.finditer(
+                    r"(?<![A-Za-z0-9])" + re.escape(candidate.quote) + r"(?![A-Za-z0-9])",
+                    source,
+                ))
+                if len(token_matches) == 1:
+                    start, end = token_matches[0].span()
         if start is None or end is None or not 0 <= start < end <= len(source) or source[start:end] != candidate.quote:
             raise ValueError("Missing, ambiguous or inconsistent evidence")
         fields.append(Observation(field=candidate.field, message_id=candidate.message_id, quote=candidate.quote,

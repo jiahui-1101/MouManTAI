@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ContextReviewRequest, OrderContextRecord, RequestedItem } from './types';
 import { getReviewCatalog, operationalApi } from './operationalApi';
-import { reviewCandidates } from './reviewCandidates';
+import { extractEvidenceItemGroups, reviewCandidates } from './reviewCandidates';
 
 export interface ReviewDrawerProps {
   context: OrderContextRecord;
@@ -58,10 +58,17 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
   const evidenceUnit = (context.field_evidence?.unit?.[0]?.normalized_value || context.field_evidence?.unit?.[0]?.quote || '') as string;
   const evidenceDelivery = (context.field_evidence?.requested_delivery_at?.[0]?.normalized_value || context.field_evidence?.requested_delivery_at?.[0]?.quote || '') as string;
   const evidenceQualifier = (context.field_evidence?.requested_delivery_at?.[0]?.qualifier || '') as string;
+  const evidenceItemGroups = extractEvidenceItemGroups(context);
 
   const initialItems: RequestedItem[] = (context.requested_items && context.requested_items.length > 0)
     ? context.requested_items.map(it => ({ sku: it.sku || '', quantity: it.quantity || '', unit: it.unit || '' }))
-    : [{ sku: '', quantity: evidenceQty || '', unit: evidenceUnit || '' }];
+    : (evidenceItemGroups.length > 0
+      ? evidenceItemGroups.map(grp => ({
+          sku: grp.validSku || '',
+          quantity: grp.quantity || '',
+          unit: grp.unit || '',
+        }))
+      : [{ sku: '', quantity: evidenceQty || '', unit: evidenceUnit || '' }]);
 
   const [items, setItems] = useState<RequestedItem[]>(initialItems);
   const [deliveryAt, setDeliveryAt] = useState(
@@ -331,6 +338,27 @@ function ReviewDrawerForm({ context, onClose, onUpdated, catalogLoader }: Review
                 )}
                 <div className="p1-form-group">
                   <label htmlFor={idx === 0 ? "p1-input-sku" : `p1-input-sku-${idx}`}>SKU / Product</label>
+                  {evidenceItemGroups[idx]?.unverifiedProduct && !it.sku && (
+                    <div
+                      data-testid={`unverified-product-hint-${idx}`}
+                      style={{
+                        fontSize: '11px',
+                        background: '#fffbeb',
+                        border: '1px solid #fde68a',
+                        color: '#92400e',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        marginBottom: '4px',
+                      }}
+                    >
+                      Unverified product candidate: <strong>"{evidenceItemGroups[idx].unverifiedProduct}"</strong>
+                      {evidenceItemGroups[idx].quantity ? ` (${evidenceItemGroups[idx].quantity}${evidenceItemGroups[idx].unit ? ` ${evidenceItemGroups[idx].unit}` : ''})` : ''}
+                      {evidenceItemGroups[idx].start !== undefined && evidenceItemGroups[idx].end !== undefined
+                        ? ` [${evidenceItemGroups[idx].start}:${evidenceItemGroups[idx].end}]`
+                        : ''}
+                      {' — map to an approved SKU or mark unresolved'}
+                    </div>
+                  )}
                   <input
                     id={idx === 0 ? "p1-input-sku" : `p1-input-sku-${idx}`}
                     list="p1-approved-skus"

@@ -829,9 +829,9 @@ class PostgresMessageRepository:
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
 
-    def get_latest_active_context_by_customer(
+    def list_active_contexts_by_customer(
         self, tenant_id: str, customer_id: str
-    ) -> OrderContextRecord | None:
+    ) -> list[OrderContextRecord]:
         try:
             with Session(self.engine) as session:
                 stmt = (
@@ -843,32 +843,37 @@ class PostgresMessageRepository:
                         OrderContext.status.in_(["INFORMATION_PARTIAL", "UNRESOLVED", "CONFLICT"]),
                     )
                     .order_by(OrderContext.updated_at.desc())
-                    .limit(1)
                 )
-                row = session.scalar(stmt)
-                if row is None:
-                    return None
-                return order_context_record(row)
+                rows = session.scalars(stmt).all()
+                return [order_context_record(row) for row in rows]
         except SQLAlchemyError:
             raise PersistenceUnavailable("Context lookup temporarily unavailable") from None
 
-    def get_latest_active_context_by_sender(
-        self, tenant_id: str, sender_identity_id: str
+    def get_latest_active_context_by_customer(
+        self, tenant_id: str, customer_id: str
     ) -> OrderContextRecord | None:
+        rows = self.list_active_contexts_by_customer(tenant_id, customer_id)
+        return rows[0] if rows else None
+
+    def list_active_contexts_by_sender(
+        self, tenant_id: str, sender_identity_id: str
+    ) -> list[OrderContextRecord]:
         try:
             with Session(self.engine) as session:
                 recent_msgs = session.scalars(
                     select(InboundMessage)
                     .where(InboundMessage.tenant_id == tenant_id)
                     .order_by(InboundMessage.ingested_at.desc())
-                    .limit(30)
+                    .limit(50)
                 ).all()
                 matching_ids = [
                     m.message_id for m in recent_msgs
                     if isinstance(m.raw, dict) and m.raw.get("sender_identity_id") == sender_identity_id
                 ]
+                seen_ctx_ids: set[str] = set()
+                results: list[OrderContextRecord] = []
                 for msg_id in matching_ids:
-                    row = session.scalar(
+                    rows = session.scalars(
                         select(OrderContext)
                         .where(
                             OrderContext.tenant_id == tenant_id,
@@ -876,12 +881,72 @@ class PostgresMessageRepository:
                             OrderContext.core_commitment_id.is_(None),
                             OrderContext.status.in_(["INFORMATION_PARTIAL", "UNRESOLVED", "CONFLICT"]),
                         )
-                    )
-                    if row is not None:
-                        return order_context_record(row)
-                return None
+                        .order_by(OrderContext.updated_at.desc())
+                    ).all()
+                    for row in rows:
+                        if row.context_id not in seen_ctx_ids:
+                            seen_ctx_ids.add(row.context_id)
+                            results.append(order_context_record(row))
+                return results
         except SQLAlchemyError:
             raise PersistenceUnavailable("Context lookup temporarily unavailable") from None
+
+    def get_contexts_by_thread_or_reply(
+        self,
+        tenant_id: str,
+        sender_identity_id: str | None,
+        reply_to_provider_message_id: str | None,
+        thread_ref: str | None,
+    ) -> list[OrderContextRecord]:
+        if not reply_to_provider_message_id and not thread_ref:
+            return []
+        try:
+            with Session(self.engine) as session:
+                recent_msgs = session.scalars(
+                    select(InboundMessage)
+                    .where(InboundMessage.tenant_id == tenant_id)
+                    .order_by(InboundMessage.ingested_at.desc())
+                    .limit(50)
+                ).all()
+                reply_msg_ids: list[str] = []
+                thread_msg_ids: list[str] = []
+                for m in recent_msgs:
+                    if not isinstance(m.raw, dict):
+                        continue
+                    if sender_identity_id and m.raw.get("sender_identity_id") != sender_identity_id:
+                        continue
+                    if reply_to_provider_message_id and m.raw.get("provider_message_id") == reply_to_provider_message_id:
+                        reply_msg_ids.append(m.message_id)
+                    if thread_ref and m.raw.get("thread_ref") == thread_ref:
+                        thread_msg_ids.append(m.message_id)
+
+                candidate_msg_ids = reply_msg_ids if reply_msg_ids else thread_msg_ids
+                seen_ctx_ids: set[str] = set()
+                results: list[OrderContextRecord] = []
+                for msg_id in candidate_msg_ids:
+                    rows = session.scalars(
+                        select(OrderContext)
+                        .where(
+                            OrderContext.tenant_id == tenant_id,
+                            OrderContext.source_message_ids.contains([msg_id]),
+                            OrderContext.core_commitment_id.is_(None),
+                            OrderContext.status.in_(["INFORMATION_PARTIAL", "UNRESOLVED", "CONFLICT"]),
+                        )
+                        .order_by(OrderContext.updated_at.desc())
+                    ).all()
+                    for row in rows:
+                        if row.context_id not in seen_ctx_ids:
+                            seen_ctx_ids.add(row.context_id)
+                            results.append(order_context_record(row))
+                return results
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Context lookup temporarily unavailable") from None
+
+    def get_latest_active_context_by_sender(
+        self, tenant_id: str, sender_identity_id: str
+    ) -> OrderContextRecord | None:
+        rows = self.list_active_contexts_by_sender(tenant_id, sender_identity_id)
+        return rows[0] if rows else None
 
     def save_order_context(
         self,

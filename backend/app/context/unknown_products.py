@@ -23,6 +23,9 @@ NON_PRODUCT_WORDS = {
     'am', 'pm', 'am sharp', 'pm sharp', 'sharp', 'hour', 'hours', 'jam', 'pukul',
     'guest', 'guests', 'pax', 'people', 'person', 'persons', 'orang',
     'per box', 'per carton', 'per pack', 'each box', 'setiap kotak', 'setiap bungkus',
+    'boleh', 'boleh tak', 'lah', 'ya', 'ye', 'kan', 'kah', 'ok', 'okay',
+    'pls', 'plz', 'tq', 'terima kasih', 'saja', 'sahaja', 'je', 'juga',
+    'lagi', 'dulu', 'nanti', 'instead', 'actually', 'sorry', 'maaf',
 }
 
 
@@ -34,20 +37,19 @@ def literal_product_observations(text, *, catalog, tenant_id, units, excluded_sp
         r'(?:(?P<unit>' + unit_pattern + r')(?![A-Za-z])\s*)?'
         r'(?:of\s+)?', re.I)
     stop = re.compile(
-        r'[;,.!?\n，。；！？]|\b(?:for|delivery|deliver|delivered|by|on|tomorrow|today|before|after|at|'
-        r'esok|lusa|hantar|pada|sebelum|selepas|pukul|and|dan|or|atau|please|thanks|'
-        r'sent\s+over|sent|send|reach|get|arrive|driver)\b|'
+        r'[;,.!?\n，。；！？]|\b(?:for|delivery|deliver|delivered|drop\s+off|dropped\s+off|'
+        r'by|on|tomorrow|tmr|tmrw|today|before|after|at|around|between|from|to|until|'
+        r'esok|besok|lusa|hantar|dihantar|pada|sebelum|selepas|lepas|pukul|'
+        r'and|dan|or|atau|plus|please|pls|plz|thanks|thank\s+you|tq|terima\s+kasih|'
+        r'boleh|lah|ya|ye|kan|kah|ok|okay|sent\s+over|sent|send|reach|get|arrive|driver|'
+        r'instead|sorry|actually|maaf|serving)\b|'
+        r'\bjam(?=\s+[0-9])|'
         r'明天|后天|今天|送到|送达|交货|配送|和|以及', re.I)
     seen = set()
     for match in prefix.finditer(text):
         if any(a <= match.start() < b for a, b in excluded_spans):
             continue
-        # Known item + trailing quantity ("burger 9 pcs boleh?") is handled
-        # by the postfix pass; its conversational tail is not a new product.
         prior = text[:match.start()].rstrip()
-        if any(re.search(r'(?<![A-Za-z0-9_])' + re.escape(alias) + r'$', prior, re.I)
-               for alias in catalog_aliases):
-            continue
         tail = text[match.end():match.end() + 100]
         end = stop.search(tail)
         raw = tail[:end.start()] if end else tail
@@ -62,6 +64,11 @@ def literal_product_observations(text, *, catalog, tenant_id, units, excluded_sp
                    product.casefold() in {a.casefold() for a in p.aliases}]
         meanings = {(p.sku, p.unit) for p in matches}
         approved = matches[0] if len(meanings) == 1 else None
+        # Known item + trailing quantity ("burger 9 pcs boleh?") is handled
+        # by the postfix pass; its conversational tail is not a new product.
+        if not approved and any(re.search(r'(?<![A-Za-z0-9_])' + re.escape(alias) + r'$', prior, re.I)
+                                for alias in catalog_aliases):
+            continue
         if not approved and any(w.casefold() in catalog_aliases for w in product.split()):
             continue
         start = match.end() + len(raw) - len(raw.lstrip())

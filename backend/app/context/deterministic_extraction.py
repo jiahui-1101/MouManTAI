@@ -683,11 +683,24 @@ def _resolve_complex_temporal_semantics(text: str, dates_found: list[ParsedDate]
 
     # 1. Rescheduling: from <d1> to <d2>
     is_from_to = bool(re.search(r'\b(?:from|dari|从)\s*$', pre_d1)) and bool(re.search(r'^\s*(?:to|ke|pada|到|至)\b', between))
-    is_reschedule_verb = bool(re.search(r'\b(?:moving(?:\s+the)?\s+delivery|move(?:\s+the)?\s+delivery|reschedul\w*|postpon\w*|change(?:\s+the)?\s+delivery|delay(?:\s+the)?\s+delivery|tunda|ubah|tukar|改期|更改|推迟)\b', pre_d1))
+    is_reschedule_verb = bool(re.search(
+        r'\b(?:moving(?:\s+the)?\s+delivery|move(?:\s+the)?\s+delivery|reschedul\w*|postpon\w*|'
+        r'change(?:\s+the)?\s+delivery|delay(?:\s+the)?\s+delivery|shift(?:\s+the)?\s+delivery|'
+        r'tunda|ubah|tukar|改期|更改|推迟)\b',
+        pre_d1 + " " + between,
+    ))
     is_instead_of = bool(re.search(r'\b(?:instead\s+of|rather\s+than|daripada|而不是)\b', between))
 
-    # 2. Negation / Correction: not on <d1>, but on <d2>
-    is_negation = bool(re.search(r"\b(?:not\s+on|not|bukan\s+pada|bukan|tidak\s+pada|don't\s+deliver\s+on|do\s+not\s+deliver\s+on|jangan\s+hantar\s+pada|jangan\s+pada|cancel|batalkan|不是在|不是|不要在)\b", pre_d1)) and bool(re.search(r"\b(?:but|on|deliver|hantar|send|hantar\s+pada|改在|要在|而是|instead)\b", between))
+    # 2. Negation / Correction: not on <d1>, but on <d2> / move delivery to <d2>
+    is_negation = bool(re.search(
+        r"\b(?:not\s+on|not|bukan\s+pada|bukan|tidak\s+pada|don't\s+deliver\s+on|do\s+not\s+deliver\s+on|"
+        r"jangan\s+hantar\s+pada|jangan\s+pada|cancel(?:\s+delivery(?:\s+on)?)?|batalkan|不是在|不是|不要在|取消)\b",
+        pre_d1,
+    )) and bool(re.search(
+        r"\b(?:but|on|to|for|deliver|delivery|move|moving|reschedul\w*|postpon\w*|change|shift|"
+        r"hantar|send|tukar|tunda|ubah|ke|pada|hantar\s+pada|改在|要在|改到|推迟到|而是|instead)\b",
+        between,
+    ))
 
     # 3. Date Range: between <d1> and <d2>
     is_range = bool(re.search(r'\b(?:between|antara|在)\b', pre_d1)) and bool(re.search(r'\b(?:and|dan|到|至|与)\b', between))
@@ -753,15 +766,28 @@ def _resolve_complex_temporal_semantics(text: str, dates_found: list[ParsedDate]
                     target_iso = target_dt.isoformat()
 
         full_clause_start = min(orig_date.start, target_date.start)
-        lead_from = text[max(0, full_clause_start - 8):full_clause_start]
-        m_lead = re.search(r'\b(?:from|dari|not\s+on|not|bukan\s+pada|bukan|从)\s*$', lead_from, re.I)
+        lead_from = text[max(0, full_clause_start - 30):full_clause_start]
+        m_lead = re.search(
+            r"\b(?:from|dari|not\s+on|not|bukan\s+pada|bukan|don't\s+deliver\s+on|do\s+not\s+deliver\s+on|"
+            r"jangan\s+hantar\s+pada|jangan\s+pada|cancel\s+delivery\s+on|从|不是在|不要在)\s*$",
+            lead_from,
+            re.I,
+        )
         if m_lead:
             full_clause_start -= (len(lead_from) - m_lead.start())
 
         full_clause_end = max(orig_date.end, target_span_end)
+        tail_instead = text[full_clause_end:min(len(text), full_clause_end + 45)]
+        m_tail = re.match(
+            r"^(?:\s+(?:before|by|at|around|sebelum|pada|pukul)\s+[0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm|pagi|petang|malam)?)?\s*\b(?:instead|sahaja|saja)\b",
+            tail_instead,
+            re.I,
+        )
+        if m_tail:
+            full_clause_end += m_tail.end()
 
         metadata = {
-            "rescheduling": "true" if mode == "rescheduling" else "false",
+            "rescheduling": "true" if (mode == "rescheduling" or is_reschedule_verb) else "false",
             "correction": "true" if mode == "correction" else "false",
             "temporal_role": "requested_new_delivery",
             "original_delivery_date": orig_date.date_val.isoformat(),
@@ -778,9 +804,16 @@ def _resolve_complex_temporal_semantics(text: str, dates_found: list[ParsedDate]
             metadata["deadline_time"] = f"{assoc_time.hour:02d}:{assoc_time.minute:02d}:00" if assoc_time else ""
             metadata["deadline_quote"] = deadline_quote
 
+        is_weekday_target = bool(WEEKDAY_RE.fullmatch(target_date.raw.strip()))
+        resolved_status = (
+            "VALID"
+            if (mode == "correction" and is_reschedule_verb and assoc_time is not None and target_iso and not is_weekday_target)
+            else "UNRESOLVED"
+        )
         return {
             "value": target_iso,
             "qualifier": qualifier,
+            "status": resolved_status,
             "target_span": (target_span_start, target_span_end),
             "full_span": (full_clause_start, full_clause_end),
             "metadata": metadata,
@@ -936,7 +969,7 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
         delivery_field = field(
             "requested_delivery_at",
             sem_temporal["value"],
-            "UNRESOLVED",
+            sem_temporal.get("status", "UNRESOLVED"),
             ev_spans,
             qualifier=sem_temporal["qualifier"],
             metadata=sem_temporal["metadata"],
@@ -1076,27 +1109,43 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
                         delivery_field.value = None
         else:
             date_relation = qualifier
-            qualifier = "DATE_ONLY"
-            delivery_field = field(
-                "requested_delivery_at",
-                parsed_date.date_val.isoformat(),
-                "VALID",
-                [(span_start, span_end)],
-                qualifier=qualifier,
-                metadata={
-                    "qualifier": qualifier,
-                    "date_relation": date_relation,
-                    "raw_expression": text[span_start:span_end],
-                    "timezone": message.raw.business_timezone or "",
-                },
-            )
-            # Date-only is compared as a business calendar date, not midnight.
-            # No current wall clock or automatic roll-forward is used.
-            if tz and parsed_date.date_val < message.raw.received_at.astimezone(tz).date():
-                delivery_field.metadata.update(reason="Delivery date is in the past relative to received_at; manual review required",
-                                               candidate_delivery_value=delivery_field.value)
-                delivery_field.validation_status = "UNRESOLVED"
-                delivery_field.value = None
+            if WEEKDAY_RE.fullmatch(parsed_date.raw.strip()):
+                delivery_field = field(
+                    "requested_delivery_at",
+                    None,
+                    "UNRESOLVED",
+                    [(span_start, span_end)],
+                    qualifier=None,
+                    metadata={
+                        "candidate_delivery_date": parsed_date.date_val.isoformat(),
+                        "date_relation": date_relation,
+                        "raw_expression": text[span_start:span_end],
+                        "timezone": message.raw.business_timezone or "",
+                        "reason": "Weekday reference without explicit calendar date requires confirmation",
+                    },
+                )
+            else:
+                qualifier = "DATE_ONLY"
+                delivery_field = field(
+                    "requested_delivery_at",
+                    parsed_date.date_val.isoformat(),
+                    "VALID",
+                    [(span_start, span_end)],
+                    qualifier=qualifier,
+                    metadata={
+                        "qualifier": qualifier,
+                        "date_relation": date_relation,
+                        "raw_expression": text[span_start:span_end],
+                        "timezone": message.raw.business_timezone or "",
+                    },
+                )
+                # Date-only is compared as a business calendar date, not midnight.
+                # No current wall clock or automatic roll-forward is used.
+                if tz and parsed_date.date_val < message.raw.received_at.astimezone(tz).date():
+                    delivery_field.metadata.update(reason="Delivery date is in the past relative to received_at; manual review required",
+                                                   candidate_delivery_value=delivery_field.value)
+                    delivery_field.validation_status = "UNRESOLVED"
+                    delivery_field.value = None
     elif times_found:
         pt = times_found[0]
         delivery_spans.append((pt.start, pt.end))
@@ -1171,7 +1220,8 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     # -----------------------------------------------------------------------
     PACKAGING_SPEC_RE = re.compile(
         r'\b(?:pack(?:ed)?(?:\s+into|\s+in)?|packing)\s+(?P<boxes>[0-9]+)\s+(?:separate\s+)?(?P<box_unit>boxes|box|packs|pack|cartons|carton|bags|bag|trays|tray|kotak|bungkus)(?:\s+of\s+(?P<per_box>[0-9]+)\s*(?P<unit>[A-Za-z]+)?(?:\s+each)?)?\b|'
-        r'\b(?P<p_per_box>[0-9]+)\s*(?P<p_unit>[A-Za-z]+)?\s+(?:per|each|setiap)\s+(?P<p_box_unit>box|boxes|carton|cartons|kotak|bungkus)\b',
+        r'\b(?P<p_per_box>[0-9]+)\s*(?P<p_unit>[A-Za-z]+)?\s+(?:per|each|setiap)\s+(?P<p_box_unit>box|boxes|carton|cartons|kotak|bungkus)\b|'
+        r'\b(?:each|every|per|setiap)\s+(?:box|carton|pack|tray|bag|kotak|bungkus)\s+(?:has|contains|holds|ada)\s+[0-9]+\s*(?:[A-Za-z]+)?\b',
         re.IGNORECASE
     )
     packaging_spans = [m.span() for m in PACKAGING_SPEC_RE.finditer(text)]
@@ -1181,38 +1231,146 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
     non_quantity_spans = [o.span() for o in orders] + delivery_spans + packaging_spans
     non_quantity_spans += [m.span() for m in re.finditer(
         r"\b(?:phone|tel|reference|ref)\s*[:#]?\s*[0-9]+\b|"
-        r"\bpukul\s+[0-9]+(?::[0-9]+)?\s*(?:pagi|petang|malam)\b", text, re.IGNORECASE)]
+        r"\bpukul\s+[0-9]+(?::[0-9]+)?\s*(?:pagi|petang|malam)\b|"
+        r"\b[0-9]+\s*(?:guests|guest|pax|people|persons|person|orang)\s+event\b", text, re.IGNORECASE)]
 
     numbers = [
         m for m in NUMBER_RE.finditer(text)
         if not any(s <= m.start() and m.end() <= e for s, e in non_quantity_spans)
     ]
 
+    from .unknown_products import literal_product_observations
+
+    qty_correction_cue_re = re.compile(
+        r"\b(?:sorry|actually|make\s+that|make\s+it|change\s+(?:it\s+|that\s+)?to|update\s+(?:it\s+|that\s+)?to|"
+        r"revise\s+(?:it\s+|that\s+)?to|amend\s+(?:it\s+|that\s+)?to|correct(?:ion)?(?:\s+to)?|"
+        r"no\s*[,]?\s*(?:wait|sorry|make\s+it|make\s+that|actually)|wait\s*[,]?\s*(?:make\s+that|make\s+it|actually)|"
+        r"maaf|silap|tukar\s+(?:jadi|ke|kepada)|ubah\s+(?:jadi|ke|kepada))\b|"
+        r"(?:抱歉|不好意思|不对|更正|改成|改为)",
+        re.IGNORECASE,
+    )
+    qty_disjunction_re = re.compile(
+        r"\b(?:or|atau|maybe|mungkin|either|between|and|dan|per|each)\b|或者|还是",
+        re.IGNORECASE,
+    )
+
+    def _find_adjacent_unit(num_match):
+        tail_slice = text[num_match.end():min(len(text), num_match.end() + 24)]
+        m_u = re.match(r"^\s*(?P<unit>[A-Za-z]+|[\u4e00-\u9fff])(?![A-Za-z])", tail_slice)
+        if m_u and m_u.group("unit").lower() in UNIT_NORMALIZATION:
+            u_raw = m_u.group("unit")
+            u_span = (num_match.end() + m_u.start("unit"), num_match.end() + m_u.end("unit"))
+            return u_raw, UNIT_NORMALIZATION[u_raw.lower()], u_span
+        return None, None, None
+
+    qty_self_correction = None
+    if len(numbers) == 2:
+        n1, n2 = numbers[0], numbers[1]
+        between_nums = text[n1.end():n2.start()]
+        after_n2 = text[n2.end():min(len(text), n2.end() + 30)]
+        has_cue = bool(qty_correction_cue_re.search(between_nums)) or bool(re.search(r"\binstead\b", after_n2, re.I))
+        if has_cue and not qty_disjunction_re.search(between_nums):
+            u2_raw, u2_norm, u2_span = _find_adjacent_unit(n2)
+            u1_raw, u1_norm, u1_span = _find_adjacent_unit(n1)
+            qty_self_correction = {
+                "orig_match": n1,
+                "new_match": n2,
+                "raw_unit": u2_raw or u1_raw,
+                "norm_unit": u2_norm or u1_norm,
+                "unit_span": u2_span or u1_span,
+            }
+
     if not mentions:
-        # Check if this message is a follow-up specifying standalone quantity / unit (e.g. "50 pcs", "pcs please", "50 boxes")
-        standalone_m = re.search(
-            r'\b(?:(?P<qty>[0-9]+)\s*)?(?P<unit>pcs|pc|piece|pieces|keping|biji|box|boxes|kotak|kg|kilogram|kilograms|kilo|pack|packs|paket|bungkus)\b|'
-            r'(?:(?P<qty_zh>[0-9]+)\s*)?(?P<unit_zh>[个支盒箱包])',
-            text,
-            re.IGNORECASE,
-        )
-        if standalone_m:
-            raw_u = standalone_m.group("unit") or standalone_m.group("unit_zh")
-            raw_q = standalone_m.group("qty") or standalone_m.group("qty_zh")
-            norm_u = UNIT_NORMALIZATION.get(raw_u.lower()) if raw_u else None
-            u_span = standalone_m.span("unit") if standalone_m.group("unit") else standalone_m.span("unit_zh")
+        if qty_self_correction is not None:
+            n1 = qty_self_correction["orig_match"]
+            n2 = qty_self_correction["new_match"]
+            non_quantity_spans.extend([n1.span(), n2.span()])
+        pre_unknown_items = list(literal_product_observations(
+            text, catalog=catalog, tenant_id=message.raw.tenant_id,
+            units=UNIT_NORMALIZATION, excluded_spans=non_quantity_spans,
+        ))
+        if pre_unknown_items:
+            # Unknown product observations exist; do not emit a phantom g1 group.
+            pass
+        elif qty_self_correction is not None:
+            n1 = qty_self_correction["orig_match"]
+            n2 = qty_self_correction["new_match"]
+            raw_u = qty_self_correction["raw_unit"]
+            norm_u = qty_self_correction["norm_unit"]
+            u_span = qty_self_correction["unit_span"]
             fields.append(field("sku", None, "MISSING", metadata={"group_id": "g1"}))
-            if raw_q:
-                q_span = standalone_m.span("qty") if standalone_m.group("qty") else standalone_m.span("qty_zh")
-                fields.append(field("quantity", raw_q, "VALID", [q_span], metadata={"group_id": "g1", "resolved_by_rule": "true"}))
+            fields.append(field(
+                "quantity",
+                n2.group(),
+                "UNRESOLVED",
+                [n2.span(), n1.span()],
+                metadata={
+                    "group_id": "g1",
+                    "quantity_correction": "true",
+                    "original_quantity": n1.group(),
+                    "original_quantity_quote": text[n1.start():n1.end()],
+                    "requested_quantity": n2.group(),
+                    "resolved_by_rule": "true",
+                    "reason": f"Customer self-corrected quantity from {n1.group()} to {n2.group()}; manual review required",
+                },
+            ))
+            if raw_u and u_span:
+                fields.append(field(
+                    "unit",
+                    norm_u or raw_u,
+                    "UNRESOLVED",
+                    [u_span],
+                    metadata={
+                        "group_id": "g1",
+                        "raw_unit": raw_u,
+                        "normalized_unit": norm_u or raw_u,
+                        "quantity_correction": "true",
+                        "resolved_by_rule": "true",
+                    },
+                ))
             else:
-                fields.append(field("quantity", None, "UNRESOLVED" if numbers else "MISSING", [m.span() for m in numbers], metadata={"group_id": "g1"}))
-            fields.append(field("unit", norm_u or raw_u, "VALID", [u_span], metadata={"group_id": "g1", "resolved_by_rule": "true", "normalized_unit": norm_u or raw_u}))
+                fields.append(field("unit", None, "MISSING", [], metadata={"group_id": "g1"}))
         else:
-            fields.extend([
-                field("sku", None, "UNRESOLVED"),
-                field("quantity", None, "UNRESOLVED" if numbers else "MISSING", [m.span() for m in numbers]),
-            ])
+            # Check if this message is a follow-up specifying standalone quantity / unit (e.g. "50 pcs", "pcs please", "For that order, the unit is pcs.")
+            standalone_m = re.match(
+                r'^\s*(?:(?:for\s+that\s+order|for\s+the\s+order|regarding\s+that\s+order|untuk\s+pesanan\s+itu|关于那个订单)\s*[,:;-]?\s*)?'
+                r'(?:(?:the\s+)?unit\s+is\s+|(?:the\s+)?quantity\s+is\s+|unit\s*[:=]?\s*|数量是\s*|单位是\s*)?'
+                r'(?:(?P<qty>[0-9]+)\s*(?P<unit>pcs|pc|piece|pieces|keping|biji|box|boxes|kotak|kg|kilogram|kilograms|kilo|pack|packs|paket|bungkus)\b'
+                r'|(?P<unit_only>pcs|pc|piece|pieces|keping|biji|box|boxes|kotak|kg|kilogram|kilograms|kilo|pack|packs|paket|bungkus)\b'
+                r'|(?P<qty_zh>[0-9]+)\s*(?P<unit_zh>[个支盒箱包])'
+                r'|(?P<unit_zh_only>[个支盒箱包]))'
+                r'(?:\s+(?:please|pls|thanks|thank\s+you|terima\s+kasih|ya|lah|谢谢))?\s*[.!。！]*\s*$',
+                text,
+                re.IGNORECASE,
+            )
+            if standalone_m:
+                raw_u = (
+                    standalone_m.group("unit")
+                    or standalone_m.group("unit_only")
+                    or standalone_m.group("unit_zh")
+                    or standalone_m.group("unit_zh_only")
+                )
+                raw_q = standalone_m.group("qty") or standalone_m.group("qty_zh")
+                norm_u = UNIT_NORMALIZATION.get(raw_u.lower()) if raw_u else None
+                u_group_name = (
+                    "unit" if standalone_m.group("unit")
+                    else "unit_only" if standalone_m.group("unit_only")
+                    else "unit_zh" if standalone_m.group("unit_zh")
+                    else "unit_zh_only"
+                )
+                u_span = standalone_m.span(u_group_name)
+                fields.append(field("sku", None, "MISSING", metadata={"group_id": "g1"}))
+                if raw_q:
+                    q_span = standalone_m.span("qty") if standalone_m.group("qty") else standalone_m.span("qty_zh")
+                    fields.append(field("quantity", raw_q, "VALID", [q_span], metadata={"group_id": "g1", "resolved_by_rule": "true"}))
+                else:
+                    fields.append(field("quantity", None, "UNRESOLVED" if numbers else "MISSING", [m.span() for m in numbers], metadata={"group_id": "g1"}))
+                fields.append(field("unit", norm_u or raw_u, "VALID", [u_span], metadata={"group_id": "g1", "resolved_by_rule": "true", "normalized_unit": norm_u or raw_u}))
+            else:
+                fields.extend([
+                    field("sku", None, "UNRESOLVED"),
+                    field("quantity", None, "UNRESOLVED" if numbers else "MISSING", [m.span() for m in numbers]),
+                ])
     else:
         for idx, (_, product, mention) in enumerate(mentions, start=1):
             ambiguous = any(
@@ -1256,11 +1414,58 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
             m for m in UNSAFE_ASSOCIATION_RE.finditer(item_clause)
             if not any(s <= (sent_start + m.start()) and (sent_start + m.end()) <= e for s, e in delivery_spans + packaging_spans)
             and not (m.group().lower() in ("and", "dan") and re.match(
-                r"\s+(?:please\s+)?(?:deliver|delivery|send|ship|hantar)\s+"
-                r"(?:on|by|tomorrow|today|esok|at|before|after|pada|sebelum)\b",
+                r"\s+(?:please\s+)?(?:deliver|delivery|delivered|send|ship|drop\s+off|hantar|dihantar)\b",
                 item_clause[m.end():], re.IGNORECASE))
+            and not (m.group().lower() in ("not", "bukan", "jangan") and any(
+                0 <= d.start - (sent_start + m.end()) <= 6 for d in dates_found
+            ))
         ]
-        if len(mentions) != 1 or unsafe_matches or len(numbers) > 1:
+        if len(mentions) == 1 and qty_self_correction is not None:
+            n1 = qty_self_correction["orig_match"]
+            n2 = qty_self_correction["new_match"]
+            raw_u = qty_self_correction["raw_unit"]
+            norm_u = qty_self_correction["norm_unit"]
+            u_span = qty_self_correction["unit_span"]
+            non_quantity_spans.extend([n1.span(), n2.span()])
+            fields.append(field(
+                "quantity",
+                n2.group(),
+                "UNRESOLVED",
+                [n2.span(), n1.span()],
+                metadata={
+                    "group_id": "g1",
+                    "quantity_correction": "true",
+                    "original_quantity": n1.group(),
+                    "original_quantity_quote": text[n1.start():n1.end()],
+                    "requested_quantity": n2.group(),
+                    "resolved_by_rule": "true",
+                    "reason": f"Customer self-corrected quantity from {n1.group()} to {n2.group()}; manual review required",
+                },
+            ))
+            if raw_u and u_span:
+                effective_catalog = PROVISIONAL_PRODUCTS if catalog is None else catalog
+                tenant_sku_units = {
+                    p.unit for p in effective_catalog
+                    if p.tenant_id == message.raw.tenant_id and p.sku == product.sku
+                } or {product.unit}
+                unit_supported = (norm_u in tenant_sku_units)
+                fields.append(field(
+                    "unit",
+                    norm_u or raw_u,
+                    "UNRESOLVED" if unit_supported else "INVALID",
+                    [u_span],
+                    metadata={
+                        "group_id": "g1",
+                        "raw_unit": raw_u,
+                        "normalized_unit": norm_u or raw_u,
+                        "domain_supported": "true" if unit_supported else "false",
+                        "quantity_correction": "true",
+                        "resolved_by_rule": "true",
+                    },
+                ))
+            else:
+                fields.append(field("unit", None, "MISSING", [], metadata={"group_id": "g1"}))
+        elif len(mentions) != 1 or unsafe_matches or len(numbers) > 1:
             fields.append(field("quantity", None, "UNRESOLVED", [m.span() for m in numbers]))
         elif prefix is None or len(numbers) != 1 or prefix.span("quantity") != numbers[0].span():
             fields.append(field("quantity", None, "UNRESOLVED" if numbers else "MISSING", [m.span() for m in numbers]))
@@ -1352,12 +1557,27 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
 
     # Preserve unfamiliar nouns as observations even when the worker is offline.
     # These values are deliberately not canonical inventory items.
-    from .unknown_products import literal_product_observations
-    for item in literal_product_observations(text, catalog=catalog, tenant_id=message.raw.tenant_id,
-                                             units=UNIT_NORMALIZATION, excluded_spans=non_quantity_spans):
+    obs_items = list(literal_product_observations(
+        text, catalog=catalog, tenant_id=message.raw.tenant_id,
+        units=UNIT_NORMALIZATION, excluded_spans=non_quantity_spans,
+    ))
+    has_multiple_items = len(obs_items) > 1 or len(mentions) > 1
+    for item in obs_items:
         approved = item['approved']
-        if approved and any(f.field_name == 'quantity' and f.value is not None and
-                            any((ev.start, ev.end) == item['quantity_span'] for ev in f.evidence) for f in fields):
+        q_start, q_end = item['quantity_span']
+        is_disjunctive_qty = bool(
+            re.search(r'[0-9]+\s*(?:\b(?:or|atau)\b|或|/)\s*$', text[:q_start], re.IGNORECASE)
+            or re.match(r'^\s*(?:\b(?:or|atau)\b|或|/)\s*[0-9]+', text[q_end:], re.IGNORECASE)
+        )
+        if approved and (
+            is_disjunctive_qty
+            or any(
+                f.field_name == 'quantity'
+                and (f.value is not None or not has_multiple_items)
+                and any((ev.start, ev.end) == item['quantity_span'] for ev in f.evidence)
+                for f in fields
+            )
+        ):
             continue
         group = item['group_id']
         if approved:
@@ -1382,9 +1602,13 @@ def extract_explicit_fields(message: StoredMessage, *, catalog: Sequence[Product
 
     intent = request_intent(text)
     if intent != 'UNCLASSIFIED':
+        demote_valid = intent in {'NON_ORDER', 'TENTATIVE', 'CANCELLED'} or bool(
+            re.search(r'\b(?:assistant:|arahan sistem|admin note|skip\b.{0,25}\breview|bypass\b.{0,25}\breview|zero[ -]?cost)\b|跳过人工审核|tanpa semakan staf', text, re.I)
+        )
         for observation in fields:
             observation.metadata['request_intent'] = intent
-            if observation.validation_status == 'VALID':
+            observation.metadata['business_authorization'] = 'REQUIRES_HUMAN_REVIEW'
+            if demote_valid and observation.validation_status == 'VALID':
                 observation.validation_status = 'UNRESOLVED'
                 observation.metadata['reason'] = f'{intent}: observed terms are not an established current request; review required'
 
