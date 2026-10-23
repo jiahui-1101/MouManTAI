@@ -182,13 +182,13 @@ class MessageDraftService:
             "communication_id": communication_id, "order_id": order_id,
             "proposal_evidence_refs": proposal_evidence,
             "authority": authority.model_dump(mode="json"),
-            "template_key": command.template_key, "template_version": templates.TEMPLATE_VERSION,
+            "template_key": command.template_key, "template_version": templates.template_version(command.template_key),
             "language": command.language,
         })
         return MessageDraftView(
             draft_id=f"draft_{uuid4().hex}", tenant_id=context.tenant_id,
             communication_id=communication_id, reference=ref, order_id=order_id,
-            template_key=command.template_key, template_version=templates.TEMPLATE_VERSION,
+            template_key=command.template_key, template_version=templates.template_version(command.template_key),
             language=command.language, channel=authority.channel, subject=subject, body=body,
             approved_terms=terms, approval_evidence_refs=authority.approval_evidence_refs,
             proposal_evidence_refs=proposal_evidence,

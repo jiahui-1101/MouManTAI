@@ -45,8 +45,14 @@ class DirectoryContactAdapter:
 
 
 def get_customer_directory() -> "CustomerDirectory | None":
-    # Current P1 protocol has no get_contact_for_channel and importing its package
-    # eagerly initializes OCR. No dynamic file-loader or copied model workaround.
-    # P1/P5 can inject a real lightweight directory through this dependency once
-    # its contract and import boundary exist. No fixture is installed by default.
+    from .trusted_runtime import enabled
+    if enabled():
+        try:
+            from app.context.customer_directory import SyntheticCustomerDirectory
+        except ImportError:
+            deny("P1_RUNTIME_DEPENDENCIES_UNAVAILABLE", "P1 Directory dependencies are unavailable", 503)
+        return SyntheticCustomerDirectory()  # Only used after explicit disposable runtime/principal guards.
+    # P1 now exposes typed contact lookup, but its default Directory is explicitly
+    # synthetic. Do not promote it to production identity authority. P1/P5 must
+    # provide the authenticated directory boundary for a production composition.
     return None

@@ -33,7 +33,19 @@ from .synthetic_authorities import (
 router = APIRouter(prefix="/v1/communications", tags=["communications"])
 
 
-def get_request_authority(x_isolated_e2e_key: str | None = Header(default=None)) -> RequestAuthority:
+def get_trusted_authority(db=Depends(get_db), directory=Depends(get_customer_directory),
+    x_isolated_e2e_key: str | None = Header(default=None), x_p4_processor_key: str | None = Header(default=None)):
+    from .trusted_runtime import enabled, IsolatedPrincipal, PersistedCommunicationAuthority
+    if enabled():
+        return PersistedCommunicationAuthority(IsolatedPrincipal(db, x_isolated_e2e_key,
+            processor_key=x_p4_processor_key), directory)
+    return None
+
+
+def get_request_authority(x_isolated_e2e_key: str | None = Header(default=None), trusted=Depends(get_trusted_authority)) -> RequestAuthority:
+    from .trusted_runtime import PersistedCommunicationAuthority
+    if isinstance(trusted, PersistedCommunicationAuthority):
+        return trusted
     if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
         return IsolatedRecoveryRequestAuthority(x_isolated_e2e_key)
     scope = SyntheticScope.from_environment()
@@ -42,14 +54,20 @@ def get_request_authority(x_isolated_e2e_key: str | None = Header(default=None))
     return RuntimeRequestAuthority()
 
 
-def get_draft_authority(directory=Depends(get_customer_directory)) -> DraftAuthority:
+def get_draft_authority(directory=Depends(get_customer_directory), trusted=Depends(get_trusted_authority)) -> DraftAuthority:
+    from .trusted_runtime import PersistedCommunicationAuthority
+    if isinstance(trusted, PersistedCommunicationAuthority):
+        return trusted
     scope = SyntheticScope.from_environment()
     if scope.enabled:
         return ConsentBoundDraftAuthority(SyntheticDraftAuthority(scope), scope, directory)
     return RuntimeDraftAuthority()
 
 
-def get_review_authority() -> ReviewAuthority:
+def get_review_authority(trusted=Depends(get_trusted_authority)) -> ReviewAuthority:
+    from .trusted_runtime import PersistedCommunicationAuthority
+    if isinstance(trusted, PersistedCommunicationAuthority):
+        return trusted
     scope = SyntheticScope.from_environment()
     if scope.enabled:
         return SyntheticReviewAuthority(scope)
@@ -79,12 +97,22 @@ def get_service(
 
 
 Service = Annotated[CommunicationRequestService, Depends(get_service)]
-Context = Annotated[RequestContext, Depends(get_request_context)]
+def get_communication_context(context=Depends(get_request_context), trusted=Depends(get_trusted_authority)):
+    from .trusted_runtime import PersistedCommunicationAuthority
+    if isinstance(trusted, PersistedCommunicationAuthority):
+        trusted.principal.require(context, "READ_DRAFT")
+    return context
+
+
+Context = Annotated[RequestContext, Depends(get_communication_context)]
 DraftService = Annotated[MessageDraftService, Depends(get_draft_service)]
 ReviewService = Annotated[DraftReviewService, Depends(get_review_service)]
 
 
-def get_send_authority() -> SendAuthority:
+def get_send_authority(trusted=Depends(get_trusted_authority)) -> SendAuthority:
+    from .trusted_runtime import PersistedCommunicationAuthority
+    if isinstance(trusted, PersistedCommunicationAuthority):
+        return trusted
     scope = SyntheticScope.from_environment()
     if scope.enabled:
         return SyntheticSendAuthority(scope)
@@ -92,7 +120,8 @@ def get_send_authority() -> SendAuthority:
 
 
 def get_outbound_provider() -> OutboundProvider:
-    return LocalMockProvider()
+    from .challenge_delivery import isolated_delivery_sink
+    return LocalMockProvider(receipt_sink=isolated_delivery_sink())
 
 
 def get_outbound_service(db: Annotated[Session, Depends(get_db)],
@@ -100,14 +129,22 @@ def get_outbound_service(db: Annotated[Session, Depends(get_db)],
     reviews: Annotated[ReviewAuthority | None, Depends(get_review_authority)],
     authority: Annotated[SendAuthority, Depends(get_send_authority)],
     provider: Annotated[OutboundProvider, Depends(get_outbound_provider)]) -> OutboundService:
-    return OutboundService(db, drafts, reviews, authority, provider)
+    from .trusted_runtime import PersistedCommunicationAuthority
+    from .confirmation_authority import ExistingP4ConfirmationAuthority
+    from .challenge_delivery import BoundChallengeDelivery
+    challenge = (BoundChallengeDelivery(ExistingP4ConfirmationAuthority(drafts, reviews))
+                 if isinstance(authority, PersistedCommunicationAuthority) else None)
+    return OutboundService(db, drafts, reviews, authority, provider, challenge_delivery=challenge)
 
 
 Outbound = Annotated[OutboundService, Depends(get_outbound_service)]
 
 
 def get_preference_service(db: Annotated[Session, Depends(get_db)],
-                           directory=Depends(get_customer_directory)) -> PreferenceService:
+                           directory=Depends(get_customer_directory), trusted=Depends(get_trusted_authority)) -> PreferenceService:
+    from .trusted_runtime import PersistedCommunicationAuthority, IsolatedPreferenceScope
+    if isinstance(trusted, PersistedCommunicationAuthority):
+        return PreferenceService(db, IsolatedPreferenceScope(trusted.principal), directory)
     return PreferenceService(db, SyntheticScope.from_environment(), directory)
 
 
@@ -115,10 +152,18 @@ Preferences = Annotated[PreferenceService, Depends(get_preference_service)]
 
 
 @router.get("/runtime-capabilities")
-def runtime_capabilities(context: Context, directory=Depends(get_customer_directory)):
+def runtime_capabilities(context: Context, directory=Depends(get_customer_directory), trusted=Depends(get_trusted_authority)):
     from .service import _require_context
     from app.core.policy import CONSEQUENTIAL_ACTIONS
     _require_context(context)
+    from .trusted_runtime import PersistedCommunicationAuthority
+    if isinstance(trusted, PersistedCommunicationAuthority):
+        from .challenge_delivery import isolated_delivery_sink
+        return {"tenant_id":context.tenant_id,"mode":"SYNTHETIC",
+            "label":"Isolated authenticated runtime — no real messages sent",
+            "can_record_preferences":context.actor_role=="MANAGER", "can_revoke_preferences":context.actor_role=="MANAGER",
+            "integrated_demo_ready":False,"blockers":["P5_VERIFIED_CONFIRMATION_PORT_UNAVAILABLE"]+
+                ([] if isolated_delivery_sink() is not None else ["CUSTOMER_DELIVERY_PORT_UNAVAILABLE"])}
     scope = SyntheticScope.from_environment()
     in_scope = scope.enabled and context.tenant_id in scope.tenants
     manager = in_scope and context.actor_role in {"OWNER", "MANAGER"}

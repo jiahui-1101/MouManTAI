@@ -9,6 +9,10 @@ from app.core.schemas import CommitmentTerms, CommunicationChannel
 TEMPLATE_KEY = "delivery_change"
 TEMPLATE_VERSION = 1  # Change version whenever wording/representation changes.
 
+
+def template_version(key):
+    return 2 if key == "delivery_change_secure" else TEMPLATE_VERSION
+
 _TEXT = {
     "en": {
         "greeting": "Dear Customer,",
@@ -62,7 +66,7 @@ def render_message(
 ) -> tuple[str | None, str]:
     if language not in _TEXT:
         raise DomainError("LANGUAGE_UNSUPPORTED", "Unsupported draft language", status_code=422)
-    if template_key != TEMPLATE_KEY:
+    if template_key not in {TEMPLATE_KEY, "delivery_change_secure"}:
         raise DomainError("TEMPLATE_UNSUPPORTED", "Unsupported draft template", status_code=422)
     if channel == CommunicationChannel.UNKNOWN:
         raise DomainError("AUTHORIZED_CHANNEL_REQUIRED", "Resolved channel required", status_code=409)
@@ -90,5 +94,14 @@ def render_message(
         # This is data, never executable instructions or newly translated business terms.
         lines.append(f"{text['instructions']}: {json.dumps(terms.special_instructions, ensure_ascii=False)}")
     lines.extend(["", text["reply"], "", text["closing"]])
+    if template_key == "delivery_change_secure":
+        digest = fingerprint(terms.model_dump(mode="json"))
+        lines.extend(["", "Secure reply protocol v2 (the recipient-only code is attached on authorized send):",
+            "CONFIRM <confirmation_id> <secure_code>",
+            f"ACCEPT {proposal_id} v{proposal_version} terms:{digest}",
+            f"REJECT {proposal_id} v{proposal_version}",
+            f'COUNTEROFFER {proposal_id} v{proposal_version} changes:{{"quantity":"<positive quantity>"}}',
+            f"CLARIFICATION {proposal_id} v{proposal_version}: <question>",
+            "Reply with the CONFIRM line and exactly one decision line. Never share the secure code."])
     subject = f"{text['subject']} {order_id}" if channel.value.endswith("_EMAIL") else None
     return subject, "\n".join(lines)
