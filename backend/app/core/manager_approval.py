@@ -61,6 +61,8 @@ def _recovery_proposal_binding(plan: RecoveryPlanRecord, typed: object) -> tuple
     raw_binding = (payload.get("proposal_id"), payload.get("proposal_version"))
     typed_binding = (getattr(typed, "proposal_id", None), getattr(typed, "proposal_version", None))
     expected_binding = (expected_id, plan.plan_version)
+    if plan.plan_version > 1 and raw_binding == (None, None):
+        raise DomainError("PROPOSAL_PLAN_IDENTITY_CONFLICT", "Successor Recovery plan lacks explicit proposal identity", status_code=409)
     if (raw_binding != (None, None) and raw_binding != expected_binding) or (
         typed_binding != (None, None) and typed_binding != expected_binding
     ):

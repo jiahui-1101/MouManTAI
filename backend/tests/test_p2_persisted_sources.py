@@ -749,6 +749,8 @@ def test_manager_approval_revokes_exact_versioned_offer_without_mutating_v1(
     {"proposal_id": "v1", "proposal_version": 1},
     {"proposal_id": "v2", "proposal_version": 1},
     {"proposal_id": "v2", "proposal_version": None},
+    {"proposal_id": None, "proposal_version": 2},
+    {"proposal_id": None, "proposal_version": None},
 ])
 def test_manager_approval_rejects_malformed_v2_proposal_identity_without_evidence(
     session: Session, monkeypatch: pytest.MonkeyPatch, identity: dict,
@@ -758,7 +760,11 @@ def test_manager_approval_rejects_malformed_v2_proposal_identity_without_evidenc
     assert original is not None
     payload = dict(original.payload, plan_version=2,
                    evaluation={**original.payload["evaluation"], "plan_version": 2})
-    payload["proposal_id"] = plan.plan_id if identity["proposal_id"] == "v1" else f"{plan.plan_id}_v2"
+    payload["proposal_id"] = (
+        plan.plan_id if identity["proposal_id"] == "v1"
+        else f"{plan.plan_id}_v2" if identity["proposal_id"] == "v2"
+        else None
+    )
     payload["proposal_version"] = identity["proposal_version"]
     session.add(RecoveryPlanRecord(
         tenant_id=original.tenant_id, plan_id=original.plan_id, plan_version=2,
@@ -783,6 +789,69 @@ def test_manager_approval_rejects_malformed_v2_proposal_identity_without_evidenc
     assert session.query(ManagerApprovalRecord).count() == approval_count
     assert session.query(AuditEventRecord).count() == audit_count
     assert session.get(CommitmentRecord, (manager.tenant_id, plan.commitment_id)).agreement_state == "CONFIRMED"
+
+
+@pytest.mark.parametrize("evaluation_version", [1, 3])
+def test_manager_approval_rejects_mismatched_successor_evaluation(
+    session: Session, monkeypatch: pytest.MonkeyPatch, evaluation_version: int,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    original = session.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 1))
+    assert original is not None
+    session.add(RecoveryPlanRecord(
+        tenant_id=original.tenant_id, plan_id=original.plan_id, plan_version=2,
+        case_id=original.case_id, commitment_id=original.commitment_id,
+        assessment_id=original.assessment_id, snapshot_id=original.snapshot_id,
+        snapshot_version=original.snapshot_version,
+        core_commitment_version=original.core_commitment_version,
+        evaluated_commitment_version=original.evaluated_commitment_version,
+        payload=dict(original.payload, plan_version=2,
+                     proposal_id=f"{plan.plan_id}_v2", proposal_version=2,
+                     evaluation={**original.payload["evaluation"], "plan_version": evaluation_version}),
+        status=original.status, created_at=datetime.now(UTC),
+    ))
+    session.commit()
+    audit_count = session.query(AuditEventRecord).count()
+    with pytest.raises(DomainError) as error:
+        ManagerApprovalService().decide(
+            session, manager, key, plan.plan_id, decision="APPROVED",
+            expected_plan_version=2, expected_commitment_version=2,
+            expected_snapshot_version=plan.snapshot_version,
+            idempotency_key="mismatched-evaluation", reason="Must fail closed",
+        )
+    assert error.value.code == "RECOVERY_PLAN_BINDING_MISMATCH"
+    assert session.query(ManagerApprovalRecord).count() == 0
+    assert session.query(AuditEventRecord).count() == audit_count
+
+
+def test_manager_approval_binds_canonical_v3_proposal_identity(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manager, key = _prepared_review(session, monkeypatch)
+    original = session.get(RecoveryPlanRecord, (manager.tenant_id, plan.plan_id, 1))
+    assert original is not None
+    session.add(RecoveryPlanRecord(
+        tenant_id=original.tenant_id, plan_id=original.plan_id, plan_version=3,
+        case_id=original.case_id, commitment_id=original.commitment_id,
+        assessment_id=original.assessment_id, snapshot_id=original.snapshot_id,
+        snapshot_version=original.snapshot_version,
+        core_commitment_version=original.core_commitment_version,
+        evaluated_commitment_version=original.evaluated_commitment_version,
+        payload=dict(original.payload, plan_version=3,
+                     proposal_id=f"{plan.plan_id}_v3", proposal_version=3,
+                     evaluation={**original.payload["evaluation"], "plan_version": 3}),
+        status=original.status, created_at=datetime.now(UTC),
+    ))
+    session.commit()
+    approved = ManagerApprovalService().decide(
+        session, manager, key, plan.plan_id, decision="APPROVED",
+        expected_plan_version=3, expected_commitment_version=2,
+        expected_snapshot_version=plan.snapshot_version,
+        idempotency_key="canonical-v3", reason="Authorize V3 terms",
+    )
+    assert (approved.plan_id, approved.plan_version, approved.proposal_id, approved.proposal_version) == (
+        plan.plan_id, 3, f"{plan.plan_id}_v3", 3,
+    )
 
 
 def test_manager_approval_rejects_wrong_tenant_and_plan_payload_binding(
