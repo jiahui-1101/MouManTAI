@@ -154,7 +154,7 @@ def test_section_4_alias_methods(session: Session) -> None:
         com.commitment_id,
         RecordFulfilmentRequest(
             expected_commitment_version=6,
-            evidence_refs=["ev_pod_01"],
+            evidence_refs=[f"ev_synthetic_delivery|{ctx.tenant_id}|{com.commitment_id}|pod_01"],
             reason="Operational delivery verified by carrier scan",
             fulfilment_state="FULFILLED",
         ),

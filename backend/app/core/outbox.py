@@ -65,9 +65,16 @@ MANDATORY_SUBSCRIBERS: dict[str, str] = {
     "commitment.at_risk": "p3.recovery_trigger.v1",
 }
 
+MANDATORY_SUBSCRIBER_GROUPS: dict[str, tuple[str, ...]] = {
+    "confirmation.accepted": ("p5.confirmation.required",),
+    "confirmation.rejected": ("p5.confirmation.required", "p3.confirmation_response.v1"),
+    "confirmation.counteroffer_received": ("p5.confirmation.required", "p3.confirmation_response.v1"),
+}
+
 
 class OutboxDispatcher:
     MANDATORY_SUBSCRIBERS = MANDATORY_SUBSCRIBERS
+    MANDATORY_SUBSCRIBER_GROUPS = MANDATORY_SUBSCRIBER_GROUPS
 
     def __init__(self) -> None:
         # event_type -> {consumer_name: handler_fn}
@@ -105,6 +112,13 @@ class OutboxDispatcher:
                     handlers[name] = handler
             return list(handlers.items())
 
+    def required_subscribers(self, event_type: str) -> tuple[str, ...]:
+        grouped = self.MANDATORY_SUBSCRIBER_GROUPS.get(event_type)
+        if grouped is not None:
+            return grouped
+        legacy = self.MANDATORY_SUBSCRIBERS.get(event_type)
+        return (legacy,) if legacy is not None else ()
+
     @staticmethod
     def is_stale_event(session: Session, event: DomainEvent) -> bool:
         """Version guard: if event.commitment_version < current.commitment_version, return True."""
@@ -124,6 +138,54 @@ class OutboxDispatcher:
                 commitment.commitment_version,
             )
         return is_stale
+
+    @staticmethod
+    def is_superseded_p3_response(session: Session, event: DomainEvent) -> bool:
+        """Whether a stale P3 response is bound to one persisted plan version.
+
+        A stale P4 response is safe to close before P3 only when its exact
+        proposal/version resolves to one durable P3 plan for the same tenant
+        and commitment, and that plan was evaluated no later than the P4
+        event's Core version. A stale event without that binding stays
+        ambiguous and must satisfy the mandatory processed-event markers.
+        """
+        if event.event_type not in {
+            "confirmation.rejected",
+            "confirmation.counteroffer_received",
+        }:
+            return False
+        proposal_id = event.payload.get("proposal_id")
+        proposal_version = event.payload.get("proposal_version")
+        if (
+            not event.tenant_id
+            or not event.commitment_id
+            or event.commitment_version is None
+            or not isinstance(proposal_id, str)
+            or not isinstance(proposal_version, int)
+        ):
+            return False
+
+        commitment = session.get(CommitmentRecord, (event.tenant_id, event.commitment_id))
+        if commitment is None or commitment.commitment_version <= event.commitment_version:
+            return False
+
+        # Import locally to keep Core's module initialization independent of P3.
+        from app.recovery.durable_plans import RecoveryPlanRecord
+
+        plans = session.scalars(
+            select(RecoveryPlanRecord).where(
+                RecoveryPlanRecord.tenant_id == event.tenant_id,
+                RecoveryPlanRecord.commitment_id == event.commitment_id,
+                RecoveryPlanRecord.plan_version == proposal_version,
+            )
+        ).all()
+        matching = [
+            plan for plan in plans
+            if plan.payload.get("proposal_id") == proposal_id
+            and plan.payload.get("proposal_version", plan.plan_version) == proposal_version
+            and plan.core_commitment_version <= event.commitment_version
+        ]
+        return len(matching) == 1
 
     @staticmethod
     def execute_consumer(
@@ -184,12 +246,9 @@ class OutboxDispatcher:
         for record in records:
             event = to_domain_event(record)
 
-            # A newer aggregate version does not prove a required evaluation ran.
-            # Keep an unprocessed mandatory event available for explicit reconciliation;
-            # replaying its stale business update would also be unsafe.
             if self.is_stale_event(session, event):
-                required_consumer = self.MANDATORY_SUBSCRIBERS.get(event.event_type)
-                if required_consumer is not None:
+                unfinished = []
+                for required_consumer in self.required_subscribers(event.event_type):
                     completed = session.scalar(
                         select(ProcessedEventRecord).where(
                             ProcessedEventRecord.tenant_id == event.tenant_id,
@@ -198,27 +257,31 @@ class OutboxDispatcher:
                         )
                     )
                     if completed is None:
-                        logger.warning(
-                            "Stale mandatory event awaits subscriber reconciliation: event_id=%s consumer=%s",
-                            event.event_id,
-                            required_consumer,
-                        )
-                        record.attempts += 1
-                        record.last_error = "STALE_MANDATORY_SUBSCRIBER_INCOMPLETE"
-                        if record.attempts >= max_attempts:
-                            record.status = OutboxStatus.DEAD_LETTER.value
-                            record.next_retry_at = None
-                            result.dead_letter_count += 1
-                        else:
-                            record.status = OutboxStatus.FAILED.value
-                            delay = min(3600.0, backoff_base_seconds ** record.attempts)
-                            record.next_retry_at = _now() + timedelta(seconds=delay)
-                            result.failed_count += 1
-                        session.commit()
-                        continue
+                        unfinished.append(required_consumer)
+                superseded_p3_response = self.is_superseded_p3_response(session, event)
+                if unfinished and not superseded_p3_response:
+                    logger.warning(
+                        "Stale event has no exact superseding P3 plan and awaits subscriber reconciliation: event_id=%s consumers=%s",
+                        event.event_id,
+                        ",".join(unfinished),
+                    )
+                    record.attempts += 1
+                    record.last_error = "STALE_MANDATORY_SUBSCRIBER_INCOMPLETE"
+                    if record.attempts >= max_attempts:
+                        record.status = OutboxStatus.DEAD_LETTER.value
+                        record.next_retry_at = None
+                        result.dead_letter_count += 1
+                    else:
+                        record.status = OutboxStatus.FAILED.value
+                        delay = min(3600.0, backoff_base_seconds ** record.attempts)
+                        record.next_retry_at = _now() + timedelta(seconds=delay)
+                        result.failed_count += 1
+                    session.commit()
+                    continue
 
-                # The mandatory subscriber completed before the event became stale.
-                # Record supersession once, without reapplying old business state.
+                # Either all mandatory consumers processed this event before it
+                # became stale, or an exact durable P3 plan proves this P4
+                # response is obsolete. Close it without invoking consumers.
                 commitment = (
                     session.get(CommitmentRecord, (event.tenant_id, event.commitment_id))
                     if event.commitment_id
@@ -248,31 +311,33 @@ class OutboxDispatcher:
                 result.published_count += 1
                 continue
 
-            # Mandatory subscriber policy (D-017): specifically named subscriber must be registered (no wildcards)
-            required_consumer = self.MANDATORY_SUBSCRIBERS.get(event.event_type)
-            if required_consumer is not None:
+            # Mandatory subscriber policy (D-017): all specifically named
+            # consumers must be registered; wildcard handlers do not qualify.
+            required_consumers = self.required_subscribers(event.event_type)
+            if required_consumers:
                 with self._lock:
-                    is_registered = required_consumer in self._subscribers.get(event.event_type, {})
-                    if not is_registered:
-                        warn_key = (required_consumer, event.event_type, record.event_id)
+                    registered = self._subscribers.get(event.event_type, {})
+                    missing_consumers = [name for name in required_consumers if name not in registered]
+                    if missing_consumers:
+                        warn_key = (missing_consumers[0], event.event_type, record.event_id)
                         should_warn = warn_key not in self._warned_unregistered
                         if should_warn:
                             if len(self._warned_unregistered) > 1000:
                                 self._warned_unregistered.clear()
                             self._warned_unregistered.add(warn_key)
-                if not is_registered:
+                if missing_consumers:
                     if should_warn:
                         logger.warning(
-                            "Mandatory subscriber '%s' for event '%s' (event_id=%s) is not registered; leaving %s",
-                            required_consumer,
+                            "Mandatory subscriber(s) '%s' for event '%s' (event_id=%s) are not registered; leaving %s",
+                            ",".join(missing_consumers),
                             event.event_type,
                             record.event_id,
                             record.status,
                         )
                     else:
                         logger.debug(
-                            "Mandatory subscriber '%s' for event '%s' (event_id=%s) is not registered; leaving %s",
-                            required_consumer,
+                            "Mandatory subscriber(s) '%s' for event '%s' (event_id=%s) are not registered; leaving %s",
+                            ",".join(missing_consumers),
                             event.event_type,
                             record.event_id,
                             record.status,

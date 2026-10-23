@@ -110,7 +110,7 @@ def test_seed_demo_creates_all_five_canonical_commitments(test_engine) -> None:
             assert c_fulfil.agreement_state == "CONFIRMED"
             assert c_fulfil.fulfilment_state == "FULFILLED"
             assert c_fulfil.risk_state == "RESOLVED"
-            assert "ev_ops_delivery_pod_com_fulfilled" in c_fulfil.evidence_refs
+            assert "ev_synthetic_delivery|tenant_demo_01|com_fulfilled_01|pod_fulfilled" in c_fulfil.evidence_refs
 
         # Test idempotency: running seed_demo again on same DB should succeed without duplicate key errors
         seed_demo(test_db_url)

@@ -276,6 +276,7 @@ This is an implementation plan, not legal advice or a compliance claim.
 # From repository root. Edit .env with a local PostgreSQL password first.
 Copy-Item .env.example .env
 $env:P1_AI_ENABLED = 'false' # offline deterministic demo; overrides .env for Compose
+$env:MOUMANTAI_SYNTHETIC_MODE = '1' # local synthetic/demo only; default is disabled
 docker compose up -d --build
 Invoke-RestMethod http://localhost:8000/health
 ```
@@ -285,11 +286,14 @@ Invoke-RestMethod http://localhost:8000/health
 ```bash
 cp .env.example .env   # then edit .env with a local PostgreSQL password
 export P1_AI_ENABLED=false   # offline deterministic demo
+export MOUMANTAI_SYNTHETIC_MODE=1   # local synthetic/demo only; default is disabled
 docker compose up -d --build
 curl http://localhost:8000/health
 ```
 
 Compose migrates PostgreSQL and runs `scripts/seed_demo.py` before starting the API, and starts the outbox worker. The seed resets its five named synthetic commitments, so point it only at an intended demo database. `.env.example` holds placeholder remote GPU settings; they are **not** a working inference connection.
+
+`MOUMANTAI_SYNTHETIC_MODE` defaults to `0`, so header-based demo identity is rejected unless you explicitly set it to `1`. Enable it only for synthetic/test data: these fixed header actor IDs are a demo identity map, not authentication, and must never be enabled in production. The Vite development proxy sends these identity headers, so start the local API with the flag enabled before using the frontend. `scripts/evaluate_metrics.py` also sends header identities through its synthetic benchmark; run it only with `MOUMANTAI_SYNTHETIC_MODE=1` in the invoking process. The seed scripts use direct database access and do not bypass API identity checks.
 
 In a second terminal:
 
@@ -309,6 +313,7 @@ python -m venv backend/.venv
 backend/.venv/bin/python -m pip install -e './backend[dev]'      # Windows: backend/.venv/Scripts/python.exe
 export DATABASE_URL='postgresql+psycopg://moumantai:<local-password>@localhost:5433/moumantai'
 export P1_AI_ENABLED=false
+export MOUMANTAI_SYNTHETIC_MODE=1 # synthetic/test only; never production
 backend/.venv/bin/python -m alembic -c backend/alembic.ini upgrade head
 backend/.venv/bin/python scripts/seed_demo.py
 backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --reload --port 8000
