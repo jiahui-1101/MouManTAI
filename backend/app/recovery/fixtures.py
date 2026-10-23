@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.core.fixture_loader import resolve_fixture_path
 from app.core.schemas import Commitment, FeasibilityAssessment
 
 from .models import ApprovalDecision, OperationalSnapshotReference
@@ -22,7 +23,7 @@ class DemoRecoveryInputs:
 
 
 def _fixture_path() -> Path:
-    return Path(__file__).resolve().parents[3] / "contracts" / "fixtures" / "demo_dataset.json"
+    return resolve_fixture_path("demo_dataset.json")
 
 
 def load_demo_recovery_inputs() -> DemoRecoveryInputs:

@@ -1,18 +1,38 @@
-from __future__ import annotations
-
+import importlib.machinery
+import importlib.util
 import os
+import sys
 from collections.abc import Generator
+
+# Ensure pure-python SQLAlchemy implementation on environments with AppControl/WDAC/CI
+os.environ["DISABLE_SQLALCHEMY_CEXT"] = "1"
+# Ensure test default is in-memory SQLite unless explicitly overridden
+os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
+
+
+class PurePythonSQLAlchemyFinder(importlib.machinery.PathFinder):
+    """Intercept and redirect SQLAlchemy cython modules to pure-Python implementations."""
+
+    @classmethod
+    def find_spec(cls, fullname, path=None, target=None):
+        if fullname.startswith("sqlalchemy.") and fullname.endswith("_cy"):
+            if path is None:
+                return None
+            for entry in path:
+                base = os.path.join(entry, fullname.split(".")[-1] + ".py")
+                if os.path.isfile(base):
+                    return importlib.util.spec_from_file_location(fullname, base)
+        return None
+
+
+if not any(isinstance(finder, type) and finder.__name__ == "PurePythonSQLAlchemyFinder" for finder in sys.meta_path):
+    sys.meta_path.insert(0, PurePythonSQLAlchemyFinder)
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
-
-# Ensure pure-python SQLAlchemy implementation on environments with AppControl/WDAC
-os.environ.setdefault("DISABLE_SQLALCHEMY_CEXT", "1")
-# Ensure test default is in-memory SQLite unless explicitly overridden
-os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 
 from app.core.dependencies import get_db
 from app.db.base import Base

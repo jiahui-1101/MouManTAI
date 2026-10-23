@@ -109,7 +109,8 @@ class ManagerApprovalService:
         latest = history[0] if history else None
         offered_revoke = False
         if decision == "REVOKED" and latest is not None and latest.decision == "APPROVED":
-            offered = db.get(CommitmentProposalRecord, (context.tenant_id, plan_id))
+            target_proposal_id = latest.proposal_id or (f"{plan_id}_v{expected_plan_version}" if expected_plan_version > 1 else plan_id)
+            offered = db.get(CommitmentProposalRecord, (context.tenant_id, target_proposal_id))
             offered_revoke = bool(
                 offered is not None and offered.commitment_id == plan.commitment_id
                 and offered.proposal_version == plan.plan_version and offered.status == "ACTIVE"
@@ -151,11 +152,16 @@ class ManagerApprovalService:
             approved_terms.update({"quantity": proposal_action.parameters["partial_quantity"],
                                    "deadline": proposal_action.parameters["new_deadline"]})
             approved_terms = CommitmentTerms.model_validate(approved_terms).model_dump(mode="json")
+        derived_proposal_id = (
+            getattr(typed, "proposal_id", None)
+            or (plan.payload.get("proposal_id") if isinstance(plan.payload, dict) else None)
+            or (f"{plan_id}_v{expected_plan_version}" if expected_plan_version > 1 else plan_id)
+        )
         row = ManagerApprovalRecord(
             tenant_id=context.tenant_id, approval_id=approval_id, idempotency_key=idempotency_key,
             commitment_id=plan.commitment_id, case_id=plan.case_id,
             plan_id=plan_id, plan_version=expected_plan_version,
-            proposal_id=plan_id, proposal_version=expected_plan_version,
+            proposal_id=derived_proposal_id, proposal_version=expected_plan_version,
             snapshot_id=plan.snapshot_id, snapshot_version=plan.snapshot_version,
             commitment_version=plan.core_commitment_version, decision=decision,
             action_scope=scope, approved_terms=approved_terms,

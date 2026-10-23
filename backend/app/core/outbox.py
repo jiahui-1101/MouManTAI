@@ -73,6 +73,7 @@ class OutboxDispatcher:
         # event_type -> {consumer_name: handler_fn}
         self._subscribers: dict[str, dict[str, SubscriberHandler]] = defaultdict(dict)
         self._lock = threading.RLock()
+        self._warned_unregistered: set[tuple[str, str, str]] = set()
 
     def register_subscriber(
         self,
@@ -82,15 +83,18 @@ class OutboxDispatcher:
     ) -> None:
         with self._lock:
             self._subscribers[event_type][consumer_name] = handler_fn
+            self._warned_unregistered.clear()
 
     def unregister_subscriber(self, event_type: str, consumer_name: str) -> None:
         with self._lock:
             if event_type in self._subscribers:
                 self._subscribers[event_type].pop(consumer_name, None)
+            self._warned_unregistered.clear()
 
     def clear_subscribers(self) -> None:
         with self._lock:
             self._subscribers.clear()
+            self._warned_unregistered.clear()
 
     def get_subscribers(self, event_type: str) -> list[tuple[str, SubscriberHandler]]:
         with self._lock:
@@ -249,14 +253,30 @@ class OutboxDispatcher:
             if required_consumer is not None:
                 with self._lock:
                     is_registered = required_consumer in self._subscribers.get(event.event_type, {})
+                    if not is_registered:
+                        warn_key = (required_consumer, event.event_type, record.event_id)
+                        should_warn = warn_key not in self._warned_unregistered
+                        if should_warn:
+                            if len(self._warned_unregistered) > 1000:
+                                self._warned_unregistered.clear()
+                            self._warned_unregistered.add(warn_key)
                 if not is_registered:
-                    logger.warning(
-                        "Mandatory subscriber '%s' for event '%s' (event_id=%s) is not registered; leaving %s",
-                        required_consumer,
-                        event.event_type,
-                        record.event_id,
-                        record.status,
-                    )
+                    if should_warn:
+                        logger.warning(
+                            "Mandatory subscriber '%s' for event '%s' (event_id=%s) is not registered; leaving %s",
+                            required_consumer,
+                            event.event_type,
+                            record.event_id,
+                            record.status,
+                        )
+                    else:
+                        logger.debug(
+                            "Mandatory subscriber '%s' for event '%s' (event_id=%s) is not registered; leaving %s",
+                            required_consumer,
+                            event.event_type,
+                            record.event_id,
+                            record.status,
+                        )
                     # Never mark PUBLISHED prematurely!
                     continue
 

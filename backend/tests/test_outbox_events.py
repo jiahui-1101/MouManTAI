@@ -860,3 +860,65 @@ def test_advisory_assessments_append_only_and_never_mutate_aggregate(
     assert updated.commitment_version == 2
     assert "fa_advisory_001" in updated.evidence_refs
 
+
+def test_unregistered_mandatory_subscriber_warning_is_throttled(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Ensure unregistered mandatory subscriber warning logs once and does not spam every cycle."""
+    import logging
+
+    logger = logging.getLogger("app.core.outbox")
+    logger.disabled = False
+
+    dispatcher = OutboxDispatcher()
+    now = datetime.now(timezone.utc)
+    tenant_id = "tenant_throttle"
+    com_id = "com_throttle_001"
+
+    rec = CommitmentRecord(
+        tenant_id=tenant_id,
+        commitment_id=com_id,
+        order_id="ord_throttle",
+        customer_id="cust_throttle",
+        terms={"sku": "BURGER", "quantity": "10", "unit": "pcs", "deadline": now.isoformat()},
+        agreement_state="CONFIRMED",
+        feasibility_state="NOT_ASSESSED",
+        risk_state="NORMAL",
+        recovery_state="NONE",
+        fulfilment_state="NOT_STARTED",
+        commitment_version=1,
+        evidence_refs=["ev_throttle"],
+        updated_at=now,
+    )
+    evt_risk = OutboxEventRecord(
+        event_id="evt_throttle_risk",
+        tenant_id=tenant_id,
+        event_type="commitment.at_risk",
+        commitment_id=com_id,
+        commitment_version=1,
+        correlation_id="corr_throttle",
+        occurred_at=now,
+        payload={"commitment_id": com_id},
+        attempts=0,
+        status=OutboxStatus.PENDING.value,
+    )
+    db_session.add_all([rec, evt_risk])
+    db_session.commit()
+
+    with caplog.at_level(logging.WARNING, logger="app.core.outbox"):
+        # 1. First poll emits a warning
+        res1 = dispatcher.process_outbox_batch(db_session)
+        assert res1.published_count == 0
+        warning_records_1 = [
+            r for r in caplog.records if r.levelno == logging.WARNING and "p3.recovery_trigger.v1" in r.message
+        ]
+        assert len(warning_records_1) == 1
+
+        # 2. Second poll leaves event in PENDING without repeating the warning
+        res2 = dispatcher.process_outbox_batch(db_session)
+        assert res2.published_count == 0
+        warning_records_2 = [
+            r for r in caplog.records if r.levelno == logging.WARNING and "p3.recovery_trigger.v1" in r.message
+        ]
+        assert len(warning_records_2) == 1  # Still 1, not spammed to 2!
+
