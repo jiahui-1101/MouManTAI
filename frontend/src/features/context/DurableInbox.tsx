@@ -130,15 +130,26 @@ const PAGE_SIZE = 15;
 
 
 
-function formatChannel(channel: string | undefined): string {
 
-  if (!channel) return 'WhatsApp';
 
-  const clean = channel.replace(/^SYNTHETIC_/, '');
-
-  return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
-
+function formatSource(message: StoredMessage | undefined): string {
+  if (!message) return 'Synthetic';
+  if (message.source_label) {
+    return message.source_label;
+  }
+  const rawMode = (message.raw as any)?.adapter_mode;
+  const isReal = rawMode === 'REAL' || (message.provider && message.provider !== 'SYNTHETIC') || message.synthetic_provider === null;
+  if (isReal) {
+    const ch = message.raw?.channel;
+    if (ch === 'TELEGRAM') return 'Telegram';
+    if (ch === 'EMAIL') return 'Gmail';
+    if (ch === 'WHATSAPP') return 'WhatsApp';
+    return ch ? (ch.charAt(0).toUpperCase() + ch.slice(1).toLowerCase()) : 'Real';
+  }
+  return 'Synthetic';
 }
+
+
 
 
 
@@ -360,7 +371,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
       </tr></thead>
 
-      <tbody>{sortMessages(resource.page.items, sortBy, sortDir).map(message => <tr key={message.message_id} className="p1-inbox-row"><td className="p1-date"><time dateTime={message.ingested_at}>{formatTime(message.ingested_at)}</time></td><td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => select(message.message_id, event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary p1-subtle-id">{message.raw.provider_message_id}</span></td><td className="p1-source-cell"><span className="p1-orbyte-source-badge">{formatChannel(message.raw.channel)}</span></td><td><span className={`p1-orbyte-status-badge is-${message.processing_status === 'PROCESSED' ? 'valid' : message.processing_status === 'PROCESSING' ? 'attention' : message.processing_status === 'PROCESSING_FAILED' ? 'conflict' : 'neutral'}`}>{message.processing_status}</span></td><td className="p1-identity">{message.processing_status === 'PROCESSED' ? (message.extractor_version?.startsWith('p1-ai-pipeline-') ? <span className="p1-orbyte-status-badge is-model">Model review</span> : <span className="p1-orbyte-status-badge is-valid">Extracted (RULE)</span>) : message.processing_status === 'PROCESSING' ? <span className="p1-orbyte-status-badge is-attention">Extracting…</span> : message.processing_status === 'PROCESSING_FAILED' ? <span className="p1-orbyte-status-badge is-conflict">Extraction failed</span> : <span className="p1-orbyte-status-badge is-neutral">Awaiting extraction</span>}</td><td className="p1-subtle-text">Not associated</td><td className="p1-subtle-text">Not started</td><td className="p1-actions-cell"><div className="p1-orbyte-actions-group"><button type="button" className="p1-orbyte-action-icon-btn" aria-label={`View message ${message.raw.provider_message_id}`} title="Inspect message details" onClick={event => select(message.message_id, event.currentTarget)}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button type="button" className="p1-orbyte-action-icon-btn is-sync" disabled={processingId === message.message_id} aria-label={`Reprocess message ${message.raw.provider_message_id}`} title={message.processing_status === 'PROCESSED' ? 'Reprocess extraction' : 'Run extraction'} onClick={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={processingId === message.message_id ? 'p1-spin' : ''}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button></div></td></tr>)}</tbody></table>
+      <tbody>{sortMessages(resource.page.items, sortBy, sortDir).map(message => <tr key={message.message_id} className="p1-inbox-row"><td className="p1-date"><time dateTime={message.ingested_at}>{formatTime(message.ingested_at)}</time></td><td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => select(message.message_id, event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary p1-subtle-id">{message.raw.provider_message_id}</span></td><td className="p1-source-cell"><span className="p1-orbyte-source-badge">{formatSource(message)}</span></td><td><span className={`p1-orbyte-status-badge is-${message.processing_status === 'PROCESSED' ? 'valid' : message.processing_status === 'PROCESSING' ? 'attention' : message.processing_status === 'PROCESSING_FAILED' ? 'conflict' : 'neutral'}`}>{message.processing_status}</span></td><td className="p1-identity">{message.processing_status === 'PROCESSED' ? (message.extractor_version?.startsWith('p1-ai-pipeline-') ? <span className="p1-orbyte-status-badge is-model">Model review</span> : <span className="p1-orbyte-status-badge is-valid">Extracted (RULE)</span>) : message.processing_status === 'PROCESSING' ? <span className="p1-orbyte-status-badge is-attention">Extracting…</span> : message.processing_status === 'PROCESSING_FAILED' ? <span className="p1-orbyte-status-badge is-conflict">Extraction failed</span> : <span className="p1-orbyte-status-badge is-neutral">Awaiting extraction</span>}</td><td className="p1-subtle-text">Not associated</td><td className="p1-subtle-text">Not started</td><td className="p1-actions-cell"><div className="p1-orbyte-actions-group"><button type="button" className="p1-orbyte-action-icon-btn" aria-label={`View message ${message.raw.provider_message_id}`} title="Inspect message details" onClick={event => select(message.message_id, event.currentTarget)}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button type="button" className="p1-orbyte-action-icon-btn is-sync" disabled={processingId === message.message_id} aria-label={`Reprocess message ${message.raw.provider_message_id}`} title={message.processing_status === 'PROCESSED' ? 'Reprocess extraction' : 'Run extraction'} onClick={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={processingId === message.message_id ? 'p1-spin' : ''}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button></div></td></tr>)}</tbody></table>
 
     </div>{resource.page.items.length === 0 && <p role="status" className="p1-empty">No persisted messages match this view. Submit a synthetic message to begin.</p>}
 
@@ -718,13 +729,13 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
         <div className="p1-detail-heading-left">
 
-          <p className="p1-eyebrow">PERSISTED SOURCE · SYNTHETIC</p>
+          <p className="p1-eyebrow">PERSISTED SOURCE · {(data?.raw as any)?.adapter_mode === 'REAL' || (data?.provider && data?.provider !== 'SYNTHETIC') ? 'REAL PROVIDER' : 'SYNTHETIC'}</p>
 
           <div className="p1-detail-title-row">
 
             <h2>Original message</h2>
 
-            {data && <span className="p1-orbyte-source-badge">{formatChannel(data.raw?.channel)}</span>}
+            {data && <span className="p1-orbyte-source-badge">{formatSource(data)}</span>}
 
           </div>
 
@@ -868,7 +879,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
           <div><dt>Platform identity (unverified)</dt><dd>{data.raw.sender_identity_id}</dd></div>
 
-          <div><dt>Provider</dt><dd>{data.synthetic_provider}</dd></div>
+          <div><dt>Provider</dt><dd>{data.provider || data.synthetic_provider || 'REAL'}</dd></div>
 
           <div><dt>Provider message ID</dt><dd>{data.raw.provider_message_id}</dd></div>
 

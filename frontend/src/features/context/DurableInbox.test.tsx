@@ -584,3 +584,67 @@ it('uses generated-envelope payloads and operational routes with useful server e
   fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ detail: [{ msg: 'Invalid timestamp' }] }), { status: 422 }));
   await expect(operationalApi.ingest(raw)).rejects.toThrow('Invalid timestamp');
 });
+
+
+it('renders truthful provenance source labels: Synthetic, Telegram, Gmail, and WhatsApp', async () => {
+  const ts = '2026-10-23T12:00:00Z';
+  const syntheticMsg: StoredMessage = {
+    message_id: 'msg_syn_1',
+    raw: { ...raw, channel: 'WHATSAPP', adapter_mode: 'SYNTHETIC', sender_alias: 'Synthetic Customer', text: '50 burgers' },
+    synthetic_provider: 'SYNTHETIC_WHATSAPP',
+    provider: 'SYNTHETIC',
+    source_label: 'Synthetic',
+    processing_status: 'RECEIVED',
+    content_sha256: 'a'.repeat(64),
+    ingested_at: ts,
+    updated_at: ts,
+  };
+  const telegramMsg: StoredMessage = {
+    message_id: 'msg_tg_1',
+    raw: { ...raw, channel: 'TELEGRAM', adapter_mode: 'REAL', sender_alias: 'Telegram User', text: '100 burgers' },
+    synthetic_provider: null,
+    provider: 'TELEGRAM_BOT_API',
+    source_label: 'Telegram',
+    processing_status: 'RECEIVED',
+    content_sha256: 'b'.repeat(64),
+    ingested_at: ts,
+    updated_at: ts,
+  };
+  const gmailMsg: StoredMessage = {
+    message_id: 'msg_gmail_1',
+    raw: { ...raw, channel: 'EMAIL', adapter_mode: 'REAL', sender_alias: 'Gmail Sender', text: '200 burgers' },
+    synthetic_provider: null,
+    provider: 'GMAIL_API',
+    source_label: 'Gmail',
+    processing_status: 'RECEIVED',
+    content_sha256: 'c'.repeat(64),
+    ingested_at: ts,
+    updated_at: ts,
+  };
+  const whatsappMsg: StoredMessage = {
+    message_id: 'msg_wa_1',
+    raw: { ...raw, channel: 'WHATSAPP', adapter_mode: 'REAL', sender_alias: 'WhatsApp Client', text: '300 burgers' },
+    synthetic_provider: null,
+    provider: 'WHATSAPP_CLOUD_API',
+    source_label: 'WhatsApp',
+    processing_status: 'RECEIVED',
+    content_sha256: 'd'.repeat(64),
+    ingested_at: ts,
+    updated_at: ts,
+  };
+
+  const api = fakeApi();
+  vi.mocked(api.list).mockResolvedValue(page([syntheticMsg, telegramMsg, gmailMsg, whatsappMsg]));
+  render(<DurableInbox api={api} />);
+
+  const rows = await screen.findAllByRole('row');
+  // 1 header + 4 items
+  expect(rows).toHaveLength(5);
+
+  const badges = screen.getAllByText(/(Synthetic|Telegram|Gmail|WhatsApp)/);
+  const badgeTexts = badges.map(b => b.textContent);
+  expect(badgeTexts).toContain('Synthetic');
+  expect(badgeTexts).toContain('Telegram');
+  expect(badgeTexts).toContain('Gmail');
+  expect(badgeTexts).toContain('WhatsApp');
+});

@@ -1,14 +1,22 @@
 // PROVISIONAL P1 development OpenAPI types; P5 shared-contract review pending.
 import type { components } from './generated/api';
 
-export type RawMessageEnvelope = components['schemas']['RawMessageEnvelope'];
+export type RawMessageEnvelope = Omit<components['schemas']['RawMessageEnvelope'], 'adapter_mode'> & {
+  adapter_mode?: 'SYNTHETIC' | 'REAL' | string;
+};
 export type NormalizedMessage = components['schemas']['NormalizedMessage'];
 export type ExtractedField = components['schemas']['ExtractedField'];
 export type BusinessContext = components['schemas']['BusinessContext'];
 export type ContextReview = components['schemas']['ContextReview'];
 export type InboxRecord = components['schemas']['InboxRecord'];
 export type InboxPreview = components['schemas']['InboxPreview'];
-export type StoredMessage = components['schemas']['StoredMessage'] & { extractor_version?: string | null };
+export type StoredMessage = Omit<components['schemas']['StoredMessage'], 'raw' | 'synthetic_provider'> & {
+  raw: RawMessageEnvelope;
+  extractor_version?: string | null;
+  provider?: string | null;
+  source_label?: string;
+  synthetic_provider?: string | null;
+};
 export type MessagePage = Omit<components['schemas']['MessagePage'], 'items'> & { items: StoredMessage[] };
 export type IngestResponse = Omit<components['schemas']['IngestResponse'], 'message'> & { message: StoredMessage };
 export type DevelopmentContext = components['schemas']['DevelopmentContext'];
