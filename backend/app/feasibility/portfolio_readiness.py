@@ -84,24 +84,38 @@ def inspect_portfolio_inputs(
     )
     materials = calculate_atp(candidate.operational, tenant_id=tenant_id, as_of=checked_at)
     capacity = check_capacity(candidate, tenant_id=tenant_id)
-    codes = tuple(
+    material_status = materials.status if materials is not None else None
+    capacity_status = capacity.status if capacity is not None else None
+    material_issues = materials.issues if materials is not None else ()
+    capacity_constraints = capacity.constraints if capacity is not None else ()
+    codes = {
+        *(issue.code for issue in material_issues),
+        *(constraint.code for constraint in capacity_constraints),
+    }
+    if material_status != "COVERED" and not material_issues:
+        codes.add("MATERIAL_BASELINE_NOT_PROVEN")
+    if capacity_status is not FeasibilityState.FEASIBLE and not capacity_constraints:
+        codes.add("CAPACITY_BASELINE_NOT_PROVEN")
+    codes = tuple(sorted(codes))
+    refs = tuple(
         sorted(
             {
-                *(issue.code for issue in materials.issues),
-                *(constraint.code for constraint in capacity.constraints),
+                *(materials.evidence_refs if materials is not None else ()),
+                *(capacity.evidence_refs if capacity is not None else ()),
             }
         )
     )
-    refs = tuple(sorted({*materials.evidence_refs, *capacity.evidence_refs}))
     extra = {
-        "material_status": materials.status,
-        "capacity_status": capacity.status,
+        "material_status": material_status,
+        "capacity_status": capacity_status,
         "evidence_refs": refs,
     }
     if pending_order_request_ids:
         return result("PENDING_TARGET_UNSUPPORTED", "PENDING_TARGET_UNSUPPORTED", *codes, **extra)
-    if materials.status == "UNKNOWN" or capacity.status is FeasibilityState.UNKNOWN:
+    if material_status == "COVERED" and capacity_status is FeasibilityState.FEASIBLE:
+        return result("BASELINE_COMPLETE", *codes, **extra)
+    if material_status in (None, "UNKNOWN") or capacity_status in (None, FeasibilityState.UNKNOWN):
         return result("UNKNOWN", *codes, **extra)
-    if materials.status == "SHORTAGE" or capacity.status is FeasibilityState.INFEASIBLE:
+    if material_status == "SHORTAGE" or capacity_status is FeasibilityState.INFEASIBLE:
         return result("BASELINE_BLOCKED", *codes, **extra)
-    return result("BASELINE_COMPLETE", *codes, **extra)
+    return result("UNKNOWN", *codes, **extra)

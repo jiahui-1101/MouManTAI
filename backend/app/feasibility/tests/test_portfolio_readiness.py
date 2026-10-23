@@ -2,6 +2,10 @@ from datetime import timedelta
 
 import pytest
 
+from app.core.schemas import FeasibilityState
+from app.feasibility.capacity import CapacityResult
+from app.feasibility.inventory import calculate_atp
+from app.feasibility.materials import MaterialATP
 from app.feasibility.portfolio_readiness import inspect_portfolio_inputs
 from app.feasibility.tests.test_service import changed, competing_snapshot, fixture
 
@@ -32,6 +36,116 @@ def test_complete_confirmed_baseline_is_read_only_and_not_optimization_approval(
     ) == (False, False, False)
     assert inspect(snapshot) == result
     assert snapshot.model_dump_json() == before
+
+
+@pytest.mark.parametrize(
+    "capacity_state", [FeasibilityState.CONDITIONAL, FeasibilityState.NOT_ASSESSED]
+)
+def test_nonterminal_capacity_without_constraints_never_completes_baseline(
+    monkeypatch, capacity_state
+):
+    snapshot, _ = fixture()
+    before = snapshot.model_dump_json()
+    capacity = CapacityResult(status=capacity_state, constraints=())
+    monkeypatch.setattr(
+        "app.feasibility.portfolio_readiness.check_capacity", lambda *a, **k: capacity
+    )
+
+    result = inspect(snapshot)
+
+    assert result.material_status == "COVERED"
+    assert result.capacity_status is capacity_state
+    assert result.status == "UNKNOWN"
+    assert "CAPACITY_BASELINE_NOT_PROVEN" in result.blocker_codes
+    assert result.allocation_authorized is False
+    assert result.profit_strategy_available is False
+    assert result.expiry_strategy_available is False
+    assert inspect(snapshot) == result
+    assert snapshot.model_dump_json() == before
+
+
+@pytest.mark.parametrize(
+    "capacity_state,expected",
+    [
+        (FeasibilityState.UNKNOWN, "UNKNOWN"),
+        (FeasibilityState.INFEASIBLE, "BASELINE_BLOCKED"),
+    ],
+)
+def test_noneligible_capacity_without_constraints_has_diagnostic(
+    monkeypatch, capacity_state, expected
+):
+    snapshot, _ = fixture()
+    capacity = CapacityResult(status=capacity_state, constraints=())
+    monkeypatch.setattr(
+        "app.feasibility.portfolio_readiness.check_capacity", lambda *a, **k: capacity
+    )
+
+    result = inspect(snapshot)
+
+    assert result.status == expected
+    assert result.blocker_codes == ("CAPACITY_BASELINE_NOT_PROVEN",)
+    assert result.allocation_authorized is False
+
+
+def test_missing_capacity_evidence_fails_closed(monkeypatch):
+    snapshot, _ = fixture()
+    monkeypatch.setattr("app.feasibility.portfolio_readiness.check_capacity", lambda *a, **k: None)
+
+    result = inspect(snapshot)
+
+    assert result.status == "UNKNOWN"
+    assert result.capacity_status is None
+    assert result.blocker_codes == ("CAPACITY_BASELINE_NOT_PROVEN",)
+    assert result.allocation_authorized is False
+
+
+@pytest.mark.parametrize(
+    "material_state,expected", [("UNKNOWN", "UNKNOWN"), ("SHORTAGE", "BASELINE_BLOCKED")]
+)
+def test_noncovered_material_without_issues_has_diagnostic(monkeypatch, material_state, expected):
+    snapshot, commitment = fixture()
+    original = calculate_atp(
+        snapshot.operational, tenant_id=commitment.tenant_id, as_of=snapshot.as_of
+    )
+    materials = MaterialATP.model_validate(
+        {**original.model_dump(), "status": material_state, "issues": ()}
+    )
+    monkeypatch.setattr(
+        "app.feasibility.portfolio_readiness.calculate_atp", lambda *a, **k: materials
+    )
+
+    result = inspect(snapshot)
+
+    assert result.capacity_status is FeasibilityState.FEASIBLE
+    assert result.status == expected
+    assert result.blocker_codes == ("MATERIAL_BASELINE_NOT_PROVEN",)
+    assert result.allocation_authorized is False
+
+
+def test_missing_material_evidence_fails_closed(monkeypatch):
+    snapshot, _ = fixture()
+    monkeypatch.setattr("app.feasibility.portfolio_readiness.calculate_atp", lambda *a, **k: None)
+
+    result = inspect(snapshot)
+
+    assert result.status == "UNKNOWN"
+    assert result.material_status is None
+    assert result.blocker_codes == ("MATERIAL_BASELINE_NOT_PROVEN",)
+    assert result.allocation_authorized is False
+
+
+def test_pending_target_precedence_over_unproven_capacity(monkeypatch):
+    snapshot, _ = fixture()
+    capacity = CapacityResult(status=FeasibilityState.CONDITIONAL, constraints=())
+    monkeypatch.setattr(
+        "app.feasibility.portfolio_readiness.check_capacity", lambda *a, **k: capacity
+    )
+
+    result = inspect(snapshot, pending=("request-1",))
+
+    assert result.status == "PENDING_TARGET_UNSUPPORTED"
+    assert result.blocker_codes == ("PENDING_TARGET_UNSUPPORTED", "CAPACITY_BASELINE_NOT_PROVEN")
+    assert result.allocation_authorized is False
 
 
 @pytest.mark.parametrize(
