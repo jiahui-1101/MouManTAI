@@ -63,6 +63,22 @@ _RESPONSE_INTENTS = {
 CONSUMER_NAME = "p3.confirmation_response.v1"
 
 
+def _json_payloads_match_exactly(left: object, right: object) -> bool:
+    """Compare structured JSON without Python's bool/int or int/float coercion."""
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _json_payloads_match_exactly(value, right[key])
+            for key, value in left.items()
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _json_payloads_match_exactly(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
 class TrustedP3RecoveryResponseContext(ContractModel):
     """Resolved, persisted P4-to-P3 linkage; no identifiers are inferred."""
 
@@ -588,7 +604,7 @@ class P3ConfirmationResponseConsumer:
         ).order_by(AuditEventRecord.occurred_at, AuditEventRecord.audit_id).limit(2)).all()
         if len(audit_candidates) > 1:
             raise DomainError("P4_RESPONSE_AUDIT_AMBIGUOUS", "P4 response audit evidence is ambiguous", status_code=409)
-        if not audit_candidates or audit_candidates[0].new_state != payload:
+        if not audit_candidates or not _json_payloads_match_exactly(audit_candidates[0].new_state, payload):
             raise DomainError("P4_RESPONSE_AUDIT_MISSING", "P4 response audit evidence is missing", status_code=409)
         return intent, response_state
 
