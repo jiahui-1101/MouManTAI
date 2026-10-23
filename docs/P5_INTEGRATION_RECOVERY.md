@@ -43,13 +43,13 @@ There is no trusted operational delivery connector in this demo. A fulfiller may
 ev_synthetic_delivery|<tenant_id>|<commitment_id>|<evidence_id>
 ```
 
-Every ref in the request must match the caller's tenant and the target commitment, and at least one ref is required. The full string must match; a prefix, substring, receipt, message, action result, or legacy `ev_ops_delivery_*` label is not proof. This format is explicitly synthetic and does not claim a real-world POD. No table or migration was added.
+Every ref in the request must match the caller's tenant and the target commitment, and at least one ref is required. The full string must match; a prefix, substring, receipt, message, action result, or legacy `ev_ops_delivery_*` label is not proof. This is only a synthetic format-and-scope check; it does not verify actual delivery or establish that a real POD exists. No table or migration was added.
 
 ## Synthetic Demo Startup
 
 The API checks `MOUMANTAI_SYNTHETIC_MODE=1` before accepting the fixed server-side `X-Tenant-ID` / `X-Actor-ID` role map. It defaults to `0` (off). These headers resolve to fixed demo actors and are not authentication; enable this flag only for synthetic/test environments and never in production. Worker subscriptions additionally require `MOUMANTAI_ISOLATED_E2E=1` and a server-owned `MOUMANTAI_ISOLATED_E2E_KEY` of at least 32 characters.
 
-The shared `app.main` entrypoint applies the same default-off gate to P1 message, context, attachment and `/dev/p1` routes, which have their own development identity dependency. P1's separate `app.context.dev_app` is explicitly development-only and is not mounted by `app.main`; its smoke runner requires `P1_TEST_DATABASE_URL` ending in `_test`.
+The shared `app.main` entrypoint applies the same default-off gate to P1 message, context, attachment and `/dev/p1` routes, which have their own development identity dependency. The gate uses a hard-coded path-prefix tuple (`_P1_IDENTITY_PATHS`); check and update that list whenever adding a P1 route so the route remains behind the synthetic identity gate. P1's separate `app.context.dev_app` is explicitly development-only and is not mounted by `app.main`; its smoke runner requires `P1_TEST_DATABASE_URL` ending in `_test`.
 
 PowerShell from the repository root:
 

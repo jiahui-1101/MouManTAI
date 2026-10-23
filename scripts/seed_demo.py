@@ -5,7 +5,7 @@ Seeds the database with resource stocks and the 5 canonical demo commitments:
 2. Material shortage / AT_RISK commitment (`com_001`)
 3. Supplier delay with alternate recovery plans (`com_delay_01`)
 4. Ambiguous customer confirmation (`com_ambiguous_01`)
-5. Verified operational completion (`com_fulfilled_01`)
+5. Synthetic fulfilment-format example (`com_fulfilled_01`)
 
 Idempotent: safe to run multiple times without duplicating or corrupting state.
 Usage:
@@ -271,7 +271,7 @@ def seed_demo(db_url: str | None = None) -> None:
         )
 
         # ---------------------------------------------------------------------
-        # Commitment 5: Verified operational completion (com_fulfilled_01)
+        # Commitment 5: Synthetic fulfilment-format example (com_fulfilled_01)
         # ---------------------------------------------------------------------
         com_fulfilled = CommitmentRecord(
             tenant_id=tenant,
@@ -420,7 +420,7 @@ def seed_demo(db_url: str | None = None) -> None:
     print("    2. com_001          (CONFIRMED, INFEASIBLE, AT_RISK, RECOVERY_REQUIRED)")
     print("    3. com_delay_01     (CONFIRMED, INFEASIBLE, AT_RISK, PENDING_APPROVAL, with 2 recovery plans)")
     print("    4. com_ambiguous_01 (OFFERED, FEASIBLE, NORMAL, manual review required)")
-    print("    5. com_fulfilled_01 (CONFIRMED, FEASIBLE, RESOLVED, FULFILLED, signed POD proof)")
+    print("    5. com_fulfilled_01 (CONFIRMED, FEASIBLE, RESOLVED, FULFILLED, synthetic evidence ref)")
 
 
 if __name__ == "__main__":
