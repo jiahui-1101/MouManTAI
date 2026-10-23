@@ -79,7 +79,7 @@ def _truncate_all_application_tables(engine) -> None:
 
 
 @pytest.fixture(scope="session")
-def pg_engine():
+def pg_suite_engine():
     raw_url = os.getenv("TEST_DATABASE_URL")
     if not REQUIRE_POSTGRES:
         if not raw_url:
@@ -128,7 +128,7 @@ def pg_engine():
 @pytest.fixture(autouse=True)
 def pg_isolation(request):
     if REQUIRE_POSTGRES:
-        pg_eng = request.getfixturevalue("pg_engine")
+        pg_eng = request.getfixturevalue("pg_suite_engine")
         yield
         _truncate_all_application_tables(pg_eng)
     else:
@@ -138,7 +138,7 @@ def pg_isolation(request):
 @pytest.fixture
 def test_engine(request):
     if REQUIRE_POSTGRES:
-        yield request.getfixturevalue("pg_engine")
+        yield request.getfixturevalue("pg_suite_engine")
     else:
         # Portable suite only. Migrated PostgreSQL coverage has a separate opt-in
         # fixture that never creates tables or silently switches database engines.
