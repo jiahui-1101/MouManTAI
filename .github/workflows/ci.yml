@@ -68,9 +68,9 @@ jobs:
       DISABLE_SQLALCHEMY_CEXT: "1"
       REQUIRE_POSTGRES: "1"
       TEST_DATABASE_APPROVED: "1"
-      TEST_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/moumantai_suite"
+      TEST_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/p4_test_moumantai_suite"
       TEST_MIGRATION_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/moumantai_migration"
-      P1_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/moumantai_suite"
+      P1_DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/p4_test_moumantai_suite"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -90,8 +90,8 @@ jobs:
 
       - name: Create PostgreSQL test databases
         run: |
-          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "DROP DATABASE IF EXISTS moumantai_suite;"
-          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE moumantai_suite;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "DROP DATABASE IF EXISTS p4_test_moumantai_suite;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE p4_test_moumantai_suite;"
           PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "DROP DATABASE IF EXISTS moumantai_migration;"
           PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE moumantai_migration;"
 
