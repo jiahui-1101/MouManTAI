@@ -6,6 +6,8 @@ from collections.abc import Generator
 
 # Ensure pure-python SQLAlchemy implementation on environments with AppControl/WDAC/CI
 os.environ["DISABLE_SQLALCHEMY_CEXT"] = "1"
+# Test clients use header-based identity, so enable synthetic mode for tests.
+os.environ.setdefault("MOUMANTAI_SYNTHETIC_MODE", "1")
 
 # Strict mode: When REQUIRE_POSTGRES=1, bind to PostgreSQL suite URL before any app import (F12)
 REQUIRE_POSTGRES = os.getenv("REQUIRE_POSTGRES", "0").lower() in ("1", "true", "yes")

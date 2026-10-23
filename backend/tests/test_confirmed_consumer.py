@@ -33,3 +33,10 @@ def test_mandatory_consumers_require_explicit_isolated_worker_gate(monkeypatch) 
     assert [name for name, _ in dispatcher.get_subscribers("commitment.at_risk")] == [
         "p3.recovery_trigger.v1"
     ]
+    assert [name for name, _ in dispatcher.get_subscribers("confirmation.accepted")] == [
+        "p5.confirmation.required"
+    ]
+    assert {name for name, _ in dispatcher.get_subscribers("confirmation.rejected")} == {
+        "p5.confirmation.required",
+        "p3.confirmation_response.v1",
+    }

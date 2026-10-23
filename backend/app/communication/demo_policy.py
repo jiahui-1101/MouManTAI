@@ -23,7 +23,11 @@ class SyntheticScope:
         mode = os.getenv("P4_RUNTIME_MODE", "")
         environment = os.getenv("APP_ENV", "")
         names = frozenset(x.strip() for x in os.getenv("P4_SYNTHETIC_TENANTS", "").split(",") if x.strip())
-        known = frozenset({"synthetic_tenant_a", "synthetic_tenant_b"})
+        known = frozenset({
+            "synthetic_tenant_a",
+            "synthetic_tenant_b",
+            "tenant_demo_01",
+        })
         valid = mode == "SYNTHETIC" and environment == "synthetic" and bool(names) and names <= known
         return cls(valid, names if valid else frozenset())
 

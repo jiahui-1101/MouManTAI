@@ -49,6 +49,8 @@ def postgresql_test_engine():
     from app.feasibility.persisted_sources import OperationalSnapshotRecord
 
     raw_url = os.getenv("TEST_DATABASE_URL")
+    if os.getenv("REQUIRE_POSTGRES") != "1":
+        pytest.skip("PostgreSQL NOT VERIFIED: REQUIRE_POSTGRES=1 is absent")
     if not raw_url:
         pytest.skip("PostgreSQL NOT VERIFIED: explicit TEST_DATABASE_URL is absent")
     if os.getenv("TEST_DATABASE_APPROVED") != "1":

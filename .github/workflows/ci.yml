@@ -13,6 +13,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  MOUMANTAI_SYNTHETIC_MODE: "1"
+
 jobs:
   backend-tests:
     name: Backend Tests (pytest & syntax)
