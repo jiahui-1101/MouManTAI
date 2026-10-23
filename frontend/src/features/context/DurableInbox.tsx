@@ -130,15 +130,7 @@ const PAGE_SIZE = 15;
 
 
 
-function formatChannel(channel: string | undefined): string {
 
-  if (!channel) return 'WhatsApp';
-
-  const clean = channel.replace(/^SYNTHETIC_/, '');
-
-  return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
-
-}
 
 function formatSource(message: StoredMessage | undefined): string {
   if (!message) return 'Synthetic';
