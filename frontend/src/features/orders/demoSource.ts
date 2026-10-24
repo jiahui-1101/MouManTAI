@@ -1,6 +1,8 @@
 import { apiRequest, authHeaders, type RequestAuthHeaders } from '../../shared/api';
 import type { OrderQueueSource } from './api';
 import type { OrderQueueSnapshot } from './types';
+import type { OrderDetailSource } from './detailApi';
+import type { OrderDetail } from './detailTypes';
 
 /** Both explicit mode and flag are required; no automatic fallback on API errors. */
 export const ordersDemoEnabled = () => import.meta.env.MODE === 'demo' && import.meta.env.VITE_ORDERS_DEMO === '1';
@@ -44,5 +46,41 @@ export const demoOrderQueueSource: OrderQueueSource = {
   cacheKey: 'synthetic-orders-demo-v1',
   async load(auth, signal) {
     return mapDemoQueue(await apiRequest<DemoQueueDto>('/v1/demo/orders', { headers: authHeaders(auth), signal }), auth);
+  },
+};
+
+export interface DemoDetailDto {
+  tenant_id: string; actor_id: string; integration_mode: 'SYNTHETIC'; evidence_tier: 'DEMO-ONLY';
+  source_at: string; source: string; order: DemoOrderDto;
+  related_commitment: { commitment_id: string; order_id: string; tenant_id: string; version: number;
+    agreement_state: string; risk_state: string; recovery_state: string; evidence_refs: string[] } | null;
+  assessment_availability: 'UNAVAILABLE' | 'UNVERIFIABLE' | 'HISTORICAL_ONLY';
+  assessment_reason: string; assessments: unknown[];
+}
+export function mapDemoDetail(dto: DemoDetailDto, id: string, auth: RequestAuthHeaders): OrderDetail {
+  validateDemoQueue({ ...dto, schema_version: 'orders-demo-v1', coverage: 'partial', read_authorized: true, orders: [dto.order] }, auth);
+  const o = dto.order; const c = dto.related_commitment;
+  if (o.order_id !== id || (c && (c.tenant_id !== auth.tenantId || c.order_id !== id || c.commitment_id !== o.commitment_id)) ||
+      !['UNAVAILABLE', 'UNVERIFIABLE', 'HISTORICAL_ONLY'].includes(dto.assessment_availability) ||
+      !nonempty(dto.assessment_reason) || !Array.isArray(dto.assessments)) throw new Error('Synthetic detail association mismatch');
+  return { id, tenantId: dto.tenant_id, customer: o.customer_display_name, channel: o.source_channel,
+    receivedAt: o.received_at, originalDeadline: o.requested_delivery_at, currentDeadline: o.requested_delivery_at,
+    status: o.lifecycle_status, commitmentId: c?.commitment_id,
+    lines: o.requested_items.map(l => ({ sku: l.sku, product: l.sku, quantity: { amount: l.quantity, unit: l.unit } })),
+    fields: [{ name: 'Synthetic original request', value: dto.source, status: 'SYNTHETIC', evidence: o.evidence_refs.map(ref => ({ ref })) }],
+    assessment: { freshness: 'UNKNOWN', sourceVerified: false, complete: false, status: 'UNKNOWN',
+      reasons: [dto.assessment_reason], missingEvidence: ['Verified request version and current P2 operational snapshot'] },
+    pricing: { access: auth.actorId.includes('staff') ? 'REDACTED' : 'UNKNOWN' },
+    sourceWarnings: ['SYNTHETIC / DEMO-ONLY request. Lifecycle Unknown; no acceptance, delivery or reservation evidence is inferred.',
+      `Source timestamp: ${dto.source_at}. Inventory/BOM, capacity and expiry assessment unavailable.`,
+      `${dto.assessment_availability}: ${dto.assessment_reason}`,
+      ...(c ? [`Related synthetic Core commitment ${c.commitment_id} v${c.version}: agreement ${c.agreement_state}; risk ${c.risk_state}; recovery ${c.recovery_state}. These are separate from order lifecycle.`] : ['Core association unavailable.'])],
+  };
+}
+export const demoOrderDetailSource: OrderDetailSource = {
+  cacheKey: 'synthetic-order-detail-v1',
+  async load(id, auth, signal) {
+    const dto = await apiRequest<DemoDetailDto>(`/v1/demo/orders/${encodeURIComponent(id)}`, { headers: authHeaders(auth), signal });
+    return mapDemoDetail(dto, id, auth);
   },
 };

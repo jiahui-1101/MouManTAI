@@ -53,3 +53,60 @@ def test_fail_closed(demo, monkeypatch, key, value, code):
 
 def test_missing_identity(demo):
     assert demo.get("/v1/demo/orders").status_code == 400
+
+
+@pytest.fixture
+def detail_db(demo, session):
+    from app.core.dependencies import get_db
+    app.dependency_overrides[get_db] = lambda: session
+    yield session
+    app.dependency_overrides.pop(get_db, None)
+
+
+def add_commitment(session, order_id="ord_hero_001", tenant="tenant_demo_01"):
+    from datetime import datetime, timezone
+    from app.core.models import CommitmentRecord
+    session.add(CommitmentRecord(tenant_id=tenant, commitment_id="com_001", order_id=order_id,
+        customer_id="customer_demo", terms={"sku": "BURGER_PREMIUM", "quantity": "100", "unit": "pcs",
+        "deadline": "2026-10-26T08:00:00Z"}, agreement_state="CONFIRMED", feasibility_state="FEASIBLE",
+        risk_state="NORMAL", recovery_state="NONE", fulfilment_state="FULFILLED", commitment_version=1,
+        evidence_refs=["synthetic://test"], updated_at=datetime.now(timezone.utc)))
+    session.commit()
+
+
+def test_detail_does_not_promote_core_states_to_order_decisions(demo, detail_db):
+    add_commitment(detail_db)
+    response = demo.get("/v1/demo/orders/ord_hero_001", headers=HEADERS)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["order"]["lifecycle_status"] == "UNKNOWN"
+    assert data["related_commitment"]["commitment_id"] == "com_001"
+    assert data["assessment_availability"] == "UNAVAILABLE"
+    assert data["assessments"] == []
+    assert demo.get("/v1/demo/orders/no_such_order", headers=HEADERS).status_code == 404
+
+
+def test_detail_without_core_and_other_tenant_core(demo, detail_db):
+    add_commitment(detail_db, tenant="another_tenant")
+    data = demo.get("/v1/demo/orders/ord_hero_001", headers=HEADERS).json()
+    assert data["related_commitment"] is None
+    assert data["assessment_availability"] == "UNAVAILABLE"
+    assert "another_tenant" not in str(data)
+
+
+def test_wrong_link_rejected(demo, detail_db):
+    add_commitment(detail_db, order_id="other_order")
+    assert demo.get("/v1/demo/orders/ord_hero_001", headers=HEADERS).status_code == 409
+
+
+def test_bad_assessment_provenance_is_explicit(demo, detail_db, monkeypatch):
+    from app.core.feasibility_adapters import AuthoritativeAssessmentHistoryReader
+    from app.core.errors import DomainError
+    add_commitment(detail_db)
+    def invalid(*args):
+        raise DomainError("ASSESSMENT_PROVENANCE_MISSING", "Missing provenance", status_code=409)
+    monkeypatch.setattr(AuthoritativeAssessmentHistoryReader, "list_for_commitment", invalid)
+    data = demo.get("/v1/demo/orders/ord_hero_001", headers=HEADERS).json()
+    assert data["assessment_availability"] == "UNVERIFIABLE"
+    assert "ASSESSMENT_PROVENANCE_MISSING" in data["assessment_reason"]
+    assert data["assessments"] == []

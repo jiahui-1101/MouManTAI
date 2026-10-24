@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mapDemoQueue, ordersDemoEnabled, type DemoQueueDto } from './demoSource';
+import { mapDemoDetail, mapDemoQueue, ordersDemoEnabled, type DemoDetailDto, type DemoQueueDto } from './demoSource';
 import { initialFilters, selectOrders } from './queue';
 
 const auth = { tenantId: 'tenant_demo_01', actorId: 'user_owner_01' };
@@ -37,4 +37,20 @@ describe('synthetic queue boundary', () => {
     vi.stubEnv('MODE', 'demo'); expect(ordersDemoEnabled()).toBe(true);
     vi.stubEnv('VITE_ORDERS_DEMO', '0'); expect(ordersDemoEnabled()).toBe(false);
   });
+});
+
+it('maps detail without accepting Core state or missing assessment provenance', () => {
+  const q = demoDto();
+  const dto: DemoDetailDto = { ...q, order: q.orders[0], related_commitment: { tenant_id: auth.tenantId,
+    order_id: 'ord_hero_001', commitment_id: 'com_001', version: 5, agreement_state: 'CONFIRMED',
+    risk_state: 'AT_RISK', recovery_state: 'RECOVERY_REQUIRED', evidence_refs: ['synthetic://core'] },
+    assessment_availability: 'UNVERIFIABLE', assessment_reason: 'Missing provenance', assessments: [] };
+  const mapped = mapDemoDetail(dto, 'ord_hero_001', auth);
+  expect(mapped.status).toBe('UNKNOWN');
+  expect(mapped.assessment?.sourceVerified).toBe(false);
+  expect(mapped.currentDeadline).toBe(q.orders[0].requested_delivery_at);
+  expect(mapped.commitmentId).toBe('com_001');
+  expect(() => mapDemoDetail(dto, 'com_001', auth)).toThrow();
+  Object.assign(dto.related_commitment!, { tenant_id: 'other' });
+  expect(() => mapDemoDetail(dto, 'ord_hero_001', auth)).toThrow();
 });
