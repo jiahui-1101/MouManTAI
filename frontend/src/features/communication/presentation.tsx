@@ -102,6 +102,66 @@ export function channelText(channel: string | null | undefined) {
   return channel.replace("MOCK_", "Mock ").replace(/_/g, " ");
 }
 
+export type CaseOriginInfo = {
+  label: "Gmail" | "Telegram" | "WhatsApp" | "Synthetic";
+  type: "gmail" | "telegram" | "whatsapp" | "synthetic";
+};
+
+export function getCaseOrigin(request: CommunicationRequestView): CaseOriginInfo {
+  const origin = (request.source_origin ?? "").toUpperCase();
+  if (origin === "GMAIL") return { label: "Gmail", type: "gmail" };
+  if (origin === "TELEGRAM") return { label: "Telegram", type: "telegram" };
+  if (origin === "WHATSAPP") return { label: "WhatsApp", type: "whatsapp" };
+  if (origin === "SYNTHETIC") return { label: "Synthetic", type: "synthetic" };
+
+  const channel = (request.channel ?? "").toUpperCase();
+  if (channel.startsWith("MOCK_") || channel === "UNKNOWN" || !channel) {
+    return { label: "Synthetic", type: "synthetic" };
+  }
+  if (channel === "GMAIL" || channel === "EMAIL") return { label: "Gmail", type: "gmail" };
+  if (channel === "TELEGRAM") return { label: "Telegram", type: "telegram" };
+  if (channel === "WHATSAPP") return { label: "WhatsApp", type: "whatsapp" };
+
+  return { label: "Synthetic", type: "synthetic" };
+}
+
+export type DeliveryModeInfo = {
+  label: "Real" | "Simulated";
+  isSimulated: boolean;
+};
+
+export function getDeliveryMode(request: CommunicationRequestView): DeliveryModeInfo {
+  const mode = (request.delivery_mode ?? "").toUpperCase();
+  if (mode === "REAL") return { label: "Real", isSimulated: false };
+  return { label: "Simulated", isSimulated: true };
+}
+
+export function OriginBadge({ request }: { request: CommunicationRequestView }) {
+  const origin = getCaseOrigin(request);
+  return (
+    <span
+      className={`cc-source-badge cc-source-${origin.type}`}
+      data-testid="origin-badge"
+      title={`Source origin: ${origin.label}`}
+    >
+      {origin.label}
+    </span>
+  );
+}
+
+export function DeliveryModeBadge({ request }: { request: CommunicationRequestView }) {
+  const mode = getDeliveryMode(request);
+  return (
+    <span
+      className={`cc-delivery-badge cc-delivery-${mode.isSimulated ? "simulated" : "real"}`}
+      data-testid="delivery-badge"
+      title={`Delivery mode: ${mode.label}`}
+    >
+      {mode.label}
+    </span>
+  );
+}
+
 export function DisplayBadge({ label }: { label: string }) {
   return <StatusBadge state={label} label={label} className={`cc-status cc-status-${label.toLowerCase()}`} />;
 }
