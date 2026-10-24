@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from hashlib import sha256
 from types import SimpleNamespace
 
 import pytest
@@ -22,22 +21,149 @@ from app.context.document_schemas import (
 )
 from app.context.ingestion_schemas import StoredMessage
 from app.context.schemas import RawMessageEnvelope
+from app.message_intelligence.adapters import (
+    ApprovedInquiryFact,
+    CurrentP1MessageReader,
+    TrustedDeliverySnapshot,
+    draft_customer_inquiry,
+    validate_supplier_delay,
+)
 from app.message_intelligence.contracts import (
     CustomerInquiryCandidate,
-    ProviderCompletion,
     VerifiedSupplierIdentity,
-)
-from app.message_intelligence.providers import (
-    BudgetPolicy,
-    GeminiProvider,
-    ProviderError,
-    ProviderRate,
-    QwenProvider,
 )
 from app.message_intelligence.service import MessageIntelligenceService, SourceContractError
 
 NOW = datetime(2026, 10, 25, 4, 0, tzinfo=UTC)
 TENANT = "tenant_c3_test"
+
+
+class FixtureGateway:
+    def __init__(self, assessment):
+        self.assessment = assessment
+        self.prompts = []
+
+    def classify(self, segments):
+        self.prompts.append(segments)
+        return SimpleNamespace(
+            assessment=self.assessment,
+            provider="QWEN",
+            model_id="fixture-qwen",
+            attempts=[],
+        )
+
+
+class CurrentSourceFixture:
+    def __init__(self, msg, association=None):
+        self.msg, self.association = msg, association
+
+    def current_verified_tenant_id(self):
+        return self.msg.raw.tenant_id
+
+    def get(self, tenant_id, message_id):
+        return (
+            self.msg
+            if (tenant_id, message_id) == (self.msg.raw.tenant_id, self.msg.message_id)
+            else None
+        )
+
+    def get_association(self, tenant_id, message_id):
+        return self.association
+
+
+def canonical_message(text):
+    msg = message(text)
+    return msg.model_copy(update={"content_sha256": sha256(text.encode("utf-8")).hexdigest()})
+
+
+def test_current_p1_reader_drafts_only_from_verified_approved_facts():
+    msg = canonical_message("What is the price?")
+    association = verified_customer_association(msg)
+    source = CurrentSourceFixture(msg, association)
+    reader = CurrentP1MessageReader(source, source)
+    outcome = reader.analyze(msg.message_id, MessageIntelligenceService(), now=NOW)
+    assert outcome.customer_inquiry is not None
+
+    class Facts:
+        def read_public_inquiry_fact(self, tenant_id, topic):
+            return ApprovedInquiryFact(
+                tenant_id=tenant_id,
+                topic=topic,
+                text="The approved public price is RM 10.",
+                evidence_refs=("catalog:v3:price",),
+                source_version=3,
+                checked_at=NOW,
+            )
+
+    draft = draft_customer_inquiry(outcome.customer_inquiry, reader=reader, facts=Facts(), now=NOW)
+    assert draft.business_evidence == ("catalog:v3:price",)
+    assert draft.source_content_sha256 == msg.content_sha256
+    assert draft.send_authorized is False
+    with pytest.raises(SourceContractError):
+        draft_customer_inquiry(
+            outcome.customer_inquiry, reader=reader, facts=Facts(), now=NOW + timedelta(minutes=6)
+        )
+    source.association = None
+    with pytest.raises(SourceContractError):
+        draft_customer_inquiry(outcome.customer_inquiry, reader=reader, facts=Facts(), now=NOW)
+
+
+def test_supplier_handoff_requires_exact_current_p2_snapshot():
+    msg = canonical_message("PO-450 delivery is delayed until 2026-10-29")
+    source = CurrentSourceFixture(msg)
+    reader = CurrentP1MessageReader(source, source)
+    candidate = reader.analyze(
+        msg.message_id,
+        MessageIntelligenceService(supplier_identity_resolver=VerifiedSupplierResolver()),
+        now=NOW,
+    ).supplier_delay
+    assert candidate is not None
+
+    class P2:
+        def read_delivery(self, tenant_id, supplier_id, reference):
+            return TrustedDeliverySnapshot(
+                tenant_id=tenant_id,
+                supplier_id=supplier_id,
+                delivery_reference=reference,
+                snapshot_version=4,
+                snapshot_at=NOW,
+                expected_eta=NOW,
+                evidence_refs=("p2:snapshot:4",),
+            )
+
+    assessment = validate_supplier_delay(
+        candidate,
+        reader=reader,
+        p2=P2(),
+        supplier_identity=VerifiedSupplierResolver(),
+        now=NOW,
+    )
+    assert assessment.snapshot_version == 4
+    assert assessment.status == "POTENTIAL_DELAY_REPORTED"
+    assert assessment.state_mutated is False
+
+    class WrongP2(P2):
+        def read_delivery(self, tenant_id, supplier_id, reference):
+            row = super().read_delivery(tenant_id, supplier_id, reference)
+            return row.model_copy(update={"supplier_id": "another_supplier"})
+
+    with pytest.raises(SourceContractError):
+        validate_supplier_delay(
+            candidate,
+            reader=reader,
+            p2=WrongP2(),
+            supplier_identity=VerifiedSupplierResolver(),
+            now=NOW,
+        )
+    source.msg = canonical_message("PO-450 delivery was delayed until 2026-10-30")
+    with pytest.raises(SourceContractError):
+        validate_supplier_delay(
+            candidate,
+            reader=reader,
+            p2=P2(),
+            supplier_identity=VerifiedSupplierResolver(),
+            now=NOW,
+        )
 
 
 def message(text: str, *, tenant: str = TENANT, attachments=()) -> StoredMessage:
@@ -92,64 +218,6 @@ def verified_customer_association(msg: StoredMessage) -> MessageAssociationRecor
     )
 
 
-class ScriptedProvider:
-    def __init__(self, *replies):
-        self.replies = list(replies)
-        self.calls = 0
-        self.prompts = []
-
-    def complete(self, prompt, *, max_output_tokens):
-        self.calls += 1
-        self.prompts.append(prompt)
-        reply = self.replies.pop(0)
-        if isinstance(reply, Exception):
-            raise reply
-        if isinstance(reply, str):
-            return ProviderCompletion(content=reply, input_tokens=80, output_tokens=30)
-        return reply
-
-
-class CapturingHttpTransport:
-    def __init__(self, response):
-        self.response = response
-        self.calls = []
-
-    def post(self, url, headers, body, *, timeout_seconds):
-        self.calls.append(
-            {
-                "url": url,
-                "headers": headers,
-                "body": json.loads(body),
-                "timeout_seconds": timeout_seconds,
-            }
-        )
-        return self.response
-
-
-def assessment_json(
-    *, intent, topic=None, claim_kind, segment_id, text, start=0, end=None, value="true"
-):
-    end = len(text) if end is None else end
-    return json.dumps(
-        {
-            "intent": intent,
-            "inquiry_topic": topic,
-            "claims": [
-                {
-                    "kind": claim_kind,
-                    "value": value,
-                    "evidence": {
-                        "segment_id": segment_id,
-                        "quote": text[start:end],
-                        "start": start,
-                        "end": end,
-                    },
-                }
-            ],
-        }
-    )
-
-
 class VerifiedSupplierResolver:
     def resolve_supplier(self, *, tenant_id, channel, sender_identity_id):
         assert tenant_id == TENANT
@@ -165,17 +233,6 @@ class VerifiedSupplierResolver:
             checked_at=NOW,
             version=4,
         )
-
-
-def make_test_budget() -> BudgetPolicy:
-    rate = ProviderRate(Decimal(1), Decimal(1))
-    return BudgetPolicy(
-        max_analysis_cost_usd=Decimal(1),
-        max_input_tokens=12_000,
-        max_output_tokens=512,
-        qwen_rate=rate,
-        gemini_rate=rate,
-    )
 
 
 def test_deterministic_customer_inquiry_reuses_existing_intent_rules():
@@ -258,431 +315,46 @@ def test_future_supplier_identity_check_becomes_unverified_review_candidate():
     assert result.human_review_candidate is not None
 
 
-def test_semantic_supplier_delay_preserves_deterministic_reference_and_eta_evidence():
-    text = "Our PO-991 delivery is held up, expected 2026-10-28."
-    start = text.index("held up")
-    qwen = ScriptedProvider(
-        assessment_json(
-            intent="SUPPLIER_DELAY",
-            claim_kind="SUPPLIER_DELAY",
-            segment_id="s0",
-            text=text,
-            start=start,
-            end=start + len("held up"),
-            value="reported delay",
-        )
-    )
-    gemini = ScriptedProvider(ProviderError("must_not_be_called"))
-
-    result = MessageIntelligenceService(
-        qwen=qwen, gemini=gemini, budget_policy=make_test_budget()
-    ).analyze(message(text), now=NOW)
-
-    assert result.supplier_delay.delivery_reference == "PO-991"
-    assert result.supplier_delay.delivery_reference_evidence.quote == "PO-991"
-    assert result.supplier_delay.reported_eta_text == "2026-10-28"
-    assert result.supplier_delay.reported_eta_evidence.quote == "2026-10-28"
-    assert result.supplier_delay.review_required is True
-
-
-def test_output_token_ceiling_falls_back_to_gemini():
-    text = "Would availability be possible later this week?"
-    qwen = ScriptedProvider(
-        ProviderCompletion(
-            content=assessment_json(
-                intent="CUSTOMER_INQUIRY",
-                topic="AVAILABILITY",
-                claim_kind="INQUIRY",
-                segment_id="s0",
-                text=text,
-            ),
-            input_tokens=80,
-            output_tokens=513,
-        )
-    )
-    gemini = ScriptedProvider(
-        assessment_json(
-            intent="CUSTOMER_INQUIRY",
-            topic="AVAILABILITY",
-            claim_kind="INQUIRY",
-            segment_id="s0",
-            text=text,
-        )
-    )
-
-    result = MessageIntelligenceService(
-        qwen=qwen, gemini=gemini, budget_policy=make_test_budget()
-    ).analyze(message(text), now=NOW)
-
-    assert [attempt.error_code for attempt in result.provider_attempts] == [
-        "OUTPUT_LIMIT_EXCEEDED",
-        None,
-    ]
-    assert result.provider == "GEMINI"
-    assert result.customer_inquiry is not None
-
-
-def test_qwen_valid_output_is_used_without_gemini_fallback():
-    text = "What would be the best option for getting this to our office?"
-    qwen = ScriptedProvider(
-        assessment_json(
-            intent="CUSTOMER_INQUIRY",
-            topic="DELIVERY",
-            claim_kind="INQUIRY",
-            segment_id="s0",
-            text=text,
-        )
-    )
-    gemini = ScriptedProvider(ProviderError("must_not_be_called"))
-    msg = message(text)
-
-    result = MessageIntelligenceService(
-        qwen=qwen, gemini=gemini, budget_policy=make_test_budget()
-    ).analyze(msg, association=verified_customer_association(msg), now=NOW)
-
-    assert result.intent == "CUSTOMER_INQUIRY"
-    assert result.provider == "QWEN"
-    assert qwen.calls == 1
-    assert gemini.calls == 0
-    assert result.customer_inquiry.evidence[0].quote == text
-    assert result.customer_inquiry.evidence[0].message_id == msg.message_id
-
-
-@pytest.mark.parametrize(
-    "qwen_failure",
-    [
-        ProviderError("TIMEOUT", retryable=False),
-        '{"intent":"CUSTOMER_INQUIRY","inquiry_topic":"PRICE","unexpected":true}',
-    ],
-)
-def test_gemini_fallback_runs_after_qwen_failure_or_invalid_schema(qwen_failure):
-    text = "Would the shipment reach our office before Friday?"
-    qwen = ScriptedProvider(qwen_failure)
-    gemini = ScriptedProvider(
-        assessment_json(
-            intent="CUSTOMER_INQUIRY",
-            topic="DELIVERY",
-            claim_kind="INQUIRY",
-            segment_id="s0",
-            text=text,
-        )
-    )
-    msg = message(text)
-
-    result = MessageIntelligenceService(
-        qwen=qwen, gemini=gemini, budget_policy=make_test_budget()
-    ).analyze(msg, association=verified_customer_association(msg), now=NOW)
-
-    assert result.provider == "GEMINI"
-    assert qwen.calls == 1
-    assert gemini.calls == 1
-    assert result.customer_inquiry is not None
-    assert result.review_required is False
-
-
-def test_retryable_qwen_timeout_retries_once_before_accepting_valid_result():
-    text = "What would be the best option for getting this to our office?"
-    qwen = ScriptedProvider(
-        ProviderError("TIMEOUT", retryable=True),
-        assessment_json(
-            intent="CUSTOMER_INQUIRY",
-            topic="DELIVERY",
-            claim_kind="INQUIRY",
-            segment_id="s0",
-            text=text,
-        ),
-    )
-    gemini = ScriptedProvider(ProviderError("must_not_be_called"))
-    msg = message(text)
-
-    result = MessageIntelligenceService(
-        qwen=qwen, gemini=gemini, budget_policy=make_test_budget()
-    ).analyze(msg, association=verified_customer_association(msg), now=NOW)
-
-    assert result.provider == "QWEN"
-    assert [attempt.status for attempt in result.provider_attempts] == ["TIMEOUT", "VALID"]
-    assert qwen.calls == 2
-    assert gemini.calls == 0
-
-
-def test_explicit_cost_budget_blocks_calls_without_configured_rates():
-    text = "Would availability be possible later this week?"
-    qwen = ScriptedProvider(ProviderError("must_not_be_called"))
-    gemini = ScriptedProvider(ProviderError("must_not_be_called"))
-    msg = message(text)
-    no_rates = BudgetPolicy(
-        max_analysis_cost_usd=Decimal("0.05"),
-        max_input_tokens=12_000,
-        max_output_tokens=512,
-        qwen_rate=None,
-        gemini_rate=None,
-    )
-
-    result = MessageIntelligenceService(qwen=qwen, gemini=gemini, budget_policy=no_rates).analyze(
-        msg, now=NOW
-    )
-
-    assert qwen.calls == gemini.calls == 0
-    assert result.review_required is True
-    assert "SEMANTIC_BUDGET_EXCEEDED" in result.review_reasons
-
-
-def test_semantic_output_that_contradicts_deterministic_delay_signal_falls_back_and_reviews():
-    text = "Our PO-991 delivery is delayed, and the PO-992 delivery will also be delayed."
-    qwen = ScriptedProvider(
-        assessment_json(
-            intent="CUSTOMER_INQUIRY",
-            topic="OTHER",
-            claim_kind="INQUIRY",
-            segment_id="s0",
-            text=text,
-        )
-    )
-    gemini = ScriptedProvider(
-        assessment_json(
-            intent="CUSTOMER_INQUIRY",
-            topic="OTHER",
-            claim_kind="INQUIRY",
-            segment_id="s0",
-            text=text,
-        )
-    )
-    msg = message(text)
-
-    result = MessageIntelligenceService(
-        qwen=qwen, gemini=gemini, budget_policy=make_test_budget()
-    ).analyze(msg, association=verified_customer_association(msg), now=NOW)
-
-    assert qwen.calls == gemini.calls == 1
-    assert result.intent == "UNKNOWN"
-    assert result.customer_inquiry is None
-    assert result.review_required is True
-    assert "DETERMINISTIC_CONTRADICTION" in result.review_reasons
-
-
-def test_incompatible_model_claim_kinds_fall_back_and_create_review_candidate():
-    text = "Would the shipment reach our office before Friday?"
-    conflicting = json.loads(
-        assessment_json(
-            intent="CUSTOMER_INQUIRY",
-            topic="DELIVERY",
-            claim_kind="INQUIRY",
-            segment_id="s0",
-            text=text,
-        )
-    )
-    conflicting["claims"].append(
-        {
-            "kind": "SUPPLIER_DELAY",
-            "value": "reported delay",
-            "evidence": conflicting["claims"][0]["evidence"],
-        }
-    )
-    invalid_output = json.dumps(conflicting)
-    qwen = ScriptedProvider(invalid_output)
-    gemini = ScriptedProvider(invalid_output)
-
-    result = MessageIntelligenceService(
-        qwen=qwen, gemini=gemini, budget_policy=make_test_budget()
-    ).analyze(message(text), now=NOW)
-
-    assert qwen.calls == gemini.calls == 1
-    assert [attempt.status for attempt in result.provider_attempts] == [
-        "INVALID_OUTPUT",
-        "INVALID_OUTPUT",
-    ]
-    assert result.intent == "UNKNOWN"
-    assert result.customer_inquiry is None
-    assert result.review_required is True
-    assert result.human_review_candidate is not None
-    assert result.human_review_candidate.source == result.source
-    assert result.p2_event_created is False
-    assert result.p4_send_attempted is False
-
-
-def test_qwen_client_uses_configured_regional_endpoint_and_bounded_structured_request():
-    content = assessment_json(intent="OTHER", claim_kind="INQUIRY", segment_id="s0", text="hello")
-    transport = CapturingHttpTransport(
-        SimpleNamespace(
-            status=200,
-            body=json.dumps(
-                {
-                    "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
-                    "usage": {"prompt_tokens": 50, "completion_tokens": 20},
-                }
-            ).encode(),
-        )
-    )
-    provider = QwenProvider(
-        api_key="test-qwen-secret",
-        api_base_url="https://region.example/model/v1",
-        model_id="qwen-test",
-        timeout_seconds=4,
-        transport=transport,
-    )
-
-    completion = provider.complete([("s0", "hello")], max_output_tokens=96)
-
-    call = transport.calls[0]
-    assert call["url"] == "https://region.example/model/v1/chat/completions"
-    assert call["headers"]["Authorization"] == "Bearer test-qwen-secret"
-    assert call["body"]["max_tokens"] == 96
-    assert call["body"]["response_format"] == {"type": "json_object"}
-    assert '"additionalProperties":false' in call["body"]["messages"][0]["content"]
-    assert "tenant_c3_test" not in json.dumps(call["body"])
-    assert completion.input_tokens == 50 and completion.output_tokens == 20
-
-
-def test_qwen_truncated_output_is_classified_for_fallback():
-    transport = CapturingHttpTransport(
-        SimpleNamespace(
-            status=200,
-            body=json.dumps(
-                {
-                    "choices": [
-                        {
-                            "message": {"content": '{"intent":"UNKNOWN"'},
-                            "finish_reason": "length",
-                        }
-                    ],
-                    "usage": {"prompt_tokens": 50, "completion_tokens": 96},
-                }
-            ).encode(),
-        )
-    )
-    provider = QwenProvider(
-        api_key="test-qwen-secret",
-        api_base_url="https://region.example/v1",
-        model_id="qwen-test",
-        transport=transport,
-    )
-
-    with pytest.raises(ProviderError) as error:
-        provider.complete([("s0", "hello")], max_output_tokens=96)
-
-    assert error.value.code == "OUTPUT_LIMIT_EXCEEDED"
-    assert "test-qwen-secret" not in str(error.value)
-
-
-def test_gemini_client_uses_header_key_and_json_schema_response():
-    content = assessment_json(intent="OTHER", claim_kind="INQUIRY", segment_id="s0", text="hello")
-    transport = CapturingHttpTransport(
-        SimpleNamespace(
-            status=200,
-            body=json.dumps(
-                {
-                    "candidates": [
-                        {"content": {"parts": [{"text": content}]}, "finishReason": "STOP"}
-                    ],
-                    "usageMetadata": {"promptTokenCount": 50, "candidatesTokenCount": 20},
-                }
-            ).encode(),
-        )
-    )
-    provider = GeminiProvider(
-        api_key="test-gemini-secret", model_id="gemini-test", transport=transport
-    )
-
-    completion = provider.complete([("s0", "hello")], max_output_tokens=96)
-
-    call = transport.calls[0]
-    assert call["url"].endswith("/models/gemini-test:generateContent")
-    assert call["headers"]["x-goog-api-key"] == "test-gemini-secret"
-    assert "key=" not in call["url"]
-    assert call["body"]["generationConfig"]["responseMimeType"] == "application/json"
-    assert call["body"]["generationConfig"]["responseJsonSchema"]["additionalProperties"] is False
-    assert completion.input_tokens == 50 and completion.output_tokens == 20
-
-
-def test_gemini_max_token_finish_reason_is_not_accepted_as_complete():
-    transport = CapturingHttpTransport(
-        SimpleNamespace(
-            status=200,
-            body=json.dumps(
-                {
-                    "candidates": [
-                        {
-                            "content": {"parts": [{"text": '{"intent":"UNKNOWN"'}]},
-                            "finishReason": "MAX_TOKENS",
-                        }
-                    ],
-                    "usageMetadata": {"promptTokenCount": 50, "candidatesTokenCount": 96},
-                }
-            ).encode(),
-        )
-    )
-    provider = GeminiProvider(
-        api_key="test-gemini-secret", model_id="gemini-test", transport=transport
-    )
-
-    with pytest.raises(ProviderError) as error:
-        provider.complete([("s0", "hello")], max_output_tokens=96)
-
-    assert error.value.code == "OUTPUT_LIMIT_EXCEEDED"
-
-
-def test_provider_failure_classification_does_not_echo_response_body_or_secret():
-    transport = CapturingHttpTransport(
-        SimpleNamespace(status=429, body=b"token=test-qwen-secret private input")
-    )
-    provider = QwenProvider(
-        api_key="test-qwen-secret",
-        api_base_url="https://region.example/v1",
-        model_id="qwen-test",
-        transport=transport,
-    )
-
-    with pytest.raises(ProviderError) as error:
-        provider.complete([("s0", "hello")], max_output_tokens=64)
-
-    assert error.value.code == "RATE_LIMITED"
-    assert error.value.retryable is True
-    assert "test-qwen-secret" not in str(error.value)
-    assert "private input" not in str(error.value)
-
-
-def test_invalid_qwen_evidence_falls_back_and_invalid_gemini_requires_review():
-    text = "Would availability be possible later this week?"
-    malformed = json.loads(
-        assessment_json(
-            intent="CUSTOMER_INQUIRY",
-            topic="AVAILABILITY",
-            claim_kind="INQUIRY",
-            segment_id="s0",
-            text=text,
-            start=0,
-            end=8,
-        )
-    )
-    malformed["claims"][0]["evidence"]["quote"] = "not source"
-    qwen = ScriptedProvider(json.dumps(malformed))
-    gemini = ScriptedProvider(json.dumps(malformed))
-    msg = message(text)
-
-    result = MessageIntelligenceService(
-        qwen=qwen, gemini=gemini, budget_policy=make_test_budget()
-    ).analyze(msg, association=verified_customer_association(msg), now=NOW)
-
-    assert qwen.calls == gemini.calls == 1
-    assert result.provider == "NONE"
-    assert result.review_required is True
-    assert "AI_OUTPUT_INVALID" in result.review_reasons
-    assert result.customer_inquiry is None
-
-
 def test_cross_tenant_association_is_rejected_before_provider_call():
     msg = message("What is your price?")
     association = verified_customer_association(msg).model_copy(
         update={"tenant_id": "tenant_other"}
     )
-    provider = ScriptedProvider(ProviderError("must_not_be_called"))
+    gateway = FixtureGateway({"intent": "OTHER", "inquiry_topic": None, "claims": []})
 
     with pytest.raises(SourceContractError):
-        MessageIntelligenceService(qwen=provider, budget_policy=make_test_budget()).analyze(
+        MessageIntelligenceService(semantic_gateway=gateway).analyze(
             msg, association=association, now=NOW
         )
 
-    assert provider.calls == 0
+    assert gateway.prompts == []
+
+
+def test_shared_gateway_result_is_schema_and_source_validated():
+    text = "What would be the best option for getting this to our office?"
+    claim = {
+        "kind": "INQUIRY",
+        "value": "delivery options",
+        "evidence": {"segment_id": "s0", "quote": text, "start": 0, "end": len(text)},
+    }
+    gateway = FixtureGateway(
+        {"intent": "CUSTOMER_INQUIRY", "inquiry_topic": "DELIVERY", "claims": [claim]}
+    )
+    msg = message(text)
+    result = MessageIntelligenceService(semantic_gateway=gateway).analyze(
+        msg, association=verified_customer_association(msg), now=NOW
+    )
+    assert result.provider == "QWEN"
+    assert result.customer_inquiry is not None
+    assert result.customer_inquiry.evidence[0].quote == text
+
+    claim["evidence"]["quote"] = "invented source"
+    rejected = MessageIntelligenceService(semantic_gateway=gateway).analyze(
+        msg, association=verified_customer_association(msg), now=NOW
+    )
+    assert rejected.review_required
+    assert "AI_OUTPUT_INVALID" in rejected.review_reasons
+    assert len(gateway.prompts) == 2
 
 
 def test_unverified_identity_keeps_inquiry_candidate_in_human_review():
@@ -698,19 +370,12 @@ def test_unverified_identity_keeps_inquiry_candidate_in_human_review():
 
 def test_provider_never_receives_tenant_sender_or_unredacted_contact_data():
     text = "Please email alice@example.com about delivery to +60123456789."
-    qwen = ScriptedProvider(
-        assessment_json(
-            intent="OTHER",
-            claim_kind="INQUIRY",
-            segment_id="s0",
-            text="",
-        )
-    )
+    gateway = FixtureGateway({"intent": "OTHER", "inquiry_topic": None, "claims": []})
     msg = message(text)
 
-    MessageIntelligenceService(qwen=qwen, budget_policy=make_test_budget()).analyze(msg, now=NOW)
+    MessageIntelligenceService(semantic_gateway=gateway).analyze(msg, now=NOW)
 
-    prompt = "\n".join(text for _, text in qwen.prompts[0])
+    prompt = "\n".join(text for _, text in gateway.prompts[0])
     assert "alice@example.com" not in prompt
     assert "+60123456789" not in prompt
     assert TENANT not in prompt
@@ -771,92 +436,6 @@ def test_document_candidate_cites_existing_page_evidence_only():
     assert result.supplier_delay.source.attachment_sources[0].extraction_method_versions == [
         "p1-pdf-v1"
     ]
-
-
-def test_qwen_supplier_candidate_maps_each_claim_to_existing_document_evidence():
-    quote = "The shipment for PO-450 has moved to 2026-10-29."
-    attachment = {
-        "attachment_id": "att_c3_004",
-        "filename": "supplier_update.pdf",
-        "media_type": "application/pdf",
-        "size_bytes": 144,
-        "evidence_ref": "ev_att_c3_004",
-    }
-    record = AttachmentRecord(
-        attachment_id="att_c3_004",
-        tenant_id=TENANT,
-        evidence_ref="ev_att_c3_004",
-        filename="supplier_update.pdf",
-        media_type="application/pdf",
-        size_bytes=144,
-        content_sha256="e" * 64,
-        created_at=NOW,
-    )
-    extraction = DocumentExtractionResult(
-        attachment_id="att_c3_004",
-        evidence_ref="ev_att_c3_004",
-        status="SUCCESS",
-        document_type="PDF",
-        page_count=1,
-        text_content=quote,
-        evidence_items=[
-            DocumentEvidence(
-                evidence_id="doc_ev_004",
-                evidence_ref="ev_att_c3_004",
-                attachment_id="att_c3_004",
-                page_number=1,
-                quote=quote,
-                method="PDF_TEXT",
-                method_version="p1-pdf-v1",
-            )
-        ],
-        extracted_at=NOW,
-    )
-    claims = []
-    for kind, value in (
-        ("SUPPLIER_DELAY", "true"),
-        ("DELIVERY_REFERENCE", "PO-450"),
-        ("REPORTED_ETA", "2026-10-29"),
-    ):
-        claims.append(
-            {
-                "kind": kind,
-                "value": value,
-                "evidence": {
-                    "segment_id": "s1",
-                    "quote": quote,
-                    "start": 0,
-                    "end": len(quote),
-                },
-            }
-        )
-    qwen = ScriptedProvider(
-        json.dumps(
-            {
-                "intent": "SUPPLIER_DELAY",
-                "inquiry_topic": None,
-                "claims": claims,
-            }
-        )
-    )
-    msg = message("Please review the attached supplier update.", attachments=[attachment])
-
-    result = MessageIntelligenceService(
-        qwen=qwen,
-        budget_policy=make_test_budget(),
-        supplier_identity_resolver=VerifiedSupplierResolver(),
-    ).analyze(msg, attachments=[extraction], attachment_records=[record], now=NOW)
-
-    candidate = result.supplier_delay
-    assert result.provider == "QWEN"
-    assert candidate is not None
-    assert candidate.supplier_identity_status == "VERIFIED"
-    assert candidate.delivery_reference == "PO-450"
-    assert candidate.delivery_reference_evidence.evidence_id == "doc_ev_004"
-    assert candidate.reported_eta_text == "2026-10-29"
-    assert candidate.reported_eta_evidence.evidence_ref == "ev_att_c3_004"
-    assert candidate.review_required is True
-    assert result.p2_event_created is False
 
 
 def test_failed_attachment_extraction_is_review_candidate_without_claim():

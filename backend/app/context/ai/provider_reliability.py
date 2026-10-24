@@ -52,6 +52,16 @@ FALLBACK_TRIGGER_ERRORS = frozenset(
     }
 )
 
+
+def eligible_technical_fallback(code: str) -> bool:
+    """Only provider/response failures may advance to Gemini.
+
+    Grounding disagreements, missing authority and ambiguous but valid output
+    are review conditions, not reasons to ask another model for a preferred fact.
+    """
+    return code in FALLBACK_TRIGGER_ERRORS
+
+
 _SENSITIVE_PATTERNS = (
     re.compile(
         r"(?<![\w.+-])[A-Z0-9.!#$%&'*+/=?^_{|}~-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)+(?![\w-])",
@@ -62,7 +72,7 @@ _SENSITIVE_PATTERNS = (
     re.compile(r"(?<!\w)[689]\d{3}(?:[ .-]*\d{4})(?!\w)"),
     re.compile(r"(?<!\w)(?:\d[ .()-]?){10}(?!\w)"),
     re.compile(
-        r"(?i)\b(?:ORD|PO|INV|CUST|SUP|ACCT|ACCOUNT|REF|TXN|PAY)[-_/# ]?[A-Z0-9][A-Z0-9/_-]{2,}\b"
+        r"(?i)\b(?:ORD|PO|INV|CUST|SUP|ACCT|ACCOUNT|REF|TXN|PAY)(?:[-_/# ]+[A-Z0-9][A-Z0-9/_-]{2,}|[0-9][A-Z0-9/_-]{2,})\b"
     ),
     re.compile(r"(?<!\w)(?:\d[ -]?){13,19}(?!\w)"),
     re.compile(
@@ -93,29 +103,35 @@ def redact_inference_request(request: InferenceInput) -> RedactedRequest:
     sanitized_messages = []
     spans_by_message: dict[str, tuple[tuple[int, int], ...]] = {}
     for message in request.messages:
-        ranges = sorted(
-            {
-                match.span()
-                for pattern in _SENSITIVE_PATTERNS
-                for match in pattern.finditer(message.text)
-                if match.start() < match.end()
-            }
-        )
-        merged: list[tuple[int, int]] = []
-        for start, end in ranges:
-            if merged and start <= merged[-1][1]:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-            else:
-                merged.append((start, end))
-        characters = list(message.text)
-        for start, end in merged:
-            characters[start:end] = ["*"] * (end - start)
-        sanitized_messages.append(message.model_copy(update={"text": "".join(characters)}))
-        spans_by_message[message.id] = tuple(merged)
+        masked, merged = redact_source_text(message.text)
+        sanitized_messages.append(message.model_copy(update={"text": masked}))
+        spans_by_message[message.id] = merged
     return RedactedRequest(
         request=request.model_copy(update={"messages": sanitized_messages}),
         spans_by_message=spans_by_message,
     )
+
+
+def redact_source_text(text: str) -> tuple[str, tuple[tuple[int, int], ...]]:
+    """The shared same-length external-provider masking policy."""
+    ranges = sorted(
+        {
+            match.span()
+            for pattern in _SENSITIVE_PATTERNS
+            for match in pattern.finditer(text)
+            if match.start() < match.end()
+        }
+    )
+    merged: list[tuple[int, int]] = []
+    for start, end in ranges:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    characters = list(text)
+    for start, end in merged:
+        characters[start:end] = ["*"] * (end - start)
+    return "".join(characters), tuple(merged)
 
 
 def _restore_original_spans(
@@ -421,7 +437,7 @@ class QwenGeminiReliabilityAdapter:
             primary_failure = "provider_internal_error"
         primary_latency_ms = round((time.perf_counter() - primary_started) * 1000)
 
-        should_fallback = primary_failure in FALLBACK_TRIGGER_ERRORS
+        should_fallback = eligible_technical_fallback(primary_failure)
         fallback = self.fallback if should_fallback else None
         if fallback is None:
             audit = {

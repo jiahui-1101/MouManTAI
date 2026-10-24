@@ -3897,3 +3897,10 @@ The durable P1 OrderRequest/version and approved commercial/disclosure sources r
 - **Delivery limits**: Redaction is bounded-pattern masking and is not guaranteed PII detection. Gemini is used only when the existing P1 Qwen stage is enabled/configured; the existing default GLiNER-only selection remains unchanged. No merge or deployment is authorized by this entry.
 
 
+
+## 2026-10-25 — C3/P1 Phase 3 isolated integration candidate
+
+- Main `1cd91bf` includes #90, #96 and #95. Integrated #103 and #102 into isolated branch `codex/c3-p1-integration-20261025` with normal merge commits; the only conflict was append-only team log content and both entries were retained. Neither PR was merged.
+- Reuse matrix, boundaries, exact changes and blockers: `docs/reports/C3_P1_PHASE3_INTEGRATION_2026-10-25.md`. C3 direct provider construction and its separate fallback loop were removed; current P1 provider schema is extraction-specific, so C3 semantic production activation is gated on owner-reviewed shared task contract. C3 deterministic candidates and read-only current-source handoffs are available. No P4 send, P2 mutation, shared schema or migration change.
+- Synthetic fixture validation and exact-head CI status are recorded in the integration report/final handoff. Live providers NOT_RUN. GO is withheld pending review, durable review/P4 contracts and required integration gates.
+

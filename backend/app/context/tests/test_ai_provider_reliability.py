@@ -409,3 +409,16 @@ def test_opt_in_live_gemini_smoke_uses_synthetic_input():
     result = asyncio.run(adapter.infer(inference_request("Hello")))
     assert result.provider == "gemini"
     assert result.fields == []
+
+
+def test_identifier_mask_preserves_ordinary_words_and_masks_compact_ids():
+    from app.context.ai.provider_reliability import redact_source_text
+
+    original = "Is it possible for the supplier to review PO450 and PO-451?"
+    masked, spans = redact_source_text(original)
+    assert "possible" in masked
+    assert "supplier" in masked
+    assert "PO450" not in masked
+    assert "PO-451" not in masked
+    assert len(masked) == len(original)
+    assert len(spans) == 2

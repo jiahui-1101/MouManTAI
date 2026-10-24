@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from time import monotonic
 from typing import Protocol
-
-from pydantic import ValidationError
 
 from app.context.association_schemas import IdentityLinkStatus, MessageAssociationRecord
 from app.context.document_schemas import (
@@ -34,14 +31,23 @@ from .contracts import (
 )
 from .deterministic import RULE_VERSION, classify_deterministically
 from .privacy import redact_sensitive_text
-from .providers import (
-    AnalysisBudget,
-    BudgetPolicy,
-    GeminiProvider,
-    ProviderError,
-    QwenProvider,
-    SemanticProvider,
-)
+
+
+class ProviderEvidenceError(ValueError):
+    """A semantic result cannot be linked to the exact P1 evidence."""
+
+
+class SemanticGatewayResult(Protocol):
+    assessment: SemanticAssessment
+    provider: str
+    model_id: str
+    attempts: Sequence[ProviderAttempt]
+
+
+class SemanticGateway(Protocol):
+    """The owner-reviewed P1 provider boundary must implement this task."""
+
+    def classify(self, segments: list[tuple[str, str]]) -> SemanticGatewayResult: ...
 
 
 class SourceContractError(ValueError):
@@ -57,14 +63,12 @@ class SupplierIdentityResolver(Protocol):
 class C3Limits(Protocol):
     max_input_characters: int
     max_segments: int
-    max_provider_retries: int
 
 
 class DefaultLimits:
-    def __init__(self, max_input_characters=4_000, max_segments=32, max_provider_retries=1):
+    def __init__(self, max_input_characters=4_000, max_segments=32):
         self.max_input_characters = max_input_characters
         self.max_segments = max_segments
-        self.max_provider_retries = max_provider_retries
 
     @classmethod
     def from_env(cls):
@@ -72,10 +76,9 @@ class DefaultLimits:
 
         chars = int(os.environ.get("C3_AI_MAX_INPUT_CHARS", "4000"))
         segments = int(os.environ.get("C3_AI_MAX_SEGMENTS", "32"))
-        retries = int(os.environ.get("C3_AI_MAX_RETRIES", "1"))
-        if not 256 <= chars <= 4_000 or not 1 <= segments <= 32 or not 0 <= retries <= 1:
+        if not 256 <= chars <= 4_000 or not 1 <= segments <= 32:
             raise ValueError("C3 analysis limits exceed the reviewed safe bounds")
-        return cls(chars, segments, retries)
+        return cls(chars, segments)
 
 
 class MessageIntelligenceService:
@@ -84,27 +87,19 @@ class MessageIntelligenceService:
     def __init__(
         self,
         *,
-        qwen: SemanticProvider | None = None,
-        gemini: SemanticProvider | None = None,
+        semantic_gateway: SemanticGateway | None = None,
         supplier_identity_resolver: SupplierIdentityResolver | None = None,
-        budget_policy: BudgetPolicy | None = None,
         limits: C3Limits | None = None,
     ):
-        self.qwen, self.gemini = qwen, gemini
+        self.semantic_gateway = semantic_gateway
         self.supplier_identity_resolver = supplier_identity_resolver
-        self.budget_policy = budget_policy
         self.limits = limits or DefaultLimits()
 
     @classmethod
-    def from_env(
-        cls, *, supplier_identity_resolver: SupplierIdentityResolver | None = None, transport=None
-    ):
-        """Create configured provider clients; no credential or provider call is made here."""
+    def from_env(cls, *, supplier_identity_resolver: SupplierIdentityResolver | None = None):
+        """Construct deterministic C3 only; P1 owns provider activation."""
         return cls(
-            qwen=QwenProvider.from_env(transport=transport),
-            gemini=GeminiProvider.from_env(transport=transport),
             supplier_identity_resolver=supplier_identity_resolver,
-            budget_policy=BudgetPolicy.from_env(),
             limits=DefaultLimits.from_env(),
         )
 
@@ -143,9 +138,8 @@ class MessageIntelligenceService:
         assessment: SemanticAssessment | None = None
         claim_evidence: list[tuple[SemanticClaim, EvidenceLink]] = []
 
-        # If deterministic facts conflict, semantic output cannot overrule that
-        # source conflict. AI may still be sampled to populate review provenance.
-        should_call_model = deterministic.needs_semantic_provider or deterministic.conflict
+        # A source conflict is a Human Review condition, never a model vote.
+        should_call_model = deterministic.needs_semantic_provider and not deterministic.conflict
         if should_call_model:
             segments, privacy_by_segment, segment_error = self._prompt_segments(
                 message, evidence_items
@@ -153,58 +147,73 @@ class MessageIntelligenceService:
             if segment_error:
                 reasons.append(segment_error)
             else:
-                assessment, provider_name, model_id = self._classify_with_fallback(
-                    segments,
-                    privacy_by_segment,
-                    provider_attempts,
-                    expected_intent=(
-                        deterministic.intent
-                        if deterministic.intent not in {"UNKNOWN", "OTHER"}
-                        else None
-                    ),
-                    expected_topic=deterministic.topic,
-                    expected_delivery_reference=deterministic.delivery_reference,
-                    expected_eta=deterministic.reported_eta_text,
-                    documents={item.evidence_id: item for item in evidence_items},
-                )
-                if assessment is not None:
-                    selected_provider = provider_name
-                    provider_version = model_id
-                    if deterministic.conflict:
-                        intent, topic = "UNKNOWN", None
-                        reasons.append("DETERMINISTIC_SIGNALS_CONFLICT")
-                    else:
-                        reasons = [
-                            reason
-                            for reason in reasons
-                            if reason != "CLASSIFICATION_REQUIRES_SEMANTIC_REVIEW"
-                        ]
-                        intent, topic = assessment.intent, assessment.inquiry_topic
+                if self.semantic_gateway is None:
+                    reasons.append("SEMANTIC_PROVIDER_UNAVAILABLE")
+                else:
+                    try:
+                        result = self.semantic_gateway.classify(segments)
+                        if result.provider not in {"QWEN", "GEMINI"}:
+                            raise ValueError("invalid semantic provider provenance")
+                        assessment = SemanticAssessment.model_validate(result.assessment)
                         claim_evidence = self._assessment_claim_evidence(
                             assessment,
                             segments,
                             privacy_by_segment,
                             {item.evidence_id: item for item in evidence_items},
                         )
-                        evidence = [link for _, link in claim_evidence]
-                elif not provider_attempts or all(
-                    attempt.status == "NOT_CONFIGURED" for attempt in provider_attempts
-                ):
-                    reasons.append("SEMANTIC_PROVIDER_UNAVAILABLE")
-                elif not any(attempt.status == "BUDGET_EXCEEDED" for attempt in provider_attempts):
-                    if any(attempt.status == "INVALID_OUTPUT" for attempt in provider_attempts):
-                        reasons.append(
-                            "DETERMINISTIC_CONTRADICTION"
-                            if any(
-                                attempt.error_code == "DETERMINISTIC_CONTRADICTION"
-                                for attempt in provider_attempts
+                        self._validate_claim_values(claim_evidence)
+                        delivery_refs = {
+                            claim.value
+                            for claim in assessment.claims
+                            if claim.kind == "DELIVERY_REFERENCE"
+                        }
+                        reported_etas = {
+                            claim.value
+                            for claim in assessment.claims
+                            if claim.kind == "REPORTED_ETA"
+                        }
+                        if (
+                            (
+                                deterministic.intent not in {"UNKNOWN", "OTHER"}
+                                and assessment.intent != deterministic.intent
                             )
-                            else "AI_OUTPUT_INVALID"
-                        )
-                    else:
+                            or (
+                                deterministic.topic
+                                and assessment.inquiry_topic != deterministic.topic
+                            )
+                            or (
+                                deterministic.delivery_reference
+                                and delivery_refs
+                                and delivery_refs != {deterministic.delivery_reference}
+                            )
+                            or (
+                                deterministic.reported_eta_text
+                                and reported_etas
+                                and reported_etas != {deterministic.reported_eta_text}
+                            )
+                        ):
+                            raise SourceContractError("deterministic source contradiction")
+                    except SourceContractError:
+                        reasons.append("DETERMINISTIC_CONTRADICTION")
+                    except (ValueError, TypeError):
+                        reasons.append("AI_OUTPUT_INVALID")
+                    except Exception:  # noqa: BLE001 - never echo provider text
                         reasons.append("SEMANTIC_PROVIDER_FAILED")
-                else:
-                    reasons.append("SEMANTIC_BUDGET_EXCEEDED")
+                    else:
+                        provider_attempts = list(result.attempts)
+                        selected_provider = result.provider
+                        provider_version = result.model_id
+                        if deterministic.conflict:
+                            intent, topic = "UNKNOWN", None
+                            reasons.append("DETERMINISTIC_SIGNALS_CONFLICT")
+                        else:
+                            reasons = [
+                                reason
+                                for reason in reasons
+                                if reason != "CLASSIFICATION_REQUIRES_SEMANTIC_REVIEW"
+                            ]
+                            intent, topic = assessment.intent, assessment.inquiry_topic
+                            evidence = [link for _, link in claim_evidence]
                 if intent in {"UNKNOWN", "CUSTOMER_ORDER_REQUEST"}:
                     reasons.append("HUMAN_REVIEW_REQUIRED")
 
@@ -347,153 +356,6 @@ class MessageIntelligenceService:
             analyzed_at=analyzed_at,
         )
 
-    def _classify_with_fallback(
-        self,
-        segments,
-        privacy_by_segment,
-        attempts,
-        *,
-        expected_intent,
-        expected_topic,
-        expected_delivery_reference,
-        expected_eta,
-        documents,
-    ):
-        ledger = AnalysisBudget(self.budget_policy)
-        last_error = None
-        providers = (("QWEN", self.qwen), ("GEMINI", self.gemini))
-        for provider_name, provider in providers:
-            if provider is None:
-                attempts.append(
-                    ProviderAttempt(
-                        provider=provider_name,
-                        attempt_number=1,
-                        status="NOT_CONFIGURED",
-                        error_code="NOT_CONFIGURED",
-                        duration_ms=0,
-                    )
-                )
-                last_error = "NOT_CONFIGURED"
-                continue
-            for attempt_number in range(1, self.limits.max_provider_retries + 2):
-                started = monotonic()
-                reserved_cost = None
-                try:
-                    reserved_cost = ledger.reserve(provider_name, segments)
-                    completion = provider.complete(
-                        segments,
-                        max_output_tokens=(
-                            self.budget_policy.max_output_tokens if self.budget_policy else 0
-                        ),
-                    )
-                    if (
-                        completion.input_tokens > self.budget_policy.max_input_tokens
-                        or completion.output_tokens > self.budget_policy.max_output_tokens
-                    ):
-                        raise ProviderError("OUTPUT_LIMIT_EXCEEDED")
-                    assessment = SemanticAssessment.model_validate_json(completion.content)
-                    linked = self._assessment_claim_evidence(
-                        assessment, segments, privacy_by_segment, documents
-                    )
-                    self._validate_claim_values(linked)
-                    claimed_delivery_refs = {
-                        claim.value
-                        for claim in assessment.claims
-                        if claim.kind == "DELIVERY_REFERENCE"
-                    }
-                    claimed_etas = {
-                        claim.value for claim in assessment.claims if claim.kind == "REPORTED_ETA"
-                    }
-                    if (
-                        (expected_intent and assessment.intent != expected_intent)
-                        or (expected_topic and assessment.inquiry_topic != expected_topic)
-                        or (
-                            expected_delivery_reference
-                            and claimed_delivery_refs
-                            and claimed_delivery_refs != {expected_delivery_reference}
-                        )
-                        or (expected_eta and claimed_etas and claimed_etas != {expected_eta})
-                    ):
-                        raise ProviderError("DETERMINISTIC_CONTRADICTION")
-                    attempts.append(
-                        ProviderAttempt(
-                            provider=provider_name,
-                            attempt_number=attempt_number,
-                            status="VALID",
-                            input_tokens=completion.input_tokens,
-                            output_tokens=completion.output_tokens,
-                            estimated_cost_usd=float(reserved_cost),
-                            duration_ms=max(0, int((monotonic() - started) * 1000)),
-                        )
-                    )
-                    return (
-                        assessment,
-                        provider_name,
-                        completion.model_id or getattr(provider, "model_id", provider_name),
-                    )
-                except ProviderError as error:
-                    last_error = error.code
-                    status = self._attempt_status(error.code)
-                    attempts.append(
-                        ProviderAttempt(
-                            provider=provider_name,
-                            attempt_number=attempt_number,
-                            status=status,
-                            error_code=error.code,
-                            estimated_cost_usd=float(reserved_cost)
-                            if reserved_cost is not None
-                            else None,
-                            duration_ms=max(0, int((monotonic() - started) * 1000)),
-                        )
-                    )
-                    if error.retryable and attempt_number <= self.limits.max_provider_retries:
-                        continue
-                    break
-                except (ValidationError, ValueError, KeyError, TypeError):
-                    last_error = "INVALID_OUTPUT"
-                    attempts.append(
-                        ProviderAttempt(
-                            provider=provider_name,
-                            attempt_number=attempt_number,
-                            status="INVALID_OUTPUT",
-                            error_code="INVALID_OUTPUT",
-                            estimated_cost_usd=float(reserved_cost)
-                            if reserved_cost is not None
-                            else None,
-                            duration_ms=max(0, int((monotonic() - started) * 1000)),
-                        )
-                    )
-                    break
-                except Exception:  # noqa: BLE001 - injected provider errors fail closed without leaking details
-                    # Never echo provider exception text: it may contain request data or credentials.
-                    last_error = "PROVIDER_ERROR"
-                    attempts.append(
-                        ProviderAttempt(
-                            provider=provider_name,
-                            attempt_number=attempt_number,
-                            status="PROVIDER_ERROR",
-                            error_code="PROVIDER_ERROR",
-                            estimated_cost_usd=float(reserved_cost)
-                            if reserved_cost is not None
-                            else None,
-                            duration_ms=max(0, int((monotonic() - started) * 1000)),
-                        )
-                    )
-                    break
-        return None, "NONE", (last_error or "unavailable")
-
-    @staticmethod
-    def _attempt_status(code: str):
-        if code == "TIMEOUT":
-            return "TIMEOUT"
-        if code == "RATE_LIMITED":
-            return "RATE_LIMITED"
-        if code == "BUDGET_EXCEEDED":
-            return "BUDGET_EXCEEDED"
-        if code in {"INVALID_OUTPUT", "OUTPUT_LIMIT_EXCEEDED", "DETERMINISTIC_CONTRADICTION"}:
-            return "INVALID_OUTPUT"
-        return "PROVIDER_ERROR"
-
     def _prompt_segments(self, message: StoredMessage, documents: list[DocumentEvidence]):
         originals: list[tuple[str, str, str]] = [
             ("MESSAGE_TEXT", message.raw.text, message.message_id)
@@ -523,15 +385,15 @@ class MessageIntelligenceService:
             projected = segment_map.get(citation.segment_id)
             source = privacy_by_segment.get(citation.segment_id)
             if projected is None or source is None or citation.end > len(projected):
-                raise ProviderError("INVALID_OUTPUT")
+                raise ProviderEvidenceError("SOURCE_EVIDENCE_INVALID")
             kind, original, source_ref, redacted = source
             if projected[
                 citation.start : citation.end
             ] != citation.quote or redacted.overlaps_hidden(citation.start, citation.end):
-                raise ProviderError("INVALID_OUTPUT")
+                raise ProviderEvidenceError("SOURCE_EVIDENCE_INVALID")
             original_quote = original[citation.start : citation.end]
             if original_quote != citation.quote:
-                raise ProviderError("INVALID_OUTPUT")
+                raise ProviderEvidenceError("SOURCE_EVIDENCE_INVALID")
             if kind == "MESSAGE_TEXT":
                 link = EvidenceLink(
                     source_kind="MESSAGE_TEXT",
@@ -544,10 +406,10 @@ class MessageIntelligenceService:
                 # The model cites the full existing P1 evidence item. It cannot
                 # manufacture offsets or a new OCR/PDF evidence identifier.
                 if citation.start != 0 or citation.end != len(original):
-                    raise ProviderError("INVALID_OUTPUT")
+                    raise ProviderEvidenceError("SOURCE_EVIDENCE_INVALID")
                 doc = documents.get(source_ref)
                 if doc is None:
-                    raise ProviderError("INVALID_OUTPUT")
+                    raise ProviderEvidenceError("INVALID_OUTPUT")
                 link = EvidenceLink(
                     source_kind="DOCUMENT_EVIDENCE",
                     evidence_id=doc.evidence_id,
@@ -558,7 +420,7 @@ class MessageIntelligenceService:
                 )
             pairs.append((claim, link))
         if not pairs:
-            raise ProviderError("INVALID_OUTPUT")
+            raise ProviderEvidenceError("INVALID_OUTPUT")
         return pairs
 
     @staticmethod
@@ -568,7 +430,7 @@ class MessageIntelligenceService:
                 claim.kind in {"DELIVERY_REFERENCE", "REPORTED_ETA"}
                 and claim.value not in link.quote
             ):
-                raise ProviderError("INVALID_OUTPUT")
+                raise ProviderEvidenceError("SOURCE_EVIDENCE_INVALID")
 
     @staticmethod
     def _claim_value_and_evidence(pairs: list[tuple[SemanticClaim, EvidenceLink]], kind: str):
