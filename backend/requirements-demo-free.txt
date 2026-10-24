@@ -1,0 +1,12 @@
+# Synthetic public demo: core API, worker, and P2 solver only.
+# OCR and model packages are intentionally absent from this 512 MB service.
+alembic==1.20.1
+fastapi==0.162.0
+httpx==0.28.1
+ortools==9.15.6755
+psycopg[binary]==3.3.6
+pydantic-settings==2.16.1
+python-multipart==0.0.32
+SQLAlchemy==2.1.6
+tzdata==2026.5
+uvicorn[standard]==0.54.0

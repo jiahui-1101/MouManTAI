@@ -17,8 +17,8 @@ RUN apt-get update \
     && useradd --uid 1000 --create-home demo
 COPY --from=frontend-build /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
-COPY backend/requirements-staging.lock.txt ./requirements-staging.lock.txt
-RUN pip install --no-cache-dir --no-deps -r requirements-staging.lock.txt && pip check
+COPY backend/requirements-demo-free.txt ./requirements-demo-free.txt
+RUN pip install --no-cache-dir -r requirements-demo-free.txt && pip check
 COPY backend/app ./app
 COPY backend/migrations ./migrations
 COPY backend/alembic.ini ./alembic.ini
