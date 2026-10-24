@@ -3885,3 +3885,9 @@ The durable P1 OrderRequest/version and approved commercial/disclosure sources r
 ### 2026-10-25 — PR #96 landed during #95 validation
 
 - #96 merged into Main `c766663539d98e02f928cb58f9a141b755165709` with exact-head CI green. #95 merged this Main normally, retaining both independent handoff entries above. C2 has no migration; the sole `0025_merge_c1_business_orch` head remains the expected integration graph. Provider transports remain disconnected from P4 authorization and no real outbound send is enabled.
+
+## 2026-10-25 — Frontend OrderRequest facade contract review (proposed)
+
+- Frozen Main `1cd91bf5b6cc3e92a91eb48d2c166f4b8af50456`; isolated branch `feat/v22-frontend-api-integration`. Audited Orders, Core/P5 synthetic identity, existing Vite proxy, P2 preview and React auth selector. See `docs/handoffs/FRONTEND_API_INTEGRATION_MATRIX_2026-10-25.md` and `docs/contracts/ORDER_REQUEST_FRONTEND_FACADE_PROPOSAL_2026-10-25.md`.
+- Proposal reuses registered `/v1/backend-v2` OrderRequest read/review/accept routes through a narrowly allowlisted synthetic-only server facade. Existing client-controlled tenant/role headers are not a trusted session. P5 must approve a server-resolved operator session, tenant, RBAC and CSRF bootstrap; Orders must approve exact delegation, version/idempotency and unknown receipt behavior. No shared API, auth, Core, Orders, database or frontend runtime code was changed at this checkpoint.
+- This is a documentation-only review request, not authorization to implement. Frontend typecheck, Vitest, build, PostgreSQL and Browser E2E were not run because no runtime code changed. Staging remains NO-GO for browser OrderRequest acceptance pending owner decisions and implementation proof.
