@@ -98,6 +98,7 @@ export function OrderQueuePage({ source = defaultOrderQueueSource() }: OrderQueu
     <header className="oq-heading"><div><p className="oq-eyebrow">Orders &amp; planning</p><h1 id="oq-page-title">Orders</h1><p>Manage, evaluate and prioritize customer orders.</p></div>
       <Button variant="secondary" className="oq-refresh" aria-label="Refresh queue" aria-busy={loading} disabled={loading} onClick={() => void query.refetch()}><OrderQueueIcon name="refresh" className={loading ? 'oq-spinning' : ''} />{loading ? 'Refreshing…' : 'Refresh'}</Button>
     </header>
+    <p><Link to="/order-requests">Open persisted OrderRequests (isolated manager demo)</Link></p>
     <OrderQueueSummary data={data} status={filters.status} onStatus={status => update('status', status)} />
     <ContentCard className="oq-workspace" aria-labelledby="oq-title">
       <div className="oq-queue-heading"><div><h2 id="oq-title">Order Decision Queue</h2><p>Inspect source evidence and uncertainty before making a separate order decision.</p></div><span className="oq-readonly"><OrderQueueIcon name="information" />Read only</span></div>
