@@ -282,21 +282,44 @@ class ScheduledTask(Frozen):
 
 class ProjectedPortfolio(Frozen):
     tenant_id: str
+    portfolio_run_id: str
     snapshot_id: str
     snapshot_version: int
     spec_version: str
     assessment_watermark: str
     selected_order_ids: tuple[str, ...]
+    selected_order_bindings: tuple[CandidateBinding, ...]
     allocations: tuple[LotAllocation, ...]
     schedule: tuple[ScheduledTask, ...]
 
 
 class JointVerificationResult(Frozen):
     status: Literal["P2_VALIDATED", "FIXTURE_VALIDATED", "P2_REJECTED", "UNKNOWN"]
-    portfolio_validation_id: str | None
+    tenant_id: str
+    snapshot_id: str
+    snapshot_version: int
+    constraint_spec_version: str
+    assessment_watermark: str
+    portfolio_run_id: str
     validated_order_ids: tuple[str, ...]
+    validated_order_bindings: tuple[CandidateBinding, ...]
+    allocation_digest: str
+    schedule_digest: str
+    projected_portfolio_digest: str
+    portfolio_validation_id: str | None
     evidence_refs: tuple[str, ...]
+    evaluated_at: datetime
+    valid_through: datetime
+    source_authority: Literal["P2", "SYNTHETIC_TEST_FIXTURE"]
+    source_version: str
     reason_codes: tuple[str, ...] = ()
+
+    @field_validator("evaluated_at", "valid_through")
+    @classmethod
+    def receipt_times_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("receipt timestamps must be offset-aware")
+        return value
 
 
 class Exclusion(Frozen):

@@ -40,11 +40,16 @@ not coerce pending requests into accepted commitments or copy P2 BOM/ATP logic.
    reject any source that cannot be represented without unsafe rounding.
 4. Implements `JointPortfolioVerifier.verify(request, projection)` over the **entire
    projected shared portfolio** and every included pending order in that same projection.
-   It must check exact allocations, scheduling, accepted commitments/reservations,
-   tenant, snapshot/spec/assessment versions, evidence freshness and source IDs. Return
-   a real `portfolio_validation_id`, exact validated order IDs, evidence refs and status;
-   do not persist hypothetical demand. A P2 rejection or incomplete proof produces
-   `VALIDATION_MISMATCH`/UNKNOWN, never a fabricated certificate.
+   The provisional receipt binds tenant, snapshot ID/version, constraint spec version,
+   source watermark, portfolio run ID, exact selected order request versions/terms,
+   allocation digest, schedule digest and full projected-portfolio digest. It also carries
+   validation ID, evidence refs, evaluated/valid-through times, source authority and
+   version. A receipt for a different projection must fail even when selected IDs match.
+   Do not persist hypothetical demand. A P2 rejection or incomplete proof produces
+   `VALIDATION_MISMATCH`/UNKNOWN, never a fabricated certificate. This branch accepts
+   only `FIXTURE_VALIDATED` from the explicitly labelled synthetic fixture. The live
+   consumer remains fail-closed until P2 publishes and approves its authenticated receipt
+   contract; a `P2_VALIDATED` string or verifier `authority` attribute cannot establish it.
 5. Documents unsupported P2 cases: current `evaluate` is a one-confirmed-target API,
    current ATP allocates only confirmed demand, and current `check_capacity` verifies
    supplied fixed bookings. Neither checks a pending jointly allocated portfolio.

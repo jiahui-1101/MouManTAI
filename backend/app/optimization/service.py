@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 from .cp_sat import ORTOOLS_VERSION, solve
 from .models import (
+    CandidateBinding,
     ComparisonResult,
     Exclusion,
     JointVerificationResult,
@@ -20,6 +24,31 @@ from .validation import validate_spec
 
 class VerifierUnavailable(RuntimeError):
     pass
+
+
+def _digest(value) -> str:
+    if hasattr(value, "model_dump"):
+        value = value.model_dump(mode="json")
+    elif isinstance(value, tuple):
+        value = [
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in value
+        ]
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def allocation_digest(projection: ProjectedPortfolio) -> str:
+    return _digest(projection.allocations)
+
+
+def schedule_digest(projection: ProjectedPortfolio) -> str:
+    return _digest(projection.schedule)
+
+
+def projected_portfolio_digest(projection: ProjectedPortfolio) -> str:
+    return _digest(projection)
 
 
 def _result(
@@ -73,16 +102,60 @@ def _result(
 def _verify(
     request: PortfolioRequest, projection: ProjectedPortfolio, verifier: JointPortfolioVerifier
 ) -> JointVerificationResult:
+    if request.integration_mode == "LIVE":
+        # There is no ratified P2 joint-portfolio receipt contract in this PR's owner interface.
+        raise VerifierUnavailable("P2_JOINT_VERIFIER_UNAVAILABLE")
+    if getattr(verifier, "authority", None) != "SYNTHETIC_TEST_FIXTURE":
+        raise VerifierUnavailable("SYNTHETIC_VERIFIER_PROVENANCE_UNAVAILABLE")
     try:
         receipt = verifier.verify(request, projection)
     except (LookupError, TimeoutError, ConnectionError, NotImplementedError) as error:
         raise VerifierUnavailable from error
-    expected = "P2_VALIDATED" if request.integration_mode == "LIVE" else "FIXTURE_VALIDATED"
+    selected = set(projection.selected_order_ids)
+    expected_bindings = tuple(
+        CandidateBinding(
+            order_request_id=c.order_request_id,
+            request_version=c.request_version,
+            terms_revision=c.terms_revision,
+            terms_hash=c.terms_hash,
+            source_identity=c.source_identity,
+            evidence_refs=c.evidence_refs,
+        )
+        for c in sorted(request.candidates, key=lambda candidate: candidate.order_request_id)
+        if c.order_request_id in selected
+    )
     if (
-        receipt.status != expected
+        projection.tenant_id != request.tenant_id
+        or projection.portfolio_run_id != request.portfolio_run_id
+        or projection.snapshot_id != request.snapshot_id
+        or projection.snapshot_version != request.snapshot_version
+        or projection.spec_version != request.constraint_spec_version
+        or projection.assessment_watermark != request.assessment_watermark
+        or len(projection.selected_order_ids) != len(selected)
+        or not selected.issubset({c.order_request_id for c in request.candidates})
+        or projection.selected_order_bindings != expected_bindings
+    ):
+        raise ValueError("PROJECTED_PORTFOLIO_BINDING_MISMATCH")
+
+    if (
+        receipt.status != "FIXTURE_VALIDATED"
+        or receipt.source_authority != "SYNTHETIC_TEST_FIXTURE"
+        or not receipt.source_version
+        or receipt.tenant_id != request.tenant_id
+        or receipt.snapshot_id != request.snapshot_id
+        or receipt.snapshot_version != request.snapshot_version
+        or receipt.constraint_spec_version != request.constraint_spec_version
+        or receipt.assessment_watermark != request.assessment_watermark
+        or receipt.portfolio_run_id != request.portfolio_run_id
+        or receipt.validated_order_ids != projection.selected_order_ids
+        or receipt.validated_order_bindings != projection.selected_order_bindings
+        or receipt.allocation_digest != allocation_digest(projection)
+        or receipt.schedule_digest != schedule_digest(projection)
+        or receipt.projected_portfolio_digest != projected_portfolio_digest(projection)
+        or receipt.evaluated_at != request.evaluated_at
+        or receipt.valid_through != request.source_valid_through
+        or receipt.valid_through < receipt.evaluated_at
         or not receipt.portfolio_validation_id
-        or set(receipt.validated_order_ids) != set(projection.selected_order_ids)
-        or len(receipt.validated_order_ids) != len(projection.selected_order_ids)
         or not receipt.evidence_refs
     ):
         raise ValueError("VALIDATION_MISMATCH")

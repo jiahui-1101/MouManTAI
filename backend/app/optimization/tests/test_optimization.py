@@ -27,10 +27,40 @@ from app.optimization.models import (
     Strategy,
 )
 from app.optimization.scaling import ScalingError, scaled, unscaled
-from app.optimization.service import compare
+from app.optimization.service import (
+    _verify,
+    allocation_digest,
+    compare,
+    projected_portfolio_digest,
+    schedule_digest,
+)
 from app.optimization.validation import validate_spec
 
 NOW = datetime(2026, 10, 24, 0, 0, tzinfo=UTC)
+
+
+def fixture_receipt(request, candidate, *, status="FIXTURE_VALIDATED", updates=None):
+    receipt = JointVerificationResult(
+        status=status,
+        tenant_id=request.tenant_id,
+        snapshot_id=request.snapshot_id,
+        snapshot_version=request.snapshot_version,
+        constraint_spec_version=request.constraint_spec_version,
+        assessment_watermark=request.assessment_watermark,
+        portfolio_run_id=request.portfolio_run_id,
+        validated_order_ids=candidate.selected_order_ids,
+        validated_order_bindings=candidate.selected_order_bindings,
+        allocation_digest=allocation_digest(candidate),
+        schedule_digest=schedule_digest(candidate),
+        projected_portfolio_digest=projected_portfolio_digest(candidate),
+        portfolio_validation_id=f"fixture:{request.portfolio_run_id}",
+        evidence_refs=("SYNTHETIC_TEST_FIXTURE",),
+        evaluated_at=request.evaluated_at,
+        valid_through=request.source_valid_through,
+        source_authority="SYNTHETIC_TEST_FIXTURE",
+        source_version="fixture-verifier-v1",
+    )
+    return receipt.model_copy(update=updates or {})
 
 
 class FixtureProvider:
@@ -47,16 +77,14 @@ class FixtureVerifier:
     def __init__(self, spec, *, disagree=False):
         self.spec = spec
         self.disagree = disagree
+        self.receipt_updates = {}
         self.calls = []
 
     def verify(self, request, candidate):
         self.calls.append(candidate)
         if self.disagree:
-            return JointVerificationResult(
-                status="P2_REJECTED",
-                portfolio_validation_id=None,
-                validated_order_ids=(),
-                evidence_refs=("fixture",),
+            return fixture_receipt(
+                request, candidate, status="P2_REJECTED", updates={"portfolio_validation_id": None}
             )
         spec = self.spec
         selected = set(candidate.selected_order_ids)
@@ -107,12 +135,7 @@ class FixtureVerifier:
         for intervals in occupied.values():
             ordered = sorted(intervals)
             assert all(a[1] <= b[0] for a, b in pairwise(ordered))
-        return JointVerificationResult(
-            status="FIXTURE_VALIDATED",
-            portfolio_validation_id=f"fixture:{len(self.calls)}",
-            validated_order_ids=tuple(sorted(selected)),
-            evidence_refs=("SYNTHETIC_TEST_FIXTURE",),
-        )
+        return fixture_receipt(request, candidate, updates=self.receipt_updates)
 
 
 def fixture(
@@ -550,23 +573,91 @@ def test_fcfs_timestamp_tie_uses_stable_id():
     assert result.scenarios[0].selected_order_ids == ("A",)
 
 
-def test_wrong_per_order_verification_receipt_is_mismatch():
+@pytest.mark.parametrize(
+    "receipt_updates",
+    [
+        {"tenant_id": "another-tenant"},
+        {"snapshot_id": "another-snapshot"},
+        {"snapshot_version": 99},
+        {"constraint_spec_version": "old-spec"},
+        {"assessment_watermark": "old-watermark"},
+        {"portfolio_run_id": "another-run"},
+        {"validated_order_ids": ()},
+        {"validated_order_bindings": ()},
+        {"allocation_digest": "different-allocation"},
+        {"schedule_digest": "different-schedule"},
+        {"projected_portfolio_digest": "different-projection"},
+        {"evaluated_at": NOW - timedelta(seconds=1)},
+        {"valid_through": NOW - timedelta(seconds=1)},
+        {"evidence_refs": ()},
+        {"source_authority": "P2"},
+        {"source_version": ""},
+        {"status": "P2_VALIDATED"},
+    ],
+)
+def test_wrong_or_replayed_joint_receipt_is_mismatch(receipt_updates):
     request, spec = fixture()
+    verifier = FixtureVerifier(spec)
+    verifier.receipt_updates = receipt_updates
+    result = compare(request, provider=FixtureProvider(spec), verifier=verifier)
+    assert all(s.validation_status == "VALIDATION_MISMATCH" for s in result.scenarios)
+    assert all(not s.selected_order_ids for s in result.scenarios)
 
-    class IncompleteVerifier:
+
+def test_fake_p2_validated_provider_cannot_establish_live_authority():
+    request, spec = fixture()
+    live_request = request.model_copy(update={"integration_mode": "LIVE"})
+    live_spec = spec.model_copy(update={"owner": "P2"})
+
+    class FakeP2Verifier:
+        authority = "P2"
+        calls = 0
+
+        def verify(self, request, candidate):
+            self.calls += 1
+            return fixture_receipt(
+                request,
+                candidate,
+                status="P2_VALIDATED",
+                updates={"source_authority": "P2"},
+            )
+
+    verifier = FakeP2Verifier()
+    result = compare(live_request, provider=FixtureProvider(live_spec), verifier=verifier)
+    assert all(s.validation_status == "P2_JOINT_VERIFIER_UNAVAILABLE" for s in result.scenarios)
+    assert verifier.calls == 0
+
+
+@pytest.mark.parametrize("field", ["allocations", "schedule"])
+def test_replayed_receipt_for_same_orders_but_different_projection_is_rejected(field):
+    request, spec = fixture()
+    status, projection, _, _ = solve(request, spec, Strategy.FCFS, forced_selected=frozenset({"A"}))
+    assert status == SolverStatus.OPTIMAL and projection is not None
+    if field == "allocations":
+        changed = (
+            projection.allocations[0].model_copy(
+                update={"quantity": projection.allocations[0].quantity + Decimal(1)}
+            ),
+            *projection.allocations[1:],
+        )
+    else:
+        changed = tuple(
+            task.model_copy(
+                update={"start_minute": task.start_minute + 1, "end_minute": task.end_minute + 1}
+            )
+            for task in projection.schedule
+        )
+    replayed_projection = projection.model_copy(update={field: changed})
+    assert replayed_projection.selected_order_ids == projection.selected_order_ids
+
+    class ReplayVerifier:
         authority = "SYNTHETIC_TEST_FIXTURE"
 
         def verify(self, request, candidate):
-            return JointVerificationResult(
-                status="P2_VALIDATED",
-                portfolio_validation_id="incomplete",
-                validated_order_ids=(),
-                evidence_refs=("fixture",),
-            )
+            return fixture_receipt(request, projection)
 
-    result = compare(request, provider=FixtureProvider(spec), verifier=IncompleteVerifier())
-    assert all(s.validation_status == "VALIDATION_MISMATCH" for s in result.scenarios)
-    assert all(not s.selected_order_ids for s in result.scenarios)
+    with pytest.raises(ValueError, match="VALIDATION_MISMATCH"):
+        _verify(request, replayed_projection, ReplayVerifier())
 
 
 @pytest.mark.parametrize("field", ["revenue", "material_cost", "labor_cost", "freight_cost"])

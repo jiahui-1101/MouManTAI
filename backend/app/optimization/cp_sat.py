@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from .models import (
+    CandidateBinding,
     LotAllocation,
     P2ConstraintSpec,
     PortfolioRequest,
@@ -205,11 +206,24 @@ def solve(
     )
     projection = ProjectedPortfolio(
         tenant_id=request.tenant_id,
+        portfolio_run_id=request.portfolio_run_id,
         snapshot_id=request.snapshot_id,
         snapshot_version=request.snapshot_version,
         spec_version=spec.spec_version,
         assessment_watermark=request.assessment_watermark,
         selected_order_ids=selected,
+        selected_order_bindings=tuple(
+            CandidateBinding(
+                order_request_id=c.order_request_id,
+                request_version=c.request_version,
+                terms_revision=c.terms_revision,
+                terms_hash=c.terms_hash,
+                source_identity=c.source_identity,
+                evidence_refs=c.evidence_refs,
+            )
+            for c in sorted(request.candidates, key=lambda candidate: candidate.order_request_id)
+            if c.order_request_id in selected
+        ),
         allocations=tuple(rows),
         schedule=schedule,
     )
