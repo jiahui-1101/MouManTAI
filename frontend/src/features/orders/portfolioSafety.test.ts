@@ -70,6 +70,36 @@ describe('Recommendation authority', () => {
     expect(verifiedRecommendation(portfolioFixture(), now)).toBeNull();
   });
   it.each<[string, (d: PortfolioSnapshot) => void]>([
+    ['individually redacted profit', d => { d.scenarios[1].metrics.profit!.state = 'REDACTED'; }],
+    ['unknown profit', d => { d.scenarios[1].metrics.profit!.state = 'UNKNOWN'; }],
+    ['missing profit metric', d => { delete d.scenarios[1].metrics.profit; }],
+    ['redacted financial access', d => { d.financialAccess = 'REDACTED'; }],
+    ['unknown financial access', d => { d.financialAccess = 'UNKNOWN'; }],
+    ['incomplete financial model', d => { d.scenarios[1].metrics.profit!.financialModelComplete = false; }],
+    ['unknown financial completeness', d => { delete d.scenarios[1].metrics.profit!.financialModelComplete; }],
+    ['missing profit evidence', d => { d.scenarios[1].metrics.profit!.evidence = []; }],
+    ['missing profit unit', d => { delete d.scenarios[1].metrics.profit!.unit; }],
+    ['blank profit unit', d => { d.scenarios[1].metrics.profit!.unit = ' '; }],
+    ['missing profit value', d => { delete d.scenarios[1].metrics.profit!.value; }],
+    ['empty profit value', d => { d.scenarios[1].metrics.profit!.value = ''; }],
+    ['unavailable profit value', d => { d.scenarios[1].metrics.profit!.value = 'Unavailable'; }],
+    ['non-finite profit value', d => { d.scenarios[1].metrics.profit!.value = 'NaN'; }],
+  ])('withholds a backend Profit recommendation with %s', (_, edit) => {
+    const d = withRecommendation(); edit(d); const before = structuredClone(d);
+    expect(verifiedRecommendation(d, now)).toBeNull(); expect(d).toEqual(before);
+  });
+  it.each(['20', '0', '0.00', '-2.50'])('preserves a source recommendation with usable profit %s without local ranking', value => {
+    const d = withRecommendation(); d.scenarios[1].metrics.profit = knownMetric(value);
+    const before = structuredClone(d);
+    expect(verifiedRecommendation(d, now)).toEqual({ ...d.recommendation, label: 'Profit candidate' });
+    expect(d).toEqual(before);
+  });
+  it.each(['FCFS', 'EXPIRY', 'ALTERNATIVE'] as const)('preserves source-recommended %s scenarios without requiring a profit metric', strategy => {
+    const d = withRecommendation(); d.scenarios[1].strategy = strategy;
+    delete d.scenarios[1].metrics.profit;
+    expect(verifiedRecommendation(d, now)?.scenarioId).toBe(d.recommendation!.scenarioId);
+  });
+  it.each<[string, (d: PortfolioSnapshot) => void]>([
     ['stale snapshot', d => { d.freshness = 'STALE'; }], ['unknown freshness', d => { d.freshness = 'UNKNOWN'; }],
     ['expired snapshot', d => { d.expiresAt = '2026-10-24T02:59:00Z'; }],
     ['future snapshot', d => { d.updatedAt = '2026-10-24T03:01:00Z'; }],

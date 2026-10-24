@@ -15,7 +15,7 @@ export function FeaturePlaceholder({ owner, title, description }: FeaturePlaceho
         return {
           statusLabel: "BACKEND CONTRACT PENDING (R-06)",
           statusType: "warning",
-          note: "Global incident / emergency case list route is not provided by backend. Recovery actions are accessible per commitment.",
+          note: "Global incident / emergency case list route is not provided by backend. This route is reserved for the owning full-stack feature.",
           links: [
             { label: "View Commitment Recovery Case (rec_001)", to: "/recovery/rec_001" },
             { label: "View Recovery Plans (rec_001)", to: "/recovery/rec_001/plans" },
@@ -39,8 +39,8 @@ export function FeaturePlaceholder({ owner, title, description }: FeaturePlaceho
           statusLabel: title.toLowerCase() === "feasibility" ? "ACTIVE PER COMMITMENT" : "PROPOSED FEATURE (FE-FORE-01/02)",
           statusType: title.toLowerCase() === "feasibility" ? "info" : "neutral",
           note: title.toLowerCase() === "feasibility"
-            ? "Commitment feasibility analysis is available per commitment ID."
-            : "Multi-order portfolio comparison and predictive forecasting are PROPOSED capabilities awaiting backend optimization contracts.",
+            ? "Commitment feasibility analysis is available per commitment ID. This route is reserved for the owning full-stack feature."
+            : "Multi-order portfolio comparison and predictive forecasting are PROPOSED capabilities. This route is reserved for the owning full-stack feature.",
           links: [
             { label: "View Commitment Feasibility (com_001)", to: "/commitments/com_001" },
             { label: "View Operational Impact (fa_001)", to: "/impact/fa_001" },
@@ -50,7 +50,7 @@ export function FeaturePlaceholder({ owner, title, description }: FeaturePlaceho
         return {
           statusLabel: "PROPOSED FEATURE (FE-MEM-01 / R-11)",
           statusType: "neutral",
-          note: "Decision Memory is a PROPOSED capability awaiting verified historical outcome contracts. Authoritative causal event logs are available in Activity.",
+          note: "Decision Memory is a PROPOSED capability awaiting verified historical outcome contracts. This route is reserved for the owning full-stack feature.",
           links: [
             { label: "View Activity & Audit History", to: "/activity" },
             { label: "View Daily Performance", to: "/insights/performance" },
@@ -69,7 +69,7 @@ export function FeaturePlaceholder({ owner, title, description }: FeaturePlaceho
         return {
           statusLabel: "PROPOSED FEATURE (FE-SUP-03 RFQ)",
           statusType: "neutral",
-          note: "Direct RFQ sourcing is a PROPOSED extension. Supplier directory and offer comparison are active.",
+          note: "Direct RFQ sourcing is a PROPOSED extension. This route is reserved for the owning full-stack feature.",
           links: [
             { label: "View Supplier Directory", to: "/suppliers" },
             { label: "View Offer Comparison", to: "/suppliers/compare" },
@@ -79,7 +79,7 @@ export function FeaturePlaceholder({ owner, title, description }: FeaturePlaceho
         return {
           statusLabel: "PROPOSED SETTINGS (FE-SET-01)",
           statusType: "neutral",
-          note: "Tenant and business policy configuration will be managed here. Current tenant: tenant_demo_01.",
+          note: "Tenant and business policy configuration will be managed here. This route is reserved for the owning full-stack feature.",
           links: [
             { label: "Return to Overview", to: "/overview" },
           ],

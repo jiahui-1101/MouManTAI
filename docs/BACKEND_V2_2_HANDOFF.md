@@ -1,10 +1,20 @@
-> Latest checkpoint: real PostgreSQL gate PASSED on 2026-10-24; owner approval pending. Earlier NOT_RUN entries below are historical. See the final validation section.
+> PR #49 checkpoint: pure supplier comparison only; the PostgreSQL evidence below belongs to PR #55 and is not evidence for PR #49. See the PR #49-specific validation section appended below.
 
 # MouManTAI 2.2 Backend — Living Handoff
 
-Updated (UTC and MYT): 2026-10-23; exact test/checkpoint times appended below.
+## 2026-10-24 — PR #49 main refresh and review handoff
+
+- Latest fetched `origin/main`: `57636642750d366a85045c3655afa0c51581e3be`. The initial #49 remote head was `63fb44de2e85917562602076d997b50b29ac79a8`; its original merge base was `eaa5097452f17f5c4f1c9ccc6c0a5b9f5678c86a` (9 commits ahead, 45 behind latest main before publication).
+- The isolated #49 worktree merged current main by ordinary merge commits. The first merge had documentation-only conflicts in this handoff, validation and team log; current-main copies were retained and this checkpoint appended. The later merge from `5763664` was clean and added only `backend/tests/test_migration_0007.py`. No supplier/P1/P3/P5 code contract conflict was found.
+- Supplier comparison source/test snapshot `60b741635f0ad9823573b1aa97643a96ece12ce5` passed the focused supplier tests (22), full v2.2 suite (312), selected P1/OrderTerms/P2/P3/P5 compatibility suite (254), and PR #59 sourcing suite (28) in a temporary tree composed from that snapshot plus PR #59 head `6dcebe5d7baf46f0136160abe153ee30885331c6`. The temporary sourcing test did not alter PR #59's branch or files. Ruff, format, compileall and whitespace checks passed.
+- Published code/test head `470fae5fba9eeea591c401bb46f01b045f58ee26` passed all five GitHub Actions jobs in [run 40080165292](https://github.com/jiahui-1101/MouManTAI/actions/runs/40080165292), including the isolated PostgreSQL-authoritative suite. A subsequent documentation-only checkpoint is linked on the live [PR #49 checks](https://github.com/jiahui-1101/MouManTAI/pull/49/checks).
+- PR #49 adds a pure/read-only advisory comparison contract. No DB schema, migration or database-backed supplier test is part of this change; local PostgreSQL is **NOT RUN**. Do not transfer PR #55's separate PostgreSQL result to #49.
+- Exact publication SHA and GitHub Actions outcomes are tracked on [PR #49 checks](https://github.com/jiahui-1101/MouManTAI/pull/49/checks); this checkpoint does not self-reference a future publication SHA. Review submissions are still needed on the refreshed head from P1 (provenance), P3 (Recovery boundary) and P5 (Core/shared boundary). No merge or approval was performed.
+- PR #59 remains at base `62040da02b4ec3532ea02d734567e0913996ec2b`, head `6dcebe5d7baf46f0136160abe153ee30885331c6`. It directly consumes `compare_offers`, preserves all four statuses and has `NOT_SENT` RFQ, `PREVIEW_ONLY` selection and `CONDITIONAL` Recovery handoff boundaries. The owner must refresh its base to the published #49 head and rerun its exact-head checks; #49 does not make #59 merge-ready.
+
+Updated (UTC and MYT): 2026-10-24; exact test/checkpoint times appended below.
 Canonical spec: Implementation Baseline Review v2.2, root six Markdown files; source hashes `docs/V2_2_SOURCE_CHECKSUMS.json`. CODEX_PROMPT.md read from extracted attachment outside repo. Archive `docs/legacy/AGENT_RULES_V1.md` is noncanonical.
-Repo: jiahui-1101/MouManTAI; origin/main observed `ec3ffbc970ab38abca8468abfe0466ff0464b998`; branch `codex/feat-v2-2-backend`; starting HEAD same; PR https://github.com/jiahui-1101/MouManTAI/pull/48 (DRAFT, UNMERGED), current pushed code a6421e8.
+Previous PR #48 checkpoint (historical): origin/main `ec3ffbc970ab38abca8468abfe0466ff0464b998`; branch `codex/feat-v2-2-backend`; PR https://github.com/jiahui-1101/MouManTAI/pull/48 (DRAFT at that checkpoint), code `a6421e8`.
 Task: cross-owner backend; BE-STATE, BE-ORB-01, BE-CUS-01, BE-REPLY-01, BE-ORD-02, BE-STAT-01; prepare contracts without unratified activation.
 Reviewers: P5 Gan0117 (Core/shared), P1 mavisbong41 (context), P4 Sheng554 (reply/communication); P2 meishuet16 (feasibility compatibility); P3 affected only if recovery changes. S1–S5 remain pending: user explicitly reaffirmed they are not formally ratified (see checkpoint below).
 

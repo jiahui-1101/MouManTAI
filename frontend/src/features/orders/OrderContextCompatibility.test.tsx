@@ -38,8 +38,9 @@ describe('P1 compatibility with explicitly scoped composite route', () => {
     const review = vi.spyOn(operationalApi, 'reviewContext').mockResolvedValue({ ...context, context_version: 4, status: 'UNRESOLVED' });
     render(<OrderContextDetail orderId="order-scoped" requestHeaders={headers} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Review & Amend' }));
-    fireEvent.change(screen.getByLabelText('Reviewer Note'), { target: { value: 'Synthetic verification pending' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mark Unresolved' }));
+    fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Synthetic verification pending' } });
+    fireEvent.click(screen.getByRole('button', { name: /More actions/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Mark unresolved/i }));
     await waitFor(() => expect(review).toHaveBeenCalledWith('context-scoped', expect.objectContaining({
       action: 'MARK_UNRESOLVED', expected_context_version: 3,
     }), expect.objectContaining(headers)));

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { App } from '../../App';
 import { operationalApi } from '../context/operationalApi';
 import type { OrderContextRecord } from '../context/types';
@@ -29,18 +29,26 @@ it('navigates an explicitly injected test queue through the real detail/P1 works
   }} /> }]} />);
   fireEvent.click(await screen.findByRole('link', { name: 'View Details for uat-order' }));
   expect(await screen.findByRole('heading', { name: 'Order Context: uat-order' })).toBeInTheDocument();
+  expect(window.location.pathname).toBe('/orders/uat-order');
+  const nav = within(screen.getByRole('navigation', { name: 'Primary navigation' }));
+  expect(nav.getByRole('link', { name: 'All Orders' })).toHaveAttribute('aria-current', 'page');
+  expect(nav.getAllByRole('link').filter(link => link.getAttribute('aria-current') === 'page')).toHaveLength(1);
   expect(await screen.findByRole('heading', { name: 'Order Decision workspace' })).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Version History' }));
   expect(screen.getByLabelText('Version History')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Review & Amend' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Publish to Core' })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('link', { name: 'Back to Order Queue' }));
+  fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: 'Back to Order Queue' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Order queue unavailable');
-  fireEvent.click(screen.getByRole('link', { name: 'Portfolio Comparison' }));
+  if (screen.getByRole('button', { name: 'Planning' }).getAttribute('aria-expanded') === 'false')
+    fireEvent.click(screen.getByRole('button', { name: 'Planning' }));
+  fireEvent.click(within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('link', { name: 'Portfolio Comparison' }));
   expect(await screen.findByRole('heading', { name: 'Portfolio API unavailable' })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('link', { name: 'Production & Delivery Calendar' }));
+  fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: 'Production & Delivery Calendar' }));
   expect(await screen.findByRole('heading', { name: 'Scheduling API unavailable' })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('link', { name: 'Portfolio Comparison' }));
+  if (screen.getByRole('button', { name: 'Planning' }).getAttribute('aria-expanded') === 'false')
+    fireEvent.click(screen.getByRole('button', { name: 'Planning' }));
+  fireEvent.click(within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('link', { name: 'Portfolio Comparison' }));
   expect(await screen.findByRole('heading', { name: 'Portfolio API unavailable' })).toBeInTheDocument();
   expect(fetch).not.toHaveBeenCalled(); expect(publish).not.toHaveBeenCalled();
   expect(operationalApi.getContextByOrder).toHaveBeenCalledWith('uat-order', expect.objectContaining({ 'X-Tenant-ID': 'tenant_demo_01', 'X-Actor-ID': 'user_owner_01' }));
@@ -55,6 +63,10 @@ it('withholds a wrong-order legacy context and recovers by re-reading without ed
   expect(screen.queryByRole('button', { name: 'Publish to Core' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Refresh order assessment view' }));
   expect(await screen.findByRole('heading', { name: 'Order Context: uat-order' })).toBeInTheDocument();
+  expect(window.location.pathname).toBe('/orders/uat-order');
+  const nav = within(screen.getByRole('navigation', { name: 'Primary navigation' }));
+  expect(nav.getByRole('link', { name: 'All Orders' })).toHaveAttribute('aria-current', 'page');
+  expect(nav.getAllByRole('link').filter(link => link.getAttribute('aria-current') === 'page')).toHaveLength(1);
 });
 
 it.each([

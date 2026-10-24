@@ -33,3 +33,15 @@ export function portfolioFixture(): PortfolioSnapshot {
       evidence: ['synthetic-recommendation'], issuedAt: '2026-10-24T02:10:00Z', expiresAt: '2026-10-24T03:30:00Z' },
   };
 }
+
+/** Explicitly synthetic Expiry scenario; never imported by production or computed in the UI. */
+export function portfolioWithExpiryFixture(): PortfolioSnapshot {
+  const data = portfolioFixture();
+  data.scenarios.push({ ...structuredClone(data.scenarios[0]), id: 's-expiry', label: 'Expiry-aware candidate', strategy: 'EXPIRY',
+    solverStatus: 'FEASIBLE_NOT_PROVEN_OPTIMAL', evidence: ['synthetic-expiry-scenario'],
+    allocations: data.orders.map(order => ({ orderId: order.id, requestVersion: order.requestVersion,
+      membership: 'DEFERRED', reason: 'Synthetic expiry test explanation', resources: 'Synthetic lot / machine reference',
+      conflict: 'Synthetic constraint finding', evidence: ['synthetic-expiry-allocation'] })),
+  });
+  return data;
+}

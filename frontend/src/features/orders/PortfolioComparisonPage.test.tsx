@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../../shared/auth';
 import { ApiError } from '../../shared/api';
 import { PortfolioComparisonPage } from './PortfolioComparisonPage';
-import { portfolioFixture, portfolioTestNow } from './portfolioTest.fixtures';
+import { portfolioFixture, portfolioWithExpiryFixture, portfolioTestNow } from './portfolioTest.fixtures';
 import type { PortfolioSnapshot, PortfolioSource } from './portfolioTypes';
 
 const sourceFor = (data = portfolioFixture()): PortfolioSource => ({ cacheKey: 'test-only', load: vi.fn().mockResolvedValue(data) });
@@ -65,6 +65,19 @@ describe('Portfolio Comparison states and read safety', () => {
     expect(await screen.findByRole('heading', { name: 'Backend recommendation: Profit candidate' })).toBeInTheDocument();
     expect(screen.getByText('Source-provided trade-off explanation')).toBeInTheDocument();
     expect(screen.getByText(/Limitations: Source limitation/)).toBeInTheDocument();
+  });
+  it('withholds the backend Profit recommendation when only its profit metric is redacted', async () => {
+    const d = portfolioFixture(); d.evidenceTier = 'VALIDATED'; d.integrationMode = 'LIVE';
+    d.scenarios[1].metrics.profit!.state = 'REDACTED';
+    d.scenarios[1].metrics.profit!.value = '987654321.99';
+    const before = structuredClone(d); setup(sourceFor(d));
+    await screen.findByRole('table', { name: 'Scenario metrics and comparability' });
+    expect(screen.getByRole('article', { name: 'Summary: Profit candidate' })).toHaveTextContent('Redacted');
+    expect(screen.queryByRole('heading', { name: 'Backend recommendation: Profit candidate' })).not.toBeInTheDocument();
+    expect(screen.getByText(/An authoritative portfolio recommendation is not currently available/)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('987654321.99');
+    expect(d).toEqual(before);
+    expect(screen.queryByRole('button', { name: /accept|reserve|submit|execute/i })).not.toBeInTheDocument();
   });
   it('does not invent scenarios for an empty response', async () => {
     const d = portfolioFixture(); d.scenarios = []; d.orders = []; setup(sourceFor(d));
@@ -153,5 +166,80 @@ describe('Portfolio Comparison states and read safety', () => {
     expect(link).toHaveAttribute('href', '/orders/request%2Fone');
     expect(screen.getAllByText('Allocation evidence unavailable')).toHaveLength(2);
     expect(screen.getAllByText(/empty list does not prove unconstrained/)).toHaveLength(2);
+  });
+});
+
+describe('Source-supplied strategy availability', () => {
+  it.each([
+    ['FCFS'], ['PROFIT'], ['EXPIRY'], ['FCFS', 'PROFIT'], ['FCFS', 'EXPIRY'], ['PROFIT', 'EXPIRY'], ['EXPIRY', 'FCFS', 'PROFIT'],
+  ])('distinguishes only the returned strategy set %j without reordering or generating scenarios', async (...strategies: string[]) => {
+    const data = portfolioWithExpiryFixture();
+    data.scenarios = strategies.map(strategy => data.scenarios.find(s => s.strategy === strategy)!);
+    const before = structuredClone(data); setup(sourceFor(data));
+    await screen.findByRole('table', { name: 'Scenario metrics and comparability' });
+    for (const [strategy, label] of [['FCFS', 'FCFS'], ['PROFIT', 'Profit'], ['EXPIRY', 'Expiry-aware']]) {
+      const card = screen.getByRole('article', { name: `Availability: ${label}` });
+      expect(card).toHaveTextContent(strategies.includes(strategy) ? 'Returned by source · 1 scenario.' : 'Not provided in this snapshot');
+      if (!strategies.includes(strategy)) expect(card).toHaveTextContent('The source supplied no reason');
+    }
+    expect(screen.getAllByRole('checkbox').map(input => input.closest('label')?.textContent))
+      .toEqual(data.scenarios.map(s => `${s.label}${s.strategy} · version ${s.version}`));
+    expect(screen.getAllByRole('article', { name: /^Summary:/ }).map(card => within(card).getByRole('heading').textContent))
+      .toEqual(data.scenarios.map(s => s.label));
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+    expect(screen.queryByRole('article', { name: `Summary: ${data.scenarios[0].label}` })).not.toBeInTheDocument();
+    expect(screen.getByRole('article', { name: `Availability: ${data.scenarios[0].strategy === 'EXPIRY' ? 'Expiry-aware' : data.scenarios[0].strategy === 'PROFIT' ? 'Profit' : 'FCFS'}` })).toHaveTextContent('Returned by source');
+    expect(data).toEqual(before);
+  });
+  it('keeps empty snapshots empty while marking all three strategies not provided', async () => {
+    const d = portfolioFixture(); d.scenarios = []; d.orders = []; setup(sourceFor(d));
+    await screen.findByRole('heading', { name: 'No source scenarios' });
+    expect(within(screen.getByRole('region', { name: 'Strategy availability' })).getAllByText(/Not provided in this snapshot/)).toHaveLength(3);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+  it('does not describe stale, failed or unauthorized snapshots as strategies omitted by the source', async () => {
+    const d = portfolioWithExpiryFixture(); d.freshness = 'STALE'; setup(sourceFor(d));
+    await screen.findByRole('heading', { name: 'Current verified snapshot unavailable' });
+    const availability = screen.getByRole('region', { name: 'Strategy availability' });
+    expect(within(availability).getAllByText(/Not verified/)).toHaveLength(3);
+    expect(availability).not.toHaveTextContent('Returned by source'); expect(availability).not.toHaveTextContent('Not provided');
+  });
+  it.each(['REDACTED', 'UNKNOWN'] as const)('distinguishes returned Profit scenarios from %s financial visibility', async financialAccess => {
+    const d = portfolioWithExpiryFixture(); d.financialAccess = financialAccess; setup(sourceFor(d));
+    await screen.findByRole('table', { name: 'Scenario metrics and comparability' });
+    const card = screen.getByRole('article', { name: 'Availability: Profit' });
+    expect(card).toHaveTextContent('Returned by source');
+    expect(card).toHaveTextContent(financialAccess === 'REDACTED' ? 'Financial values are redacted' : 'Financial authorization is unknown');
+    expect(screen.queryByRole('heading', { name: /^Backend recommendation:/ })).not.toBeInTheDocument();
+  });
+  it('retains partial coverage, invalid validation and incomplete metric explanations without asserting usable results', async () => {
+    const d = portfolioWithExpiryFixture(); d.coverage = 'PARTIAL';
+    d.scenarios[1].validation = 'VALIDATION_MISMATCH'; d.scenarios[2].metrics.profit!.financialModelComplete = false;
+    setup(sourceFor(d)); await screen.findByRole('table', { name: 'Scenario metrics and comparability' });
+    expect(screen.getByRole('article', { name: 'Availability: Profit' })).toHaveTextContent('Validation is incomplete or mismatched');
+    expect(screen.getByRole('region', { name: 'Strategy availability' })).toHaveTextContent('This response has partial coverage');
+    expect(screen.getByRole('article', { name: 'Summary: Expiry-aware candidate' })).toHaveTextContent('Unknown');
+    expect(screen.queryByRole('heading', { name: /^Backend recommendation:/ })).not.toBeInTheDocument();
+  });
+  it('preserves source recommendation and B-01 per-metric redaction while the strategy remains returned', async () => {
+    const d = portfolioWithExpiryFixture(); d.evidenceTier = 'VALIDATED'; d.integrationMode = 'LIVE';
+    const source = sourceFor(d); setup(source);
+    await screen.findByRole('heading', { name: 'Backend recommendation: Profit candidate' });
+    const hidden = structuredClone(d); hidden.scenarios[1].metrics.profit!.state = 'REDACTED';
+    vi.mocked(source.load).mockResolvedValueOnce(hidden);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh portfolio' }));
+    await waitFor(() => expect(screen.getByRole('article', { name: 'Availability: Profit' })).toHaveTextContent('One or more profit metrics are redacted'));
+    expect(screen.queryByRole('heading', { name: /^Backend recommendation:/ })).not.toBeInTheDocument();
+  });
+  it('hides returned strategy status throughout pending refresh and denied recovery', async () => {
+    const source = sourceFor(portfolioWithExpiryFixture()); setup(source);
+    await screen.findByRole('table', { name: 'Scenario metrics and comparability' });
+    let reject!: (error: Error) => void;
+    vi.mocked(source.load).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh portfolio' }));
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Strategy availability' })).not.toHaveTextContent('Returned by source'));
+    await act(async () => reject(new ApiError(403, 'FORBIDDEN', 'private')));
+    await screen.findByRole('alert');
+    expect(within(screen.getByRole('region', { name: 'Strategy availability' })).getAllByText(/Not verified/)).toHaveLength(3);
   });
 });

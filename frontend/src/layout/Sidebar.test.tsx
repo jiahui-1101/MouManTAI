@@ -138,3 +138,28 @@ describe("shared sidebar navigation", () => {
     expect(screen.getByRole("link", { name: "Customer Messages" })).toHaveClass("is-active");
   });
 });
+
+describe('Orders and Planning Sidebar cleanup', () => {
+  afterEach(cleanup);
+
+  it('keeps only All Orders under Orders and Portfolio/Forecasts under Planning', () => {
+    window.localStorage.clear();
+    mount('/orders');
+    fireEvent.click(screen.getByRole('button', { name: 'Planning' }));
+    const orders = within(document.getElementById('sidebar-group-orders')!);
+    const planning = within(document.getElementById('sidebar-group-planning')!);
+    expect(orders.getAllByRole('link').map(link => link.textContent?.trim())).toEqual(['All Orders']);
+    expect(planning.getAllByRole('link').map(link => link.textContent?.trim())).toEqual(['Portfolio Comparison', 'Forecasts']);
+    expect(screen.queryByRole('link', { name: 'Pending Acceptance', hidden: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Feasibility', hidden: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Order Detail/i, hidden: true })).not.toBeInTheDocument();
+  });
+
+  it.each(['/orders/order-from-source', '/orders/pending', '/orders/pending/'])('uses All Orders as the sole current link at %s', path => {
+    window.localStorage.clear();
+    mount(path);
+    expect(screen.getByRole('button', { name: 'Orders' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: 'All Orders' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getAllByRole('link').filter(link => link.getAttribute('aria-current') === 'page')).toHaveLength(1);
+  });
+});

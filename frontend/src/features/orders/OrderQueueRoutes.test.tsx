@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { App } from '../../App';
 import { operationalApi } from '../context/operationalApi';
 import type { OrderContextRecord } from '../context/types';
@@ -27,7 +27,7 @@ describe('Orders integration through the real application router and Sidebar', (
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
     const group = within(nav).queryByRole('button', { name: /^Orders$/ });
     if (group?.getAttribute('aria-expanded') === 'false') fireEvent.click(group);
-    expect(within(nav).getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(group ? ['/overview', '/orders', '/orders/pending', '/communications', '/settings'] : ['/overview', '/activity', '/inbox', '/orders', '/commitments/demo', '/recovery/demo', '/communications']);
+    expect(within(nav).getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(group ? ['/overview', '/orders', '/communications', '/settings'] : ['/overview', '/activity', '/inbox', '/orders', '/commitments/demo', '/recovery/demo', '/communications']);
     const orders = within(nav).getByRole('link', { name: /^(Orders|All Orders)$/ });
     orders.focus(); expect(orders).toHaveFocus();
     fireEvent.click(orders);
@@ -57,7 +57,7 @@ describe('Orders integration through the real application router and Sidebar', (
     expect(screen.queryByRole('heading', { name: 'Order Decision Queue' })).not.toBeInTheDocument();
         // AZ-08: Order Detail -> Portfolio Comparison
         fireEvent.click(
-          screen.getByRole('link', { name: 'Portfolio Comparison' })
+          within(screen.getByRole('main')).getByRole('link', { name: 'Portfolio Comparison' })
         );
     
         expect(window.location.pathname).toBe('/orders/portfolio');
@@ -70,12 +70,10 @@ describe('Orders integration through the real application router and Sidebar', (
         ).not.toBeInTheDocument();
     
         // Return to the original Order Detail
-        window.history.back();
-        await screen.findByRole(
-          'heading',
-          { name: 'Order detail & feasibility' },
-          { timeout: 10000 }
-        );
+        await act(async () => { window.history.back(); });
+        await screen.findByRole('heading', {
+          name: 'Order detail & feasibility',
+        });
     
         // AZ-08: Order Detail -> Calendar & Scheduling
         fireEvent.click(
@@ -94,12 +92,10 @@ describe('Orders integration through the real application router and Sidebar', (
         ).not.toBeInTheDocument();
     
         // Return to Order Detail
-        window.history.back();
-        await screen.findByRole(
-          'heading',
-          { name: 'Order detail & feasibility' },
-          { timeout: 10000 }
-        );
+        await act(async () => { window.history.back(); });
+        await screen.findByRole('heading', {
+          name: 'Order detail & feasibility',
+        });
         const crumbs = screen.queryByRole('navigation', { name: 'Breadcrumb' });
     fireEvent.click(crumbs ? within(crumbs).getByRole('link', { name: 'Orders' }) : screen.getByRole('link', { name: 'Back to Order Queue' }));
     expect(await screen.findByRole('heading', { name: 'Order Decision Queue' })).toBeInTheDocument();

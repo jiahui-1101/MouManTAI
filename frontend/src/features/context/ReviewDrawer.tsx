@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ContextReviewRequest, ExtractionAttemptRecord, OrderContextRecord, RequestedItem, StoredMessage } from './types';
 import { getReviewCatalog, operationalApi } from './operationalApi';
@@ -17,9 +17,9 @@ export interface ReviewDrawerProps {
   onClose: () => void;
   onUpdated: (updated: OrderContextRecord) => void;
   catalogLoader?: () => Promise<{ sku: string; unit: string }[]>;
+  requestHeaders?: Record<string, string>;
   actorId?: string;
   actorRole?: string;
-  requestHeaders?: Record<string, string>;
 }
 
 export function getSuggestedClarification(context: OrderContextRecord): string | null {
@@ -87,8 +87,20 @@ export function ReviewDrawer(props: ReviewDrawerProps) {
   return <ReviewAmendWorkspace key={props.context.context_id} {...props} />;
 }
 
-function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onClose, onUpdated, catalogLoader, actorId, actorRole, requestHeaders }: ReviewDrawerProps) {
+function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onClose, onUpdated, catalogLoader, requestHeaders, actorId, actorRole }: ReviewDrawerProps) {
   const auth = useOptionalAuth();
+  const headers = useMemo<Record<string, string>>(() => {
+    const currentActor = actorId || auth?.actorId;
+    // A caller-scoped actor must not inherit another actor's role from the shell.
+    const currentRole = actorRole || (currentActor === auth?.actorId ? auth?.actorRole : undefined);
+    return {
+      ...(auth?.tenantId ? { 'X-Tenant-ID': auth.tenantId } : {}),
+      ...(currentActor ? { 'X-Actor-ID': currentActor } : {}),
+      ...(currentRole && (!requestHeaders?.['X-Actor-ID'] || requestHeaders['X-Actor-ID'] === currentActor) ? { 'X-Actor-Role': currentRole } : {}),
+      ...requestHeaders,
+    };
+  }, [auth?.tenantId, auth?.actorId, auth?.actorRole, actorId, actorRole, requestHeaders]);
+  const loadCatalog = useCallback(() => catalogLoader ? catalogLoader() : getReviewCatalog(headers), [catalogLoader, headers]);
   const [record, setRecord] = useState(context);
   const [items, setItems] = useState<RequestedItem[]>(() => initialItems(context));
   const [deliveryAt, setDeliveryAt] = useState(() => initialDelivery(context));
@@ -123,12 +135,14 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
 
   useEffect(() => {
     let active = true;
-    (catalogLoader || (() => getReviewCatalog(requestHeaders)))().then(products => {
+    setCatalog([]);
+    setCatalogState('loading');
+    loadCatalog().then(products => {
       if (!Array.isArray(products)) throw new Error('Invalid catalog');
       if (active) { setCatalog(products); setCatalogState('ready'); }
     }).catch(() => { if (active) setCatalogState('unavailable'); });
     return () => { active = false; };
-  }, [catalogLoader, requestHeaders]);
+  }, [loadCatalog]);
 
   const requestClose = () => { if (dirty || note.trim()) setCloseRequested(true); else onClose(); };
   useEffect(() => {
@@ -143,11 +157,6 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
     sourceRef.current?.querySelector(`[data-evidence-field="${field}"]`)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
   };
   const updateItem = (index: number, field: keyof RequestedItem, value: string) => setItems(previous => previous.map((item, i) => i === index ? { ...item, [field]: value } : item));
-  const headers: Record<string, string> = {
-    'X-Actor-ID': actorId || auth?.actorId || 'user_staff_01',
-    'X-Actor-Role': actorRole || auth?.actorRole || 'STAFF',
-    ...requestHeaders,
-  };
 
   const sendReview = async (action: ContextReviewRequest['action'], base: OrderContextRecord, fieldEdits: Record<string, unknown> = {}) => {
     const request: ContextReviewRequest = { expected_context_version: base.context_version, action, field_edits: fieldEdits, note: note.trim() };
@@ -164,7 +173,7 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
       if (action === 'EDIT_FIELD' || (action === 'ACCEPT_EXTRACTION' && dirty)) {
         if (!itemValuesReady) throw new Error('Enter an explicit approved SKU, positive quantity and unit for every item.');
         if (!deliveryValid) throw new Error('Enter an ISO timestamp with explicit UTC offset.');
-        const approved = catalogState === 'ready' ? catalog : await (catalogLoader || (() => getReviewCatalog(requestHeaders)))();
+        const approved = catalogState === 'ready' ? catalog : await loadCatalog();
         for (let index = 0; index < items.length; index++) {
           const item = items[index];
           if (!Array.isArray(approved) || !approved.some(product => product.sku === item.sku.trim() && product.unit === item.unit.trim())) throw new Error(`Item #${index + 1}: Map to an approved SKU and its supported unit. Unknown products remain unresolved.`);
@@ -214,9 +223,7 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
     <section className="ra-dialog" role="dialog" aria-modal="true" aria-label="Context Review & Amendments" data-testid="review-drawer">
       <header className="ra-header" data-component="ReviewHeader">
         <div className="ra-heading"><button type="button" className="ra-icon-button" aria-label="Close drawer" onClick={requestClose}>←</button><div><h2 id="review-drawer-title">Review &amp; Amend <span className="p1-sr-only">Context Review &amp; Amendments</span> <span className="ra-chip ra-chip-blue">{record.status}</span> <span className="ra-chip">v{record.context_version}</span></h2><p>{message?.raw?.channel || 'Customer message'} · {message?.raw?.received_at || record.updated_at} · Context {record.context_id}</p></div></div>
-        <div className="ra-menu" ref={menuRef} data-component="MoreActionsMenu">
-          <button type="button" className="p1-sr-only" aria-label="Mark Unresolved" onClick={() => void submit('MARK_UNRESOLVED')} disabled={submitting}>Mark Unresolved</button>
-          <button type="button" className="p1-sr-only" aria-label="Request More Info" onClick={() => void submit('REQUEST_MORE_INFO')} disabled={submitting}>Request More Info</button><button type="button" className="ra-button" aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(open => !open)}>More actions ⋯</button>{menuOpen && <div className="ra-menu-list" role="menu"><button type="button" role="menuitem" onClick={() => void submit('REQUEST_MORE_INFO')} disabled={submitting}>Record need for more info<small>Updates context; does not send a message</small></button><button type="button" role="menuitem" onClick={() => void submit('MARK_UNRESOLVED')} disabled={submitting}>Mark unresolved<small>Keep unresolved evidence for follow-up</small></button>{record.source_message_ids?.[0] && <a role="menuitem" href={`/inbox?message=${encodeURIComponent(record.source_message_ids[0])}`}>Open message for reprocessing<small>Reprocess using the original message controls</small></a>}</div>}</div>
+        <div className="ra-menu" ref={menuRef} data-component="MoreActionsMenu"><button type="button" className="ra-button" aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(open => !open)}>More actions ⋯</button>{menuOpen && <div className="ra-menu-list" role="menu"><button type="button" role="menuitem" onClick={() => void submit('REQUEST_MORE_INFO')} disabled={submitting}>Record need for more info<small>Updates context; does not send a message</small></button><button type="button" role="menuitem" onClick={() => void submit('MARK_UNRESOLVED')} disabled={submitting}>Mark unresolved<small>Keep unresolved evidence for follow-up</small></button>{record.source_message_ids?.[0] && <a role="menuitem" href={`/inbox?message=${encodeURIComponent(record.source_message_ids[0])}`}>Open message for reprocessing<small>Reprocess using the original message controls</small></a>}</div>}</div>
       </header>
       <div className="ra-scroll">
         <div className="ra-status-strip" data-component="StatusStrip" aria-label="Review status"><div><span>Processing</span><strong>{message?.processing_status || 'Not available'}</strong></div><div><span>Information</span><strong>{record.status}</strong></div><div><span>Identity</span><strong>{record.customer_identity_status}</strong></div><div><span>Review</span><strong>{record.last_reviewed_at ? `Reviewed by ${record.last_reviewed_by || 'staff'}` : 'Not recorded'}</strong></div></div>
@@ -235,7 +242,7 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
               {!!record.conflicts?.length && <label className="ra-conflict-check"><input type="checkbox" checked={conflictsReviewed} onChange={event => setConflictsReviewed(event.target.checked)} /> I reviewed and resolved all listed conflicts with evidence</label>}
             </section>
             <details className="ra-card ra-disclosure"><summary>AI candidates &amp; evidence ({candidates.length})</summary><p className="ra-hint">Provisional observations are not approved inventory items. Choose a target item before applying a candidate.</p>{items.length > 1 && <label>Apply candidates to item<select aria-label="Apply candidates to item" value={targetItem} onChange={event => setTargetItem(event.target.value)}><option value="">Choose an item</option>{items.map((item, index) => <option key={index} value={String(index)}>Item #{index + 1} — {item.sku || 'unmapped'}</option>)}</select></label>}<div className="ra-candidates">{candidates.map(candidate => <div className="ra-candidate" key={candidate.key}><button type="button" className="ra-button" disabled={submitting || candidate.unverifiedProduct || (items.length > 1 && !targetItem) || (candidate.field === 'requested_delivery_at' && !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(candidate.value))} onClick={() => applyCandidate(candidate)}>{candidate.unverifiedProduct ? `Unverified product: ${candidate.value}` : `Apply ${candidate.field === 'sku' ? 'SKU' : candidate.field === 'quantity' ? 'Quantity' : candidate.field === 'unit' ? 'Unit' : 'Delivery'}: ${candidate.value}`}</button><span>{candidate.method}{candidate.group ? ` · item ${candidate.group}` : ''}</span><details><summary>Evidence</summary>Source: {candidate.source || 'unspecified'} [{String(candidate.start ?? '?')}:{String(candidate.end ?? '?')}] “{candidate.quote}”</details></div>)}</div></details>
-            <section className="ra-card" data-component="AuditNoteCard"><h3>Audit reason &amp; notes</h3>{suggested && <div className="ra-suggestion" data-component="AISuggestion" data-testid="p1-suggested-clarification"><strong>Suggested clarification wording <span className="ra-chip ra-chip-blue">Preview only · requires staff approval</span></strong><p>“{suggested}”</p><button type="button" className="ra-button" onClick={() => setNote(suggested)}>Use as clarification note</button></div>}<label htmlFor="p1-input-audit-note">Reviewer note <span aria-hidden="true">*</span></label><textarea id="p1-input-audit-note" aria-label="Reviewer Note" rows={3} value={note} onChange={event => setNote(event.target.value)} placeholder="Reason for change, confirmation evidence, or clarification details" disabled={submitting} /><p className="ra-hint">Recorded with reviewer identity, time and context version. A clarification note is not sent to the customer.</p></section>
+            <section className="ra-card" data-component="AuditNoteCard"><h3>Audit reason &amp; notes</h3>{suggested && <div className="ra-suggestion" data-component="AISuggestion" data-testid="p1-suggested-clarification"><strong>Suggested clarification wording <span className="ra-chip ra-chip-blue">Preview only · requires staff approval</span></strong><p>“{suggested}”</p><button type="button" className="ra-button" onClick={() => setNote(suggested)}>Use as clarification note</button></div>}<label htmlFor="p1-input-audit-note">Reviewer note <span aria-hidden="true">*</span></label><textarea id="p1-input-audit-note" rows={3} value={note} onChange={event => setNote(event.target.value)} placeholder="Reason for change, confirmation evidence, or clarification details" disabled={submitting} /><p className="ra-hint">Recorded with reviewer identity, time and context version. A clarification note is not sent to the customer.</p></section>
             <details className="ra-card ra-disclosure" data-component="TechnicalDetails"><summary>Technical details and provenance</summary>{extraction ? <ExtractionProvenance attempt={extraction} /> : <p>No extraction telemetry is available here.</p>}<p>Context {record.context_id} · version {record.context_version} · last review {record.last_reviewed_at || 'not recorded'}</p></details>
           </div>
         </div>

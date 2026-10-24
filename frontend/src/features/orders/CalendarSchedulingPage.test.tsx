@@ -11,7 +11,9 @@ import type { ScheduleSnapshot, ScheduleSource } from './calendarTypes';
 const sourceFor = (data = calendarFixture()): ScheduleSource => ({ cacheKey: 'test-only-calendar', load: vi.fn().mockResolvedValue(data) });
 function ContextControls() { const auth = useAuth(); return <>
   <button onClick={() => auth.setTenantId('other-tenant')}>Switch test tenant</button>
-  <button onClick={() => auth.setActorId('user_staff_01')}>Switch test actor</button></>; }
+  <button onClick={() => auth.setActorId('user_staff_01')}>Switch test actor</button>
+  <button onClick={() => auth.setTenantId('test-tenant')}>Restore test tenant</button>
+  <button onClick={() => auth.setActorId('user_owner_01')}>Restore test actor</button></>; }
 function setup(source?: ScheduleSource, initialDate = '2026-10-24', timeZone = 'Asia/Kuala_Lumpur') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(<QueryClientProvider client={client}><AuthProvider initialTenantId="test-tenant" initialActorId="user_owner_01">
@@ -200,5 +202,138 @@ describe('Refresh and cross-session privacy', () => {
       signal = s; return new Promise(done => { resolve = done; }); }).mockRejectedValue(new ApiError(403, 'FORBIDDEN', 'private')) };
     setup(source); fireEvent.click(screen.getByRole('button', { name: 'Switch test tenant' })); await screen.findByRole('alert');
     expect(signal.aborted).toBe(true); await act(async () => resolve(calendarFixture())); expect(document.body).not.toHaveTextContent('Synthetic overnight mixing');
+  });
+});
+
+describe('Identity-scoped Calendar display preferences', () => {
+  const click = (name: string) => fireEvent.click(screen.getByRole('button', { name }));
+  const change = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  async function ready() {
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh calendar' })).toBeEnabled());
+    await screen.findByRole('group', { name: 'Schedule filters' });
+  }
+  async function chooseFilters() {
+    change('Week begins', '0'); await ready();
+    for (const [label, value] of [['Event type', 'PRODUCTION'], ['Resource / machine', 'machine-A'],
+      ['Order ID or keyword', 'overnight'], ['Source status', 'PLANNED'], ['Schedule authority', 'Confirmed schedule · source evidenced']]) change(label, value);
+    fireEvent.click(screen.getByLabelText('Source conflicts only'));
+  }
+  function expectFilters() {
+    for (const [label, value] of [['Event type', 'PRODUCTION'], ['Resource / machine', 'machine-A'],
+      ['Order ID or keyword', 'overnight'], ['Source status', 'PLANNED'], ['Schedule authority', 'Confirmed schedule · source evidenced'], ['Week begins', '0']])
+      expect(screen.getByLabelText(label)).toHaveValue(value);
+    expect(screen.getByLabelText('Source conflicts only')).toBeChecked();
+  }
+  function expectDefaults() {
+    for (const label of ['Event type', 'Resource / machine', 'Order ID or keyword', 'Source status', 'Schedule authority'])
+      expect(screen.getByLabelText(label)).toHaveValue('');
+    expect(screen.getByLabelText('Source conflicts only')).not.toBeChecked();
+    expect(screen.getByLabelText('Week begins')).toHaveValue('1');
+  }
+  it.each(['Month', 'Week', 'Day'])('retains all filters and week start through Previous/Next in %s view', async view => {
+    setup(sourceFor()); await ready(); await chooseFilters(); click(view); await ready();
+    const date = (screen.getByLabelText('Chosen date') as HTMLInputElement).value;
+    fireEvent.click(inspect());
+    click('Next period'); await ready(); expectFilters();
+    expect(screen.queryByRole('region', { name: 'Calendar event details' })).not.toBeInTheDocument();
+    click('Previous period'); await ready(); expectFilters();
+    expect(screen.queryByRole('region', { name: 'Calendar event details' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Chosen date')).toHaveValue(date);
+  });
+  it('retains filters and Sunday week boundaries through Month/Week/Day view changes', async () => {
+    setup(sourceFor()); await ready(); await chooseFilters();
+    for (const view of ['Week', 'Day', 'Month']) {
+      click(view); await ready(); expectFilters();
+      expect(screen.getByRole('button', { name: view })).toHaveAttribute('aria-pressed', 'true');
+      if (view === 'Week') expect(screen.getByRole('button', { name: 'Open day 2026-10-18' })).toBeInTheDocument();
+    }
+  });
+  it('retains filters on Month-to-Day drill-down while discarding the selected inspector', async () => {
+    setup(sourceFor()); await ready(); await chooseFilters(); fireEvent.click(inspect());
+    expect(screen.getByRole('region', { name: 'Calendar event details' })).toBeInTheDocument();
+    click('Open day 2026-10-24'); await ready(); expectFilters();
+    expect(screen.getByRole('list', { name: 'day calendar dates' }).children).toHaveLength(1);
+    expect(screen.queryByRole('region', { name: 'Calendar event details' })).not.toBeInTheDocument();
+    expect(inspect()).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Inspect Synthetic requested delivery/ })).not.toBeInTheDocument();
+  });
+  it('preserves filters through a pending refresh and a new snapshot, without reopening old details or writing storage', async () => {
+    const source = sourceFor(); setup(source); await ready(); await chooseFilters(); fireEvent.click(inspect());
+    const local = vi.spyOn(Storage.prototype, 'setItem');
+    let resolve!: (snapshot: ScheduleSnapshot) => void;
+    vi.mocked(source.load).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    click('Refresh calendar');
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Schedule filters' })).not.toBeInTheDocument());
+    expect(screen.queryByRole('region', { name: 'Calendar event details' })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('Synthetic machine A');
+    const updated = calendarFixture(); updated.snapshotId = 'new-snapshot'; updated.snapshotVersion = updated.currentVersion = '8';
+    updated.updatedAt = '2026-10-24T02:30:00Z'; updated.events.forEach(e => { e.snapshotVersion = '8'; });
+    await act(async () => resolve(updated)); await ready(); expectFilters();
+    expect(inspect()).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Calendar event details' })).not.toBeInTheDocument();
+    expect(local).not.toHaveBeenCalled();
+  });
+  it.each(['tenant', 'actor'])('resets filters and week start on %s changes and does not revive them when switching back', async identity => {
+    const source: ScheduleSource = { cacheKey: 'scoped-test-only', load: vi.fn<ScheduleSource['load']>(async (_, auth) => {
+      const d = calendarFixture(); d.tenantId = auth.tenantId; d.actorId = auth.actorId;
+      d.events.forEach(e => { e.tenantId = auth.tenantId; }); return d;
+    }) };
+    setup(source); await ready(); await chooseFilters(); fireEvent.click(inspect());
+    click(`Switch test ${identity}`); await ready(); expectDefaults();
+    expect(screen.queryByRole('region', { name: 'Calendar event details' })).not.toBeInTheDocument();
+    click(`Restore test ${identity}`); await ready(); expectDefaults();
+  });
+  it('resets preferences when the provider/page session is torn down and mounted again', async () => {
+    const first = setup(sourceFor()); await ready(); await chooseFilters(); fireEvent.click(inspect()); first.unmount();
+    setup(sourceFor()); await ready(); expectDefaults();
+    expect(screen.queryByRole('region', { name: 'Calendar event details' })).not.toBeInTheDocument();
+  });
+  it('retains preferences across a failed refresh and safe read recovery without restoring old details', async () => {
+    const source = sourceFor(); setup(source); await ready(); await chooseFilters(); fireEvent.click(inspect());
+    vi.mocked(source.load).mockRejectedValueOnce(new ApiError(403, 'FORBIDDEN', 'private'));
+    click('Refresh calendar'); await screen.findByRole('alert');
+    expect(screen.queryByRole('group', { name: 'Schedule filters' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Calendar event details' })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('Synthetic machine A');
+    click('Refresh calendar'); await ready(); expectFilters();
+    expect(screen.queryByRole('region', { name: 'Calendar event details' })).not.toBeInTheDocument();
+  });
+  it('keeps missing option preferences visibly unavailable without retaining old source labels, and restores them only from a fresh source', async () => {
+    const source = sourceFor(); setup(source); await ready(); await chooseFilters(); fireEvent.click(inspect());
+    const empty = calendarFixture(); empty.events = []; empty.resources = []; empty.conflicts = [];
+    vi.mocked(source.load).mockResolvedValueOnce(empty); click('Refresh calendar'); await ready();
+    for (const label of ['Event type', 'Resource / machine', 'Source status', 'Schedule authority']) {
+      const select = screen.getByLabelText(label);
+      expect(select).toHaveValue('__unavailable__');
+      expect(within(select).getByRole('option', { name: 'Saved filter unavailable in this snapshot' })).toBeDisabled();
+    }
+    expect(screen.getByLabelText('Order ID or keyword')).toHaveValue('overnight');
+    expect(screen.getByLabelText('Source conflicts only')).toBeChecked();
+    expect(document.body).not.toHaveTextContent('Synthetic machine A');
+    expect(screen.queryByRole('option', { name: 'PLANNED' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Calendar event details' })).not.toBeInTheDocument();
+    click('Refresh calendar'); await ready(); expectFilters();
+    click('Reset filters');
+    for (const label of ['Event type', 'Resource / machine', 'Order ID or keyword', 'Source status', 'Schedule authority'])
+      expect(screen.getByLabelText(label)).toHaveValue('');
+    expect(screen.getByLabelText('Source conflicts only')).not.toBeChecked();
+    expect(screen.getByLabelText('Week begins')).toHaveValue('0');
+  });
+  it('revalidates a saved resource against fresh authorization without exposing a newly redacted resource or old inspector', async () => {
+    const source = sourceFor(); setup(source); await ready(); await chooseFilters(); fireEvent.click(inspect());
+    const restricted = calendarFixture(); restricted.resources[0].detailAccess = 'REDACTED';
+    vi.mocked(source.load).mockResolvedValueOnce(restricted); click('Refresh calendar'); await ready();
+    const resources = screen.getByLabelText('Resource / machine');
+    expect(resources).toHaveValue('__unavailable__');
+    expect(resources.querySelector('option[value="machine-A"]')).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('Synthetic machine A');
+    expect(screen.queryByRole('button', { name: /^Inspect / })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Calendar event details' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Order ID or keyword')).toHaveValue('overnight');
+    expect(screen.getByLabelText('Source conflicts only')).toBeChecked();
+    change('Resource / machine', '');
+    expect(screen.getByLabelText('Resource / machine')).toHaveValue('');
+    expect(inspect()).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Calendar event details' })).not.toBeInTheDocument();
   });
 });

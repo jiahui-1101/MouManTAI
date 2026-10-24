@@ -84,6 +84,48 @@ describe('Order detail and resource assessment', () => {
     expect(screen.getByText(/2000 g · UNCONFIRMED/)).toBeInTheDocument();
     expect(screen.getByText(/Stock on hand: 8 kg/)).toBeInTheDocument();
   });
+  it.each([
+    '2026-02-30', '2026-02-29', '1900-02-29', '2026-04-31',
+    '2026-00-10', '2026-13-10', '2026-01-00', '2026-01-32',
+    '0000-01-01', '2026-2-03', '2026-10-25 ', 'not-a-date',
+    '2026-02-30T01:00:00Z', '2026-10-25T01:00:00',
+  ])('withholds invalid material expiry %s without normalizing it into a valid date', async expiresAt => {
+    const data = fixture(); data.materials![0].expiresAt = expiresAt;
+    const before = structuredClone(data); setup(sourceFor(data));
+    await screen.findByText('Synthetic Customer');
+    const row = screen.getByRole('row', { name: /Flour/ });
+    expect(within(row).getByText('Expiry: Not available')).toBeInTheDocument();
+    expect(row).not.toHaveTextContent('date only; cutoff unknown');
+    expect(row).not.toHaveTextContent(expiresAt);
+    expect(row).toHaveTextContent('Required: 5 kg');
+    expect(row).toHaveTextContent('Location: Rack 2');
+    expect(row).toHaveTextContent('2000 g · UNCONFIRMED');
+    expect(data).toEqual(before);
+  });
+  it.each(['2024-02-29', '2000-02-29', '2026-02-28', '2026-12-31'])('preserves valid date-only material expiry %s without assigning a timezone or cutoff', async expiresAt => {
+    const data = fixture(); data.materials![0].expiresAt = expiresAt;
+    const before = structuredClone(data); setup(sourceFor(data));
+    await screen.findByText('Synthetic Customer');
+    const row = screen.getByRole('row', { name: /Flour/ });
+    expect(within(row).getByText(`Expiry: ${expiresAt} (date only; cutoff unknown)`)).toBeInTheDocument();
+    expect(data).toEqual(before);
+  });
+  it.each([undefined, null, ''])('keeps absent material expiry %s unavailable', async expiresAt => {
+    const data = fixture(); data.materials![0].expiresAt = expiresAt; setup(sourceFor(data));
+    await screen.findByText('Synthetic Customer');
+    expect(within(screen.getByRole('row', { name: /Flour/ })).getByText('Expiry: Not available')).toBeInTheDocument();
+  });
+  it.each([
+    ['2026-10-24T16:30:00Z', '25 Oct 2026, 00:30:00 (MYT)'],
+    ['2026-10-25T00:30:00+08:00', '25 Oct 2026, 00:30:00 (MYT)'],
+    ['2024-02-29T23:30:00-05:00', '01 Mar 2024, 12:30:00 (MYT)'],
+  ])('preserves offset-aware material expiry handling for %s', async (expiresAt, expected) => {
+    const data = fixture(); data.materials![0].expiresAt = expiresAt;
+    const before = structuredClone(data); setup(sourceFor(data));
+    await screen.findByText('Synthetic Customer');
+    expect(within(screen.getByRole('row', { name: /Flour/ })).getByText(`Expiry: ${expected}`)).toBeInTheDocument();
+    expect(data).toEqual(before);
+  });
   it('distinguishes accepted reservations from pending demand and renders capacity conflicts', async () => {
     setup(); await screen.findByText('Synthetic Customer');
     expect(screen.getByText('Accepted reservation')).toBeInTheDocument();

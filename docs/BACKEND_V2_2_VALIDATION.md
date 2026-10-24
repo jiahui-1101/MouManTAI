@@ -1,10 +1,8 @@
-> Latest checkpoint: real PostgreSQL gate PASSED on 2026-10-24; owner approval pending. Earlier NOT_RUN entries below are historical. See the final validation section.
+> PR #49 supplier-comparison evidence is recorded in the final section. The separate PostgreSQL checkpoint below belongs to PR #55 and does not validate PR #49.
 
 # v2.2 backend validation evidence — 24 October 2026 MYT
 
-Code snapshot: `7e14477` (foundation plus supplier contracts). Later commits are documentation only.
-Initial fetched main: `ec3ffbc970ab38abca8468abfe0466ff0464b998`.
-Integrated upstream: `3efa7f23fc2842664f1164cc1dce363f7371bdd3`, merged **into feature**, never into main.
+Historical original PR #49 checkpoint: code snapshot `7e14477`; fetched main `ec3ffbc970ab38abca8468abfe0466ff0464b998`; integrated upstream `3efa7f23fc2842664f1164cc1dce363f7371bdd3` was merged **into the feature**, never into main. Current PR #49 evidence follows in the final section.
 
 | Run | Observed result | Scope / limits |
 |---|---|---|
@@ -203,6 +201,43 @@ P1/P5 CHANGES_REQUESTED reviews remain effective until owners re-review. Fresh r
 
 The durable P1 OrderRequest/version and approved commercial/disclosure sources remain unavailable. The reader still supplies commercial_terms=None, leaves request_version absent, and stays INCOMPLETE. No acceptance, reservation, approval or Core transition is activated. Backend B must independently reread current authoritative evidence. Full commands, provenance and limitations follow in BACKEND_V2_2_VALIDATION.md.
 
+## PR #49 supplier comparison — refreshed against current main (2026-10-24)
+
+This section is specific to PR #49 and supersedes earlier supplier test counts in this file. Local tests were run from `backend/` against source/test snapshot `60b741635f0ad9823573b1aa97643a96ece12ce5`, which includes latest `origin/main` `57636642750d366a85045c3655afa0c51581e3be`. The first posted head `470fae5fba9eeea591c401bb46f01b045f58ee26` adds the documentation-only checkpoint and passed exact-head CI. The subsequent validation-document amendment is also documentation-only; its current exact-head run is linked from [PR #49 checks](https://github.com/jiahui-1101/MouManTAI/pull/49/checks).
+
+### Local validation
+
+| Check | Result | Observed result |
+|---|---|---|
+| Supplier comparator | **PASS** | `python -m pytest -p no:cacheprovider -o "addopts=" tests/v2_2/test_supplier_comparison.py -q -rA --tb=short` — 22 passed, 5 warnings, 0 failures/skips |
+| Full v2.2 | **PASS** | `python -m pytest -p no:cacheprovider -o "addopts=" tests/v2_2 -q -rA --tb=short` — 312 passed, 5 warnings, 0 failures/skips |
+| P1 / OrderTerms / P2 / P3 / P5 regressions | **PASS** | Selected source reader, context mapper, terms, assessment provenance/identity, supplier pipeline, Recovery and Core tests — 254 passed, 5 warnings, 0 failures/skips |
+| PR #59 sourcing handoff compatibility | **PASS** | 28 passed, 5 warnings in a temporary copy of the refreshed #49 tree with sourcing source/tests taken from #59 head `6dcebe5d7baf46f0136160abe153ee30885331c6`; no #59 branch, commit or file changed |
+| Ruff | **PASS** | `python -m ruff check app/suppliers tests/v2_2/test_supplier_comparison.py` — all checks passed |
+| Ruff format | **PASS** | `python -m ruff format --check app/suppliers tests/v2_2/test_supplier_comparison.py` — 3 files already formatted |
+| Compile | **PASS** | `python -m compileall -q app/suppliers` — exit 0 |
+| Diff whitespace | **PASS** | `git diff --check` on the final task diff — exit 0 |
+| Local PostgreSQL | **NOT RUN** | Comparator is pure/in-memory; PR #49 adds no migration or database-backed supplier test. No local database URL was used. The exact-head CI PostgreSQL evidence is recorded below; PR #55's historical PostgreSQL results above are separate. |
+
+### Exact-head GitHub Actions — code/test publication head
+
+- GitHub Actions run [40080165292](https://github.com/jiahui-1101/MouManTAI/actions/runs/40080165292), exact commit `470fae5fba9eeea591c401bb46f01b045f58ee26`, completed **5/5 success**: Backend Tests (pytest & syntax), Backend Tests (PostgreSQL Authoritative), Feature Suites (Feasibility & Communication), Frontend Checks (Typecheck, Vitest, Build), and Hygiene & Secret Checks.
+- The authoritative job used a GitHub-hosted Ubuntu 24.04.5 runner, Python 3.12.15 and a fresh `postgres:16` service; job logs report PostgreSQL **16.15** (Debian 16.15-1.pgdg13+2). The job created separate `p4_test_moumantai_suite` and `moumantai_migration` databases and set `REQUIRE_POSTGRES=1` and `TEST_DATABASE_APPROVED=1`.
+- Alembic head check: `0017_p1_real_channel_provenance (head)`. `backend/tests/conftest.py::pg_suite_engine` applies actual `command.upgrade(..., "head")` to the suite database. The migration test separately executed the real `0006_recovery_cases -> 0007_recovery_case_constraints_alignment -> downgrade 0006 -> upgrade head` sequence on the disposable migration database. Full job command: `pytest backend/tests -v -rs --junitxml=pg-report.xml`; result **743 passed, 0 failed, 0 skipped, 40 warnings**. The workflow also verified zero skipped cases.
+- ORM-schema coverage remains distinguishable: ordinary `test_engine` fixtures use the Alembic-migrated PostgreSQL schema under `REQUIRE_POSTGRES=1`; `tests/integration/test_p1_core_p2_e2e.py` and `tests/integration/test_p1_review_drawer_e2e.py` initialize their P1 PostgreSQL schema and create Core tables through `Base.metadata.create_all`. `tests/test_amendment_protection.py`, `tests/test_outbox_events.py` and `tests/test_registry.py` use SQLite with ORM `Base.metadata.create_all`, so they are not PostgreSQL migration evidence. No production/shared database was touched.
+
+### Synchronization and scope
+
+- Original remote #49 head: `63fb44de2e85917562602076d997b50b29ac79a8`; original merge base: `eaa5097452f17f5c4f1c9ccc6c0a5b9f5678c86a`. At latest main before publication, #49's old head was 9 commits ahead and 45 behind.
+- First synchronization with `dc4b1a1d928fbba2bc98d1f9e3731a6a879065c3` had documentation conflicts in `BACKEND_V2_2_HANDOFF.md`, `BACKEND_V2_2_VALIDATION.md` and `TEAM_LOG.md`. Latest-main copies were retained; this #49 checkpoint was added without losing Main's history. No supplier or shared contract code conflicted. A subsequent merge of current `main` `57636642750d366a85045c3655afa0c51581e3be` was clean and carried only `backend/tests/test_migration_0007.py`.
+- PR scope remains the pure supplier hard-spec comparison and tests, its existing plan entry, and this review/validation handoff. Outcomes remain `MATCHES`, `CONDITIONAL`, `INCOMPATIBLE`, `UNKNOWN`; the comparator remains advisory, fail-closed, and grants no purchasing, reservation, dispatch, Core acceptance or Recovery execution authority. S1–S5 remain unratified.
+- Exact publication SHA and all five GitHub Actions job results (Backend Tests, Backend Tests (PostgreSQL Authoritative), Feature Suites, Frontend Checks, Hygiene & Secret Checks) are tracked on the live PR checks page linked above. Branch-protection required-check API was not accessible to this connection (HTTP 403); no protection settings were changed.
+
+### Review and downstream gates
+
+- P1's `COMMENTED` review is not approval. P3 and P5 approvals cite old head `62040da02b4ec3532ea02d734567e0913996ec2b`; fresh P1/P3/P5 review is required on the refreshed publication head. No unresolved inline threads were returned during this audit.
+- PR #59 remains stacked at base `62040da02b4ec3532ea02d734567e0913996ec2b`, head `6dcebe5d7baf46f0136160abe153ee30885331c6`. Its old-head five-job CI passed, and its 28 sourcing tests pass against the refreshed #49 comparator in the temporary compatibility snapshot. Its owner still needs to refresh the base to the new #49 head and rerun checks. This result does not make #59 merge-ready.
+
 ### Disposable database provenance and migration evidence
 
 Created a new `postgres:16` container named `moumantai-pr55-validation` (container ID prefix `1a696f2c69f2`) for this task. It used a fresh generated credential, user `pr55_test`, database `pr55_validation_test`, loopback-only ephemeral port, and no shared data volume. No application/ordinary DATABASE_URL, team database or production database was selected. URLs were process-scoped and never committed or printed. PostgreSQL version: **16.15 (Debian 16.15-1.pgdg13+2), x86_64**; local Python **3.14.3**.
@@ -250,3 +285,39 @@ Initial unrestricted-temp P1 run: 582 passed, 1 failed, 7 skipped, 40 setup erro
 Remaining failure: `app/context/tests/test_batch8_acceptance.py::test_e2e_11_pdf_image_evidence_traceable_payment_unverified` expects OCR SUCCESS but returns FAILED. Exact same command against pre-task #55 f2300c5 reproduced **1 failed**; the production extractor and acceptance test are unchanged. Optional paddleocr/pymupdf packages are absent; no heavy models were installed for the read-only database scope. Remaining skips: image OCR module, PDF extraction module, and two explicitly opt-in live inference cases. They are not PostgreSQL gate skips. P1 owns OCR environment/test follow-up. No assertions or tests were weakened/deleted.
 
 Independent static review of the two new transaction tests found no actionable issue; it did not independently rerun tests. Scope remains test/evidence-only, plus normal main merges. Future live source integration still requires authenticated tenant provider, durable request/version, commercial/disclosure authority, P1/P5 design approval and Backend B decision-time reread.
+
+## PR #49 strict supplier-version validation follow-up (2026-10-24)
+
+This follow-up resolves Jiahui's `CHANGES_REQUESTED` review on exact prior HEAD `e73914770ee54ce5fd12199b1aa103968338d193`. That review found Pydantic coercing booleans, integral floats and numeric strings to version `1`, allowing malformed evidence to reach `MATCHES`.
+
+- **Main synchronization:** fetched `origin/main` at `e2d02c6ffcb5171a1c65c9e3bfb2c5e0d7e804f7`. Before synchronization, PR #49 was at `e73914770ee54ce5fd12199b1aa103968338d193`, based on `main` at `57636642750d366a85045c3655afa0c51581e3be`, 14 commits ahead and 3 behind. Merged latest Main with a normal merge commit; no conflicts. The Main-only change brought into this branch was `.github/workflows/p1-source-reader-postgres.yml`. The code/test publication HEAD was `947acba5841ba67a2727f787aa87eb633d44c19e`, based on current Main, 16 commits ahead and 0 behind.
+- **Contract:** all four supplier inputs (`CategorySpec.version`, `SupplierRequirement.spec_version`, `SupplierOffer.quote_version`, `SupplierOffer.spec_version`) and both `OfferComparison` output version fields require strict positive integers. `OfferComparison.spec_version` still permits `None` when the schema is unavailable. No version normalization was added. All four statuses and the advisory/no-authority boundaries remain unchanged.
+- **Requirements:** this remains within the v2.2 supplier contracts in `docs/requirements/v2.2/REQUIREMENTS_SYSTEM.md` (`SYS-SUP-02/03/06/08`) and `docs/requirements/v2.2/REQUIREMENTS_BACKEND.md` (`BE-SUP-02`). The six-document v2.2 pack is present and checksummed in `docs/V2_2_SOURCE_CHECKSUMS.json`; illustrative templates and S1–S5 assumptions remain unratified.
+
+### Local validation on the code/test change
+
+| Check | Result | Observed result |
+|---|---|---|
+| Supplier comparison | **PASS** | `python -m pytest -p no:cacheprovider -o "addopts=" tests/v2_2/test_supplier_comparison.py -q -rA --tb=short` — 80 passed, 5 warnings. Includes eight malformed values across each of six input/output version fields, positive integer cases, and four model-validation-before-comparison cases. |
+| Canonical OrderTerms + P2 supplier pipeline | **PASS** | `python -m pytest -p no:cacheprovider -o "addopts=" tests/v2_2/test_terms.py app/feasibility/tests/test_supplier_pipeline.py -q -rA --tb=short` — 70 passed, 5 warnings. |
+| Full v2.2 contract suite | **PASS** | `python -m pytest -p no:cacheprovider -o "addopts=" tests/v2_2 -q -rA --tb=short` — 370 passed, 5 warnings. |
+| PR #59 sourcing compatibility snapshot | **PASS** | `tests/v2_2/test_sourcing.py` — 28 passed, 5 warnings in a detached scratch worktree at child HEAD `6dcebe5d7baf46f0136160abe153ee30885331c6`, with only the updated PR #49 comparator overlaid. The PR #59 branch/ref and files were not changed. |
+| Ruff check | **PASS** | `python -m ruff check app/suppliers tests/v2_2/test_supplier_comparison.py` — all checks passed. |
+| Ruff format | **PASS** | `python -m ruff format --check app/suppliers tests/v2_2/test_supplier_comparison.py` — 3 files already formatted. |
+| Compileall | **PASS** | `python -m compileall -q app/suppliers` — exit 0. |
+| Diff check | **PASS** | `git diff --check` — exit 0. |
+| Local PostgreSQL | **NOT RUN** | The supplier comparator is pure/in-memory and the diff adds no migration or DB-backed supplier test. Database URLs and libpq connection variables were removed from local test processes; no database was contacted. |
+
+### Exact-head GitHub Actions and PostgreSQL
+
+The code/test HEAD `947acba5841ba67a2727f787aa87eb633d44c19e` passed all five jobs in [GitHub Actions run 40082154805](https://github.com/jiahui-1101/MouManTAI/actions/runs/40082154805): Backend Tests, Backend Tests (PostgreSQL Authoritative), Feature Suites, Frontend Checks, and Hygiene & Secret Checks. PostgreSQL used the workflow's isolated disposable `postgres:16` service (reported server version **16.15**), with dedicated `p4_test_moumantai_suite` and `moumantai_migration` databases. The test log reports Alembic revision `0017_p1_real_channel_provenance (head)` and `pytest backend/tests -v -rs --junitxml=pg-report.xml`: **801 passed, 0 failed, 0 skipped, 40 warnings**; the explicit zero-skips verification step passed. The PostgreSQL suite fixture applies actual Alembic migrations to its suite database, and `test_migration_0007.py` exercises upgrade/downgrade/re-upgrade against its dedicated migration database. Tests that explicitly construct ORM schemas (for example `test_amendment_protection.py`, `test_outbox_events.py`, `test_registry.py`, and the two P1 integration tests that call `Base.metadata.create_all`) are not evidence of migrated PostgreSQL schemas. The final documentation-only publication is tracked on the live [PR #49 checks page](https://github.com/jiahui-1101/MouManTAI/pull/49/checks).
+
+### Reviews and downstream handoff
+
+- Jiahui's `CHANGES_REQUESTED` review on `e73914770ee54ce5fd12199b1aa103968338d193` was not dismissed. He submitted a fresh `APPROVED` review on code/test + Main-synchronized HEAD `e6aabe000e4ccd9ecd22d4272e0d29b73549487b` at 2026-10-24 09:43:59 UTC. The only later changes are documentation-only. Fresh P1 Mavis and P5 Gan review requests are pending. No unresolved inline review threads were returned.
+- P1 Mavis's approval cites `e73914770ee54ce5fd12199b1aa103968338d193`; P5's latest recorded approval text cites `63fb44de2e85917562602076d997b50b29ac79a8`. These older decisions remain in the review timeline but were not treated as current-head signoffs. No approval was made by this task.
+- PR #59 remains open/Draft at base `62040da02b4ec3532ea02d734567e0913996ec2b`, head `6dcebe5d7baf46f0136160abe153ee30885331c6`. Its base is stale after #49 advanced to `947acba5841ba67a2727f787aa87eb633d44c19e`; its owner must refresh the child onto the updated #49 branch and rerun supplier/sourcing compatibility and exact-head CI. #59 was not changed and is not claimed merge-ready.
+
+### Post-validation Main catch-up
+
+After code/test HEAD `947acba5841ba67a2727f787aa87eb633d44c19e` and documentation HEAD `aece841e567ff3002dfe3b4c8a09cc0e029062ba` were published and validated, `origin/main` advanced to `0d2bc99dfc6672db117c3314d5b5ff65e69623a5` (PR #75). Its changes are in Human Review/communication frontend files and design prompts; there was no supplier or backend contract overlap. Merged this Main tip through normal merge commit `aae0f44849f9727b162319bc7779376c2a66cfee` with no conflicts. The updated branch is 18 commits ahead and 0 behind `origin/main`. Post-merge local reruns passed: supplier comparison **80**, OrderTerms + P2 supplier pipeline **70**, full v2.2 **370**; Ruff, format, compileall and diff checks passed with database variables removed from local test processes. Exact-head Actions run [40082870052](https://github.com/jiahui-1101/MouManTAI/actions/runs/40082870052) passed all five jobs on `e6aabe000e4ccd9ecd22d4272e0d29b73549487b`. Its isolated PostgreSQL 16.15 service reached Alembic head `0017_p1_real_channel_provenance`; `pytest backend/tests -v -rs --junitxml=pg-report.xml` reported **801 passed, 0 failed, 0 skipped, 40 warnings**, and the zero-skips verification step passed. This validation entry will be followed by a documentation-only commit; its exact-head CI is tracked on the live [PR #49 checks page](https://github.com/jiahui-1101/MouManTAI/pull/49/checks). PR #59 remains based on `62040da02b4ec3532ea02d734567e0913996ec2b` and will need to refresh to the final #49 head.

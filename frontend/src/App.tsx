@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { AppShell } from "./layout/AppShell";
@@ -10,7 +10,12 @@ import { CommunicationCenterPage } from "./features/communication/CommunicationC
 import { ConfirmationWorkspacePage } from "./features/communication/ConfirmationWorkspacePage";
 import { FollowUpQueuePage } from "./features/communication/FollowUpQueuePage";
 import { DurableInbox } from "./features/context/DurableInbox";
+import { OrderDetailPage } from "./features/orders/OrderDetailPage";
+import { OrderQueuePage } from "./features/orders/OrderQueuePage";
+import { PortfolioComparisonPage } from "./features/orders/PortfolioComparisonPage";
+import { CalendarSchedulingPage } from "./features/orders/CalendarSchedulingPage";
 import { HumanReviewPage } from "./features/context/HumanReviewPage";
+import { DailyPerformancePage } from "./features/overview/DailyPerformance";
 import { AuthProvider, useAuth } from "./shared/auth";
 import { apiRequest, authHeaders } from "./shared/api";
 import { createP2PublicApiSource } from "./features/feasibility/apiSource";
@@ -18,13 +23,7 @@ import { CommitmentFeasibilityPage } from "./features/feasibility/CommitmentFeas
 import { ImpactDetailPage } from "./features/feasibility/ImpactDetailPage";
 import { RecoveryCaseRoutePage } from "./features/recovery/RecoveryCaseRoutePage";
 import { RecoveryPage } from "./features/recovery/RecoveryPage";
-import { DailyPerformancePage } from "./features/overview/DailyPerformance";
 import { SupplierComparisonPage, SupplierDetailPage, SupplierDirectoryPage } from "./features/suppliers/SupplierWorkspace";
-// Developer B - Orders & Planning components (frontend-orders-planning, commit 30ebb20)
-import { OrderDetailPage } from "./features/orders/OrderDetailPage";
-import { OrderQueuePage } from "./features/orders/OrderQueuePage";
-import { PortfolioComparisonPage } from "./features/orders/PortfolioComparisonPage";
-import { CalendarSchedulingPage } from "./features/orders/CalendarSchedulingPage";
 
 export function CommitmentFeasibilityRoute() {
   const { authHeaders: auth } = useAuth();
@@ -101,8 +100,14 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/calendar" element={<CalendarSchedulingPage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/inbox" element={<DurableInbox />} />
+              <Route path="/inbox/customer-messages" element={<DurableInbox />} />
+              <Route path="/inbox/customer-messages/:messageId" element={<DurableInbox />} />
               <Route path="/human-review" element={<HumanReviewPage />} />
-              {/* AZ-03: /orders -> Developer B OrderQueuePage (general queue) */}
+              <Route path="/human-review/:taskId" element={<HumanReviewPage />} />
+              <Route path="/inbox/human-review" element={<HumanReviewPage />} />
+              <Route path="/inbox/human-review/:taskId" element={<HumanReviewPage />} />
+
+              {/* AZ-03: /orders -> Developer B OrderQueuePage */}
               <Route path="/orders" element={<OrderQueuePage />} />
               {/* AZ-03: /orders/pending -> Developer B OrderQueuePage (pending acceptance filter) */}
               <Route path="/orders/pending" element={<OrderQueuePage />} />
@@ -112,7 +117,7 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/orders/calendar" element={<CalendarSchedulingPage />} />
               <Route path="/orders/:id" element={<OrderDetailPage />} />
               <Route path="/planning" element={<FeaturePlaceholder owner="Planning" title="Planning" />} />
-              <Route path="/planning/feasibility" element={<FeaturePlaceholder owner="Planning" title="Feasibility" />} />
+              <Route path="/planning/feasibility" element={<Navigate to="/orders" replace />} />
               {/* AZ-01: /planning/portfolio alias -> Developer B PortfolioComparisonPage */}
               <Route path="/planning/portfolio" element={<PortfolioComparisonPage />} />
               <Route path="/planning/forecasts" element={<FeaturePlaceholder owner="Planning" title="Forecasts" />} />
@@ -120,7 +125,6 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
               <Route path="/suppliers" element={<SupplierDirectoryPage />} />
               <Route path="/suppliers/compare" element={<SupplierComparisonPage />} />
-              <Route path="/supplier-comparison" element={<SupplierComparisonPage />} />
               <Route path="/suppliers/:id" element={<SupplierDetailPage />} />
               <Route path="/suppliers/sourcing" element={<FeaturePlaceholder owner="Suppliers" title="Sourcing" />} />
               <Route path="/recovery" element={<FeaturePlaceholder owner="Recovery" title="Emergency Cases" />} />
@@ -129,13 +133,14 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/recovery/:id" element={<RecoveryCaseRoutePage />} />
               <Route path="/communications" element={<CommunicationCenterPage />} />
               <Route path="/confirmations/:id" element={<ConfirmationWorkspacePage />} />
-              <Route path="/communications/follow-ups" element={<FollowUpQueuePage />}/>
+              <Route path="/communications/follow-ups" element={<FollowUpQueuePage />} />
               <Route path="/insights" element={<FeaturePlaceholder owner="Insights" title="Insights" />} />
-              <Route path="/insights/performance" element={<DailyPerformancePage />} />
+              <Route path="/insights/performance" element={<FeaturePlaceholder owner="Insights" title="Performance" />} />
               <Route path="/performance" element={<DailyPerformancePage />} />
               <Route path="/insights/history" element={<FeaturePlaceholder owner="Insights" title="Decision History" />} />
               <Route path="/settings" element={<FeaturePlaceholder owner="Settings" title="Settings" />} />
-              {routeExtensions.map((route) => (
+              {/* Older callers may still supply these formerly additive routes. */}
+              {routeExtensions.filter(route => !["/orders/portfolio", "/orders/calendar"].includes(route.path)).map((route) => (
                 <Route key={route.path} path={route.path} element={route.element} />
               ))}
               <Route path="*" element={<FeaturePlaceholder owner="Shared shell" title="Page not found" />} />

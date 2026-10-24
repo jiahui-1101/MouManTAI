@@ -31,6 +31,7 @@ export interface OrderQueueSnapshot {
 }
 
 export type StatusView = 'PENDING_ACCEPTANCE' | 'ACCEPTED' | 'REJECTED' | 'OTHER' | 'ALL';
+export type QueueSort = 'FCFS' | 'DEADLINE';
 export interface QueueFilters {
   status: StatusView;
   search: string;
@@ -42,4 +43,8 @@ export interface QueueFilters {
   risk: string;
   customer: string;
   size: string;
+  sort: QueueSort;
+  deadlineFrom: string;
+  deadlineTo: string;
+  feasibility: string;
 }

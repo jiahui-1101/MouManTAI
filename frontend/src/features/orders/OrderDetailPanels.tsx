@@ -3,6 +3,7 @@ import { StatusBadge } from '../../shared/StatusBadge';
 import type { OrderDetail } from './detailTypes';
 import { shown, timestamp, profitText } from './queue';
 import { assessmentState, evidenceAnchor, moneyText, quantityText, snapshotAge } from './detailView';
+import { validDate } from './calendarDates';
 
 function Values({ values, empty = 'Not available' }: { values?: string[]; empty?: string }) {
   return values?.length ? <ul>{values.map((value, i) => <li key={i}>{value}</li>)}</ul> : <p className="od-muted">{empty}</p>;
@@ -78,7 +79,7 @@ export function InventoryAssessmentPanel({ detail: d }: { detail: OrderDetail })
         <tbody>{d.materials.map((m, i) => <tr key={i}><th scope="row">{m.material}<small>BOM: {shown(m.bom)}</small></th>
           <td>Required: {quantityText(m.required)}<small>Stock on hand: {quantityText(m.onHand)}</small></td>
           <td>Effective availability (backend): {quantityText(m.effective)}<small>Shortage (backend): {quantityText(m.shortage)}</small></td>
-          <td>{shown(m.lot)}<small>Location: {shown(m.location)}</small><small>Expiry: {m.expiresAt && /^\d{4}-\d{2}-\d{2}$/.test(m.expiresAt) ? `${m.expiresAt} (date only; cutoff unknown)` : timestamp(m.expiresAt)}</small></td>
+          <td>{shown(m.lot)}<small>Location: {shown(m.location)}</small><small>Expiry: {validDate(m.expiresAt) ? `${m.expiresAt} (date only; cutoff unknown)` : timestamp(m.expiresAt)}</small></td>
           <td>{m.incoming?.length ? <ul>{m.incoming.map((s, j) => <li key={j}>{quantityText(s.quantity)} · {shown(s.status)}
             <small>Due: {timestamp(s.dueAt)}</small><Values values={s.evidence} empty="Supply evidence not available" /></li>)}</ul> : 'Not available'}</td>
           <td>{timestamp(m.sourceAt)}<Values values={m.constraints} /></td></tr>)}</tbody></table></div>}

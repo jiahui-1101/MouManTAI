@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../../shared/api';
@@ -10,6 +10,7 @@ import { authorityLabel, eventLabel, eventsForDay, filterSchedule, initialCalend
 import type { CalendarFilters, CalendarView, ScheduleSnapshot, ScheduleSource } from './calendarTypes';
 import { CalendarEventPanel } from './CalendarEventPanel';
 import { CalendarResources } from './CalendarResources';
+import { portfolioCalendarHref } from './portfolioCalendarContext';
 import './calendar.css';
 
 interface CalendarPageProps { source?: ScheduleSource; timeZone?: string; initialDate?: string }
@@ -18,6 +19,8 @@ function CalendarWorkspace({ source, timeZone, initialDate }: Required<Pick<Cale
   const [date, setDate] = useState(initialDate && validDate(initialDate) ? initialDate : localDateAt(Date.now(), timeZone));
   const [view, setView] = useState<CalendarView>('MONTH');
   const [weekStartsOn, setWeekStartsOn] = useState<0 | 1>(1);
+  // Display preferences survive range/snapshot changes, within this identity/source/zone only.
+  const [filters, setFilters] = useState<CalendarFilters>(initialCalendarFilters);
   const [now, setNow] = useState(Date.now);
   const window = calendarWindow(date, view, timeZone, weekStartsOn);
   const query = useQuery({ queryKey: ['orders', 'schedule', source.cacheKey, auth.tenantId, auth.actorId, window],
@@ -43,7 +46,7 @@ function CalendarWorkspace({ source, timeZone, initialDate }: Required<Pick<Cale
   return <section className="schedule-calendar" aria-labelledby="cal-title">
     <header className="cal-heading"><div><p className="cal-eyebrow">Orders & planning · read only</p><h1 id="cal-title">Production & Delivery Calendar</h1>
       <p>Inspect sourced work, delivery dates and resource constraints. Planning views do not authorize production or change customer agreements.</p>
-      <nav aria-label="Calendar feature navigation"><Link to="/orders">Order Decision Queue</Link><Link to="/orders/portfolio">Portfolio Comparison</Link></nav></div>
+      <nav aria-label="Calendar feature navigation"><Link to="/orders">Order Decision Queue</Link><Link to={window ? portfolioCalendarHref(date, window) : '/orders/portfolio'}>Portfolio Comparison</Link></nav></div>
       <button className="foundation-button foundation-button-secondary" type="button" onClick={refresh} disabled={query.isFetching || !window}>Refresh calendar</button></header>
     <UncertaintyNote kind="conditional">Read only. Portfolio inclusion is not a production job; a requested delivery date is not a promised date. No acceptance, reservation, drag-and-drop or rescheduling submission is connected.</UncertaintyNote>
     <div className="cal-source"><StatusBadge state="UNKNOWN" label={data ? 'Source response received · read only' : 'Schedule data unavailable'} />
@@ -70,35 +73,52 @@ function CalendarWorkspace({ source, timeZone, initialDate }: Required<Pick<Cale
     {data && !conflict && !fresh && <EmptyState kind="unavailable" title="Current schedule unavailable" description="The snapshot is expired, stale, future-dated or unverified. Events, conflicts and resource details are withheld; refresh the source." />}
     {!window ? <EmptyState kind="unavailable" title="Date window unavailable" description="Choose a date within supported calendar boundaries." /> :
       <CalendarContents key={`${auth.tenantId}:${auth.actorId}:${window.from}:${window.toExclusive}:${data?.snapshotId}:${data?.snapshotVersion}:${data?.updatedAt}:${data?.events.map(e => `${e.id}:${e.scheduleVersion}`).join('|')}`}
-        data={fresh && !conflict ? data : undefined} window={window} view={view} date={date} openDay={day => { setDate(day); setView('DAY'); }} />}
+        data={fresh && !conflict ? data : undefined} filters={filters} setFilters={setFilters}
+        window={window} view={view} date={date} openDay={day => { setDate(day); setView('DAY'); }} />}
   </section>;
 }
 
-function CalendarContents({ data, window, view, date, openDay }: {
+function CalendarContents({ data, filters, setFilters, window, view, date, openDay }: {
   data?: ScheduleSnapshot; window: NonNullable<ReturnType<typeof calendarWindow>>; view: CalendarView; date: string; openDay: (day: string) => void;
+  filters: CalendarFilters; setFilters: Dispatch<SetStateAction<CalendarFilters>>;
 }) {
-  const [filters, setFilters] = useState<CalendarFilters>(initialCalendarFilters);
-  const [selected, setSelected] = useState<string | null>(null);
+  // Keep sensitive selection inside the range/snapshot-keyed child so it still resets.
+  const [selected, setSelected] = useState<{ id: string; snapshot: ScheduleSnapshot } | null>(null);
+  // An immediate/batched refresh may skip the loading render and retain the child key.
+  // Bind inspection to the actual validated response as well as the keyed context.
+  useEffect(() => { setSelected(null); }, [data]);
   const trigger = useRef<HTMLElement | null>(null);
   const fullEvents = data?.events.filter(e => e.detailAccess === 'FULL') ?? [];
+  const types: string[] = Array.from(new Set(data?.events.map(e => e.type) ?? []));
+  const resources = data?.resources.filter(r => r.detailAccess === 'FULL') ?? [];
+  const statuses = Array.from(new Set(fullEvents.map(e => e.status)));
+  const authorities = Array.from(new Set(fullEvents.map(authorityLabel)));
+  // Retain the preference without exposing an old label/ID or silently showing "All".
+  const selection = (key: 'type' | 'resource' | 'status' | 'authority', options: string[]) =>
+    filters[key] && !options.includes(filters[key]) ? '__unavailable__' : filters[key];
+  const unavailableOption = <option value="__unavailable__" disabled>Saved filter unavailable in this snapshot</option>;
   const events = data ? filterSchedule(data, filters, window) : [];
   const loadedEvents = data?.events.filter(e => withinWindow(e.when, window)) ?? [];
   const update = <K extends keyof CalendarFilters>(key: K, value: CalendarFilters[K]) => { setSelected(null); setFilters(f => ({ ...f, [key]: value })); };
-  const currentEvent = data?.events.find(e => e.id === selected);
+  const currentEvent = data === selected?.snapshot ? events.find(e => e.id === selected?.id) : undefined;
   const conflictRows = data?.conflicts?.filter(c => withinWindow(c.when, window) && (!filters.resource || (c.detailAccess === 'FULL' && c.resourceIds.includes(filters.resource))) &&
     (!filters.search && !filters.type && !filters.status && !filters.authority && !filters.conflictsOnly || c.eventIds.some(id => events.some(e => e.id === id && e.detailAccess === 'FULL')))) ?? [];
   return <>
     {data?.coverage === 'PARTIAL' && <UncertaintyNote kind="insufficient-evidence">Partial schedule. Counts and filters apply only to loaded events; gaps and missing conflicts do not prove availability.</UncertaintyNote>}
     {data && <div className="cal-filters" role="group" aria-label="Schedule filters">
-      <label>Event type<select value={filters.type} onChange={e => update('type', e.target.value)}><option value="">All types</option>
-        {Array.from(new Set(data.events.map(e => e.type))).map(type => <option key={type}>{type}</option>)}</select></label>
-      <label>Resource / machine<select value={filters.resource} onChange={e => update('resource', e.target.value)}><option value="">All authorized resources</option>
-        {data.resources.filter(r => r.detailAccess === 'FULL').map(r => <option key={r.id} value={r.id}>{r.label}</option>)}</select></label>
+      <label>Event type<select value={selection('type', types)} onChange={e => update('type', e.target.value)}><option value="">All types</option>
+        {filters.type && !types.includes(filters.type) && unavailableOption}
+        {types.map(type => <option key={type}>{type}</option>)}</select></label>
+      <label>Resource / machine<select value={selection('resource', resources.map(r => r.id))} onChange={e => update('resource', e.target.value)}><option value="">All authorized resources</option>
+        {filters.resource && !resources.some(r => r.id === filters.resource) && unavailableOption}
+        {resources.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}</select></label>
       <label>Order ID or keyword<input type="search" value={filters.search} onChange={e => update('search', e.target.value)} /></label>
-      <label>Source status<select value={filters.status} onChange={e => update('status', e.target.value)}><option value="">All statuses</option>
-        {Array.from(new Set(fullEvents.map(e => e.status))).map(s => <option key={s}>{s}</option>)}</select></label>
-      <label>Schedule authority<select value={filters.authority} onChange={e => update('authority', e.target.value)}><option value="">All authority labels</option>
-        {Array.from(new Set(fullEvents.map(authorityLabel))).map(s => <option key={s}>{s}</option>)}</select></label>
+      <label>Source status<select value={selection('status', statuses)} onChange={e => update('status', e.target.value)}><option value="">All statuses</option>
+        {filters.status && !statuses.includes(filters.status) && unavailableOption}
+        {statuses.map(s => <option key={s}>{s}</option>)}</select></label>
+      <label>Schedule authority<select value={selection('authority', authorities)} onChange={e => update('authority', e.target.value)}><option value="">All authority labels</option>
+        {filters.authority && !authorities.includes(filters.authority) && unavailableOption}
+        {authorities.map(s => <option key={s}>{s}</option>)}</select></label>
       <label className="cal-check"><input type="checkbox" checked={filters.conflictsOnly} onChange={e => update('conflictsOnly', e.target.checked)} />Source conflicts only</label>
       <button type="button" onClick={() => { setSelected(null); setFilters(initialCalendarFilters); }}>Reset filters</button>
     </div>}
@@ -112,7 +132,7 @@ function CalendarContents({ data, window, view, date, openDay }: {
           <h3><button type="button" aria-label={`Open day ${day}`} onClick={() => openDay(day)}><time dateTime={day}>{civilLabel(day, { weekday: 'short', day: 'numeric', month: 'short' })}</time></button></h3>
           <span className="cal-count">{data ? `${rows.length} loaded event${rows.length === 1 ? '' : 's'}` : 'Schedule unknown'}</span>
           {shown.map(event => <button className="cal-event" type="button" key={event.id} aria-label={`Inspect ${eventLabel(event)} on ${day}`}
-            data-authority={event.detailAccess === 'FULL' && event.authority.evidence.length ? event.authority.kind : 'UNKNOWN'} onClick={e => { trigger.current = e.currentTarget; setSelected(event.id); }}>
+            data-authority={event.detailAccess === 'FULL' && event.authority.evidence.length ? event.authority.kind : 'UNKNOWN'} onClick={e => { trigger.current = e.currentTarget; if (data) setSelected({ id: event.id, snapshot: data }); }}>
             <strong>{eventLabel(event)}</strong><small>{event.type}{event.detailAccess === 'FULL' && event.deliveryMilestone ? ` · ${event.deliveryMilestone}` : ''} · {authorityLabel(event)}</small>
             {view !== 'MONTH' && <small>{scheduleTimeLabel(event.when, window.timeZone)}</small>}
           </button>)}

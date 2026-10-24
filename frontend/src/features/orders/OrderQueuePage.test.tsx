@@ -32,18 +32,74 @@ const sourceFor = (data = snapshot): OrderQueueSource => ({ cacheKey: 'test-only
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Order Decision Queue', () => {
+  it('defaults to All Statuses and removes only the Queue planning shortcuts', async () => {
+    setup(sourceFor()); await screen.findByRole('table');
+    expect(screen.getByRole('combobox', { name: 'Order Status' })).toHaveValue('ALL');
+    expect(screen.getAllByRole('link', { name: /^View Details/ })).toHaveLength(items.length);
+    expect(screen.queryByRole('link', { name: 'Portfolio Comparison' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Calendar/ })).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search by Order ID or Customer...')).toHaveAccessibleDescription(/only to loaded orders/);
+  });
+  it('combines search, status and Analysis, clears search independently and resets every control', async () => {
+    setup(sourceFor()); await screen.findByRole('table');
+    fireEvent.change(screen.getByLabelText('Order Status'), { target: { value: 'ACCEPTED' } });
+    fireEvent.change(screen.getByLabelText('Analysis view'), { target: { value: 'PROFIT' } });
+    fireEvent.change(screen.getByLabelText('Search by Order ID or Customer'), { target: { value: 'BOB' } });
+    expect(screen.getByRole('link', { name: 'View Details for accepted' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /^View Details/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(screen.getByLabelText('Search by Order ID or Customer')).toHaveValue('');
+    expect(screen.getByLabelText('Order Status')).toHaveValue('ACCEPTED');
+    expect(screen.getByLabelText('Analysis view')).toHaveValue('PROFIT');
+    fireEvent.change(screen.getByLabelText('Search by Order ID or Customer'), { target: { value: 'not found' } });
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+    expect(screen.getByLabelText('Search by Order ID or Customer')).toHaveValue('');
+    expect(screen.getByLabelText('Order Status')).toHaveValue('ALL');
+    expect(screen.getByLabelText('Analysis view')).toHaveValue('QUEUE');
+    expect(screen.getAllByRole('link', { name: /^View Details/ })).toHaveLength(items.length);
+  });
+  it('does not search product text through the Order ID/customer search', async () => {
+    setup(sourceFor()); await screen.findByRole('table');
+    fireEvent.change(screen.getByLabelText('Search by Order ID or Customer'), { target: { value: 'Bread' } });
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    fireEvent.change(screen.getByLabelText('Product'), { target: { value: 'Cake' } });
+    expect(screen.getByRole('link', { name: 'View Details for accepted' })).toBeInTheDocument();
+  });
+  it('supports ID search when customer display text is absent', async () => {
+    setup(sourceFor({ items: [{ ...pending, customer: null }], coverage: 'partial' }));
+    await screen.findByRole('table');
+    fireEvent.change(screen.getByLabelText('Search by Order ID or Customer'), { target: { value: 'ORDER/ONE' } });
+    expect(screen.getByRole('link', { name: 'View Details for order/one' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Search by Order ID or Customer'), { target: { value: 'Synthetic Alice' } });
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+  it('keeps controls usable without fabricating results while the source is unavailable', async () => {
+    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch); setup();
+    await screen.findByRole('alert');
+    fireEvent.change(screen.getByLabelText('Search by Order ID or Customer'), { target: { value: 'demo' } });
+    fireEvent.change(screen.getByLabelText('Order Status'), { target: { value: 'ACCEPTED' } });
+    fireEvent.change(screen.getByLabelText('Analysis view'), { target: { value: 'FCFS' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('Order queue unavailable');
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(screen.getByLabelText('Search by Order ID or Customer')).toHaveValue('');
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it('shows loading before any data', () => {
     setup({ cacheKey: 'pending', load: () => new Promise(() => {}) });
     expect(screen.getByText('Loading order queue…')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
   it('renders supplied pending data, uncertainty and separate MYT timestamps', async () => {
-    setup(sourceFor());
+    setup(sourceFor({ items: [pending], coverage: 'partial' }));
     expect(await screen.findByRole('table')).toBeInTheDocument();
     expect(screen.getByText('Synthetic Alice')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Evidence & order details'));
     expect(screen.getByText('24 Oct 2026, 00:30:00 (MYT)')).toBeInTheDocument();
     expect(screen.getByText('24 Oct 2026, 01:00:00 (MYT)')).toBeInTheDocument();
-    expect(screen.getByText('UNKNOWN')).toBeInTheDocument();
+    expect(within(screen.getByRole('table')).getByText('UNKNOWN')).toBeInTheDocument();
     expect(screen.getByText('Cost incomplete — expected profit unavailable')).toBeInTheDocument();
     expect(screen.getByText('Request only · no reservation')).toBeInTheDocument();
     expect(screen.getByText('DEMO-ONLY / SYNTHETIC')).toBeInTheDocument();
@@ -52,39 +108,40 @@ describe('Order Decision Queue', () => {
   });
   it('keeps accepted, rejected and unknown statuses distinct', async () => {
     setup(sourceFor()); await screen.findByRole('table');
-    fireEvent.click(screen.getByRole('button', { name: 'Accepted' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Order Status' }), { target: { value: 'ACCEPTED' } });
     expect(screen.getByText('Synthetic Bob')).toBeInTheDocument();
     expect(screen.queryByText('Request only · no reservation')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Rejected' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Order Status' }), { target: { value: 'REJECTED' } });
     expect(screen.getByRole('link', { name: /^View Details/ })).toHaveAttribute('href', '/orders/rejected');
-    fireEvent.click(screen.getByRole('button', { name: 'Other / unknown' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Order Status' }), { target: { value: 'OTHER' } });
     expect(screen.getByText('FUTURE_STATE')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Pending acceptance' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Order Status' }), { target: { value: 'PENDING_ACCEPTANCE' } });
     expect(screen.getByRole('link', { name: /^View Details/ })).toHaveAttribute('href', '/orders/order%2Fone');
   });
   it('provides status-specific empty states', async () => {
     setup(sourceFor({ items: [], coverage: 'complete' }));
-    expect(await screen.findByText('No pending acceptance orders match')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Rejected' }));
-    expect(screen.getByText('No rejected orders match')).toBeInTheDocument();
+    expect(await screen.findByText('No orders yet')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Order Status' }), { target: { value: 'REJECTED' } });
+    expect(screen.getByText('No orders yet')).toBeInTheDocument();
   });
-  it.each(['Synthetic Alice', 'bread', 'order/one'])('searches %s case-insensitively', async search => {
-    setup(sourceFor()); await screen.findByRole('table');
-    fireEvent.change(screen.getByLabelText('Search order, customer or product'), { target: { value: search } });
+  it.each(['Synthetic Alice', 'ORDER/ONE'])('searches %s case-insensitively', async search => {
+    setup(sourceFor({ items: [pending], coverage: 'partial' })); await screen.findByRole('table');
+    fireEvent.change(screen.getByLabelText('Search by Order ID or Customer'), { target: { value: search } });
     expect(screen.getByRole('link', { name: /^View Details/ })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Search order, customer or product'), { target: { value: 'absent' } });
+    fireEvent.change(screen.getByLabelText('Search by Order ID or Customer'), { target: { value: 'absent' } });
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
-  it.each(['Origin channel', 'Priority', 'Risk', 'Order size'])('filters %s and resets', async label => {
+  it.each(['Sales Channel', 'Priority', 'Risk Level', 'Order size'])('filters %s and resets', async label => {
     setup(sourceFor()); await screen.findByRole('table');
-    fireEvent.click(screen.getByRole('button', { name: 'All statuses' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Order Status' }), { target: { value: 'ALL' } });
+    if (label !== 'Risk Level') fireEvent.click(screen.getByText('Advanced Filters'));
     const select = screen.getByLabelText(label);
     const second = within(select).getAllByRole('option')[1] as HTMLOptionElement;
     fireEvent.change(select, { target: { value: second.value } });
     expect(screen.getAllByRole('link', { name: /^View Details/ }).length).toBeLessThan(items.length);
     fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
     expect(select).toHaveValue('');
-    expect(screen.getAllByRole('link', { name: /^View Details/ })).toHaveLength(1);
+    expect(screen.getAllByRole('link', { name: /^View Details/ })).toHaveLength(items.length);
   });
   it('combines customer, product and inclusive original-received business dates', async () => {
     setup(sourceFor()); await screen.findByRole('table');
@@ -123,6 +180,7 @@ describe('Order Decision Queue', () => {
     let reject!: (error: Error) => void;
     const load = vi.fn().mockResolvedValueOnce(snapshot).mockImplementation(() => new Promise((_, fail) => { reject = fail; }));
     setup({ cacheKey: 'privacy-refresh', load }); await screen.findByRole('table');
+    fireEvent.click(screen.getByText('Advanced Filters'));
     expect(screen.getByRole('option', { name: 'Telegram' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh queue' }));
     await waitFor(() => expect(screen.queryByRole('table')).not.toBeInTheDocument());
@@ -143,16 +201,16 @@ describe('Order Decision Queue', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled());
     expect(fetch).not.toHaveBeenCalled(); expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
-  it('exposes native keyboard controls and pressed filter state', async () => {
+  it('exposes a labelled native keyboard status select', async () => {
     setup(sourceFor()); await screen.findByRole('table');
-    const button = screen.getByRole('button', { name: 'Pending acceptance' });
-    button.focus(); expect(button).toHaveFocus(); expect(button).toHaveAttribute('aria-pressed', 'true');
+    const select = screen.getByRole('combobox', { name: 'Order Status' });
+    select.focus(); expect(select).toHaveFocus(); expect(select).toHaveValue('ALL');
     expect(screen.getByRole('region', { name: /scroll horizontally/ })).toHaveAttribute('tabindex', '0');
   });
   it.each(['FEASIBLE', 'CONDITIONAL', 'INFEASIBLE', 'UNEXPECTED'])('safely displays feasibility %s', async value => {
     setup(sourceFor({ items: [{ ...pending, feasibility: value, status: null }], coverage: 'complete' }));
-    await screen.findByText('No pending acceptance orders match');
-    fireEvent.click(screen.getByRole('button', { name: 'Other / unknown' }));
+    await screen.findByRole('table');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Order Status' }), { target: { value: 'OTHER' } });
     const row = screen.getAllByRole('row')[1];
     expect(within(row).getAllByText(value === 'UNEXPECTED' ? 'UNKNOWN' : value).length).toBeGreaterThan(0);
     expect(within(row).getAllByText('UNKNOWN').length).toBeGreaterThan(0);

@@ -25,7 +25,9 @@ function Controls() {
     <button onClick={() => auth.setTenantId('tenant-a')}>Tenant A</button>
     <button onClick={() => auth.setActorId('user_staff_01')}>Actor staff</button>
     <button onClick={() => auth.setActorId('user_owner_01')}>Actor owner</button>
-    <Link to="/orders">Queue navigation</Link><Outlet /></>;
+    <Link to="/orders">Queue navigation</Link>
+    <Link to="/orders/portfolio">Portfolio Comparison</Link>
+    <Link to="/orders/calendar">Production & Delivery Calendar</Link><Outlet /></>;
 }
 function setup(entries = ['/orders']) {
   const router = createMemoryRouter([{ element: <Controls />, children: [
@@ -41,30 +43,35 @@ function setup(entries = ['/orders']) {
   return router;
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); window.history.replaceState({}, '', '/'); });
-const change = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+const change = (label: string, value: string) => {
+  const field = screen.getByLabelText(label);
+  const advanced = field.closest('details');
+  if (advanced && !advanced.open) fireEvent.click(screen.getByText('Advanced Filters'));
+  fireEvent.change(field, { target: { value } });
+};
 const click = (name: string) => fireEvent.click(screen.getByRole('button', { name }));
 function fillAll() {
-  click('All statuses');
+  change('Order Status', 'ALL');
   for (const [label, value] of [
-    ['Search order, customer or product', 'synthetic'], ['Customer', 'customer'], ['Product', 'bread'],
+    ['Search by Order ID or Customer', 'synthetic'], ['Customer', 'customer'], ['Product', 'bread'],
     ['Received from (MYT)', '2026-10-23'], ['Received through (MYT)', '2026-10-25'],
-    ['Origin channel', 'Telegram'], ['Priority', 'High'], ['Risk', 'Unknown'], ['Order size', 'Small'],
+    ['Sales Channel', 'Telegram'], ['Priority', 'High'], ['Risk Level', 'Unknown'], ['Order size', 'Small'],
     ['Analysis view', 'PROFIT'],
   ]) change(label, value);
 }
 function expectAll() {
-  expect(screen.getByRole('button', { name: 'All statuses' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('combobox', { name: 'Order Status' })).toHaveValue('ALL');
   for (const [label, value] of [
-    ['Search order, customer or product', 'synthetic'], ['Customer', 'customer'], ['Product', 'bread'],
+    ['Search by Order ID or Customer', 'synthetic'], ['Customer', 'customer'], ['Product', 'bread'],
     ['Received from (MYT)', '2026-10-23'], ['Received through (MYT)', '2026-10-25'],
-    ['Origin channel', 'Telegram'], ['Priority', 'High'], ['Risk', 'Unknown'], ['Order size', 'Small'],
+    ['Sales Channel', 'Telegram'], ['Priority', 'High'], ['Risk Level', 'Unknown'], ['Order size', 'Small'],
     ['Analysis view', 'PROFIT'],
   ]) expect(screen.getByLabelText(label)).toHaveValue(value);
 }
 function expectDefaults(analysis = 'QUEUE') {
-  expect(screen.getByRole('button', { name: 'Pending acceptance' })).toHaveAttribute('aria-pressed', 'true');
-  for (const label of ['Search order, customer or product', 'Customer', 'Product', 'Received from (MYT)',
-    'Received through (MYT)', 'Origin channel', 'Priority', 'Risk', 'Order size'])
+  expect(screen.getByRole('combobox', { name: 'Order Status' })).toHaveValue('ALL');
+  for (const label of ['Search by Order ID or Customer', 'Customer', 'Product', 'Received from (MYT)',
+    'Received through (MYT)', 'Sales Channel', 'Priority', 'Risk Level', 'Order size'])
     expect(screen.getByLabelText(label)).toHaveValue('');
   expect(screen.getByLabelText('Analysis view')).toHaveValue(analysis);
 }
@@ -86,25 +93,25 @@ it.each([
 
 it('restores separate visits on browser Back/Forward without rewriting their private text snapshots', async () => {
   const router = setup(); await screen.findByRole('table');
-  click('Accepted'); change('Customer', 'first private value'); change('Analysis view', 'FCFS');
+  change('Order Status', 'ACCEPTED'); change('Customer', 'first private value'); change('Analysis view', 'FCFS');
   const first = router.state.location.search;
-  fireEvent.click(screen.getByRole('link', { name: 'Portfolio Comparison' }));
+  fireEvent.click(screen.getAllByRole('link', { name: 'Portfolio Comparison' })[0]);
   fireEvent.click(await screen.findByRole('link', { name: 'Back to Order Decision Queue' }));
-  click('Rejected'); change('Customer', 'second private value'); change('Analysis view', 'EXPIRY');
+  change('Order Status', 'REJECTED'); change('Customer', 'second private value'); change('Analysis view', 'EXPIRY');
   const second = router.state.location.search;
-  fireEvent.click(screen.getByRole('link', { name: 'Portfolio Comparison' }));
+  fireEvent.click(screen.getAllByRole('link', { name: 'Portfolio Comparison' })[0]);
   await act(() => router.navigate(-1));
   expect(screen.getByLabelText('Customer')).toHaveValue('second private value');
   expect(router.state.location.search).toBe(second);
   await act(() => router.navigate(-2));
   expect(screen.getByLabelText('Customer')).toHaveValue('first private value');
   expect(screen.getByLabelText('Analysis view')).toHaveValue('FCFS');
-  expect(screen.getByRole('button', { name: 'Accepted' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('combobox', { name: 'Order Status' })).toHaveValue('ACCEPTED');
   expect(router.state.location.search).toBe(first);
   await act(() => router.navigate(2));
   expect(screen.getByLabelText('Customer')).toHaveValue('second private value');
   expect(screen.getByLabelText('Analysis view')).toHaveValue('EXPIRY');
-  expect(screen.getByRole('button', { name: 'Rejected' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('combobox', { name: 'Order Status' })).toHaveValue('REJECTED');
 });
 
 it.each(['Tenant B', 'Actor staff'])('resets immediately on %s and refuses stale history and URLs, including after switching back', async identity => {
@@ -121,7 +128,7 @@ it.each(['Tenant B', 'Actor staff'])('resets immediately on %s and refuses stale
 
 it.each(['Tenant B', 'Actor staff'])('detects %s and a return to the original identity while Queue is unmounted', async identity => {
   const router = setup(); await screen.findByRole('table'); fillAll();
-  fireEvent.click(screen.getByRole('link', { name: 'Portfolio Comparison' }));
+  fireEvent.click(screen.getAllByRole('link', { name: 'Portfolio Comparison' })[0]);
   click(identity); click(identity === 'Tenant B' ? 'Tenant A' : 'Actor owner');
   await act(() => router.navigate(-1)); expectDefaults();
   await waitFor(() => expect(router.state.location.search).not.toContain('oqAnalysis'));
@@ -129,7 +136,7 @@ it.each(['Tenant B', 'Actor staff'])('detects %s and a return to the original id
 
 it('accepts validated direct-link status, civil dates and Analysis and strips uncontracted parameters', () => {
   const router = setup(['/orders?oqStatus=ALL&oqFrom=2024-02-29&oqTo=2026-10-25&oqAnalysis=EXPIRY&customer=private&redirect=https://unsafe.example']);
-  expect(screen.getByRole('button', { name: 'All statuses' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('combobox', { name: 'Order Status' })).toHaveValue('ALL');
   expect(screen.getByLabelText('Received from (MYT)')).toHaveValue('2024-02-29');
   expect(screen.getByLabelText('Received through (MYT)')).toHaveValue('2026-10-25');
   expect(screen.getByLabelText('Analysis view')).toHaveValue('EXPIRY');
@@ -152,23 +159,23 @@ it('preserves a valid but inverted date range as an explicit error rather than s
   expect(screen.queryByRole('table')).not.toBeInTheDocument();
 });
 
-it('Reset filters clears all filter URL parameters and private fields while retaining Analysis across remount', async () => {
+it('Reset filters clears all filter URL parameters and private fields and Analysis across remount', async () => {
   const router = setup(); await screen.findByRole('table'); fillAll(); click('Reset filters');
-  expectDefaults('PROFIT');
-  expect([...new URLSearchParams(router.state.location.search).keys()]).toEqual(['oqState', 'oqAnalysis']);
-  fireEvent.click(screen.getByRole('link', { name: 'Portfolio Comparison' }));
+  expectDefaults();
+  expect([...new URLSearchParams(router.state.location.search).keys()]).toEqual(['oqState']);
+  fireEvent.click(screen.getAllByRole('link', { name: 'Portfolio Comparison' })[0]);
   fireEvent.click(await screen.findByRole('link', { name: 'Back to Order Decision Queue' }));
-  await screen.findByRole('table'); expectDefaults('PROFIT');
+  await screen.findByRole('table'); expectDefaults();
 });
 
 it('replaces edits rather than adding a browser history entry for every search keystroke', async () => {
   const router = setup(['/sentinel', '/orders']);
-  for (const text of ['a', 'ab', 'abc']) change('Search order, customer or product', text);
-  click('All statuses'); change('Analysis view', 'FCFS');
+  for (const text of ['a', 'ab', 'abc']) change('Search by Order ID or Customer', text);
+  change('Order Status', 'ALL'); change('Analysis view', 'FCFS');
   await act(() => router.navigate(-1));
   expect(screen.getByText('Earlier history entry')).toBeInTheDocument();
   await act(() => router.navigate(1));
-  expect(screen.getByLabelText('Search order, customer or product')).toHaveValue('abc');
+  expect(screen.getByLabelText('Search by Order ID or Customer')).toHaveValue('abc');
   expect(screen.getByLabelText('Analysis view')).toHaveValue('FCFS');
 });
 
@@ -178,18 +185,19 @@ it('restores preferences with the real App, StrictMode, BrowserRouter and native
   await screen.findByRole('heading', { name: 'Order Decision Queue' });
   change('Customer', 'private customer search'); change('Analysis view', 'EXPIRY');
   const first = window.location.search;
+  fireEvent.click(screen.getByRole('button', { name: 'Planning' }));
   fireEvent.click(screen.getByRole('link', { name: 'Portfolio Comparison' }));
   fireEvent.click(await screen.findByRole('link', { name: 'Back to Order Decision Queue' }));
   expect(screen.getByLabelText('Customer')).toHaveValue('private customer search');
   change('Customer', 'second visit'); change('Analysis view', 'FCFS');
   await act(async () => window.history.back());
-  await waitFor(() => expect(window.location.pathname).toBe('/orders/portfolio'));
+  await waitFor(() => expect(window.location.pathname).toBe('/planning/portfolio'));
   await act(async () => window.history.back());
   await waitFor(() => expect(screen.getByLabelText('Customer')).toHaveValue('private customer search'));
   expect(window.location.search).toBe(first);
   expect(screen.getByLabelText('Analysis view')).toHaveValue('EXPIRY');
   await act(async () => window.history.forward());
-  await waitFor(() => expect(window.location.pathname).toBe('/orders/portfolio'));
+  await waitFor(() => expect(window.location.pathname).toBe('/planning/portfolio'));
   await act(async () => window.history.forward());
   await waitFor(() => expect(screen.getByLabelText('Customer')).toHaveValue('second visit'));
   expect(screen.getByLabelText('Analysis view')).toHaveValue('FCFS');
