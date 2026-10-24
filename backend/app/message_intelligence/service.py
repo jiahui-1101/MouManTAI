@@ -473,11 +473,22 @@ class MessageIntelligenceService:
             message_id=message.message_id,
             channel=raw.channel,
             provider_message_id=raw.provider_message_id,
+            provider=message.provider,
+            provider_account_id=raw.provider_account_id,
+            provider_native_message_id=raw.provider_native_message_id,
+            sender_identity_id=raw.sender_identity_id,
+            source_authenticity=raw.source_authenticity,
+            adapter_mode=raw.adapter_mode,
+            relationship_source=raw.relationship_source,
             content_sha256=message.content_sha256,
             received_at=raw.received_at,
             message_at=raw.message_at,
             thread_ref=raw.thread_ref,
             reply_to_provider_message_id=raw.reply_to_provider_message_id,
+            rfc_message_id=raw.rfc_message_id,
+            rfc_in_reply_to=raw.rfc_in_reply_to,
+            rfc_references=raw.rfc_references,
+            native_attachment_source_ids=raw.native_attachment_source_ids,
             attachment_evidence_refs=[item.evidence_ref for item in raw.attachments],
             attachment_sources=attachment_sources,
         )
@@ -486,6 +497,14 @@ class MessageIntelligenceService:
     def _validate_source(message: StoredMessage, association: MessageAssociationRecord | None):
         if not message.raw.tenant_id or not message.message_id or len(message.content_sha256) != 64:
             raise SourceContractError("message source identity or digest is invalid")
+        if message.raw.adapter_mode == "REAL" and (
+            message.raw.source_authenticity != "VERIFIED"
+            or not message.raw.provider_account_id
+            or not message.raw.provider_native_message_id
+        ):
+            raise SourceContractError(
+                "real channel source has no verified account-bound provenance"
+            )
         if association is not None:
             if (
                 association.tenant_id != message.raw.tenant_id

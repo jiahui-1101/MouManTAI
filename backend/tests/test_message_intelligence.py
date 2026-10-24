@@ -73,7 +73,16 @@ class CurrentSourceFixture:
 
 def canonical_message(text):
     msg = message(text)
-    return msg.model_copy(update={"content_sha256": sha256(text.encode("utf-8")).hexdigest()})
+    raw = msg.raw.model_copy(
+        update={
+            "source_authenticity": "VERIFIED",
+            "provider_account_id": "tg_bot_business_1",
+            "provider_native_message_id": msg.raw.provider_message_id,
+        }
+    )
+    return msg.model_copy(
+        update={"raw": raw, "content_sha256": sha256(text.encode("utf-8")).hexdigest()}
+    )
 
 
 def test_current_p1_reader_drafts_only_from_verified_approved_facts():
@@ -83,6 +92,9 @@ def test_current_p1_reader_drafts_only_from_verified_approved_facts():
     reader = CurrentP1MessageReader(source, source)
     outcome = reader.analyze(msg.message_id, MessageIntelligenceService(), now=NOW)
     assert outcome.customer_inquiry is not None
+    assert outcome.source.provider_account_id == "tg_bot_business_1"
+    assert outcome.source.provider_native_message_id == msg.raw.provider_message_id
+    assert outcome.source.source_authenticity == "VERIFIED"
 
     class Facts:
         def read_public_inquiry_fact(self, tenant_id, topic):
@@ -106,6 +118,14 @@ def test_current_p1_reader_drafts_only_from_verified_approved_facts():
     source.association = None
     with pytest.raises(SourceContractError):
         draft_customer_inquiry(outcome.customer_inquiry, reader=reader, facts=Facts(), now=NOW)
+
+
+def test_current_reader_rejects_real_channel_without_verified_account_scope():
+    msg = canonical_message("What is the price?")
+    raw = msg.raw.model_copy(update={"source_authenticity": "UNVERIFIED"})
+    source = CurrentSourceFixture(msg.model_copy(update={"raw": raw}))
+    with pytest.raises(SourceContractError, match="verified account-bound provenance"):
+        CurrentP1MessageReader(source, source).analyze(msg.message_id, MessageIntelligenceService())
 
 
 def test_supplier_handoff_requires_exact_current_p2_snapshot():
@@ -182,6 +202,9 @@ def message(text: str, *, tenant: str = TENANT, attachments=()) -> StoredMessage
             thread_ref="tg_chat_41",
             reply_to_provider_message_id="tg_message_9910",
             adapter_mode="REAL",
+            source_authenticity="VERIFIED",
+            provider_account_id="tg_bot_business_1",
+            provider_native_message_id="tg_update_9931",
         ),
         provider="TELEGRAM_BOT_API",
         source_label="Real Telegram",

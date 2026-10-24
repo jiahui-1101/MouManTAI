@@ -212,16 +212,29 @@ class SourceMessageReference(StrictContract):
     message_id: str = Field(min_length=1, max_length=200)
     channel: Literal["WHATSAPP", "EMAIL", "TELEGRAM", "UNKNOWN"]
     provider_message_id: str = Field(min_length=1, max_length=200)
+    provider: str | None = Field(default=None, max_length=100)
+    provider_account_id: str | None = Field(default=None, max_length=200)
+    provider_native_message_id: str | None = Field(default=None, max_length=998)
+    sender_identity_id: str = Field(min_length=1, max_length=200)
+    source_authenticity: Literal["VERIFIED", "UNVERIFIED", "SYNTHETIC"]
+    adapter_mode: Literal["REAL", "SYNTHETIC"]
+    relationship_source: Literal["PROVIDER_QUOTE", "SENDER_HEADER", "NONE", "UNKNOWN"]
     content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     received_at: datetime
     message_at: datetime | None = None
     thread_ref: str | None = Field(default=None, max_length=200)
-    reply_to_provider_message_id: str | None = Field(default=None, max_length=200)
+    reply_to_provider_message_id: str | None = Field(default=None, max_length=998)
+    rfc_message_id: str | None = Field(default=None, max_length=998)
+    rfc_in_reply_to: list[str] = Field(default_factory=list, max_length=20)
+    rfc_references: list[str] = Field(default_factory=list, max_length=50)
+    native_attachment_source_ids: list[str] = Field(default_factory=list, max_length=10)
     attachment_evidence_refs: list[str] = Field(default_factory=list, max_length=10)
     attachment_sources: list[AttachmentSourceSnapshot] = Field(default_factory=list, max_length=10)
 
     @model_validator(mode="after")
     def attachment_snapshots_match_message_references(self):
+        if (self.provider_account_id is None) != (self.provider_native_message_id is None):
+            raise ValueError("provider account and native message ID must be bound together")
         if [item.evidence_ref for item in self.attachment_sources] != self.attachment_evidence_refs:
             raise ValueError("attachment snapshots must exactly match message attachment refs")
         for timestamp in (self.received_at, self.message_at):

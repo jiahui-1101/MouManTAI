@@ -46,6 +46,14 @@ class CurrentP1MessageReader:
             raise SourceContractError("current tenant-scoped source message is unavailable")
         if sha256(message.raw.text.encode("utf-8")).hexdigest() != message.content_sha256:
             raise SourceContractError("stored message content digest is inconsistent")
+        if message.raw.adapter_mode == "REAL" and (
+            message.raw.source_authenticity != "VERIFIED"
+            or not message.raw.provider_account_id
+            or not message.raw.provider_native_message_id
+        ):
+            raise SourceContractError(
+                "real channel source has no verified account-bound provenance"
+            )
         association = self.repository.get_association(tenant_id, message_id)
         if association is not None and (
             association.tenant_id != tenant_id or association.message_id != message_id
