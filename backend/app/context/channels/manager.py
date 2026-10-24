@@ -70,9 +70,19 @@ class ChannelManager:
 
         if self.config.gmail.is_configured and self.config.gmail.auto_start:
             try:
-                self.gmail.start_polling()
+                verification = self.gmail.verify_connection()
+                if verification.get("authenticated"):
+                    masked = verification.get("masked_email")
+                    logger.info("Gmail active account verified (%s); starting polling worker", masked)
+                    self.state_manager.set_verified_email("EMAIL", self.config.gmail.tenant_id, masked)
+                    self.gmail.start_polling()
+                else:
+                    reason = verification.get("reason", "Verification rejected")
+                    logger.warning("Gmail identity verification failed (%s); polling skipped", reason)
+                    self.state_manager.set_status("EMAIL", self.config.gmail.tenant_id, "AUTH_FAILED", reason)
             except Exception as exc:
                 logger.error("Failed starting Gmail polling worker: %s", exc)
+                self.state_manager.set_status("EMAIL", self.config.gmail.tenant_id, "AUTH_FAILED", str(exc))
         else:
             logger.info("Gmail polling worker not started (configured=%s)", self.config.gmail.is_configured)
 
@@ -134,6 +144,7 @@ class ChannelManager:
                 "can_authorize": self.config.gmail.can_authorize,
                 "is_polling": self.gmail.is_polling,
                 "tenant_id": self.config.gmail.tenant_id,
+                "verified_account": gm_summary.get("verified_email"),
                 "last_cursor": gm_summary.get("cursor"),
                 "status": gm_summary.get("status", "UNCONFIGURED" if not self.config.gmail.is_configured else "READY"),
                 "last_poll_at": gm_summary.get("last_poll_at"),

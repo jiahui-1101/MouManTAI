@@ -103,5 +103,5 @@ def render_message(
             f'COUNTEROFFER {proposal_id} v{proposal_version} changes:{{"quantity":"<positive quantity>"}}',
             f"CLARIFICATION {proposal_id} v{proposal_version}: <question>",
             "Reply with the CONFIRM line and exactly one decision line. Never share the secure code."])
-    subject = f"{text['subject']} {order_id}" if channel.value.endswith("_EMAIL") else None
+    subject = f"{text['subject']} {order_id}" if (channel.value.endswith("_EMAIL") or channel in {CommunicationChannel.EMAIL, CommunicationChannel.GMAIL}) else None
     return subject, "\n".join(lines)

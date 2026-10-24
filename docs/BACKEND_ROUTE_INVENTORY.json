@@ -1,0 +1,268 @@
+{
+  "/v1/overview": {
+    "get": "get_overview_endpoint_v1_overview_get"
+  },
+  "/v1/commitments": {
+    "post": "create_commitment_v1_commitments_post",
+    "get": "list_commitments_v1_commitments_get"
+  },
+  "/v1/commitments/{commitment_id}": {
+    "get": "get_commitment_v1_commitments__commitment_id__get",
+    "patch": "reject_unrestricted_patch_v1_commitments__commitment_id__patch"
+  },
+  "/v1/commitments/{commitment_id}/timeline": {
+    "get": "get_commitment_timeline_v1_commitments__commitment_id__timeline_get"
+  },
+  "/v1/commitments/{commitment_id}/proposals": {
+    "post": "create_proposal_v1_commitments__commitment_id__proposals_post"
+  },
+  "/v1/commitments/{commitment_id}/confirm-proposal": {
+    "post": "confirm_proposal_v1_commitments__commitment_id__confirm_proposal_post"
+  },
+  "/v1/commitments/{commitment_id}/record-fulfilment": {
+    "post": "record_fulfilment_v1_commitments__commitment_id__record_fulfilment_post"
+  },
+  "/v1/integration/context-updated": {
+    "post": "context_updated_endpoint_v1_integration_context_updated_post"
+  },
+  "/v1/commitments/{commitment_id}/recovery/start": {
+    "post": "start_recovery_endpoint_v1_commitments__commitment_id__recovery_start_post"
+  },
+  "/v1/commitments/{commitment_id}/recovery/execute": {
+    "post": "execute_recovery_endpoint_v1_commitments__commitment_id__recovery_execute_post"
+  },
+  "/v1/commitments/{commitment_id}/transitions": {
+    "post": "transition_commitment_v1_commitments__commitment_id__transitions_post"
+  },
+  "/v1/audit": {
+    "get": "get_audit_v1_audit_get"
+  },
+  "/v1/events/{event_id}": {
+    "get": "get_event_v1_events__event_id__get"
+  },
+  "/v1/resources/snapshot": {
+    "get": "get_resource_snapshot_endpoint_v1_resources_snapshot_get"
+  },
+  "/v1/resources/reserve": {
+    "post": "reserve_resource_endpoint_v1_resources_reserve_post"
+  },
+  "/v1/recovery/cases/{commitment_id}": {
+    "get": "get_recovery_case_v1_recovery_cases__commitment_id__get"
+  },
+  "/v1/recovery/cases/{commitment_id}/trigger": {
+    "get": "get_trigger_only_recovery_case_v1_recovery_cases__commitment_id__trigger_get"
+  },
+  "/v1/recovery/cases/{commitment_id}/generate": {
+    "post": "generate_recovery_plans_v1_recovery_cases__commitment_id__generate_post"
+  },
+  "/v1/recovery/cases/{commitment_id}/plans": {
+    "get": "list_recovery_plans_v1_recovery_cases__commitment_id__plans_get"
+  },
+  "/v1/recovery/plans/{plan_id}/evaluation": {
+    "get": "get_plan_evaluation_v1_recovery_plans__plan_id__evaluation_get"
+  },
+  "/v1/recovery/plans/{plan_id}": {
+    "get": "get_recovery_plan_v1_recovery_plans__plan_id__get"
+  },
+  "/v1/recovery/plans/{plan_id}/approval-requests": {
+    "post": "request_plan_approval_v1_recovery_plans__plan_id__approval_requests_post"
+  },
+  "/v1/recovery/plans/{plan_id}/approve": {
+    "post": "approve_recovery_plan_v1_recovery_plans__plan_id__approve_post"
+  },
+  "/v1/recovery/plans/{plan_id}/reject": {
+    "post": "reject_recovery_plan_v1_recovery_plans__plan_id__reject_post"
+  },
+  "/v1/recovery/plans/{plan_id}/request-revision": {
+    "post": "request_recovery_plan_revision_v1_recovery_plans__plan_id__request_revision_post"
+  },
+  "/v1/recovery/plans/{plan_id}/revoke": {
+    "post": "revoke_recovery_plan_approval_v1_recovery_plans__plan_id__revoke_post"
+  },
+  "/v1/recovery/plans/{plan_id}/approvals": {
+    "get": "get_recovery_plan_approval_history_v1_recovery_plans__plan_id__approvals_get"
+  },
+  "/v1/recovery/plans/{plan_id}/execute": {
+    "post": "execute_recovery_internal_task_v1_recovery_plans__plan_id__execute_post"
+  },
+  "/v1/recovery/plans/{plan_id}/actions": {
+    "get": "get_recovery_action_history_v1_recovery_plans__plan_id__actions_get"
+  },
+  "/v1/recovery/plans/{plan_id}/request-communication": {
+    "post": "request_recovery_communication_v1_recovery_plans__plan_id__request_communication_post"
+  },
+  "/v1/communications/runtime-capabilities": {
+    "get": "runtime_capabilities_v1_communications_runtime_capabilities_get"
+  },
+  "/v1/communications/recipient-preferences": {
+    "get": "recipient_preferences_v1_communications_recipient_preferences_get",
+    "post": "save_recipient_preference_v1_communications_recipient_preferences_post"
+  },
+  "/v1/communications/{communication_id}/outbound": {
+    "get": "outbound_history_v1_communications__communication_id__outbound_get"
+  },
+  "/v1/communications/{communication_id}/drafts/{draft_id}/send-eligibility": {
+    "get": "send_eligibility_v1_communications__communication_id__drafts__draft_id__send_eligibility_get"
+  },
+  "/v1/communications/{communication_id}/drafts/{draft_id}/send": {
+    "post": "send_message_v1_communications__communication_id__drafts__draft_id__send_post"
+  },
+  "/v1/communications/{communication_id}/drafts/{draft_id}/review": {
+    "get": "read_draft_review_v1_communications__communication_id__drafts__draft_id__review_get"
+  },
+  "/v1/communications/{communication_id}/drafts/{draft_id}/approve": {
+    "post": "approve_message_draft_v1_communications__communication_id__drafts__draft_id__approve_post"
+  },
+  "/v1/communications/{communication_id}/drafts/{draft_id}/reject": {
+    "post": "reject_message_draft_v1_communications__communication_id__drafts__draft_id__reject_post"
+  },
+  "/v1/communications/{communication_id}/prepare": {
+    "post": "prepare_draft_v1_communications__communication_id__prepare_post"
+  },
+  "/v1/communications/{communication_id}/drafts/{draft_id}": {
+    "get": "retrieve_draft_v1_communications__communication_id__drafts__draft_id__get"
+  },
+  "/v1/communications/requests": {
+    "post": "create_request_v1_communications_requests_post"
+  },
+  "/v1/communications": {
+    "get": "list_requests_v1_communications_get"
+  },
+  "/v1/communications/summary": {
+    "get": "communication_summary_v1_communications_summary_get"
+  },
+  "/v1/communications/{communication_id}": {
+    "get": "get_request_v1_communications__communication_id__get"
+  },
+  "/v1/confirmations": {
+    "post": "create_confirmation_v1_confirmations_post",
+    "get": "list_confirmations_v1_confirmations_get"
+  },
+  "/v1/confirmations/{confirmation_id}": {
+    "get": "get_confirmation_v1_confirmations__confirmation_id__get"
+  },
+  "/v1/confirmations/{confirmation_id}/attempts": {
+    "get": "confirmation_history_v1_confirmations__confirmation_id__attempts_get"
+  },
+  "/v1/confirmations/{confirmation_id}/respond": {
+    "post": "process_response_v1_confirmations__confirmation_id__respond_post"
+  },
+  "/v1/confirmations/{confirmation_id}/revoke": {
+    "post": "revoke_confirmation_v1_confirmations__confirmation_id__revoke_post"
+  },
+  "/v1/confirmations/process-inbound": {
+    "post": "process_p1_response_v1_confirmations_process_inbound_post"
+  },
+  "/v1/follow-ups": {
+    "get": "list_tasks_v1_follow_ups_get",
+    "post": "schedule_task_v1_follow_ups_post"
+  },
+  "/v1/follow-ups/run-due": {
+    "post": "run_due_v1_follow_ups_run_due_post"
+  },
+  "/v1/follow-ups/{task_id}/cancel": {
+    "post": "cancel_task_v1_follow_ups__task_id__cancel_post"
+  },
+  "/v1/commitments/{commitment_id}/assessments": {
+    "get": "list_assessments_v1_commitments__commitment_id__assessments_get"
+  },
+  "/v1/commitments/{commitment_id}/assessments/{assessment_id}": {
+    "get": "get_assessment_v1_commitments__commitment_id__assessments__assessment_id__get"
+  },
+  "/v1/impacts/{impact_id}": {
+    "get": "get_impact_v1_impacts__impact_id__get"
+  },
+  "/v1/channels/status": {
+    "get": "channel_status_v1_channels_status_get"
+  },
+  "/v1/channels/poll": {
+    "post": "trigger_poll_v1_channels_poll_post"
+  },
+  "/v1/channels/telegram/webhook": {
+    "post": "telegram_webhook_v1_channels_telegram_webhook_post"
+  },
+  "/v1/channels/whatsapp/webhook": {
+    "get": "whatsapp_webhook_verification_v1_channels_whatsapp_webhook_get",
+    "post": "whatsapp_webhook_notification_v1_channels_whatsapp_webhook_post"
+  },
+  "/v1/channels/gmail/oauth/authorize": {
+    "get": "gmail_oauth_authorize_v1_channels_gmail_oauth_authorize_get"
+  },
+  "/v1/channels/gmail/oauth/callback": {
+    "get": "gmail_oauth_callback_v1_channels_gmail_oauth_callback_get"
+  },
+  "/dev/p1/config": {
+    "get": "local_config_dev_p1_config_get"
+  },
+  "/v1/contexts/catalog": {
+    "get": "review_catalog_v1_contexts_catalog_get"
+  },
+  "/v1/messages/ingest": {
+    "post": "ingest_message_v1_messages_ingest_post"
+  },
+  "/v1/messages": {
+    "get": "list_messages_v1_messages_get"
+  },
+  "/v1/messages/{message_id}": {
+    "get": "get_message_v1_messages__message_id__get"
+  },
+  "/v1/messages/{message_id}/process": {
+    "post": "process_message_v1_messages__message_id__process_post"
+  },
+  "/v1/messages/{message_id}/extraction": {
+    "get": "get_message_extraction_v1_messages__message_id__extraction_get"
+  },
+  "/v1/messages/{message_id}/attempts": {
+    "get": "list_message_attempts_v1_messages__message_id__attempts_get"
+  },
+  "/v1/messages/{message_id}/association": {
+    "get": "get_message_association_v1_messages__message_id__association_get",
+    "post": "decide_message_association_v1_messages__message_id__association_post"
+  },
+  "/v1/contexts/{context_id}": {
+    "get": "get_order_context_v1_contexts__context_id__get",
+    "patch": "update_order_context_v1_contexts__context_id__patch"
+  },
+  "/v1/contexts/by-order/{order_id}": {
+    "get": "get_order_context_by_order_v1_contexts_by_order__order_id__get"
+  },
+  "/v1/contexts/from-message/{message_id}": {
+    "post": "create_or_update_context_from_message_v1_contexts_from_message__message_id__post"
+  },
+  "/v1/contexts/{context_id}/review": {
+    "post": "review_order_context_v1_contexts__context_id__review_post"
+  },
+  "/v1/contexts/{context_id}/versions": {
+    "get": "list_context_versions_v1_contexts__context_id__versions_get"
+  },
+  "/v1/contexts/{context_id}/reviews": {
+    "get": "list_context_reviews_v1_contexts__context_id__reviews_get"
+  },
+  "/v1/contexts/{context_id}/publish": {
+    "post": "publish_order_context_to_core_v1_contexts__context_id__publish_post"
+  },
+  "/v1/attachments/upload": {
+    "post": "upload_attachment_v1_attachments_upload_post"
+  },
+  "/v1/attachments/{evidence_ref}/content": {
+    "get": "get_attachment_content_v1_attachments__evidence_ref__content_get"
+  },
+  "/v1/attachments/{evidence_ref}/page-count": {
+    "get": "get_attachment_page_count_v1_attachments__evidence_ref__page_count_get"
+  },
+  "/v1/attachments/{evidence_ref}/pages/{page_number}": {
+    "get": "get_attachment_page_v1_attachments__evidence_ref__pages__page_number__get"
+  },
+  "/v1/attachments/{evidence_ref}/metadata": {
+    "get": "get_attachment_metadata_v1_attachments__evidence_ref__metadata_get"
+  },
+  "/v1/attachments/{evidence_ref}/extract": {
+    "post": "extract_attachment_v1_attachments__evidence_ref__extract_post"
+  },
+  "/v1/attachments/{evidence_ref}/extraction": {
+    "get": "get_attachment_extraction_v1_attachments__evidence_ref__extraction_get"
+  },
+  "/health": {
+    "get": "health_health_get"
+  }
+}
