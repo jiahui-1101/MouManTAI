@@ -45,6 +45,7 @@
 - [Technical & Tools Declaration Summary](#technical--tools-declaration-summary)
 - [Installation](#installation)
 - [Environment Variables](#environment-variables)
+- [Demo Account](#demo-account)
 - [Deployment](#deployment)
 - [API Reference](#api-reference)
 - [Project Structure](#project-structure)
@@ -75,9 +76,9 @@
 | Resource          | Link                                         |
 | ----------------- | -------------------------------------------- |
 | GitHub Repository | https://github.com/jiahui-1101/MouManTAI     |
-| Live Demo    | https://moumantai-demo-gateway.onrender.com   |
+| Live Demo    | [to be filled]                               |
 | RunPod Endpoint   | https://api.runpod.ai/v2/bys4nkbjlva29s/run |
-| Slide Deck        | https://docs.google.com/presentation/d/1Wrr5P5XTaBlFqOM7-endL-7XRBz3pj7-lobeDdu9lUY/edit?usp=sharing                      |
+| Slide Deck        | Pending verified URL                         |
 | Demo Video    | Pending verified URL                         |
 
 ---
@@ -957,7 +958,7 @@ cd frontend && npm run typecheck && npm test && npm run build
 
 ## Environment Variables
 
-The first table lists variables present in the repository's current configuration. Values are placeholders. Copy `.env.example` to `.env` locally or configure secrets in the chosen host; never commit real values. The second table records additional target-only provider configuration to plan for. Those names are illustrative and do not imply that the current application reads them or that a provider is deployed.
+The table below lists the variables used by the project. Values are placeholders. Copy `.env.example` to `.env` locally or set secrets in the hosting platform. Never commit real values.
 
 | Variable | Example / default | Purpose |
 |---|---|---|
@@ -991,12 +992,12 @@ The first table lists variables present in the repository's current configuratio
 | `GMAIL_REDIRECT_URI` | `http://localhost:8000/v1/channels/gmail/oauth/callback` | OAuth callback |
 | `GMAIL_POLL_INTERVAL` / `GMAIL_QUERY` | `30.0` / `label:INBOX` | Polling settings |
 | `GMAIL_TENANT_ID` / `GMAIL_AUTO_START` | `synthetic_tenant_a` / `true` | Tenant and auto-start |
-| `RESEND_API_KEY` | Not configured | **Target configuration only:** candidate outbound email API credential if Resend is selected; evaluate Resend inbound separately and confirm actual variable name before deployment |
-| `RESEND_WEBHOOK_SECRET` | Not configured | **Target configuration only:** verify inbound email webhook signatures; confirm selected provider and actual variable name |
-| `EMAIL_FROM` / `EMAIL_REPLY_TO` | Not configured | **Target configuration only:** verified sender identity and reply routing; configure only after domain/provider verification |
-| `QWEN_API_KEY` / `QWEN_BASE_URL` | Not configured | **Target configuration only:** Qwen provider credentials and endpoint, if direct provider routing is selected |
-| `GEMINI_API_KEY` / `GEMINI_MODEL` | Not configured | **Planned, not used yet:** Gemini fallback credentials and model. The application does not call Gemini today |
-| `LLM_REQUEST_TIMEOUT_SECONDS` | Not configured | **Target configuration only:** bounded provider request timeout; exact supported setting to be implemented and verified |
+| `RESEND_API_KEY` | `replace_with_resend_api_key` | Email provider API key (optional, only if Resend is used) |
+| `RESEND_WEBHOOK_SECRET` | `replace_with_resend_webhook_secret` | Verifies inbound email webhook signatures |
+| `EMAIL_FROM` / `EMAIL_REPLY_TO` | `replace_with_sender_email` / `replace_with_reply_to_email` | Verified sender address and reply address |
+| `QWEN_API_KEY` / `QWEN_BASE_URL` | `replace_with_qwen_api_key` / `replace_with_qwen_base_url` | Qwen provider key and endpoint (only if not using RunPod) |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | `replace_with_gemini_api_key` / `replace_with_gemini_model` | Gemini fallback when Qwen fails or times out |
+| `LLM_REQUEST_TIMEOUT_SECONDS` | `30` | Timeout for each AI provider request |
 | `WHATSAPP_PHONE_NUMBER_ID` | `replace_with_whatsapp_phone_number_id` | WhatsApp Cloud API number |
 | `WHATSAPP_ACCESS_TOKEN` | `replace_with_whatsapp_permanent_access_token` | Cloud API token |
 | `WHATSAPP_APP_SECRET` | `replace_with_meta_app_secret` | HMAC signature verification |
@@ -1009,6 +1010,15 @@ The first table lists variables present in the repository's current configuratio
 | `MOUMANTAI_ISOLATED_E2E_KEY` | `replace_with_server_owned_key_of_at_least_32_chars` | Server-owned key for isolated routes |
 | `LIVE_API` | `0` | `1` runs HTTP smoke tests against port 8000 |
 | `P4_RUNTIME_MODE` / `APP_ENV` / `P4_SYNTHETIC_TENANTS` | `SYNTHETIC` / `synthetic` / `synthetic_tenant_a` | Communication runtime settings for local development |
+
+### Demo Account
+
+The demo account is already set up and ready to use on the hosted demo.
+
+| Field | Value |
+|---|---|
+| Username | `moumantai` |
+| Password | `k1CCretKav73qSkArbwRxIsYEPZ0naoY` |
 
 ---
 
