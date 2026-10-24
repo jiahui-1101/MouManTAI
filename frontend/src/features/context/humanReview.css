@@ -1758,3 +1758,323 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+/* =============================================================================
+   Requested Delivery UX & Orbyte Design System Styles
+   ============================================================================= */
+
+.hr-delivery-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hr-sub-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(28, 49, 83, 0.85);
+  margin-bottom: 4px;
+}
+
+.hr-tz-default-note {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--hr-primary);
+}
+
+.hr-delivery-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.8fr);
+  gap: 12px;
+}
+
+.hr-delivery-time-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr);
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.hr-time-block {
+  background: #f8faff;
+  border: 1px solid rgba(28, 49, 83, 0.12);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.hr-time-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.hr-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(28, 49, 83, 0.9);
+  cursor: pointer;
+}
+
+.hr-time-unresolved-pill {
+  font-size: 11px;
+  background: rgba(255, 159, 67, 0.15);
+  color: #b35b00;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.hr-time-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.hr-time-select {
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid rgba(28, 49, 83, 0.22);
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1c3153;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.hr-time-select:focus {
+  border-color: #0767e8;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(7, 103, 232, 0.15);
+}
+
+.hr-time-colon {
+  font-weight: 700;
+  font-size: 16px;
+  color: #1c3153;
+}
+
+.hr-ampm-segment {
+  display: inline-flex;
+  border: 1px solid rgba(28, 49, 83, 0.22);
+  border-radius: 6px;
+  overflow: hidden;
+  height: 36px;
+}
+
+.hr-ampm-btn {
+  border: none;
+  background: #ffffff;
+  color: rgba(28, 49, 83, 0.7);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.hr-ampm-btn:hover {
+  background: #f0f4fc;
+}
+
+.hr-ampm-btn.active {
+  background: #0767e8;
+  color: #ffffff;
+}
+
+.hr-quick-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.hr-slot-pill {
+  border: 1px dashed rgba(7, 103, 232, 0.3);
+  background: #ffffff;
+  color: #0767e8;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.hr-slot-pill:hover {
+  background: #eaf2fd;
+  border-color: #0767e8;
+}
+
+.hr-time-disabled-hint {
+  font-size: 12px;
+  color: rgba(28, 49, 83, 0.65);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.hr-delivery-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #eaf2fd;
+  border: 1px solid rgba(7, 103, 232, 0.25);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #1c3153;
+}
+
+.hr-preview-icon {
+  font-size: 16px;
+}
+
+.hr-preview-text {
+  flex: 1;
+}
+
+.hr-delivery-suggestion-box {
+  background: #fff9f0;
+  border: 1px solid #ffe3b3;
+  border-left: 4px solid #ff9f43;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.hr-suggestion-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.hr-suggestion-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #b35b00;
+  text-transform: uppercase;
+}
+
+.hr-suggestion-quote {
+  font-size: 12px;
+  color: #1c3153;
+  background: #fff1dc;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.hr-suggestion-close {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: rgba(28, 49, 83, 0.4);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.hr-suggestion-close:hover {
+  color: #1c3153;
+}
+
+.hr-suggestion-text {
+  font-size: 12px;
+  color: rgba(28, 49, 83, 0.75);
+  margin: 0 0 8px 0;
+  line-height: 1.4;
+}
+
+.hr-suggestion-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hr-btn-suggestion {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.hr-btn-suggestion.primary {
+  background: #0767e8;
+  color: #ffffff;
+  border: 1px solid #0767e8;
+}
+
+.hr-btn-suggestion.primary:hover {
+  background: #065cd0;
+}
+
+.hr-btn-suggestion.secondary {
+  background: #ffffff;
+  color: #1c3153;
+  border: 1px solid rgba(28, 49, 83, 0.22);
+}
+
+.hr-btn-suggestion.secondary:hover {
+  background: #f0f4fc;
+}
+
+.hr-delivery-advanced {
+  background: #ffffff;
+  border: 1px solid rgba(28, 49, 83, 0.12);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.hr-advanced-summary {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(28, 49, 83, 0.7);
+  cursor: pointer;
+  user-select: none;
+}
+
+.hr-advanced-body {
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hr-advanced-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.hr-advanced-label {
+  color: rgba(28, 49, 83, 0.65);
+  width: 140px;
+}
+
+.hr-advanced-code {
+  font-family: monospace;
+  background: #f4f8ff;
+  border: 1px solid rgba(7, 103, 232, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #0767e8;
+  font-weight: 600;
+}
+
+@media (max-width: 680px) {
+  .hr-delivery-form-grid,
+  .hr-delivery-time-row {
+    grid-template-columns: 1fr;
+  }
+}

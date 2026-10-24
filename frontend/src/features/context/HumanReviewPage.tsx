@@ -18,6 +18,7 @@ import {
 } from './taskTypes';
 import { getSuggestedClarification } from './ReviewDrawer';
 import { ExtractionProvenance } from './ExtractionProvenance';
+import { RequestedDeliveryField } from './RequestedDeliveryField';
 import {
   getConversationIssues,
   sendClarification,
@@ -171,6 +172,9 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
 
   useEffect(() => {
     void loadQueue();
+    const handleSaved = () => { void loadQueue(); };
+    window.addEventListener('moumantai:review-context-saved', handleSaved);
+    return () => window.removeEventListener('moumantai:review-context-saved', handleSaved);
   }, [search]);
 
   // Map messages to queue items with canonical task types
@@ -684,7 +688,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
   const [items, setItems] = useState<RequestedItem[]>([]);
   const [deliveryAt, setDeliveryAt] = useState<string>('');
   const [timingQualifier, setTimingQualifier] = useState<string>('Unresolved');
-  const [timezoneSelect, setTimezoneSelect] = useState<string>('');
+  const [timezoneSelect] = useState<string>('');
   const [specialInstructions, setSpecialInstructions] = useState<string>('');
   const [reviewerNote, setReviewerNote] = useState<string>('');
   const [, setDirtyFields] = useState<Set<string>>(new Set());
@@ -897,6 +901,14 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
         return JSON.stringify(actual ?? null) !== JSON.stringify(value ?? null);
       })) throw new Error('Review write returned, but the saved values are not visible in the authoritative context. Refresh before retrying.');
       setContext(updated);
+      setDeliveryAt(updated.requested_delivery_at || '');
+      setTimingQualifier(updated.delivery_qualifier || 'Unresolved');
+      if (updated.requested_items && updated.requested_items.length > 0) {
+        setItems(updated.requested_items.map(it => ({ sku: it.sku || '', quantity: it.quantity || '', unit: it.unit || '' })));
+      } else {
+        setItems([{ sku: '', quantity: '', unit: '' }]);
+      }
+      setSpecialInstructions(updated.special_instructions || '');
       setDirtyFields(new Set());
       setReviewerNote('');
       setSaveModalOpen(false);
@@ -1296,38 +1308,24 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
               <h2>Extracted fields</h2>
               <p className="hint">Edit values supported by the original request. Every change needs an audit reason.</p>
 
-              {/* Delivery Field */}
+              {/* Delivery Field — Orbyte date/time picker */}
               <div
                 className={`hr-field-row ${deliveryChanged ? 'is-modified' : ''}`}
                 data-key="delivery"
                 data-component="FieldRow"
                 onClick={() => handleFocusKey('delivery')}
               >
-                <div className="hr-field-label">
-                  <label htmlFor="delivery-input">Requested delivery <span className="hr-req-star">*</span> (major field)</label>
-                  <span className={`hr-chip ${deliveryValidation.isValid ? 'green' : 'amber'}`}>
-                    {deliveryValidation.isValid ? 'Confirmed' : 'Missing timezone'}
-                  </span>
-                  <button
-                    type="button"
-                    className="hr-ev-btn"
-                    title="Show evidence"
-                    onClick={e => { e.stopPropagation(); toggleEvidence('delivery'); }}
-                  >
-                    🔍
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  id="delivery-input"
-                  className="hr-filter-input"
+                <RequestedDeliveryField
                   value={deliveryAt}
-                  onChange={e => {
-                    setDeliveryAt(e.target.value);
+                  qualifier={timingQualifier}
+                  context={context}
+                  onChange={(newValue, newQualifier) => {
+                    setDeliveryAt(newValue);
+                    setTimingQualifier(newQualifier);
                     markDirty('delivery');
                   }}
                   onFocus={() => handleFocusKey('delivery')}
-                  placeholder="2026-10-28T10:00:00+08:00"
+                  onToggleEvidence={() => toggleEvidence('delivery')}
                 />
 
                 {openEvidence['delivery'] && (
@@ -1335,50 +1333,6 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                     Evidence: <code>"{deliveryAt || '28 October 2026'}"</code> · Method: MODEL · <button type="button" className="ra-link" onClick={() => handleFocusKey('delivery')}>Locate in message</button>
                   </div>
                 )}
-
-                <div className="hr-helper-text">
-                  {deliveryValidation.isValid
-                    ? 'Explicit timezone offset (+08:00) verified.'
-                    : 'Business timezone is not set. Confirm timezone before accepting.'}
-                </div>
-
-                {!deliveryValidation.isValid && (
-                  <select
-                    className="hr-filter-select"
-                    style={{ marginTop: '8px', width: '100%' }}
-                    value={timezoneSelect}
-                    onChange={e => {
-                      setTimezoneSelect(e.target.value);
-                      markDirty('delivery');
-                    }}
-                    aria-label="Select timezone"
-                  >
-                    <option value="">Select timezone…</option>
-                    <option value="SGT">Asia/Singapore (UTC+8)</option>
-                    <option value="MYT">Asia/Kuala_Lumpur (UTC+8)</option>
-                  </select>
-                )}
-
-                <div style={{ marginTop: '8px' }}>
-                  <label htmlFor="qualifier-select" style={{ fontSize: '12px', fontWeight: 600 }}>Timing qualifier</label>
-                  <select
-                    id="qualifier-select"
-                    className="hr-filter-select"
-                    style={{ width: '100%', marginTop: '4px' }}
-                    value={timingQualifier}
-                    onChange={e => {
-                      setTimingQualifier(e.target.value);
-                      markDirty('delivery');
-                    }}
-                  >
-                    <option value="Unresolved">Unresolved</option>
-                    <option value="Exact">Exact</option>
-                    <option value="Before">Before</option>
-                    <option value="After">After</option>
-                    <option value="Around">Around</option>
-                    <option value="DEADLINE">DEADLINE</option>
-                  </select>
-                </div>
               </div>
 
               {/* Items Section */}

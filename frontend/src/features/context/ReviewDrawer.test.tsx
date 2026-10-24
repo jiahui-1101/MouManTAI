@@ -71,7 +71,9 @@ describe('Review & Amend workspace', () => {
       action: 'EDIT_FIELD', expected_context_version: 1, note: 'Customer corrected item',
       field_edits: expect.objectContaining({ requested_items: [{ sku: 'CROISSANT', quantity: '25', unit: 'box' }] }),
     }), { 'X-Actor-ID': 'user_manager_01', 'X-Actor-Role': 'MANAGER' }));
-    expect(onUpdated).toHaveBeenCalled(); expect(onClose).toHaveBeenCalled();
+    expect(onUpdated).toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent(/Saved context v2.*Save & Accept/i);
   });
 
   it('saves then accepts through two audited commands with the returned version', async () => {
