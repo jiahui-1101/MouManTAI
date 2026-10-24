@@ -3814,7 +3814,6 @@ The durable P1 OrderRequest/version and approved commercial/disclosure sources r
 - Exact code/test HEAD GitHub Actions [40082154805](https://github.com/jiahui-1101/MouManTAI/actions/runs/40082154805) passed **5/5 jobs**. Its isolated PostgreSQL 16.15 service reached Alembic head `0017_p1_real_channel_provenance`; backend DB suite reported **801 passed / 0 failed / 0 skipped / 40 warnings**, and the zero-skips gate passed.
 - Jiahui's `CHANGES_REQUESTED` review was not dismissed; he subsequently `APPROVED` exact code/test + Main-synchronized HEAD `e6aabe000e4ccd9ecd22d4272e0d29b73549487b` at 2026-10-24 09:43:59 UTC. Only docs changed afterward. Fresh P1 Mavis and P5 Gan review requests are pending; no unresolved inline threads. Prior P1/P5 approvals were on older heads. PR #59 remains untouched at base `62040da02b4ec3532ea02d734567e0913996ec2b`, head `6dcebe5d7baf46f0136160abe153ee30885331c6`; its owner must refresh and rerun its suite/CI against the updated #49 branch.
 - After the `aece841e567ff3002dfe3b4c8a09cc0e029062ba` validation checkpoint, Main advanced to `0d2bc99dfc6672db117c3314d5b5ff65e69623a5` through PR #75. The changes were Human Review/communication frontend and design files only. Integrated Main by normal merge commit `aae0f44849f9727b162319bc7779376c2a66cfee`, no conflicts; the supplier comparison and backend contracts did not overlap. Post-sync code/test/doc HEAD `e6aabe000e4ccd9ecd22d4272e0d29b73549487b` passed exact-head GitHub Actions run [40082870052](https://github.com/jiahui-1101/MouManTAI/actions/runs/40082870052), **5/5 jobs**.
-- Post-merge local reruns: supplier comparison **80 passed**, OrderTerms + P2 supplier pipeline **70 passed**, full v2.2 **370 passed**; Ruff, format, compileall and `git diff --check` passed. Local test processes had database URLs and libpq variables removed. Exact-head CI on `e6aabe0` passed all five jobs as recorded below.
 - The exact-head PostgreSQL job used isolated PostgreSQL **16.15**, Alembic head `0017_p1_real_channel_provenance`, and `pytest backend/tests -v -rs --junitxml=pg-report.xml`: **801 passed / 0 failed / 0 skipped / 40 warnings**; the zero-skips gate passed. A documentation-only follow-up is being published and receives its own exact-head Actions run.
 
 ## 2026-10-24 — C1 canonical persistence and exact reply association
@@ -3829,10 +3828,29 @@ The durable P1 OrderRequest/version and approved commercial/disclosure sources r
 
 ## 2026-10-25 — PR #90 Jiahui CHANGES_REQUESTED review fixes
 
-- Inspected active worktrees/tasks before editing; reused the existing C1 isolated worktree and branch. PR #90 remains the only target. Fetched current Main `7c5ac1531e71bc5d1f762d098af69eaf3dd3785d` and integrated it with an ordinary merge, preserving published history and keeping C2/C3/OCR/Backend A–H worktrees untouched.
+- Inspected active worktrees/tasks before editing; reused the existing C1 isolated worktree and branch. PR #90 remains the only target. Fetched and normally integrated current Main through `cd6c64efdc1d0e3e91dd175a095d2434d705e8d8`, preserving published history and keeping C2/C3/OCR/Backend A–H worktrees untouched. PR #94's merged files are README/CSS only.
 - Review Gate 1: exact PR #90 Actions failure is the Vitest `OrdersRoutingIntegration.test.tsx:90` native `history.back()` assertion. Equivalent Node `20.20.2` full-suite runs fail the same named test on clean current Main and PR C1; the full-suite failures vary, and Vitest 5.0.5 declares Node 20 unsupported. No frontend behavior or DTO was changed. Frontend owner action: synchronize on actual route/popstate and align CI runtime.
 - Review Gate 2: catalog alignment test fails identically on current Main and C1, while pre-#79 baseline `f8e147d` passes. PR #79 added the catalog fixture and adjusted deterministic extraction, omitting 13 required tenant/SKU/unit fixture tuples. No catalog code or assertion was changed; P1 catalog owner must reconcile the rows/source.
 - Review Gate 3: local OCR acceptance remains unable to load `paddleocr` on Python 3.14.3/NumPy 2.5.1. PR #92 OCR implementation is already in Main; its exact-head job passed 25/25 with zero skips on Python 3.11/PaddleOCR. No OCR files, dependencies, tests, or branch were changed.
 - Review Gate 4: inspected `0018_c1_scoped_message_parent` semantics and added a PostgreSQL regression for account-scoped records that cannot be represented by the old unique key. Downgrade now preflights collisions and fails before DDL with records, raw provenance, indexes and revision preserved. Main PR #81 adds independent Mock-order tables under its own `0018`; `LEGACY_REUSE_MATRIX.md` documents the entity-level separation before graph migration. Added no-op `0019_merge_c1_mock` to join both heads without schema operations. No shared or production DB was migrated.
 - Final local results: C1/P1 PostgreSQL **41 passed, 9 warnings**; channel/framing/source **92 passed, 4 PostgreSQL-gated skips**; v2.2 **515 passed, 3 skips**; migration Ruff/format, compileall, one-head check, `git diff --check`, and Node 20 build passed. Full Frontend Vitest remains red on Main and C1; catalog and local OCR remain red for their documented upstream/environment causes. Ruff still reports the same two legacy import-order findings on clean Main and C1 migration test file.
 - Full gate matrix and reproduction commands are in `docs/reports/C1_CANONICAL_PERSISTENCE_COMPLETION_2026-10-24.md`. Exact GitHub status, final SHA, reviewer request and remaining owner decisions are to be updated after publication. Keep PR #90 unmerged.
+## 2026-10-24 — Developer C (P5) UI/UX Contrast Polish: State Transitionbar, Recorded Reason & Evidence Refs
+
+- **Scope & Files**:
+  - `frontend/src/styles.css`
+  - `frontend/src/features/activity/activity.css`
+  - `frontend/src/features/recovery/recovery.css`
+  - `docs/TEAM_LOG.md`
+- **Changes Implemented**:
+  1. **State Transitionbar**: Eliminated dark/black backgrounds (`rgba(15, 23, 42, 0.8)`) across `.state-transitions-container`. Updated container to clean light grey (`#f1f5f9`, border `1px solid #cbd5e1`, border-radius `6px`, text `#0f172a`). Ensured all inner typography and status badges have high-contrast visible text: `.transitions-label` (`#0f172a`, bold uppercase), `.from-state` (`#1e293b`), `.to-state` (`#0f172a`), `.arrow-separator` (`#0284c7`), `.dimension-tag` (`#334155`), and explicit light-mode high-contrast tokens for `.status-badge` (`.badge-neutral`, `.badge-success`, `.badge-danger`, `.badge-warning`, `.badge-info`).
+  2. **Recorded Reason**: Updated `.gov-reason` text, `.gov-reason-label`, and `.gov-reason-text` to crisp high-contrast dark slate grey (`#1e293b`), with `.gov-actor` and `.gov-detail` styled at `#1e293b` on light blue `#f0f9ff` callout card with `#0284c7` border.
+  3. **Evidence Refs Content**: Updated `.evidence-chip` in both global styles and activity styles to `#1e293b` on `#ffffff` (bold monospace, `#cbd5e1` border, hover state `#0767e8` on `#f8fafc`) and `.evidence-label` to `#0f172a`. Synchronized `.recovery-evidence-chip` in `recovery.css` with identical `#1e293b` on `#ffffff` and `#0767e8` hover styling.
+- **Validation**:
+  - `git diff --check`: Passed (no trailing whitespace or conflict markers).
+  - `npm run typecheck`: Passed (0 errors).
+  - `npx vitest run src/features/activity/__tests__/ActivityPage.test.tsx`: 7 passed / 0 failed.
+  - `npx vitest run src/features/recovery`: 22 passed / 0 failed.
+  - `npm run build`: Clean production bundle built in 1.37s (`dist/assets/index-*.js`, `dist/assets/index-*.css`).
+- **Safety & Non-Regressions**: Zero modifications to backend routes, database models, or API contracts. Preserved all `data-testid`, `role`, and `aria-*` tags.
+
