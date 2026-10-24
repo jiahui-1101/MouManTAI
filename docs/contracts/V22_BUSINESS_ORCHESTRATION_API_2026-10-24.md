@@ -15,6 +15,14 @@ P2 remains the source of disruption inputs and impact calculations. Recovery end
 5. The mandatory `recovery.internal_task_created` outbox consumer verifies the P3 execution row, task, plan, approval, Core audit, receipt and event bindings, then persists one pending notification intent. It does not call a P4 send endpoint.
 6. The Frontend can read `GET /v1/orchestration/commitments/{commitment_id}/timeline` and notification intent APIs through a trusted server proxy.
 
+### Accepted OrderRequest → P2 operational snapshot projection
+
+After a confirmed Mock acceptance, `POST /v1/backend-v2/order-requests/{id}/accept-mock` verifies the persisted `commitment.mock_order_accepted` outbox event, the matching Core acceptance audit, accepted OrderRequest, confirmed reservation receipt and current Core Commitment. It then asks P2 to project one derived `ConfirmedCommitment` into a new immutable `p2_operational_snapshots` version.
+
+P2 requires exactly one current `ProductionPlan` for the same tenant, canonical commitment ID/version and P2 line. The matching `ProductionSource(kind=plans)` evidence must be observed by the acceptance event and remain valid through it. The plan must start at or after acceptance and dispatch by the accepted delivery deadline. P2 uses the plan's `start_at` as `material_use_at` and preserves its own line ID and evidence references. The customer terms window, reservation time and SKU alone do not supply a P2 production schedule.
+
+The successful response adds an `operational_projection` result with `PROJECTED`, `ALREADY_PROJECTED` or `UNRESOLVED`, optional P2 snapshot identity/version, the acceptance event ID and reason codes. Missing, stale, ambiguous, inconsistent or changed schedule evidence leaves P2's current snapshot unchanged. Replaying the same accepted command retries projection against the current P2 schedule; a changed schedule after an earlier projection remains unresolved pending an explicit P2 lifecycle rule. No new table or migration is needed for this derived source projection. It adds no canonical Order or Commitment authority and does not authorize any notification or provider send.
+
 ## Registered orchestration routes
 
 All routes require the existing synthetic request identity (`X-Tenant-ID`, `X-Actor-ID`) and filter records by the resolved tenant. Mutation requests do not accept tenant, actor, recipient, channel, consent, approval, or evidence authority in the JSON body.

@@ -1,8 +1,8 @@
 # MouManTAI v2.2 orchestration audit and contract proposal
 
-Date: 2026-10-24
+Date: 2026-10-25
 Implementation branch: `feat/v22-business-orchestration-20261024`
-Base: open PR #88, head `d2fa4da975a3d7e939cd1bca2e8f6a0732eec8b6`
+Base: open PR #88, head is the latest PR #95 branch commit
 
 ## Verified architecture and dependency matrix
 
@@ -10,7 +10,7 @@ Base: open PR #88, head `d2fa4da975a3d7e939cd1bca2e8f6a0732eec8b6`
 |---|---|---|
 | Order acceptance | `order_requests`, `mock_orbyte_reservations`, Core `commitments` and audit; `POST /v1/backend-v2/order-requests/{id}/accept-mock` | Synthetic order acceptance exists in #81/#88. It uses a MockOrbyte source snapshot. |
 | Supplier disruption | P2 `p2_operational_snapshots`, `p2_supplier_delay_events`; `POST /v1/operations/events/supplier-delay`, `GET /v1/impacts/{impact_id}` | P2 persists the typed event/impact and emits Core risk outbox events. The impact set is grounded in P2 snapshot membership and evidence paths. |
-| Accepted-order → P2 source | No persisted projection from the accepted `OrderRequestRecord`/Core commitment into `p2_operational_snapshots` | **Open contract, P2 + Orders + P5 owners.** This proposal never infers the link from SKU, customer, or message text. It links only when the exact commitment, version and terms are already present in the P2 source and accepted-order evidence verifies. |
+| Accepted-order → P2 source | P2 projection handler invoked after verified Mock acceptance; current schedule read from P2 `ProductionData.plans` | **Implemented on PR #95, synthetic only.** Adds a derived demand row to a new immutable snapshot only when the persisted acceptance event, OrderRequest, Core commitment, receipt, audit and exact fresh P2 plan bind. Otherwise returns `UNRESOLVED` without changing P2 current state. |
 | Recovery | `recovery_cases`, `recovery_plan_versions`, `manager_approval_decisions`, `recovery_action_executions`, `internal_recovery_tasks`; `/v1/recovery/...` | Existing P3 owns candidate generation, approval and guarded execution. No new execution route or action authority is proposed. |
 | Verified execution | Core `recovery.internal_task_created` audit/outbox plus P3 task/execution/approval rows | Current allowlisted “execution” creates an internal review task. This proves task creation only; it does not prove supplier action, customer-visible milestone, fulfillment, or changed customer terms. |
 | Communication | P4 `communication_requests`, recipient preferences, drafts/reviews, outbound messages/attempts; `/v1/communication/...` | Existing P4 authorization/send controls remain authoritative. P4 has no general status-milestone request contract or real channel provider in the inspected baseline. |
@@ -18,22 +18,22 @@ Base: open PR #88, head `d2fa4da975a3d7e939cd1bca2e8f6a0732eec8b6`
 
 ## Accepted OrderRequest → P2 source projection: exact missing boundary
 
-The acceptance route in #81 can persist the accepted OrderRequest, confirmed Mock reservation receipt, canonical Core Commitment and Core audit/outbox event. It does not add that commitment to P2's `p2_operational_snapshots`. P2 supplier-delay candidate discovery reads commitment membership and versions from its before-snapshot, so a valid accepted order that is absent there cannot be included in that P2 impact calculation. PR #95 correctly leaves this case unresolved instead of guessing.
+The acceptance route in #81 persists the accepted OrderRequest, confirmed Mock reservation receipt, canonical Core Commitment and Core audit/outbox event. The PR #95 follow-up now consumes that exact persisted acceptance event and can add the accepted demand to P2's `p2_operational_snapshots`. P2 supplier-delay candidate discovery reads commitment membership and versions from its before-snapshot, so a valid accepted order without a current P2 projection still cannot be included in that P2 impact calculation.
 
 P2's typed `ConfirmedCommitment` requires more than the accepted order supplies: tenant, canonical commitment ID and version, delivery deadline, and one or more lines with SKU, quantity, unit, `material_use_at`, optional warehouse, and P2 source references. P2 also validates its complete versioned source snapshot and its `SourceKind.CONFIRMED_COMMITMENTS` evidence. In particular, neither a product deadline nor a Mock reservation timestamp is a supported substitute for P2's material-use schedule.
 
-Smallest owner-compatible implementation:
+Smallest owner-compatible implementation and current PR #95 behavior:
 
 1. P2 owns an idempotent projection/refresh handler for the durable `commitment.mock_order_accepted` event. It verifies the exact tenant, accepted OrderRequest ID/current version/terms hash, Core commitment ID/version, acceptance audit and confirmed reservation receipt before considering a projection.
-2. P2 resolves `material_use_at` (and warehouse when needed) from a P2-owned schedule or another explicitly approved source. If the schedule or required source evidence is missing, stale, ambiguous or inconsistent, persist/return a pending unresolved projection outcome and do not fabricate a P2 commitment row.
-3. When source-complete, P2 creates a new immutable operational snapshot version through its own source-refresh authority, preserving the existing snapshot and rows while adding one `ConfirmedCommitment` and matching `SourceEvidence(kind=confirmed_commitments)` with provenance back to the canonical OrderRequest, Core commitment, acceptance audit, reservation receipt and P2 schedule. P2's evaluator and impact logic remain unchanged.
-4. Replay is idempotent by tenant + accepted event/order version. A later accepted-order version or P2 schedule change produces a new P2 snapshot projection version; older snapshots remain immutable. Any replacement/retraction semantics are defined by P2.
+2. P2 resolves `material_use_at` from exactly one tenant-bound, version-matched `ProductionPlan` in the current snapshot. Its plan source must be observed by acceptance time and valid through acceptance time; the plan must start at or after acceptance and dispatch by the accepted delivery deadline. Missing, stale, ambiguous, mismatched, or out-of-window schedule evidence returns `UNRESOLVED` and leaves P2's current snapshot unchanged.
+3. When source-complete, P2 creates a new immutable operational snapshot version under its existing snapshot row lock, preserving existing data while adding one `ConfirmedCommitment` and matching `SourceEvidence(kind=confirmed_commitments)`. Provenance includes canonical OrderRequest evidence, Core commitment, acceptance audit/event, confirmed receipt and P2 schedule evidence. P2's evaluator and impact logic remain unchanged.
+4. The accept response returns `PROJECTED`, `ALREADY_PROJECTED`, or `UNRESOLVED` plus reason codes. Replaying the same accept request/idempotency key rechecks current P2 schedule evidence. A fresh unchanged projection is idempotent; missing or changed P2 scheduling evidence remains unresolved. The older P2 snapshots remain immutable.
 
-This adds no second Order or Commitment entity: Core remains commitment authority, Orders remains accepted-request authority, and the P2 snapshot is a derived planning input. P5 continues to link by canonical IDs and exact versions. The P2/Orders owners must approve the event schema, schedule source, snapshot-current promotion, and replay/replacement policy before implementation.
+This adds no second Order or Commitment entity and no database table: Core remains Commitment authority, Orders remains accepted-request authority, and the P2 snapshot is a derived planning input. Missing outcomes are returned with the acceptance response and are not separately persisted; the existing acceptance event and idempotent route provide retry. P5 continues to link by canonical IDs and exact versions. Production owner review is still required for schedule ownership, snapshot-current promotion and changed-schedule lifecycle semantics.
 
 ## Refreshed release and Alembic graph (2026-10-25)
 
-`origin/main` refreshed again to `7c5ac1531e71bc5d1f762d098af69eaf3dd3785d` after PR #81 and #82 merged on top of PR #92. Main's current migration head is now `0018_mock_order_requests`; PR #89 (C1 framing foundation) has no migration. PRs #83–85 and #88 remain open, so the A–H release baseline is still incomplete. PR #95 remains based on #88 at `d2fa4da975a3d7e939cd1bca2e8f6a0732eec8b6`.
+`origin/main` refreshed to `cd6c64efdc1d0e3e91dd175a095d2434d705e8d8` after PR #94, #92 and the #81/#82 foundation merged. Main's current migration head is `0018_mock_order_requests`; PR #89 has no migration. PRs #83–85 and #88 remain open, so the A–H release baseline is still incomplete. PR #95 remains based on #88 at `d2fa4da975a3d7e939cd1bca2e8f6a0732eec8b6`.
 
 The current branch chain is `0017_p1_real_channel_provenance` → `0018_mock_order_requests` → `0019_mock_supplier_advice` → `0020_mock_forecast_history` → `0021_mock_optimization_dataset` → `0022_mock_memory_history` → `0023_business_orch_links`. Concurrent C1 PR #90 adds a distinct revision `0018_c1_scoped_message_parent` whose parent is also `0017_p1_real_channel_provenance`. These are sibling revisions with different revision IDs (the shared `0018` numeric prefix is not itself an ID collision). When the two branches are present together, Alembic has two heads: `0023_business_orch_links` and `0018_c1_scoped_message_parent`.
 
@@ -41,7 +41,7 @@ Once the release baseline and C1 #90 are both merged, add a merge-only Alembic r
 
 PR #92 resolves the previously recorded optional OCR-runtime failure on refreshed main: its dedicated latest-main PostgreSQL image/PDF acceptance run reports 24 passed and zero skipped, and its Docker OCR smoke passed. The OCR item remains stale text in open PR #88's body; that does not make OCR an active blocker on current main. It does not replace the need to rerun release CI and migrated E2E after the A–H baseline lands.
 
-At the latest 2026-10-25 refresh, #81 and #82 were merged to main (`ca66561` and `7c5ac15`). PR #83 was open against main with GitHub `mergeable_state=dirty`; a read-only merge-tree confirmed a content conflict in `backend/app/main.py`. No resolution was applied to that shared dependency branch. PRs #84, #85 and #88 remained open and stacked behind #83. C1 PR #90 remained open Draft. PR #95 remained open Draft, based on #88's head `d2fa4da975a3d7e939cd1bca2e8f6a0732eec8b6`. Keep #95 stacked on #88 until the remaining A–H dependencies have merged in order. Do not reconcile #95 directly onto main before that baseline settles.
+At the latest 2026-10-25 refresh, origin/main is `cd6c64efdc1d0e3e91dd175a095d2434d705e8d8`. PR #83 is open against main and GitHub reports `mergeable=false`; the earlier read-only merge-tree identified a conflict in `backend/app/main.py`. No resolution was applied to that shared branch. PRs #84, #85 and #88 remain open and stacked behind #83; their reported mergeability is true. PRs #86 and #87 are merged. C1 PR #90 is open Draft and reported unmergeable. PR #95 is open Draft, still based on #88's head `d2fa4da975a3d7e939cd1bca2e8f6a0732eec8b6`. Keep #95 stacked on #88 until the remaining A–H dependencies have merged in order. Do not reconcile #95 directly onto main before that baseline settles.
 
 ## Entity reuse / extend / add / deprecate mapping
 
@@ -75,4 +75,4 @@ The API uses versioned P2/P3/P4 records, canonical tenant and entity IDs, timezo
 
 ## Evidence and readiness limits
 
-All current fixtures/adapters are synthetic or Mock. P2's accepted-order linkage can be proven only for already present exact P2 source rows; this branch does not create those rows. Current P3 action verification is for internal review-task creation only. No real Telegram, WhatsApp, Email, supplier outcome, customer assent, or customer-visible status milestone is claimed. The timeline is an internal diagnostic projection pending Frontend and owner review.
+All current fixtures/adapters are synthetic or Mock. P2 creates an accepted-order demand row only when its own current exact schedule exists; otherwise the result is unresolved. Current P3 action verification is for internal review-task creation only. No real Telegram, WhatsApp, Email, supplier outcome, customer assent, or customer-visible status milestone is claimed. The timeline is an internal diagnostic projection pending Frontend and owner review.
