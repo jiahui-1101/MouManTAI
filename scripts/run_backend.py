@@ -13,10 +13,17 @@ if env_path.is_file():
             k, v = line.split("=", 1)
             os.environ[k.strip()] = v.strip().strip("'\"")
 
+os.environ.setdefault("MOUMANTAI_SYNTHETIC_MODE", "1")
+os.environ.setdefault("P4_RUNTIME_MODE", "SYNTHETIC")
+os.environ.setdefault("APP_ENV", "synthetic")
+os.environ.setdefault("P4_SYNTHETIC_TENANTS", "synthetic_tenant_a,synthetic_tenant_b,tenant_demo_01")
+
 # Ensure backend directory is in sys.path
 backend_dir = repo_root / "backend"
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, log_level="info")
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", "8000"))
+    uvicorn.run("app.main:app", host=host, port=port, log_level="info")

@@ -8,8 +8,8 @@ import type { MessageDraftView } from "./types";
 import { ApiErrorReference, P4ErrorPanel } from "./P4Feedback";
 import { useInlineConfirmationFocus } from "./useInlineConfirmationFocus";
 
-export function OutboundPanel({ communicationId, draft, auth, now }: {
-  communicationId: string; draft?: MessageDraftView; auth: RequestAuthHeaders; now: number;
+export function OutboundPanel({ communicationId, draft, auth, now, view = 'all' }: {
+  communicationId: string; draft?: MessageDraftView; auth: RequestAuthHeaders; now: number; view?: 'all' | 'send' | 'history';
 }) {
   const client = useQueryClient();
   const [confirming, setConfirming] = useState(false);
@@ -45,6 +45,7 @@ export function OutboundPanel({ communicationId, draft, auth, now }: {
   });
   const submit = () => { if (busy.current || mutation.isPending || !canSend) return; busy.current = true; mutation.mutate(); };
   return <section ref={focus.regionRef} tabIndex={-1} className="cc-section cc-outbound" aria-label="Mock sending">
+    <div className="cc-outbound-part" data-active={view !== 'history'}>
     <h4>Mock Sending</h4><p className="muted text-sm">Local simulation only. Sending does not mean delivered, accepted or fulfilled.</p>
     {!draft && <p>Load a current draft to check sending eligibility.</p>}
     {draft && eligibility.isFetching && <p role="status">Checking sending eligibility…</p>}
@@ -62,6 +63,8 @@ export function OutboundPanel({ communicationId, draft, auth, now }: {
     {mutation.isPending && <p role="status">Sending mock message…</p>}
     {mutation.isError && <div role="alert" className="cc-error"><p>{errorText(mutation.error, "send")} Check sending history before retrying.</p><ApiErrorReference error={mutation.error} /></div>}
     {mutation.data?.status === "DELIVERY_UNKNOWN" && <p role="alert">Sending outcome is unknown. Do not resend; manual reconciliation is required.</p>}
+    </div>
+    <div className="cc-outbound-part" data-active={view !== 'send'}>
     <h5>Sending History</h5>
     <button className="btn btn-secondary" disabled={history.isFetching} onClick={() => {
       void history.refetch(); if (draft) void eligibility.refetch(); }}>Refresh sending history</button>
@@ -82,5 +85,6 @@ export function OutboundPanel({ communicationId, draft, auth, now }: {
         <details><summary>Attempt history</summary>{row.attempts.map(attempt => <p key={attempt.attempt_number}>
           Attempt {attempt.attempt_number}: {attempt.status} {attempt.error_code ?? ""}</p>)}</details>
       </li>)}</ul> : <p>No outbound messages.</p>}
+    </div>
   </section>;
 }

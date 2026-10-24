@@ -41,3 +41,5 @@ Required first: a reviewed production tenant provider; P1/P5 agreement on associ
 ## Independent request-version boundary — 2026-10-24
 
 PR #50 now carries a separate `request_version`, but the current P1 schema and this reader do not persist or retrieve an authoritative OrderRequest lifecycle version. The reader continues to pass no commercial evidence, so its result is `INCOMPLETE`. In particular, a changed `context_version` does not populate `request_version`; the test suite asserts that behavior. Do not add a P1 migration or treat the mapper's synthetic adapter fixture as database-backed evidence without P1/P5 approval.
+
+The #55 branch is refreshed through #50 head `9dba996db2c066f7ea5997dbc8dbf7b5dd277540`, including #50's non-rewriting merge of current `main`. This does not change P1 storage or make request-version evidence available. The P1 reader remains read-only and fail-closed.

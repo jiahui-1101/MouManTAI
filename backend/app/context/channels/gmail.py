@@ -100,10 +100,20 @@ class GmailAdapter:
         # Load existing tokens from persistent state manager if present
         saved_tokens = self.state_manager.get_gmail_tokens(self.config.tenant_id)
         if saved_tokens:
-            if "access_token" in saved_tokens:
-                self.config.access_token = saved_tokens["access_token"]
-            if "refresh_token" in saved_tokens:
-                self.config.refresh_token = saved_tokens["refresh_token"]
+            saved_refresh = saved_tokens.get("refresh_token")
+            if self.config.refresh_token:
+                # If explicit refresh_token configured, only reuse access_token if refresh_tokens match
+                if saved_refresh and saved_refresh == self.config.refresh_token:
+                    if "access_token" in saved_tokens:
+                        self.config.access_token = saved_tokens["access_token"]
+                else:
+                    # Mismatched/stale saved tokens: discard old access token
+                    self.config.access_token = None
+            else:
+                if "refresh_token" in saved_tokens:
+                    self.config.refresh_token = saved_tokens["refresh_token"]
+                if "access_token" in saved_tokens:
+                    self.config.access_token = saved_tokens["access_token"]
 
     @property
     def is_polling(self) -> bool:
@@ -213,6 +223,47 @@ class GmailAdapter:
         return self.config.access_token
 
     # --- Gmail API Calls ---
+
+    def get_profile(self) -> dict[str, Any]:
+        """Fetch authenticated user's Gmail profile (emailAddress, messagesTotal, historyId)."""
+        token = self.get_valid_access_token()
+        url = f"{self.config.api_base_url.rstrip('/')}/gmail/v1/users/me/profile"
+        headers = {"Authorization": f"Bearer {token}"}
+        client = self._get_client()
+        try:
+            resp = client.get(url, headers=headers)
+            if resp.status_code == 401:
+                token = self.refresh_access_token()
+                headers["Authorization"] = f"Bearer {token}"
+                resp = client.get(url, headers=headers)
+
+            if not resp.is_success:
+                raise GmailApiError(f"Gmail get_profile failed ({resp.status_code}): {resp.text}")
+            return resp.json()
+        except Exception as exc:
+            if isinstance(exc, (GmailApiError, GmailAuthError)):
+                raise
+            raise GmailApiError(f"Gmail get_profile network error: {exc}") from exc
+
+    def verify_connection(self) -> dict[str, Any]:
+        """Safely verify authenticated Gmail account identity and OAuth validity."""
+        if not self.config.is_configured:
+            return {"authenticated": False, "reason": "Not configured"}
+        profile = self.get_profile()
+        email_addr = profile.get("emailAddress", "")
+        if "@" in email_addr:
+            u, d = email_addr.split("@", 1)
+            masked = (u[:3] + "***@" + d) if len(u) > 3 else (u[0] + "***@" + d)
+        else:
+            masked = "***"
+        return {
+            "authenticated": True,
+            "email_address": email_addr,
+            "masked_email": masked,
+            "messages_total": profile.get("messagesTotal", 0),
+            "threads_total": profile.get("threadsTotal", 0),
+            "history_id": profile.get("historyId"),
+        }
 
     def list_messages(
         self,

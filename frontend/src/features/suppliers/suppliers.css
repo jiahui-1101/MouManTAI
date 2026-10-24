@@ -1,0 +1,11 @@
+.supplier-workspace { display: grid; gap: 1rem; }
+.supplier-demo-notice { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; padding: 1rem; border: 1px solid #ff9f43; border-radius: .5rem; background: #fff8ef; color: #1c3153; }
+.supplier-grid, .supplier-compare-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
+.supplier-card-title { display: flex; justify-content: space-between; align-items: start; gap: .75rem; }
+.supplier-card-title h3 { margin-top: 0; }
+.supplier-facts { display: grid; grid-template-columns: minmax(7rem, .7fr) minmax(0, 1.5fr); gap: .55rem 1rem; }
+.supplier-facts dt { font-weight: 700; }
+.supplier-facts dd { margin: 0; overflow-wrap: anywhere; }
+.supplier-selection-note { color: rgba(28,49,83,.75); }
+.supplier-workspace a:focus-visible, .supplier-workspace button:focus-visible, .supplier-workspace input:focus-visible { outline: 3px solid #0767e8; outline-offset: 2px; }
+@media (max-width: 600px) { .supplier-card-title { flex-direction: column; } .supplier-facts { grid-template-columns: 1fr; gap: .25rem; } .supplier-facts dd { margin-bottom: .5rem; } }
