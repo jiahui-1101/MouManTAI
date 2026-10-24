@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { ApiError, authHeaders } from '../../shared/api';
@@ -21,6 +21,12 @@ export function OrderDetailPage({ orderId, source, decisionSource }: OrderDetail
   const identity = `${id}:${auth.tenantId}:${auth.actorId}`;
   const [contextState, setContextState] = useState<{ identity: string; context: OrderContextRecord } | null>(null);
   const [reload, setReload] = useState(0);
+  const generation = `${identity}:${reload}`;
+  const activeGeneration = useRef<string | null>(generation);
+  useLayoutEffect(() => {
+    activeGeneration.current = generation;
+    return () => { activeGeneration.current = null; };
+  }, [generation]);
   const legacyContext = contextState?.identity === identity ? contextState.context : null;
   const contextMismatch = !!legacyContext && (legacyContext.order_id !== id || legacyContext.tenant_id !== auth.tenantId);
   const [now, setNow] = useState(Date.now);
@@ -60,8 +66,11 @@ export function OrderDetailPage({ orderId, source, decisionSource }: OrderDetail
       <h2 id="od-legacy-title">Existing P1 context, review & history</h2>
       <p>This is the original P1 context workflow. Publishing context to Core is not v2.2 order acceptance or proof of resource reservation.</p>
       <OrderContextDetail key={`${identity}:${reload}`} orderId={id} requestHeaders={legacyHeaders}
-        onContextLoaded={context => setContextState({ identity, context })}
-        onContextUpdated={context => { setContextState({ identity, context }); if (source) void query.refetch(); }} />
+        onContextLoaded={context => { if (activeGeneration.current === generation) setContextState({ identity, context }); }}
+        onContextUpdated={context => {
+          if (activeGeneration.current !== generation) return;
+          setContextState({ identity, context }); if (source) void query.refetch();
+        }} />
     </section>}
   </div>;
 }
