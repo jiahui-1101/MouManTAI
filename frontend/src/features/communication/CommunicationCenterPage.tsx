@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../shared/auth";
 import { ApiError, apiRequest, authHeaders, type RequestAuthHeaders } from "../../shared/api";
@@ -18,7 +18,7 @@ import {
 } from "./presentation";
 import { CommunicationDetails } from "./CommunicationDetails";
 import { RecipientPreferences, type RuntimeCapabilities, type RecipientPreference } from "./RecipientPreferences";
-import { confirmationKeys, getConfirmation, getConfirmationAttempts, listConfirmations } from "./confirmationApi";
+import { confirmationKeys, getConfirmationAttempts, listConfirmations } from "./confirmationApi";
 import { ConfirmationBadge } from "./confirmationPresentation";
 import type { ConfirmationView } from "./confirmationTypes";
 import type { CommunicationRequestView, DraftLanguage, MessageDraftView } from "./types";
@@ -1131,10 +1131,8 @@ function FollowUpQueueView({
             </tr>
           </thead>
           <tbody>
-            {items.map(c => {
-              const isExp = Date.parse(c.expires_at) <= now;
-              return (
-                <tr key={c.confirmation_id}>
+            {items.map(c => (
+              <tr key={c.confirmation_id}>
                   <td>
                     <code>{c.confirmation_id}</code>
                   </td>
@@ -1152,8 +1150,7 @@ function FollowUpQueueView({
                     </Link>
                   </td>
                 </tr>
-              );
-            })}
+              ))}
           </tbody>
         </table>
       )}
