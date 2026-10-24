@@ -76,7 +76,7 @@
 | ----------------- | -------------------------------------------- |
 | GitHub Repository | https://github.com/jiahui-1101/MouManTAI     |
 | Live Demo    | [to be filled]                               |
-| RunPod Endpoint   | Live Serverless endpoint (URL and key are private, never committed) |
+| RunPod Endpoint   | https://api.runpod.ai/v2/bys4nkbjlva29s/run |
 | Slide Deck        | Pending verified URL                         |
 | Demo Video    | Pending verified URL                         |
 
