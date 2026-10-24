@@ -1,0 +1,47 @@
+# v2.2 Mock Backend API contract and Frontend handoff
+
+Status: implementation on `feat/v22-mock-order-acceptance-20261024`. This document describes registered routes on this branch. `MOCK` and `DEMO-ONLY` mean synthetic external facts and receipts. No real Orbyte, customer channel, supplier purchase or production identity is connected.
+
+## Security boundary
+
+All `/v1/backend-v2/*` routes require `MOUMANTAI_SYNTHETIC_MODE=1`, `MOUMANTAI_ISOLATED_E2E=1`, a server configured `MOUMANTAI_ISOLATED_E2E_MANAGER_ID`, and a matching `X-Isolated-E2E-Key` of at least 32 characters. Mock business routes additionally require `MOUMANTAI_ISOLATED_E2E_TENANT_ID`, bound to exactly the request's `X-Tenant-ID`. Requests also carry `X-Actor-ID`, which must equal the configured manager ID. `ENVIRONMENT=production` disables these routes. The key must stay on a trusted server, never in Vite/browser code. A Backend-for-Frontend or local server proxy is required before the current React pages can use these commands safely. No Frontend page is wired by this Backend branch.
+
+All responses use decimal strings for quantity and price, offset-aware ISO timestamps and stable string IDs. HTTP errors use `{code,message,correlation_id,details}`; validation uses 422 without echoing submitted terms. The state-changing endpoints require exact positive integer versions; booleans, floats and numeric strings are rejected.
+
+## Submission-critical Mock workflow
+
+| Step | Method and endpoint | Request model | Response model | Persistence and authority |
+|---|---|---|---|---|
+| Controlled inquiry fixture | `POST /v1/backend-v2/mock-orbyte/inquiries` | `MockInquiryCreate`: source ID/version, canonical `OrderTerms`, synthetic request/disclosure refs, observation/expiry | `MockInquiryView` | Immutable `mock_order_sources`; audit and outbox. Server-side Mock admin only; evidence remains synthetic. |
+| Resource fixture | `POST /v1/backend-v2/mock-orbyte/resources` | `MockResourceSeed`: decimal stock quantity and optional deterministic reservation outcome | `MockResourceView` | Creates one tenant-scoped synthetic inventory/BOM/capacity state, with outbox. Repeated configuration is 409; use a disposable tenant/database for another scenario. |
+| Import request | `POST /v1/backend-v2/order-requests/import-mock` | `ImportMockRequest`: `source_id`, `expected_source_version` | `MockOrderRequestView` | Tenant-scoped `order_requests` and audit/outbox. Exact source terms are read from DB; body supplies no terms. Idempotent same-source replay. |
+| Pending queue/detail | `GET /v1/backend-v2/order-requests`, `GET /v1/backend-v2/order-requests/{id}` | Path ID | `MockOrderRequestView[]` / `MockOrderRequestView` | Durable request rows with source/version, exact terms/hash, review, timestamps and decision state. |
+| Human review | `POST /v1/backend-v2/order-requests/{id}/review` | `ReviewMockRequest`: strict expected request version, `REVIEWED` or `REJECTED`, reason | `MockOrderRequestView` | Row lock, source recheck, request version +1, audit/outbox. Reviewed does not mean accepted. |
+| Resource evidence | `GET /v1/backend-v2/mock-orbyte/resources` | None | `MockResourceView` with full P2 `EvaluationSnapshot` | Tenant-scoped `mock_orbyte_states` containing synthetic inventory, BOM, capacity, bookings and source refs. Read only. |
+| Pending feasibility | `GET /v1/backend-v2/order-requests/{id}/feasibility` | Path ID | `MockFeasibilityView` with P2 `EvaluationResult` | Real P2 ATP/BOM/capacity kernel over a transient pending-order projection. No reservation or acceptance. Returns `UNKNOWN` when evidence cannot prove a decision. |
+| SME acceptance | `POST /v1/backend-v2/order-requests/{id}/accept-mock` | `AcceptMockRequest`: strict request/resource versions, exact `order-terms-v1` hash, idempotency key, reason | `AcceptMockResponse`: order, `ReservationReceipt`, Core `Commitment` or null on unknown | Row locks and one PostgreSQL transaction: fresh source and P2 recheck, Mock stock-lot reservation, receipt, Core confirmed commitment, audit/outbox. `CONFIRMED` receipt is required for `ACCEPTED`. Unknown returns 202 with no commitment. |
+| Receipt status | `GET /v1/backend-v2/mock-orbyte/reservations/{operation_id}` | Path ID | `ReservationReceipt` | Durable Mock operation; tenant scoped. `SENT`/fulfilment are not inferred. |
+| Explicit Mock rejection | Same `accept-mock` command with fixture outcome `REJECT` | Same command | HTTP 409 `MOCK_RESERVATION_REJECTED`, with `details.operation_id` | Durable `FAILED` Mock receipt and audit/outbox; no stock effect or commitment. The same key replays the failure; a new key can retry after review. |
+| Unknown reconciliation | `POST /v1/backend-v2/order-requests/{id}/reconcile-mock` | `ReconcileMockRequest`: operation ID | `AcceptMockResponse` with failed receipt and no commitment | Confirms the deterministic Mock unknown operation had no stock effect, records audit/outbox, returns request to reviewed state. A fresh approval with a new key is required to retry. |
+| Accepted status | `GET /v1/backend-v2/commitments/{id}/status-preview` | Path ID | `CommitmentStatusPreview` | `ORDER_ACCEPTED` only when matching OrderRequest, confirmed Mock receipt and Core audit exist. Historical Core-only `CONFIRMED` remains `ORDER_ACCEPTANCE_UNVERIFIED`. |
+| Timeline/actuals | `GET /v1/backend-v2/order-requests/{id}/timeline`, `GET /v1/backend-v2/order-requests/{id}/operational-status` | Path ID | `MockTimelineEntry[]`, `MockOperationalStatus` | Read-only OrderRequest/Core audit and planned date. Unmeasured production/delivery are `NOT_AVAILABLE`. |
+
+Typical error codes: `MOCK_SOURCE_NOT_FOUND` 404, `STALE_SOURCE_VERSION` 409, `STALE_REQUEST_VERSION` 409, `TERMS_MISMATCH` 409, `P2_NOT_FEASIBLE` 409, `STALE_RESOURCE_VERSION` 409, `MOCK_RESERVATION_REJECTED` 409, `IDEMPOTENCY_CONFLICT` 409, `REVIEW_REQUIRED` 409, `SYNTHETIC_IDENTITY_DISABLED` 403, `TENANT_SCOPE_MISMATCH` 403, `PREVIEW_DISABLED` 503. Cross-tenant headers return 403; an unknown ID within the bound tenant returns 404. The OpenAPI document at `/openapi.json` is the field-level schema authority.
+
+## Page-to-API matrix
+
+| Frontend page | Implemented Backend calls | Current integration | Version and error handling | Source / tier |
+|---|---|---|---|---|
+| Inbox | Existing P1 `GET /v1/messages`, `POST /v1/messages/ingest`, contexts endpoints; controlled Mock inquiry POST above | P1 UI exists, but automatic P1 context → canonical Mock OrderRequest assembly is not wired | P1 context versions; Mock source version for import; 409 on stale | P1 synthetic message store / Mock source; DEMO-ONLY |
+| Orders | `GET /order-requests`, `GET /order-requests/{id}`, `POST /accept-mock`, status/timeline under `/v1/backend-v2` | Backend ready on this branch; `OrderQueuePage` still defaults to unavailable source | Request/terms/resource versions; 409 stale, 202 unknown, 403/404 authority | PostgreSQL OrderRequest, Core, Mock Orbyte; DEMO-ONLY |
+| Human Review | `POST /order-requests/{id}/review`; existing P1 context review endpoints | Separate reviewed and pending states; Frontend wiring pending | Strict request version, reason; 409 conflict | PostgreSQL OrderRequest/P1; DEMO-ONLY |
+| Feasibility | `GET /order-requests/{id}/feasibility`; existing P2 commitment routes | Read-only P2 result on Mock input; Frontend wiring pending | Snapshot version and assessment ID; `UNKNOWN` is not acceptance | Mock snapshot + P2 kernel; DEMO-ONLY |
+| Recovery | Existing `/v1/recovery/cases/{commitment_id}`, `/plans/{plan_id}/approve`, `/execute`, `/actions` | Separate synthetic supplier-delay → approval → Mock execution journey exists; the new accepted order is not yet subscribed into it | Core/plan/snapshot versions and separate approval/execution; 409 stale | P2/Recovery PostgreSQL, Mock action receipt; DEMO-ONLY |
+| Communication Center | Existing `/v1/communications` request/draft/review/send/outbound and confirmation routes | Existing isolated P4 flow; new accepted-order outbox is not yet consumed into a customer milestone | Draft/consent/provider status; sent is never assent | P4 PostgreSQL + Mock channel; DEMO-ONLY |
+| Supplier Intelligence | No registered source-backed supplier workspace API | Pure comparator and sourcing models exist only | No stable HTTP request/response contract yet | Synthetic fixtures only; DEMO-ONLY |
+| Forecasting | No registered forecast API | Pure baseline/backtest/risk code exists only | No stable HTTP request/response contract yet | Synthetic history; DEMO-ONLY |
+| Portfolio Optimization | No registered comparison API | Pure CP-SAT advisory exists; no reservation authority | No stable HTTP request/response contract yet | Synthetic constraints; DEMO-ONLY |
+| Operational Reporting | `GET /order-requests/{id}/operational-status`, timeline; existing Core overview | Accepted Mock status and unknown actuals only; daily actuals route pending | Core/request versions in records; missing actuals remain `NOT_AVAILABLE` | PostgreSQL Core/Mock audit; DEMO-ONLY |
+| Decision Memory | No registered historical insight API | Read-only pure logic exists only | No stable HTTP request/response contract yet | No verified historical pool; DEMO-ONLY |
+
+Frontend owners can use the new OpenAPI schemas to write an Orders adapter and error states. Keep the current unavailable default until a trusted server proxy supplies the isolated key, the page actually calls these routes, and an API-to-UI test passes. Do not put the isolated key in `VITE_*` or browser local storage.
