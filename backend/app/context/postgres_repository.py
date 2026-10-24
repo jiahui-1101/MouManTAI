@@ -1153,24 +1153,14 @@ class PostgresMessageRepository:
                 row.version = updated_record.version
                 row.updated_at = updated_record.updated_at
                 if updated_record.status.value == "LINK_VERIFIED" and updated_record.verified_customer:
-                    linked_ctxs = session.scalars(select(OrderContext).where(
-                        OrderContext.tenant_id == tenant_id,
-                        OrderContext.source_message_ids.contains([message_id]),
-                    )).all()
-                    for linked_context in linked_ctxs:
-                        linked_context.customer_id = updated_record.verified_customer.customer_id
-                        linked_context.customer_identity_status = "LINK_VERIFIED"
-                        if "customer_identity" in (linked_context.missing_fields or []):
-                            linked_context.missing_fields = [
-                                field for field in linked_context.missing_fields
-                                if field != "customer_identity"
-                            ]
-                        if (
-                            not linked_context.missing_fields
-                            and linked_context.requested_items
-                            and not linked_context.conflicts
-                        ):
-                            linked_context.status = "INFORMATION_READY"
+                    linked_ctxs = session.scalars(select(OrderContext).where(OrderContext.tenant_id == tenant_id, OrderContext.source_message_ids.contains([message_id]))).all()
+                    for l_ctx in linked_ctxs:
+                        l_ctx.customer_id = updated_record.verified_customer.customer_id
+                        l_ctx.customer_identity_status = "LINK_VERIFIED"
+                        if "customer_identity" in (l_ctx.missing_fields or []):
+                            l_ctx.missing_fields = [m for m in l_ctx.missing_fields if m != "customer_identity"]
+                        if not l_ctx.missing_fields and l_ctx.requested_items and not l_ctx.conflicts:
+                            l_ctx.status = "INFORMATION_READY"
                 session.flush()
                 return association_record(row)
         except (MessageNotFound, AssociationNotFound, StaleAssociationVersion):
