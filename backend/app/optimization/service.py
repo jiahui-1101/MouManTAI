@@ -363,6 +363,32 @@ def _trigger(request: PortfolioRequest, spec: P2ConstraintSpec) -> str:
                 and pair == SolverStatus.INFEASIBLE
             ):
                 return "JOINT_CONTENTION"
+    if len(request.candidates) == 2:
+        return "SINGLE_ORDER_P2"
+    # Pairwise feasibility does not imply joint feasibility: three orders can
+    # each use one unit of a two-unit lot while every pair remains feasible.
+    selected = frozenset(candidate.order_request_id for candidate in request.candidates)
+    full_status = solve(request, spec, Strategy.FCFS, forced_selected=selected)[0]
+    if full_status in (
+        SolverStatus.UNKNOWN,
+        SolverStatus.MODEL_INVALID,
+        SolverStatus.SOLVER_UNAVAILABLE,
+    ):
+        return "SOURCE_UNAVAILABLE"
+    if full_status != SolverStatus.INFEASIBLE:
+        return "SINGLE_ORDER_P2"
+    single_statuses = [
+        solve(request, spec, Strategy.FCFS, forced_selected=frozenset({order_id}))[0]
+        for order_id in sorted(selected)
+    ]
+    if any(
+        status
+        in (SolverStatus.UNKNOWN, SolverStatus.MODEL_INVALID, SolverStatus.SOLVER_UNAVAILABLE)
+        for status in single_statuses
+    ):
+        return "SOURCE_UNAVAILABLE"
+    if all(status == SolverStatus.OPTIMAL for status in single_statuses):
+        return "JOINT_CONTENTION"
     return "SINGLE_ORDER_P2"
 
 

@@ -7,6 +7,7 @@ from itertools import pairwise
 import pytest
 from pydantic import ValidationError
 
+from app.optimization import service as optimization_service
 from app.optimization.cp_sat import ORTOOLS_VERSION, solve
 from app.optimization.models import (
     AuthorizedLot,
@@ -368,9 +369,7 @@ def test_joint_portfolio_100_supply_cannot_cover_70_and_60():
     spec = spec.model_copy(
         update={
             "requirements": tuple(
-                requirement.model_copy(
-                    update={"quantity": demand[requirement.order_request_id]}
-                )
+                requirement.model_copy(update={"quantity": demand[requirement.order_request_id]})
                 for requirement in spec.requirements
             )
         }
@@ -378,14 +377,122 @@ def test_joint_portfolio_100_supply_cannot_cover_70_and_60():
 
     assert ORTOOLS_VERSION != "UNAVAILABLE"
     for selected in (frozenset({"A"}), frozenset({"B"})):
-        status, projection, _, _ = solve(
-            request, spec, Strategy.FCFS, forced_selected=selected
-        )
+        status, projection, _, _ = solve(request, spec, Strategy.FCFS, forced_selected=selected)
         assert status == SolverStatus.OPTIMAL and projection is not None
     status, projection, _, _ = solve(
         request, spec, Strategy.FCFS, forced_selected=frozenset({"A", "B"})
     )
     assert status == SolverStatus.INFEASIBLE and projection is None
+
+
+def three_order_contention_fixture():
+    request, spec = fixture(
+        material_capacity=Decimal(2), second_lot=Decimal(0), shared_resource=False
+    )
+    third = request.candidates[1]
+    third = third.model_copy(
+        update={
+            "order_request_id": "C",
+            "terms_hash": "hash-C",
+            "source_identity": "fixture-source-C",
+            "evidence_refs": ("fixture-order-C",),
+            "received_at": NOW - timedelta(minutes=10),
+            "financial": third.financial.model_copy(
+                update={"order_request_id": "C", "terms_hash": "hash-C"}
+            ),
+        }
+    )
+    request = request.model_copy(
+        update={
+            "candidates": tuple(
+                candidate.model_copy(
+                    update={
+                        "lines": tuple(
+                            line.model_copy(update={"quantity": Decimal(1)})
+                            for line in candidate.lines
+                        )
+                    }
+                )
+                for candidate in (*request.candidates, third)
+            )
+        }
+    )
+    third_requirement = spec.requirements[1].model_copy(
+        update={"order_request_id": "C", "quantity": Decimal(1), "material_use_task_id": "task-C"}
+    )
+    third_resource = spec.resources[1].model_copy(update={"resource_id": "machine-C"})
+    third_task = spec.tasks[1].model_copy(
+        update={"task_id": "task-C", "order_request_id": "C", "resource_ids": ("machine-C",)}
+    )
+    spec = spec.model_copy(
+        update={
+            "candidate_bindings": tuple(
+                CandidateBinding(
+                    order_request_id=c.order_request_id,
+                    request_version=c.request_version,
+                    terms_revision=c.terms_revision,
+                    terms_hash=c.terms_hash,
+                    source_identity=c.source_identity,
+                    evidence_refs=c.evidence_refs,
+                )
+                for c in request.candidates
+            ),
+            "lots": tuple(
+                lot.model_copy(update={"free_quantity": Decimal(2 if lot.lot_id == "old" else 0)})
+                for lot in spec.lots
+            ),
+            "requirements": (
+                *(r.model_copy(update={"quantity": Decimal(1)}) for r in spec.requirements),
+                third_requirement,
+            ),
+            "resources": (*spec.resources, third_resource),
+            "tasks": (*spec.tasks, third_task),
+            "fixed_jobs": (),
+        }
+    )
+    return request, spec
+
+
+def test_three_order_aggregate_contention_triggers_comparison():
+    request, spec = three_order_contention_fixture()
+    validate_spec(request, spec)
+    assert ORTOOLS_VERSION != "UNAVAILABLE"
+    for selected in (
+        frozenset({"A", "B"}),
+        frozenset({"A", "C"}),
+        frozenset({"B", "C"}),
+    ):
+        status, projection, _, _ = solve(request, spec, Strategy.FCFS, forced_selected=selected)
+        assert status == SolverStatus.OPTIMAL and projection is not None
+    status, projection, _, _ = solve(
+        request, spec, Strategy.FCFS, forced_selected=frozenset({"A", "B", "C"})
+    )
+    assert status == SolverStatus.INFEASIBLE and projection is None
+    result = compare(request, provider=FixtureProvider(spec), verifier=FixtureVerifier(spec))
+    assert result.trigger == "JOINT_CONTENTION"
+    assert result.scenarios[0].selected_order_ids == ("A", "B")
+    assert result.scenarios[0].exclusions[0].reason_code == "JOINT_RESOURCE_CONTENTION"
+    assert all(s.recommendation_only for s in result.scenarios)
+
+
+@pytest.mark.parametrize(
+    "solver_status",
+    (SolverStatus.UNKNOWN, SolverStatus.MODEL_INVALID, SolverStatus.SOLVER_UNAVAILABLE),
+)
+def test_three_order_trigger_solver_uncertainty_fails_closed(monkeypatch, solver_status):
+    request, spec = three_order_contention_fixture()
+    actual_solve = optimization_service.solve
+
+    def uncertain_full_set(request, spec, strategy, *, forced_selected=None):
+        if forced_selected == frozenset({"A", "B", "C"}):
+            return solver_status, None, None, None
+        return actual_solve(request, spec, strategy, forced_selected=forced_selected)
+
+    monkeypatch.setattr(optimization_service, "solve", uncertain_full_set)
+    result = compare(request, provider=FixtureProvider(spec), verifier=FixtureVerifier(spec))
+    assert result.trigger == "SOURCE_UNAVAILABLE"
+    assert result.limitation_codes == ("SOLVER_STATUS_UNKNOWN",)
+    assert result.scenarios == ()
 
 
 def test_missing_sources_and_disagreement_fail_closed():
