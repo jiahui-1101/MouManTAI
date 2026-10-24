@@ -31,6 +31,7 @@ interface C3Review {
 async function read<T>(path: string): Promise<T> {
   const response = await fetch(path, { headers: { Accept: 'application/json' } });
   if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new Event('moumantai:demo-session-expired'));
     if (response.status === 401 || response.status === 403)
       throw new Error('Open an authorized isolated operator session to inspect C3 reviews.');
     throw new Error(`C3 reviews unavailable (${response.status}).`);
@@ -97,7 +98,10 @@ export function C3ReviewPanel() {
           request_key: crypto.randomUUID(), reason: reason.trim(),
           corrected_intent: action === 'CORRECT' ? correctedIntent : null }),
       });
-      if (!response.ok) throw new Error(`C3 decision was not recorded (${response.status}). Refresh source and review version.`);
+      if (!response.ok) {
+        if (response.status === 401) window.dispatchEvent(new Event('moumantai:demo-session-expired'));
+        throw new Error(`C3 decision was not recorded (${response.status}). Refresh source and review version.`);
+      }
       setReason('');
       await refresh();
     } catch (cause) {

@@ -78,6 +78,10 @@ export async function apiRequest<T>(path: string, init?: RequestInit, baseUrl = 
   });
 
   if (!response.ok) {
+    if (response.status === 401 && path.startsWith('/demo-bff/') && path !== '/demo-bff/session' &&
+        typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('moumantai:demo-session-expired'));
+    }
     let body: ApiErrorBody | undefined;
     try {
       body = (await response.json()) as ApiErrorBody;
