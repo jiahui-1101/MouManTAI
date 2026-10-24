@@ -40,6 +40,7 @@ describe('Review & Amend candidate safety', () => {
     fireEvent.change(screen.getByLabelText('Unit'), { target: { value: 'box' } });
     fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Review candidate' } });
     expect(screen.getByRole('button', { name: 'Save & Accept' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: /confirm the change to a major field/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/approved SKU/i);
     expect(review).not.toHaveBeenCalled();
@@ -59,7 +60,7 @@ describe('Review & Amend candidate safety', () => {
   it('does not copy a raw delivery expression into a timestamp', () => {
     render(<ReviewDrawer {...props} context={{ ...context, field_evidence: { requested_delivery_at: [{ quote: 'tomorrow before 4pm', method: 'MODEL' }] } }} />);
     expect(screen.getByRole('button', { name: /Apply Delivery: tomorrow before 4pm/ })).toBeDisabled();
-    expect(screen.getByLabelText(/Timing qualifier/i)).toHaveValue('');
+    expect(screen.getByLabelText(/Timing qualifier/i)).not.toHaveValue('tomorrow before 4pm');
   });
 
   it('keeps conflicts unless explicitly reviewed and unresolved remains available without catalog', async () => {

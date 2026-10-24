@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../shared/auth';
-import { operationalApi } from './operationalApi';
+import {
+  getResolvedTaskIds,
+  markTaskResolved,
+  notifyReviewContextSaved,
+  operationalApi,
+  unmarkTaskResolved,
+} from './operationalApi';
 import type {
   ContextReviewRecord,
   ExtractionAttemptRecord,
@@ -18,6 +24,7 @@ import {
 } from './taskTypes';
 import { getSuggestedClarification } from './ReviewDrawer';
 import { ExtractionProvenance } from './ExtractionProvenance';
+import { RequestedDeliveryField } from './RequestedDeliveryField';
 import {
   getConversationIssues,
   sendClarification,
@@ -124,6 +131,7 @@ interface QueueItem {
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   assignedTo: string;
   identityStatus: 'LINK_VERIFIED' | 'UNVERIFIED';
+  isResolved: boolean;
 }
 
 function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | 'UNRESOLVED' | 'FAILED_EXTRACTION' }) {
@@ -132,6 +140,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [resolvedTaskIds, setResolvedTaskIds] = useState<Set<string>>(() => getResolvedTaskIds());
 
   // Filters
   const [activePill, setActivePill] = useState<'all' | 'failed' | 'pending'>(
@@ -171,6 +180,12 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
 
   useEffect(() => {
     void loadQueue();
+    const handleSaved = () => {
+      setResolvedTaskIds(getResolvedTaskIds());
+      void loadQueue();
+    };
+    window.addEventListener('moumantai:review-context-saved', handleSaved);
+    return () => window.removeEventListener('moumantai:review-context-saved', handleSaved);
   }, [search]);
 
   // Map messages to queue items with canonical task types
@@ -181,6 +196,9 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
       const isVerified = msg.processing_status === 'PROCESSED' && idx % 2 === 0;
       const identityStatus = isVerified ? 'LINK_VERIFIED' : 'UNVERIFIED';
       const assignedTo = idx % 3 === 0 ? actorId || 'user_staff_01' : idx % 3 === 1 ? 'Unassigned' : 'Alice';
+      const rawMeta = msg.raw as Record<string, unknown> | undefined;
+      const isResolved = resolvedTaskIds.has(msg.message_id) ||
+        Boolean(rawMeta?.is_resolved || rawMeta?.context_status === 'INFORMATION_READY' || rawMeta?.reviewed);
 
       return {
         message: msg,
@@ -188,17 +206,18 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
         priority: config.defaultPriority,
         assignedTo,
         identityStatus,
+        isResolved,
       };
     });
-  }, [messages, actorId]);
+  }, [messages, actorId, resolvedTaskIds]);
 
   // KPI counts
   const kpiCounts = useMemo(() => {
     const total = queueItems.length;
-    const immediate = queueItems.filter(i => i.priority === 'HIGH').length;
-    const failed = queueItems.filter(i => i.message.processing_status === 'PROCESSING_FAILED' || i.taskType === 'Processing failed').length;
-    const unverified = queueItems.filter(i => i.identityStatus === 'UNVERIFIED').length;
-    return { total, immediate, failed, unverified };
+    const resolved = queueItems.filter(i => i.isResolved).length;
+    const pending = Math.max(0, total - resolved);
+    const urgent = queueItems.filter(i => !i.isResolved && (i.priority === 'HIGH' || i.taskType === 'Field conflict' || i.taskType === 'Processing failed')).length;
+    return { total, pending, resolved, urgent };
   }, [queueItems]);
 
   // Filtering
@@ -279,7 +298,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
         </div>
         <button
           type="button"
-          className="hr-btn-footer hr-compact-action"
+          className="hr-btn-footer"
           onClick={() => void loadQueue()}
           disabled={loading}
         >
@@ -290,20 +309,59 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
       {/* 2. 4 KPI Cards */}
       <div className="hr-kpi-grid">
         <div className="hr-kpi-card">
-          <div className="hr-kpi-label">Open tasks</div>
-          <div className="hr-kpi-value">{kpiCounts.total}</div>
+          <div className="hr-kpi-icon-wrap hr-icon-blue" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          </div>
+          <div className="hr-kpi-content">
+            <div className="hr-kpi-label">Total Reviews</div>
+            <div className="hr-kpi-value">{kpiCounts.total}</div>
+          </div>
         </div>
+
         <div className="hr-kpi-card">
-          <div className="hr-kpi-label">Immediate attention</div>
-          <div className="hr-kpi-value amber">{kpiCounts.immediate}</div>
+          <div className="hr-kpi-icon-wrap hr-icon-amber" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <polyline points="16 11 18 13 22 9" />
+            </svg>
+          </div>
+          <div className="hr-kpi-content">
+            <div className="hr-kpi-label">Pending Review</div>
+            <div className="hr-kpi-value">{kpiCounts.pending}</div>
+          </div>
         </div>
+
         <div className="hr-kpi-card">
-          <div className="hr-kpi-label">Failed extractions</div>
-          <div className="hr-kpi-value danger">{kpiCounts.failed}</div>
+          <div className="hr-kpi-icon-wrap hr-icon-green" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+          </div>
+          <div className="hr-kpi-content">
+            <div className="hr-kpi-label">Resolved</div>
+            <div className="hr-kpi-value">{kpiCounts.resolved}</div>
+          </div>
         </div>
+
         <div className="hr-kpi-card">
-          <div className="hr-kpi-label">Identity unverified</div>
-          <div className="hr-kpi-value">{kpiCounts.unverified}</div>
+          <div className="hr-kpi-icon-wrap hr-icon-red" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </div>
+          <div className="hr-kpi-content">
+            <div className="hr-kpi-label">Urgent Reviews</div>
+            <div className="hr-kpi-value">{kpiCounts.urgent}</div>
+          </div>
         </div>
       </div>
 
@@ -321,76 +379,97 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
           className={`hr-filter-pill ${activePill === 'failed' ? 'is-active' : ''}`}
           onClick={() => { setActivePill('failed'); setCurrentPage(1); }}
         >
-          Failed extractions ({kpiCounts.failed})
+          Failed extractions ({queueItems.filter(i => i.message.processing_status === 'PROCESSING_FAILED' || i.taskType === 'Processing failed').length})
         </button>
         <button
           type="button"
           className={`hr-filter-pill ${activePill === 'pending' ? 'is-active' : ''}`}
           onClick={() => { setActivePill('pending'); setCurrentPage(1); }}
         >
-          Pending / unprocessed ({kpiCounts.total - (messages.filter(m => m.processing_status === 'PROCESSED').length)})
+          Pending / unprocessed ({kpiCounts.pending})
         </button>
       </div>
 
       {/* 4. Filter Card */}
       <div className="hr-filter-card">
-        <input
-          type="search"
-          className="hr-filter-input"
-          placeholder="Search by customer, message, snippet…"
-          value={search}
-          onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
-          aria-label="Search review tasks"
-        />
+        <div className="hr-filter-col hr-col-search">
+          <label htmlFor="hr-search-input" className="hr-field-label">Search</label>
+          <div className="hr-search-wrap">
+            <svg className="hr-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              id="hr-search-input"
+              type="search"
+              className="hr-filter-input"
+              placeholder="Search user, email, ID, or task…"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
+              aria-label="Search review tasks"
+            />
+          </div>
+        </div>
 
-        <select
-          className="hr-filter-select"
-          value={taskTypeFilter}
-          onChange={e => { setTaskTypeFilter(e.target.value); setCurrentPage(1); }}
-          aria-label="Filter by task type"
-        >
-          <option value="">All task types</option>
-          {CANONICAL_TASK_TYPES.map(type => (
-            <option key={type} value={type}>{type}</option>
-          ))}
-        </select>
+        <div className="hr-filter-col">
+          <label htmlFor="hr-task-type-select" className="hr-field-label">Task Type</label>
+          <select
+            id="hr-task-type-select"
+            className="hr-filter-select"
+            value={taskTypeFilter}
+            onChange={e => { setTaskTypeFilter(e.target.value); setCurrentPage(1); }}
+            aria-label="Filter by task type"
+          >
+            <option value="">All task types</option>
+            {CANONICAL_TASK_TYPES.map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </div>
 
-        <select
-          className="hr-filter-select"
-          value={channelFilter}
-          onChange={e => { setChannelFilter(e.target.value); setCurrentPage(1); }}
-          aria-label="Filter by channel"
-        >
-          <option value="">All channels</option>
-          <option value="EMAIL">Email</option>
-          <option value="WHATSAPP">WhatsApp</option>
-          <option value="TELEGRAM">Telegram</option>
-          <option value="PORTAL">Portal</option>
-          <option value="SYNTHETIC">Synthetic</option>
-        </select>
+        <div className="hr-filter-col">
+          <label htmlFor="hr-channel-select" className="hr-field-label">Channel</label>
+          <select
+            id="hr-channel-select"
+            className="hr-filter-select"
+            value={channelFilter}
+            onChange={e => { setChannelFilter(e.target.value); setCurrentPage(1); }}
+            aria-label="Filter by channel"
+          >
+            <option value="">All channels</option>
+            <option value="EMAIL">Email</option>
+            <option value="WHATSAPP">WhatsApp</option>
+            <option value="TELEGRAM">Telegram</option>
+            <option value="PORTAL">Portal</option>
+            <option value="SYNTHETIC">Synthetic</option>
+          </select>
+        </div>
 
-        <div className="hr-filter-assigned-group" role="group" aria-label="Assigned to filter">
-          <button
-            type="button"
-            className={`hr-assigned-btn ${assignedFilter === 'everyone' ? 'is-active' : ''}`}
-            onClick={() => { setAssignedFilter('everyone'); setCurrentPage(1); }}
-          >
-            Everyone
-          </button>
-          <button
-            type="button"
-            className={`hr-assigned-btn ${assignedFilter === 'me' ? 'is-active' : ''}`}
-            onClick={() => { setAssignedFilter('me'); setCurrentPage(1); }}
-          >
-            Me
-          </button>
-          <button
-            type="button"
-            className={`hr-assigned-btn ${assignedFilter === 'unassigned' ? 'is-active' : ''}`}
-            onClick={() => { setAssignedFilter('unassigned'); setCurrentPage(1); }}
-          >
-            Unassigned
-          </button>
+        <div className="hr-filter-col">
+          <span className="hr-field-label">Assigned To</span>
+          <div className="hr-filter-assigned-group" role="group" aria-label="Assigned to filter">
+            <button
+              type="button"
+              className={`hr-assigned-btn ${assignedFilter === 'everyone' ? 'is-active' : ''}`}
+              onClick={() => { setAssignedFilter('everyone'); setCurrentPage(1); }}
+            >
+              Everyone
+            </button>
+            <button
+              type="button"
+              className={`hr-assigned-btn ${assignedFilter === 'me' ? 'is-active' : ''}`}
+              onClick={() => { setAssignedFilter('me'); setCurrentPage(1); }}
+            >
+              Me
+            </button>
+            <button
+              type="button"
+              className={`hr-assigned-btn ${assignedFilter === 'unassigned' ? 'is-active' : ''}`}
+              onClick={() => { setAssignedFilter('unassigned'); setCurrentPage(1); }}
+            >
+              Unassigned
+            </button>
+          </div>
         </div>
 
         <button type="button" className="hr-reset-btn" onClick={resetFilters}>
@@ -421,7 +500,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
                     }
                   }}
                 >
-                  Received {sortField === 'received' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
+                  Received {sortField === 'received' ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}
                 </th>
                 <th>Customer and message</th>
                 <th>Task type</th>
@@ -437,10 +516,10 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
                     }
                   }}
                 >
-                  Priority {sortField === 'priority' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
+                  Priority {sortField === 'priority' ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}
                 </th>
-                <th>Assigned</th>
-                <th>Action</th>
+                <th className="hr-col-assigned">Assigned</th>
+                <th className="hr-col-action">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -457,6 +536,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
                 paginatedItems.map(item => {
                   const msg = item.message;
                   const senderName = msg.raw.sender_alias || msg.raw.sender_identity_id || 'Unknown Customer';
+                  const avatarInitial = (senderName.trim().charAt(0) || 'U').toUpperCase();
                   const channel = msg.source_label || msg.raw.channel || 'EMAIL';
                   const textPreview = (msg.raw.text || 'No text snippet').replace(/\s+/g, ' ').trim();
                   const snippet = textPreview.length > 90 ? `${textPreview.slice(0, 90)}…` : textPreview;
@@ -488,12 +568,17 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
                     >
                       <td style={{ whiteSpace: 'nowrap' }}>{receivedDate}</td>
                       <td>
-                        <div className="hr-cell-customer">
-                          <div className="hr-cell-customer-top">
-                            <span className="hr-customer-name">{senderName}</span>
-                            <span className="hr-source-badge">{channel}</span>
+                        <div className="hr-cell-customer-wrap">
+                          <div className="hr-avatar-circle" aria-hidden="true">
+                            {avatarInitial}
                           </div>
-                          <span className="hr-cell-snippet" title={textPreview}>{snippet}</span>
+                          <div className="hr-cell-customer">
+                            <div className="hr-cell-customer-top">
+                              <span className="hr-customer-name">{senderName}</span>
+                              <span className="hr-source-badge">{channel}</span>
+                            </div>
+                            <span className="hr-cell-snippet" title={textPreview}>{snippet}</span>
+                          </div>
                         </div>
                       </td>
                       <td>
@@ -502,22 +587,26 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
                         </span>
                       </td>
                       <td>
-                        <div className="hr-status-group">
-                          <span className={`hr-status-pill ${msg.processing_status === 'PROCESSED' ? 'processed' : msg.processing_status === 'PROCESSING_FAILED' ? 'failed' : 'received'}`}>
-                            {msg.processing_status}
-                          </span>
-                          <span className={`hr-status-pill ${item.identityStatus === 'LINK_VERIFIED' ? 'verified' : 'unverified'}`}>
-                            {item.identityStatus}
-                          </span>
-                        </div>
+                        {item.isResolved ? (
+                          <span className="hr-status-pill resolved">RESOLVED</span>
+                        ) : (
+                          <div className="hr-status-group">
+                            <span className={`hr-status-pill ${msg.processing_status === 'PROCESSED' ? 'processed' : msg.processing_status === 'PROCESSING_FAILED' ? 'failed' : 'received'}`}>
+                              {msg.processing_status}
+                            </span>
+                            <span className={`hr-status-pill ${item.identityStatus === 'LINK_VERIFIED' ? 'verified' : 'unverified'}`}>
+                              {item.identityStatus}
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td>
                         <span className={`hr-priority-pill ${item.priority.toLowerCase()}`}>
                           {item.priority}
                         </span>
                       </td>
-                      <td>{item.assignedTo}</td>
-                      <td>
+                      <td className="hr-col-assigned">{item.assignedTo}</td>
+                      <td className="hr-col-action">
                         <button
                           type="button"
                           className="hr-btn-review"
@@ -539,18 +628,17 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
 
         {/* 6. Pagination Footer */}
         <div className="hr-pagination-bar">
-          <div>
+          <div className="hr-pagination-info">
             Showing {totalEntries > 0 ? startIndex + 1 : 0} to {Math.min(startIndex + rowsPerPage, totalEntries)} of {totalEntries} entries
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <div>
-              <label htmlFor="rows-select" style={{ marginRight: '6px' }}>Rows per page:</label>
+          <div className="hr-pagination-actions">
+            <div className="hr-rows-per-page">
+              <label htmlFor="rows-select">Rows per page:</label>
               <select
                 id="rows-select"
                 value={rowsPerPage}
                 onChange={e => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}
-                className="hr-filter-select"
-                style={{ padding: '4px 8px' }}
+                className="hr-filter-select hr-rows-select"
               >
                 <option value={10}>10</option>
                 <option value={25}>25</option>
@@ -560,22 +648,24 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
             <div className="hr-pagination-controls">
               <button
                 type="button"
-                className="hr-page-btn"
+                className="hr-page-btn hr-page-prev"
                 disabled={currentPage <= 1}
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                aria-label="Previous page"
               >
-                Previous
+                ‹
               </button>
-              <span style={{ fontSize: '12px', fontWeight: 600, padding: '0 4px' }}>
-                {currentPage} / {totalPages}
+              <span className="hr-page-current">
+                {currentPage}
               </span>
               <button
                 type="button"
-                className="hr-page-btn"
+                className="hr-page-btn hr-page-next"
                 disabled={currentPage >= totalPages}
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                aria-label="Next page"
               >
-                Next
+                ›
               </button>
             </div>
           </div>
@@ -684,10 +774,10 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
   const [items, setItems] = useState<RequestedItem[]>([]);
   const [deliveryAt, setDeliveryAt] = useState<string>('');
   const [timingQualifier, setTimingQualifier] = useState<string>('Unresolved');
-  const [timezoneSelect, setTimezoneSelect] = useState<string>('');
+  const [timezoneSelect] = useState<string>('');
   const [specialInstructions, setSpecialInstructions] = useState<string>('');
   const [reviewerNote, setReviewerNote] = useState<string>('');
-  const [dirtyFields, setDirtyFields] = useState<Set<string>>(new Set());
+  const [, setDirtyFields] = useState<Set<string>>(new Set());
 
   // UI States
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -701,11 +791,13 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
   const [saveMode, setSaveMode] = useState<'save' | 'accept'>('save');
   const [majorFieldConfirmed, setMajorFieldConfirmed] = useState(false);
   const [modalReason, setModalReason] = useState('');
+  const [saving, setSaving] = useState(false);
   const [reprocessConfirmOpen, setReprocessConfirmOpen] = useState(false);
   const [managerReviewModalOpen, setManagerReviewModalOpen] = useState(false);
   const [managerReviewNote, setManagerReviewNote] = useState('');
   const [markUnresolvedModalOpen, setMarkUnresolvedModalOpen] = useState(false);
   const [markUnresolvedReason, setMarkUnresolvedReason] = useState('');
+  const [conflictsReviewed, setConflictsReviewed] = useState(false);
   const [linkOrderModalOpen, setLinkOrderModalOpen] = useState(false);
   const [selectedCandidateOrder, setSelectedCandidateOrder] = useState('');
   const [linkOrderReason, setLinkOrderReason] = useState('');
@@ -772,6 +864,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
 
       setDirtyFields(new Set());
       setReviewerNote('');
+      setConflictsReviewed(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load task details');
     } finally {
@@ -813,11 +906,11 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
   const missingCount = missingList.length;
 
   // Major fields modified check
-  const hasMajorFieldChanges = useMemo(() => {
-    return dirtyFields.has('sku') || dirtyFields.has('quantity') || dirtyFields.has('delivery');
-  }, [dirtyFields]);
-
-  const isDirty = dirtyFields.size > 0;
+  const itemsChanged = Boolean(context) && JSON.stringify(items) !== JSON.stringify(context!.requested_items?.length ? context!.requested_items.map(it => ({ sku: it.sku || '', quantity: it.quantity || '', unit: it.unit || '' })) : [{ sku: '', quantity: '', unit: '' }]);
+  const deliveryChanged = Boolean(context) && (deliveryAt !== (context!.requested_delivery_at || '') || timingQualifier !== (context!.delivery_qualifier || 'Unresolved'));
+  const instructionsChanged = Boolean(context) && specialInstructions !== (context!.special_instructions || '');
+  const hasMajorFieldChanges = itemsChanged || deliveryChanged;
+  const isDirty = itemsChanged || deliveryChanged || instructionsChanged;
 
   // Mark field dirty & highlight
   const markDirty = (field: string) => {
@@ -850,26 +943,35 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
 
   // Save changes handler
   const handleConfirmSave = async () => {
-    if (!context) return;
+    if (!context || saving || (saveMode !== 'accept' && !isDirty) || (hasMajorFieldChanges && !majorFieldConfirmed)) return;
     const finalReason = modalReason.trim() || reviewerNote.trim();
     if (!finalReason) return;
 
+    setSaving(true);
+    setError(null);
     try {
       const fieldEdits: Record<string, unknown> = {};
-      if (dirtyFields.has('delivery')) {
-        fieldEdits.requested_delivery_at = deliveryValidation.normalized || deliveryAt;
+      if (deliveryChanged) {
+        if (deliveryAt && !deliveryValidation.isValid) throw new Error('Enter a valid delivery time with an explicit timezone before saving.');
+        fieldEdits.requested_delivery_at = deliveryAt ? deliveryValidation.normalized : null;
         fieldEdits.delivery_qualifier = timingQualifier;
       }
-      if (dirtyFields.has('items') || dirtyFields.has('sku') || dirtyFields.has('quantity') || dirtyFields.has('unit')) {
+      if (itemsChanged) {
+        if (items.some(it => !it.sku.trim() || !it.unit.trim() || !/^[0-9]+(?:\.[0-9]+)?$/.test(it.quantity.trim()) || Number(it.quantity) <= 0)) {
+          throw new Error('Edited items need an approved SKU, positive quantity and unit. Leave unknown products unresolved.');
+        }
         fieldEdits.requested_items = items;
       }
-      if (dirtyFields.has('instructions')) {
+      if (instructionsChanged) {
         fieldEdits.special_instructions = specialInstructions;
+      }
+      if (conflictsReviewed) {
+        fieldEdits.conflicts = [];
       }
 
       const action = saveMode === 'accept' ? 'ACCEPT_EXTRACTION' : 'EDIT_FIELD';
 
-      const updated = await operationalApi.reviewContext(
+      const saved = await operationalApi.reviewContext(
         context.context_id,
         {
           action,
@@ -878,24 +980,52 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
           note: finalReason,
         },
         {
+          'X-Tenant-ID': context.tenant_id,
           'X-Actor-ID': actorId || 'user_staff_01',
           'X-Actor-Role': actorRole || 'STAFF',
         }
       );
 
+      const updated = await operationalApi.getContext(context.context_id, { 'X-Tenant-ID': context.tenant_id });
+      if (updated.context_version < saved.context_version || Object.entries(fieldEdits).some(([key, value]) => {
+        const actual = updated[key as keyof OrderContextRecord];
+        if (key === 'requested_delivery_at' && typeof actual === 'string' && typeof value === 'string') return Date.parse(actual) !== Date.parse(value);
+        return JSON.stringify(actual ?? null) !== JSON.stringify(value ?? null);
+      })) throw new Error('Review write returned, but the saved values are not visible in the authoritative context. Refresh before retrying.');
       setContext(updated);
+      setDeliveryAt(updated.requested_delivery_at || '');
+      setTimingQualifier(updated.delivery_qualifier || 'Unresolved');
+      if (updated.requested_items && updated.requested_items.length > 0) {
+        setItems(updated.requested_items.map(it => ({ sku: it.sku || '', quantity: it.quantity || '', unit: it.unit || '' })));
+      } else {
+        setItems([{ sku: '', quantity: '', unit: '' }]);
+      }
+      setSpecialInstructions(updated.special_instructions || '');
       setDirtyFields(new Set());
       setReviewerNote('');
+      setConflictsReviewed(false);
       setSaveModalOpen(false);
       setShowUnsavedBanner(false);
       setReviewState(saveMode === 'accept' ? 'Accepted' : 'In progress');
       showToast(saveMode === 'accept' ? 'Saved & extraction review confirmed. Audit entry recorded.' : 'Saved. Audit entry recorded.');
 
+      if (saveMode === 'accept') {
+        markTaskResolved(taskId);
+        context.source_message_ids?.forEach(id => markTaskResolved(id));
+        navigate(returnTo || '/inbox/human-review');
+        return;
+      }
+
       if (onContextUpdated) onContextUpdated(updated);
-      const reloadedReviews = await operationalApi.listContextReviews(context.context_id).catch(() => []);
+      notifyReviewContextSaved();
+      const reloadedReviews = await operationalApi.listContextReviews(context.context_id, { 'X-Tenant-ID': context.tenant_id }).catch(() => []);
       setAuditReviews(reloadedReviews);
+      const refreshedIssues = await getConversationIssues(taskId, updated).catch(() => null);
+      if (refreshedIssues?.issues) setIssues(refreshedIssues.issues);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -925,6 +1055,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
           note: `[Manager Escalation] ${managerReviewNote.trim()}`,
         },
         {
+          'X-Tenant-ID': context.tenant_id,
           'X-Actor-ID': actorId || 'user_staff_01',
           'X-Actor-Role': actorRole || 'STAFF',
         }
@@ -949,11 +1080,15 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
           note: `[Marked Unresolved] ${markUnresolvedReason.trim()}`,
         },
         {
+          'X-Tenant-ID': context.tenant_id,
           'X-Actor-ID': actorId || 'user_staff_01',
           'X-Actor-Role': actorRole || 'STAFF',
         }
       );
       setReviewState('Unresolved');
+      unmarkTaskResolved(taskId);
+      context.source_message_ids?.forEach(id => unmarkTaskResolved(id));
+      notifyReviewContextSaved();
       showToast('Marked as unresolved. Audit entry recorded.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');
@@ -1184,8 +1319,16 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
       {/* 4. Red Alert Bar (IssueBanner) */}
       {(missingCount > 0 || conflictCount > 0) && (
         <div className="hr-issue-banner" role="alert" data-component="IssueBanner">
-          Information needs review · {missingCount} missing · {conflictCount} conflicts
-          {missingList.length > 0 && ` (${missingList.join(', ')})`}
+          <div>
+            Information needs review · {missingCount} missing · {conflictCount} conflicts
+            {missingList.length > 0 && ` (${missingList.join(', ')})`}
+          </div>
+          {conflictCount > 0 && (
+            <label className="ra-conflict-check" style={{ marginTop: '0.25rem', display: 'inline-flex', alignItems: 'center', gap: '0.5rem', fontWeight: 'normal', cursor: 'pointer' }}>
+              <input type="checkbox" checked={conflictsReviewed} onChange={e => setConflictsReviewed(e.target.checked)} />
+              I reviewed and resolved all listed conflicts with evidence
+            </label>
+          )}
         </div>
       )}
 
@@ -1278,38 +1421,61 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
               <h2>Extracted fields</h2>
               <p className="hint">Edit values supported by the original request. Every change needs an audit reason.</p>
 
-              {/* Delivery Field */}
+              {/* Audit reason & notes — inline at top for immediate visibility */}
+              <div className="hr-audit-inline" data-component="AuditNoteCard">
+                {suggestedClarification && (
+                  <div className="hr-ai-box" data-component="AISuggestion">
+                    <div className="hr-ai-top">
+                      <span>AI suggested clarification</span>
+                      <span className="hr-chip blue">Requires staff approval</span>
+                    </div>
+                    <q className="hr-ai-quote">"{suggestedClarification}"</q>
+                    <button
+                      type="button"
+                      className="hr-ai-use-btn"
+                      onClick={() => {
+                        setReviewerNote(suggestedClarification);
+                        markDirty('note');
+                      }}
+                    >
+                      Use as clarification note
+                    </button>
+                  </div>
+                )}
+                <div className="hr-audit-inline-row">
+                  <label htmlFor="reviewer-note" className="hr-audit-inline-label">
+                    Reviewer note <span className="hr-req-star">*</span>
+                  </label>
+                  <textarea
+                    id="reviewer-note"
+                    className="hr-filter-input hr-audit-inline-textarea"
+                    rows={2}
+                    placeholder="State reason for changes, confirmation evidence, or clarification details…"
+                    value={reviewerNote}
+                    onChange={e => setReviewerNote(e.target.value)}
+                  />
+                  <div className="hr-helper-text">Audited reason is recorded in the context timeline.</div>
+                </div>
+              </div>
+
+              {/* Delivery Field — Orbyte date/time picker */}
               <div
-                className={`hr-field-row ${dirtyFields.has('delivery') ? 'is-modified' : ''}`}
+                className={`hr-field-row ${deliveryChanged ? 'is-modified' : ''}`}
                 data-key="delivery"
                 data-component="FieldRow"
                 onClick={() => handleFocusKey('delivery')}
               >
-                <div className="hr-field-label">
-                  <label htmlFor="delivery-input">Requested delivery <span className="hr-req-star">*</span> (major field)</label>
-                  <span className={`hr-chip ${deliveryValidation.isValid ? 'green' : 'amber'}`}>
-                    {deliveryValidation.isValid ? 'Confirmed' : 'Missing timezone'}
-                  </span>
-                  <button
-                    type="button"
-                    className="hr-ev-btn"
-                    title="Show evidence"
-                    onClick={e => { e.stopPropagation(); toggleEvidence('delivery'); }}
-                  >
-                    🔍
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  id="delivery-input"
-                  className="hr-filter-input"
+                <RequestedDeliveryField
                   value={deliveryAt}
-                  onChange={e => {
-                    setDeliveryAt(e.target.value);
+                  qualifier={timingQualifier}
+                  context={context}
+                  onChange={(newValue, newQualifier) => {
+                    setDeliveryAt(newValue);
+                    setTimingQualifier(newQualifier);
                     markDirty('delivery');
                   }}
                   onFocus={() => handleFocusKey('delivery')}
-                  placeholder="2026-10-28T10:00:00+08:00"
+                  onToggleEvidence={() => toggleEvidence('delivery')}
                 />
 
                 {openEvidence['delivery'] && (
@@ -1317,55 +1483,11 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                     Evidence: <code>"{deliveryAt || '28 October 2026'}"</code> · Method: MODEL · <button type="button" className="ra-link" onClick={() => handleFocusKey('delivery')}>Locate in message</button>
                   </div>
                 )}
-
-                <div className="hr-helper-text">
-                  {deliveryValidation.isValid
-                    ? 'Explicit timezone offset (+08:00) verified.'
-                    : 'Business timezone is not set. Confirm timezone before accepting.'}
-                </div>
-
-                {!deliveryValidation.isValid && (
-                  <select
-                    className="hr-filter-select"
-                    style={{ marginTop: '8px', width: '100%' }}
-                    value={timezoneSelect}
-                    onChange={e => {
-                      setTimezoneSelect(e.target.value);
-                      markDirty('delivery');
-                    }}
-                    aria-label="Select timezone"
-                  >
-                    <option value="">Select timezone…</option>
-                    <option value="SGT">Asia/Singapore (UTC+8)</option>
-                    <option value="MYT">Asia/Kuala_Lumpur (UTC+8)</option>
-                  </select>
-                )}
-
-                <div style={{ marginTop: '8px' }}>
-                  <label htmlFor="qualifier-select" style={{ fontSize: '12px', fontWeight: 600 }}>Timing qualifier</label>
-                  <select
-                    id="qualifier-select"
-                    className="hr-filter-select"
-                    style={{ width: '100%', marginTop: '4px' }}
-                    value={timingQualifier}
-                    onChange={e => {
-                      setTimingQualifier(e.target.value);
-                      markDirty('delivery');
-                    }}
-                  >
-                    <option value="Unresolved">Unresolved</option>
-                    <option value="Exact">Exact</option>
-                    <option value="Before">Before</option>
-                    <option value="After">After</option>
-                    <option value="Around">Around</option>
-                    <option value="DEADLINE">DEADLINE</option>
-                  </select>
-                </div>
               </div>
 
               {/* Items Section */}
               <div
-                className={`hr-field-row ${dirtyFields.has('items') ? 'is-modified' : ''}`}
+                className={`hr-field-row ${itemsChanged ? 'is-modified' : ''}`}
                 data-component="ItemsTable"
               >
                 <div className="hr-field-label">
@@ -1392,9 +1514,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                         value={item.sku}
                         aria-label="SKU / Product"
                         onChange={e => {
-                          const next = [...items];
-                          next[idx].sku = e.target.value;
-                          setItems(next);
+                          setItems(previous => previous.map((item, i) => i === idx ? { ...item, sku: e.target.value } : item));
                           markDirty('sku');
                           markDirty('items');
                         }}
@@ -1407,9 +1527,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                         value={item.quantity}
                         aria-label="Quantity"
                         onChange={e => {
-                          const next = [...items];
-                          next[idx].quantity = e.target.value;
-                          setItems(next);
+                          setItems(previous => previous.map((item, i) => i === idx ? { ...item, quantity: e.target.value } : item));
                           markDirty('quantity');
                           markDirty('items');
                         }}
@@ -1420,9 +1538,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                         value={item.unit}
                         aria-label="Unit"
                         onChange={e => {
-                          const next = [...items];
-                          next[idx].unit = e.target.value;
-                          setItems(next);
+                          setItems(previous => previous.map((item, i) => i === idx ? { ...item, unit: e.target.value } : item));
                           markDirty('unit');
                           markDirty('items');
                         }}
@@ -1467,7 +1583,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                   type="button"
                   className="hr-btn-footer hr-compact-action"
                   style={{ marginTop: '10px' }}
-                  onClick={() => setItems(prev => [...prev, { sku: '', quantity: '', unit: '' }])}
+                  onClick={() => { setItems(prev => [...prev, { sku: '', quantity: '', unit: '' }]); markDirty('items'); }}
                 >
                   + Add item
                 </button>
@@ -1489,44 +1605,6 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                   }}
                   placeholder="Optional handling or packaging details"
                 />
-              </div>
-            </div>
-
-            {/* Audit reason & notes card */}
-            <div className="hr-card-box hr-audit-card" data-component="AuditNoteCard">
-              <h2>Audit reason &amp; notes</h2>
-              {suggestedClarification && (
-                <div className="hr-ai-box" data-component="AISuggestion">
-                  <div className="hr-ai-top">
-                    <span>AI suggested clarification</span>
-                    <span className="hr-chip blue">Requires staff approval</span>
-                  </div>
-                  <q className="hr-ai-quote">"{suggestedClarification}"</q>
-                  <button
-                    type="button"
-                    className="hr-ai-use-btn"
-                    onClick={() => {
-                      setReviewerNote(suggestedClarification);
-                      markDirty('note');
-                    }}
-                  >
-                    Use as clarification note
-                  </button>
-                </div>
-              )}
-              <div className="hr-field-label">
-                <label htmlFor="reviewer-note">Reviewer note <span className="hr-req-star">*</span></label>
-              </div>
-              <textarea
-                id="reviewer-note"
-                className="hr-filter-input"
-                rows={3}
-                placeholder="State reason for changes, confirmation evidence, or clarification details…"
-                value={reviewerNote}
-                onChange={e => setReviewerNote(e.target.value)}
-              />
-              <div className="hr-helper-text">
-                Audited business reason is recorded in the context timeline.
               </div>
             </div>
 
@@ -1864,7 +1942,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                 ? 'No field changes yet'
                 : !reviewerNote.trim()
                 ? 'Unsaved changes · reviewer note is required'
-                : `${dirtyFields.size} field change(s) not saved`}
+                : `${Number(itemsChanged) + Number(deliveryChanged) + Number(instructionsChanged)} field change(s) not saved`}
             </div>
             <div className="hr-sticky-right">
               <button
@@ -1880,7 +1958,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
               <button
                 type="button"
                 className="hr-btn-footer primary"
-                disabled={!isDirty || !reviewerNote.trim()}
+                disabled={saving || !isDirty || !reviewerNote.trim()}
                 onClick={() => {
                   setSaveMode('save');
                   setModalReason(reviewerNote);
@@ -1892,7 +1970,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
               <button
                 type="button"
                 className="hr-btn-footer primary"
-                disabled={!isDirty || !reviewerNote.trim() || !deliveryValidation.isValid || items.some(it => !it.unit)}
+                disabled={saving || !reviewerNote.trim() || !deliveryValidation.isValid || items.some(it => !it.sku || !it.unit || !it.quantity) || Boolean(context?.conflicts?.length && !conflictsReviewed)}
                 onClick={() => {
                   setSaveMode('accept');
                   setModalReason(reviewerNote);
@@ -1952,7 +2030,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
               <button
                 type="button"
                 className="hr-btn-footer primary"
-                disabled={!modalReason.trim() || (hasMajorFieldChanges && !majorFieldConfirmed)}
+                disabled={saving || !modalReason.trim() || (hasMajorFieldChanges && !majorFieldConfirmed)}
                 onClick={handleConfirmSave}
               >
                 {saveMode === 'accept' ? 'Confirm & Accept Review' : 'Save Changes'}

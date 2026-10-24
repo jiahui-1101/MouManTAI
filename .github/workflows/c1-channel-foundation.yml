@@ -1,0 +1,71 @@
+name: C1 Channel Foundation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/app/context/channels/reply_framing.py"
+      - "backend/app/context/tests/test_reply_framing.py"
+      - "backend/app/context/tests/test_c1_repository_regression.py"
+      - ".github/workflows/c1-channel-foundation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  framing-and-canonical-persistence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: moumantai_c1_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d moumantai_c1_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TELEGRAM_AUTO_START: "false"
+      GMAIL_AUTO_START: "false"
+      P1_AI_ENABLED: "false"
+      MOUMANTAI_SYNTHETIC_MODE: "1"
+      P1_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/moumantai_c1_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install existing backend and scoped checker
+        run: python -m pip install -e "./backend[dev]" ruff==0.17.2
+      - name: Static checks
+        working-directory: backend
+        run: |
+          python -m ruff check app/context/channels/reply_framing.py app/context/tests/test_reply_framing.py app/context/tests/test_c1_repository_regression.py
+          python -m ruff format --check app/context/channels/reply_framing.py app/context/tests/test_reply_framing.py app/context/tests/test_c1_repository_regression.py
+          python -m compileall -q app/context/channels/reply_framing.py
+          python -m alembic heads
+      - name: Synthetic framing and existing channel regressions
+        working-directory: backend
+        run: >-
+          python -m pytest app/context/tests/test_reply_framing.py
+          app/context/tests/test_telegram_channel.py
+          app/context/tests/test_whatsapp_channel.py
+          app/context/tests/test_gmail_channel.py
+          app/context/tests/test_channel_manager_and_routes.py
+          -o addopts= -q --tb=short
+      - name: Canonical PostgreSQL and existing migration regressions
+        working-directory: backend
+        run: >-
+          python -m pytest app/context/tests/test_c1_repository_regression.py
+          app/context/tests/test_postgres_repository.py
+          app/context/tests/test_p1_alembic_migration.py
+          app/context/tests/test_order_context_source_snapshot.py
+          app/context/tests/test_order_context_storage.py
+          app/context/tests/test_association_models_and_storage.py
+          -o addopts= -q --tb=short

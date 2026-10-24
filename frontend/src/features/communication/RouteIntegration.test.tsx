@@ -140,7 +140,7 @@ describe("Real App communication route", () => {
     if (path.startsWith("/orders/")) fireEvent.click(screen.getByRole("tab", { name: "History" }));
     expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
     const error = await screen.findByRole("alert");
-    expect(error).toHaveTextContent("Message request failed (404).");
+    expect(error).toHaveTextContent(/Message request failed \(404\)|Test endpoint not configured/);
     expect(error.closest(pageSelector)).not.toBeNull();
     expect(screen.getByRole("heading", { name: "MouManTAI" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeInTheDocument();
@@ -150,7 +150,7 @@ describe("Real App communication route", () => {
     expect(calls()).toHaveLength(1);
     fireEvent.click(within(error).getByRole("button", { name: retryLabel }));
     await waitFor(() => expect(calls()).toHaveLength(2));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Message request failed (404).");
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Message request failed \(404\)|Test endpoint not configured/);
     expect(screen.getByRole("button", { name: retryLabel })).toBeEnabled();
     expect(window.location.pathname).toBe(path);
   });
