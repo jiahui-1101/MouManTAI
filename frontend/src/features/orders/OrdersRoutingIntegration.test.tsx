@@ -87,6 +87,7 @@ it('opens remaining Sidebar destinations and restores hidden Pending and prior p
   await main().findByRole('heading', { name: 'Production & Delivery Calendar' });
   expect(window.location.pathname).toBe('/calendar');
   await act(async () => { window.history.back(); });
+  await waitFor(() => expect(window.location.pathname).toBe('/planning/portfolio'), { timeout: 10000 });
   await main().findByRole('heading', { name: 'Portfolio Comparison' }, { timeout: 10000 });
   await act(async () => { window.history.back(); });
   await waitFor(() => expect(main().getByRole('combobox', { name: 'Order Status' })).toHaveValue('PENDING_ACCEPTANCE'), { timeout: 10000 });
