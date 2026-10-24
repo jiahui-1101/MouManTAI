@@ -51,6 +51,7 @@ describe('Orders integration through the real application router and Sidebar', (
     vi.spyOn(operationalApi, 'listContextReviews').mockResolvedValue([]);
     window.history.replaceState({}, '', '/orders/legacy-order');
     render(<App routeExtensions={orderPlanningRoutes} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'History' }));
     expect(await screen.findByRole('heading', { name: 'Order Context: legacy-order' })).toBeInTheDocument();
     expect(getContext).toHaveBeenCalledWith('legacy-order', expect.objectContaining({ 'X-Tenant-ID': 'tenant_demo_01', 'X-Actor-ID': 'user_owner_01' }));
     expect(screen.getByRole('heading', { name: 'Order detail & feasibility' })).toBeInTheDocument();
