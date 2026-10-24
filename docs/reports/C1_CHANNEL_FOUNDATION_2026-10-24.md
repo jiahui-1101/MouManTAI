@@ -89,7 +89,7 @@ delivery, order acceptance, customer assent or consent.
 - [x] Use a dedicated disposable PostgreSQL container for unchanged persistence tests and
   inventory; never run migrations against shared databases.
 - [x] Run Ruff/format/compile/diff checks and record exact results.
-- [ ] Review, commit focused slices, verify HEAD, normal push, Draft Backend PR to Main;
+- [x] Review, commit focused slices, verify HEAD, normal push, Draft Backend PR to Main;
   request only jiahui-1101. Keep Draft until owner review and integration gates.
 
 Alternative approaches rejected for this C1: changing canonical persistence now violates the
@@ -217,3 +217,23 @@ Static checks:
   Difference from C1 base 1774612 is README-only PR #86; no backend drift was imported.
 - Affected owner: meishuet16 for C1; integration review exclusively jiahui-1101.
   Draft status must remain until owner review, migration safety and PostgreSQL gates.
+
+## Published handoff
+- Draft PR: https://github.com/jiahui-1101/MouManTAI/pull/89
+- Branch: codex/c1-channel-foundation. Initial published head:
+  bf96d33d238e60976436ee813a3d86a16c285441. Normal push verified against expected
+  local HEAD and clean tracked index/worktree; remote branch SHA matched.
+- Requested reviewer: jiahui-1101 only; no team reviewers. Not marked ready or merged.
+- Source commits: 1e98372 audit, 927e0e1 helpers/tests, bf96d33 CI. This publication
+  checkpoint is a separate documentation commit.
+- Main advanced again at PR creation to 2750210868a27357e2a7f216c8fe8b1f31379af8
+  (PR #87 Orders demo/planning). Inspected diff: new demo route/fixtures/frontend plus
+  package data; no P1 channel/schema/repository/migration delta. C1 local evidence
+  remains explicitly on its original base; GitHub checks evaluate the current PR.
+- CI observed running: C1 Channel Foundation run 40100221857, P1 Source Reader
+  PostgreSQL run 40100221816, CI run 40100221814. Do not infer success from dispatch.
+- Automatic approval review rejected deletion of generated .pytest-c1-* temporary
+  directories; they remain untracked in this isolated worktree, never staged.
+  Ignored test logs also remain locally for evidence. No user changes were removed.
+- Task-owned disposable PostgreSQL container remains available on loopback 15473;
+  production/shared database and original checkout remain untouched.
