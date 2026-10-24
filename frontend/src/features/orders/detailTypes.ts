@@ -33,6 +33,8 @@ export interface PricingAssessment {
 }
 export interface OrderDetail {
   id: string; tenantId: string; customer?: string | null; channel?: string | null;
+  /** Authoritative identity, distinct from the customer display label. */
+  customerId?: string | null;
   receivedAt?: string | null; completedAt?: string | null; status?: string | null; version?: string | null;
   originalDeadline?: string | null; currentDeadline?: string | null; fulfilment?: string | null;
   location?: string | null; instructions?: string | null;

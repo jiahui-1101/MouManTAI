@@ -21,8 +21,9 @@ const versionText = (value: unknown) => {
 /** Exact existing Core DTO: no price, terms hash, assent, reservation or request-version promotion. */
 export function mapCoreDecision(raw: unknown, order: OrderDetail, tenant: string): OrderDecisionSnapshot {
   const c = record(raw);
+  const customerIdentity = order.customerId?.trim() || order.customer;
   if (!order.commitmentId || c.commitment_id !== order.commitmentId || c.order_id !== order.id || c.tenant_id !== tenant ||
-      (order.customer && c.customer_id !== order.customer)) throw new Error('Core/order binding mismatch');
+      (customerIdentity && c.customer_id !== customerIdentity)) throw new Error('Core/order binding mismatch');
   const terms = record(c.terms);
   const lines = terms.items == null ? [terms] : terms.items;
   if (!Array.isArray(lines)) throw new Error('Invalid Core terms');

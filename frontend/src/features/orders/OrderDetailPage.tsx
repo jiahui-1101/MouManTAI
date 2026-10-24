@@ -9,10 +9,11 @@ import { loadLegacyContextDetail, type OrderDetailSource } from './detailApi';
 import type { OrderDecisionSource } from './decisionTypes';
 import { OrderDetailWorkspace } from './OrderDetailWorkspace';
 import './orderDetail.css';
+import { demoOrderDetailSource, ordersDemoEnabled } from './demoSource';
 
 export interface OrderDetailPageProps { orderId?: string; source?: OrderDetailSource; decisionSource?: OrderDecisionSource }
 
-export function OrderDetailPage({ orderId, source, decisionSource }: OrderDetailPageProps = {}) {
+export function OrderDetailPage({ orderId, source = ordersDemoEnabled() ? demoOrderDetailSource : undefined, decisionSource }: OrderDetailPageProps = {}) {
   const params = useParams<{ id: string }>(); const id = orderId ?? params.id ?? '';
   const { authHeaders: auth } = useAuth();
   const legacyHeaders = useMemo(() => authHeaders(auth), [auth]);
