@@ -736,3 +736,23 @@ def test_invalid_timestamps_and_source_review_binding():
 
     with pytest.raises(DomainError):
         apply(issue(source_review_ref="p1:review:2"), trusted_source=source())
+
+
+@pytest.mark.parametrize(
+    "factory,field",
+    [
+        (issue, "version"),
+        (issue, "customer_association_version"),
+        (question, "question_version"),
+        (question, "issue_version"),
+        (source, "customer_association_version"),
+        (source, "question_version"),
+        (contact, "question_version"),
+        (history, "customer_association_version"),
+        (history, "question_version"),
+    ],
+)
+@pytest.mark.parametrize("invalid", [True, False, 1.0, 1.5, "1", "bad", 0, -1])
+def test_clarification_versions_require_strict_positive_integers(factory, field, invalid):
+    with pytest.raises(ValidationError, match=field):
+        factory(**{field: invalid})

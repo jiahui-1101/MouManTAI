@@ -63,11 +63,11 @@ class UnresolvedIssue(ImmutableContract):
     tenant_id: Text
     order_id: Text
     issue_id: Text
-    version: int = Field(ge=1)
+    version: int = Field(ge=1, strict=True)
     kind: Literal["SKU", "QUANTITY", "DELIVERY", "CHOICE", "FULFILMENT"]
     customer_id: Text | None = None
     customer_association_ref: Text | None = None
-    customer_association_version: int | None = Field(default=None, ge=1)
+    customer_association_version: int | None = Field(default=None, ge=1, strict=True)
     source_review_ref: Text | None = None
     candidates: tuple[Text, ...] = ()
     created_at: AwareDatetime
@@ -92,9 +92,9 @@ class ClarificationQuestion(ImmutableContract):
     order_id: Text
     issue_id: Text
     question_id: Text
-    question_version: int = Field(default=1, ge=1)
+    question_version: int = Field(default=1, ge=1, strict=True)
     send_receipt_ref: Text | None = None
-    issue_version: int = Field(ge=1)
+    issue_version: int = Field(ge=1, strict=True)
     sent_at: AwareDatetime
     send_state: Literal["DRAFT", "FAILED", "SUBMITTED", "UNKNOWN", "SENT", "DELIVERED"]
 
@@ -130,9 +130,9 @@ class TrustedAnswerSource(ImmutableContract):
     order_id: Text
     customer_id: Text
     customer_association_ref: Text
-    customer_association_version: int = Field(ge=1)
+    customer_association_version: int = Field(ge=1, strict=True)
     question_id: Text
-    question_version: int = Field(ge=1)
+    question_version: int = Field(ge=1, strict=True)
     answer_id: Text
     source_message_id: Text
     source_message_version_or_digest: Text
@@ -428,7 +428,7 @@ class TrustedContactPolicy(ImmutableContract):
     tenant_id: Text
     issue_id: Text
     question_id: Text
-    question_version: int = Field(ge=1)
+    question_version: int = Field(ge=1, strict=True)
     version: Text
     clarification_policy_version: Text
     business_timezone: Text
@@ -463,10 +463,10 @@ class TrustedQuestionHistory(ImmutableContract):
     order_id: Text
     customer_id: Text
     customer_association_ref: Text
-    customer_association_version: int = Field(ge=1)
+    customer_association_version: int = Field(ge=1, strict=True)
     issue_id: Text
     question_id: Text
-    question_version: int = Field(ge=1)
+    question_version: int = Field(ge=1, strict=True)
     channel: Text
     sent_receipt_ref: Text | None
     send_outcome: Literal["DRAFT", "FAILED", "SUBMITTED", "UNKNOWN", "SENT", "DELIVERED"]
