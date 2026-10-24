@@ -78,6 +78,7 @@
 .ra-suggestion p { margin: 7px 0; }
 .ra-footer { border-top: 1px solid var(--ra-border); }
 .ra-footer > span { color: rgba(28,49,83,.7); font-size: 12px; }
+.ra-footer [role="alert"] { color: #B4232C; font-weight: 600; line-height: 1.4; }
 .ra-footer > div { display: flex; gap: 8px; }
 @media (max-width: 900px) { .ra-dialog { inset: 0; max-height: 100vh; border-radius: 0; } .ra-columns { grid-template-columns: minmax(0,1fr); } .ra-source { position: static; max-height: none; } .ra-status-strip { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 600px) { .ra-header, .ra-footer { padding: 12px; } .ra-heading h2 { font-size: 18px; } .ra-scroll { padding: 12px; } .ra-card { padding: 14px; } .ra-item-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .ra-item-grid label:first-child { grid-column: 1 / -1; } .ra-footer { align-items: flex-start; flex-direction: column; } .ra-footer > div { width: 100%; flex-wrap: wrap; } .ra-menu-list { right: 0; width: min(280px, 85vw); } }
