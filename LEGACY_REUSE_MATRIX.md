@@ -4,7 +4,7 @@ Date: 2026-10-25 (Asia/Kuala_Lumpur)
 Repository baseline: `d3c2a3e927977d428b63f240f665db34594786d2` (merged PR #89)
 Scope: C1 canonical message persistence, provider framing and exact-parent association.
 
-This matrix records the concrete P1 reuse and compatibility plan for migration `0018_c1_scoped_message_parent`, and the review-time migration graph reconciliation after Main advanced through PRs #92, #81 and #82. The approved C1 authorization permits additive P1 changes described here. Core, P2, Recovery, P4 authorization and shared A–H business APIs remain outside the C1 implementation change.
+This matrix records the concrete P1 reuse and compatibility plan for migration `0018_c1_scoped_message_parent`, and the review-time migration graph reconciliation after Main advanced through PRs #92, #81 and #82. Current Main also includes PR #94's CSS/README-only changes, with no migration impact. The approved C1 authorization permits additive P1 changes described here. Core, P2, Recovery, P4 authorization and shared A–H business APIs remain outside the C1 implementation change.
 
 | Existing path, symbol, table or route | Owner / authority | Action | Compatibility and migration strategy | Verification |
 |---|---|---|---|---|
