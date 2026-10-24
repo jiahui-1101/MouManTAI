@@ -182,10 +182,10 @@ describe('HumanReviewPage component', () => {
     it('renders 4 KPI cards and filter pills', async () => {
       renderPage(<HumanReviewPage />);
 
-      expect(screen.getByText('Open tasks')).toBeInTheDocument();
-      expect(screen.getByText('Immediate attention')).toBeInTheDocument();
-      expect(screen.getByText('Failed extractions')).toBeInTheDocument();
-      expect(screen.getByText('Identity unverified')).toBeInTheDocument();
+      expect(screen.getByText('Total Reviews')).toBeInTheDocument();
+      expect(screen.getByText('Pending Review')).toBeInTheDocument();
+      expect(screen.getByText('Resolved')).toBeInTheDocument();
+      expect(screen.getByText('Urgent Reviews')).toBeInTheDocument();
 
       expect(screen.getByRole('button', { name: /All inquiries/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Failed extractions/i })).toBeInTheDocument();
@@ -235,6 +235,26 @@ describe('HumanReviewPage component', () => {
 
       const row = screen.getByRole('row', { name: /Alice Baker/i });
       expect(row).toHaveAttribute('tabindex', '0');
+    });
+
+    it('accurately distinguishes PROCESSED messages from Resolved human reviews and assigns sticky/assigned column classes', async () => {
+      localStorage.clear();
+      renderPage(<HumanReviewPage />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Review' })).toBeInTheDocument();
+      });
+
+      // Before human review, Resolved is 0 even though messages are PROCESSED
+      const resolvedCard = screen.getByText('Resolved').closest('.hr-kpi-card');
+      expect(resolvedCard).toHaveTextContent('0');
+
+      // Verify sticky Action column and assigned column classes exist
+      const actionHeader = screen.getByRole('columnheader', { name: 'Action' });
+      expect(actionHeader).toHaveClass('hr-col-action');
+
+      const assignedHeader = screen.getByRole('columnheader', { name: 'Assigned' });
+      expect(assignedHeader).toHaveClass('hr-col-assigned');
     });
   });
 

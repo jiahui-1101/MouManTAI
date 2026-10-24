@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ContextReviewRequest, ExtractionAttemptRecord, OrderContextRecord, RequestedItem, StoredMessage } from './types';
-import { getReviewCatalog, notifyReviewContextSaved, operationalApi } from './operationalApi';
+import { getReviewCatalog, markTaskResolved, notifyReviewContextSaved, operationalApi, unmarkTaskResolved } from './operationalApi';
 import { extractEvidenceItemGroups, reviewCandidates } from './reviewCandidates';
 import { ExtractionProvenance } from './ExtractionProvenance';
 import { RequestedDeliveryField } from './RequestedDeliveryField';
@@ -255,9 +255,16 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
         updated = await reloadConfirmed(await sendReview('ACCEPT_EXTRACTION', updated));
         setRecord(updated);
         onUpdated(updated);
+        updated.source_message_ids?.forEach(id => markTaskResolved(id));
+        markTaskResolved(updated.context_id);
         notifyReviewContextSaved();
       } else if (action === 'REQUEST_MORE_INFO' || action === 'MARK_UNRESOLVED') {
         updated = await sendReview(action, record);
+        if (action === 'MARK_UNRESOLVED') {
+          record.source_message_ids?.forEach(id => unmarkTaskResolved(id));
+          unmarkTaskResolved(record.context_id);
+          notifyReviewContextSaved();
+        }
         setRecord(updated);
         onUpdated(updated);
       }

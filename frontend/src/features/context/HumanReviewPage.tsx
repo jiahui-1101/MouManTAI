@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../shared/auth';
-import { notifyReviewContextSaved, operationalApi } from './operationalApi';
+import {
+  getResolvedTaskIds,
+  markTaskResolved,
+  notifyReviewContextSaved,
+  operationalApi,
+  unmarkTaskResolved,
+} from './operationalApi';
 import type {
   ContextReviewRecord,
   ExtractionAttemptRecord,
@@ -125,6 +131,7 @@ interface QueueItem {
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   assignedTo: string;
   identityStatus: 'LINK_VERIFIED' | 'UNVERIFIED';
+  isResolved: boolean;
 }
 
 function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | 'UNRESOLVED' | 'FAILED_EXTRACTION' }) {
@@ -133,6 +140,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [resolvedTaskIds, setResolvedTaskIds] = useState<Set<string>>(() => getResolvedTaskIds());
 
   // Filters
   const [activePill, setActivePill] = useState<'all' | 'failed' | 'pending'>(
@@ -172,7 +180,10 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
 
   useEffect(() => {
     void loadQueue();
-    const handleSaved = () => { void loadQueue(); };
+    const handleSaved = () => {
+      setResolvedTaskIds(getResolvedTaskIds());
+      void loadQueue();
+    };
     window.addEventListener('moumantai:review-context-saved', handleSaved);
     return () => window.removeEventListener('moumantai:review-context-saved', handleSaved);
   }, [search]);
@@ -185,6 +196,9 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
       const isVerified = msg.processing_status === 'PROCESSED' && idx % 2 === 0;
       const identityStatus = isVerified ? 'LINK_VERIFIED' : 'UNVERIFIED';
       const assignedTo = idx % 3 === 0 ? actorId || 'user_staff_01' : idx % 3 === 1 ? 'Unassigned' : 'Alice';
+      const rawMeta = msg.raw as Record<string, unknown> | undefined;
+      const isResolved = resolvedTaskIds.has(msg.message_id) ||
+        Boolean(rawMeta?.is_resolved || rawMeta?.context_status === 'INFORMATION_READY' || rawMeta?.reviewed);
 
       return {
         message: msg,
@@ -192,17 +206,18 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
         priority: config.defaultPriority,
         assignedTo,
         identityStatus,
+        isResolved,
       };
     });
-  }, [messages, actorId]);
+  }, [messages, actorId, resolvedTaskIds]);
 
   // KPI counts
   const kpiCounts = useMemo(() => {
     const total = queueItems.length;
-    const immediate = queueItems.filter(i => i.priority === 'HIGH').length;
-    const failed = queueItems.filter(i => i.message.processing_status === 'PROCESSING_FAILED' || i.taskType === 'Processing failed').length;
-    const unverified = queueItems.filter(i => i.identityStatus === 'UNVERIFIED').length;
-    return { total, immediate, failed, unverified };
+    const resolved = queueItems.filter(i => i.isResolved).length;
+    const pending = Math.max(0, total - resolved);
+    const urgent = queueItems.filter(i => !i.isResolved && (i.priority === 'HIGH' || i.taskType === 'Field conflict' || i.taskType === 'Processing failed')).length;
+    return { total, pending, resolved, urgent };
   }, [queueItems]);
 
   // Filtering
@@ -294,20 +309,59 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
       {/* 2. 4 KPI Cards */}
       <div className="hr-kpi-grid">
         <div className="hr-kpi-card">
-          <div className="hr-kpi-label">Open tasks</div>
-          <div className="hr-kpi-value">{kpiCounts.total}</div>
+          <div className="hr-kpi-icon-wrap hr-icon-blue" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          </div>
+          <div className="hr-kpi-content">
+            <div className="hr-kpi-label">Total Reviews</div>
+            <div className="hr-kpi-value">{kpiCounts.total}</div>
+          </div>
         </div>
+
         <div className="hr-kpi-card">
-          <div className="hr-kpi-label">Immediate attention</div>
-          <div className="hr-kpi-value amber">{kpiCounts.immediate}</div>
+          <div className="hr-kpi-icon-wrap hr-icon-amber" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <polyline points="16 11 18 13 22 9" />
+            </svg>
+          </div>
+          <div className="hr-kpi-content">
+            <div className="hr-kpi-label">Pending Review</div>
+            <div className="hr-kpi-value">{kpiCounts.pending}</div>
+          </div>
         </div>
+
         <div className="hr-kpi-card">
-          <div className="hr-kpi-label">Failed extractions</div>
-          <div className="hr-kpi-value danger">{kpiCounts.failed}</div>
+          <div className="hr-kpi-icon-wrap hr-icon-green" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+          </div>
+          <div className="hr-kpi-content">
+            <div className="hr-kpi-label">Resolved</div>
+            <div className="hr-kpi-value">{kpiCounts.resolved}</div>
+          </div>
         </div>
+
         <div className="hr-kpi-card">
-          <div className="hr-kpi-label">Identity unverified</div>
-          <div className="hr-kpi-value">{kpiCounts.unverified}</div>
+          <div className="hr-kpi-icon-wrap hr-icon-red" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </div>
+          <div className="hr-kpi-content">
+            <div className="hr-kpi-label">Urgent Reviews</div>
+            <div className="hr-kpi-value">{kpiCounts.urgent}</div>
+          </div>
         </div>
       </div>
 
@@ -325,76 +379,97 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
           className={`hr-filter-pill ${activePill === 'failed' ? 'is-active' : ''}`}
           onClick={() => { setActivePill('failed'); setCurrentPage(1); }}
         >
-          Failed extractions ({kpiCounts.failed})
+          Failed extractions ({queueItems.filter(i => i.message.processing_status === 'PROCESSING_FAILED' || i.taskType === 'Processing failed').length})
         </button>
         <button
           type="button"
           className={`hr-filter-pill ${activePill === 'pending' ? 'is-active' : ''}`}
           onClick={() => { setActivePill('pending'); setCurrentPage(1); }}
         >
-          Pending / unprocessed ({kpiCounts.total - (messages.filter(m => m.processing_status === 'PROCESSED').length)})
+          Pending / unprocessed ({kpiCounts.pending})
         </button>
       </div>
 
       {/* 4. Filter Card */}
       <div className="hr-filter-card">
-        <input
-          type="search"
-          className="hr-filter-input"
-          placeholder="Search by customer, message, snippet…"
-          value={search}
-          onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
-          aria-label="Search review tasks"
-        />
+        <div className="hr-filter-col hr-col-search">
+          <label htmlFor="hr-search-input" className="hr-field-label">Search</label>
+          <div className="hr-search-wrap">
+            <svg className="hr-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              id="hr-search-input"
+              type="search"
+              className="hr-filter-input"
+              placeholder="Search user, email, ID, or task…"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
+              aria-label="Search review tasks"
+            />
+          </div>
+        </div>
 
-        <select
-          className="hr-filter-select"
-          value={taskTypeFilter}
-          onChange={e => { setTaskTypeFilter(e.target.value); setCurrentPage(1); }}
-          aria-label="Filter by task type"
-        >
-          <option value="">All task types</option>
-          {CANONICAL_TASK_TYPES.map(type => (
-            <option key={type} value={type}>{type}</option>
-          ))}
-        </select>
+        <div className="hr-filter-col">
+          <label htmlFor="hr-task-type-select" className="hr-field-label">Task Type</label>
+          <select
+            id="hr-task-type-select"
+            className="hr-filter-select"
+            value={taskTypeFilter}
+            onChange={e => { setTaskTypeFilter(e.target.value); setCurrentPage(1); }}
+            aria-label="Filter by task type"
+          >
+            <option value="">All task types</option>
+            {CANONICAL_TASK_TYPES.map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </div>
 
-        <select
-          className="hr-filter-select"
-          value={channelFilter}
-          onChange={e => { setChannelFilter(e.target.value); setCurrentPage(1); }}
-          aria-label="Filter by channel"
-        >
-          <option value="">All channels</option>
-          <option value="EMAIL">Email</option>
-          <option value="WHATSAPP">WhatsApp</option>
-          <option value="TELEGRAM">Telegram</option>
-          <option value="PORTAL">Portal</option>
-          <option value="SYNTHETIC">Synthetic</option>
-        </select>
+        <div className="hr-filter-col">
+          <label htmlFor="hr-channel-select" className="hr-field-label">Channel</label>
+          <select
+            id="hr-channel-select"
+            className="hr-filter-select"
+            value={channelFilter}
+            onChange={e => { setChannelFilter(e.target.value); setCurrentPage(1); }}
+            aria-label="Filter by channel"
+          >
+            <option value="">All channels</option>
+            <option value="EMAIL">Email</option>
+            <option value="WHATSAPP">WhatsApp</option>
+            <option value="TELEGRAM">Telegram</option>
+            <option value="PORTAL">Portal</option>
+            <option value="SYNTHETIC">Synthetic</option>
+          </select>
+        </div>
 
-        <div className="hr-filter-assigned-group" role="group" aria-label="Assigned to filter">
-          <button
-            type="button"
-            className={`hr-assigned-btn ${assignedFilter === 'everyone' ? 'is-active' : ''}`}
-            onClick={() => { setAssignedFilter('everyone'); setCurrentPage(1); }}
-          >
-            Everyone
-          </button>
-          <button
-            type="button"
-            className={`hr-assigned-btn ${assignedFilter === 'me' ? 'is-active' : ''}`}
-            onClick={() => { setAssignedFilter('me'); setCurrentPage(1); }}
-          >
-            Me
-          </button>
-          <button
-            type="button"
-            className={`hr-assigned-btn ${assignedFilter === 'unassigned' ? 'is-active' : ''}`}
-            onClick={() => { setAssignedFilter('unassigned'); setCurrentPage(1); }}
-          >
-            Unassigned
-          </button>
+        <div className="hr-filter-col">
+          <span className="hr-field-label">Assigned To</span>
+          <div className="hr-filter-assigned-group" role="group" aria-label="Assigned to filter">
+            <button
+              type="button"
+              className={`hr-assigned-btn ${assignedFilter === 'everyone' ? 'is-active' : ''}`}
+              onClick={() => { setAssignedFilter('everyone'); setCurrentPage(1); }}
+            >
+              Everyone
+            </button>
+            <button
+              type="button"
+              className={`hr-assigned-btn ${assignedFilter === 'me' ? 'is-active' : ''}`}
+              onClick={() => { setAssignedFilter('me'); setCurrentPage(1); }}
+            >
+              Me
+            </button>
+            <button
+              type="button"
+              className={`hr-assigned-btn ${assignedFilter === 'unassigned' ? 'is-active' : ''}`}
+              onClick={() => { setAssignedFilter('unassigned'); setCurrentPage(1); }}
+            >
+              Unassigned
+            </button>
+          </div>
         </div>
 
         <button type="button" className="hr-reset-btn" onClick={resetFilters}>
@@ -425,7 +500,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
                     }
                   }}
                 >
-                  Received {sortField === 'received' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
+                  Received {sortField === 'received' ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}
                 </th>
                 <th>Customer and message</th>
                 <th>Task type</th>
@@ -441,10 +516,10 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
                     }
                   }}
                 >
-                  Priority {sortField === 'priority' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
+                  Priority {sortField === 'priority' ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}
                 </th>
-                <th>Assigned</th>
-                <th>Action</th>
+                <th className="hr-col-assigned">Assigned</th>
+                <th className="hr-col-action">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -461,6 +536,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
                 paginatedItems.map(item => {
                   const msg = item.message;
                   const senderName = msg.raw.sender_alias || msg.raw.sender_identity_id || 'Unknown Customer';
+                  const avatarInitial = (senderName.trim().charAt(0) || 'U').toUpperCase();
                   const channel = msg.source_label || msg.raw.channel || 'EMAIL';
                   const textPreview = (msg.raw.text || 'No text snippet').replace(/\s+/g, ' ').trim();
                   const snippet = textPreview.length > 90 ? `${textPreview.slice(0, 90)}…` : textPreview;
@@ -492,12 +568,17 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
                     >
                       <td style={{ whiteSpace: 'nowrap' }}>{receivedDate}</td>
                       <td>
-                        <div className="hr-cell-customer">
-                          <div className="hr-cell-customer-top">
-                            <span className="hr-customer-name">{senderName}</span>
-                            <span className="hr-source-badge">{channel}</span>
+                        <div className="hr-cell-customer-wrap">
+                          <div className="hr-avatar-circle" aria-hidden="true">
+                            {avatarInitial}
                           </div>
-                          <span className="hr-cell-snippet" title={textPreview}>{snippet}</span>
+                          <div className="hr-cell-customer">
+                            <div className="hr-cell-customer-top">
+                              <span className="hr-customer-name">{senderName}</span>
+                              <span className="hr-source-badge">{channel}</span>
+                            </div>
+                            <span className="hr-cell-snippet" title={textPreview}>{snippet}</span>
+                          </div>
                         </div>
                       </td>
                       <td>
@@ -506,22 +587,26 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
                         </span>
                       </td>
                       <td>
-                        <div className="hr-status-group">
-                          <span className={`hr-status-pill ${msg.processing_status === 'PROCESSED' ? 'processed' : msg.processing_status === 'PROCESSING_FAILED' ? 'failed' : 'received'}`}>
-                            {msg.processing_status}
-                          </span>
-                          <span className={`hr-status-pill ${item.identityStatus === 'LINK_VERIFIED' ? 'verified' : 'unverified'}`}>
-                            {item.identityStatus}
-                          </span>
-                        </div>
+                        {item.isResolved ? (
+                          <span className="hr-status-pill resolved">RESOLVED</span>
+                        ) : (
+                          <div className="hr-status-group">
+                            <span className={`hr-status-pill ${msg.processing_status === 'PROCESSED' ? 'processed' : msg.processing_status === 'PROCESSING_FAILED' ? 'failed' : 'received'}`}>
+                              {msg.processing_status}
+                            </span>
+                            <span className={`hr-status-pill ${item.identityStatus === 'LINK_VERIFIED' ? 'verified' : 'unverified'}`}>
+                              {item.identityStatus}
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td>
                         <span className={`hr-priority-pill ${item.priority.toLowerCase()}`}>
                           {item.priority}
                         </span>
                       </td>
-                      <td>{item.assignedTo}</td>
-                      <td>
+                      <td className="hr-col-assigned">{item.assignedTo}</td>
+                      <td className="hr-col-action">
                         <button
                           type="button"
                           className="hr-btn-review"
@@ -543,18 +628,17 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
 
         {/* 6. Pagination Footer */}
         <div className="hr-pagination-bar">
-          <div>
+          <div className="hr-pagination-info">
             Showing {totalEntries > 0 ? startIndex + 1 : 0} to {Math.min(startIndex + rowsPerPage, totalEntries)} of {totalEntries} entries
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <div>
-              <label htmlFor="rows-select" style={{ marginRight: '6px' }}>Rows per page:</label>
+          <div className="hr-pagination-actions">
+            <div className="hr-rows-per-page">
+              <label htmlFor="rows-select">Rows per page:</label>
               <select
                 id="rows-select"
                 value={rowsPerPage}
                 onChange={e => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}
-                className="hr-filter-select"
-                style={{ padding: '4px 8px' }}
+                className="hr-filter-select hr-rows-select"
               >
                 <option value={10}>10</option>
                 <option value={25}>25</option>
@@ -564,22 +648,24 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
             <div className="hr-pagination-controls">
               <button
                 type="button"
-                className="hr-page-btn"
+                className="hr-page-btn hr-page-prev"
                 disabled={currentPage <= 1}
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                aria-label="Previous page"
               >
-                Previous
+                ‹
               </button>
-              <span style={{ fontSize: '12px', fontWeight: 600, padding: '0 4px' }}>
-                {currentPage} / {totalPages}
+              <span className="hr-page-current">
+                {currentPage}
               </span>
               <button
                 type="button"
-                className="hr-page-btn"
+                className="hr-page-btn hr-page-next"
                 disabled={currentPage >= totalPages}
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                aria-label="Next page"
               >
-                Next
+                ›
               </button>
             </div>
           </div>
@@ -916,6 +1002,11 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
       setReviewState(saveMode === 'accept' ? 'Accepted' : 'In progress');
       showToast(saveMode === 'accept' ? 'Saved & extraction review confirmed. Audit entry recorded.' : 'Saved. Audit entry recorded.');
 
+      if (saveMode === 'accept') {
+        markTaskResolved(taskId);
+        context.source_message_ids?.forEach(id => markTaskResolved(id));
+      }
+
       if (onContextUpdated) onContextUpdated(updated);
       notifyReviewContextSaved();
       const reloadedReviews = await operationalApi.listContextReviews(context.context_id).catch(() => []);
@@ -984,6 +1075,9 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
         }
       );
       setReviewState('Unresolved');
+      unmarkTaskResolved(taskId);
+      context.source_message_ids?.forEach(id => unmarkTaskResolved(id));
+      notifyReviewContextSaved();
       showToast('Marked as unresolved. Audit entry recorded.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');
