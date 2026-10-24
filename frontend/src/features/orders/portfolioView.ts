@@ -37,6 +37,8 @@ export function verifiedRecommendation(data: PortfolioSnapshot, now: number) {
   const s = data.scenarios.find(s => s.id === r.scenarioId && s.version === r.scenarioVersion && s.validation === 'VALIDATED' &&
     s.objectiveId === r.objectiveId && s.modelVersion === r.modelVersion && s.constraintPolicy === r.constraintPolicy &&
     ['OPTIMAL', 'FEASIBLE_NOT_PROVEN_OPTIMAL', 'NOT_APPLICABLE'].includes(s.solverStatus) &&
-    (s.strategy !== 'PROFIT' || (data.financialAccess === 'AUTHORIZED' && metricText(data, s, 'profit', now) !== 'Unknown')));
+    // A redacted display string is not a usable profit value, even with snapshot-level authorization.
+    (s.strategy !== 'PROFIT' || (data.financialAccess === 'AUTHORIZED' && s.metrics.profit?.state === 'KNOWN' &&
+      metricText(data, s, 'profit', now) !== 'Unknown')));
   return s ? { ...r, label: s.label } : null;
 }

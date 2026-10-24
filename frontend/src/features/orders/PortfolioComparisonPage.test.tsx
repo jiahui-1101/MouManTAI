@@ -66,6 +66,19 @@ describe('Portfolio Comparison states and read safety', () => {
     expect(screen.getByText('Source-provided trade-off explanation')).toBeInTheDocument();
     expect(screen.getByText(/Limitations: Source limitation/)).toBeInTheDocument();
   });
+  it('withholds the backend Profit recommendation when only its profit metric is redacted', async () => {
+    const d = portfolioFixture(); d.evidenceTier = 'VALIDATED'; d.integrationMode = 'LIVE';
+    d.scenarios[1].metrics.profit!.state = 'REDACTED';
+    d.scenarios[1].metrics.profit!.value = '987654321.99';
+    const before = structuredClone(d); setup(sourceFor(d));
+    await screen.findByRole('table', { name: 'Scenario metrics and comparability' });
+    expect(screen.getByRole('article', { name: 'Summary: Profit candidate' })).toHaveTextContent('Redacted');
+    expect(screen.queryByRole('heading', { name: 'Backend recommendation: Profit candidate' })).not.toBeInTheDocument();
+    expect(screen.getByText(/An authoritative portfolio recommendation is not currently available/)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('987654321.99');
+    expect(d).toEqual(before);
+    expect(screen.queryByRole('button', { name: /accept|reserve|submit|execute/i })).not.toBeInTheDocument();
+  });
   it('does not invent scenarios for an empty response', async () => {
     const d = portfolioFixture(); d.scenarios = []; d.orders = []; setup(sourceFor(d));
     expect(await screen.findByRole('heading', { name: 'No source scenarios' })).toBeInTheDocument();
