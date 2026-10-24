@@ -544,9 +544,18 @@
   font-weight: 700;
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
-  background: #f1f5f9;
-  color: #0f172a;
+  background: #ffffff;
+  color: #1e293b;
   border: 1px solid #cbd5e1;
+  display: inline-flex;
+  align-items: center;
+  transition: all 0.15s ease;
+}
+
+.evidence-chip:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0767e8;
 }
 
 /* Correlation Group Card */
