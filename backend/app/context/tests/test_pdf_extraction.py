@@ -3,6 +3,8 @@
 import io
 from typing import Sequence
 import pytest
+pytest.importorskip("PIL", reason="Pillow is required for image-backed PDF tests")
+from PIL import Image, ImageDraw, ImageFont
 
 pymupdf = pytest.importorskip("pymupdf", reason="pymupdf is required for PDF extraction tests")
 from fastapi.testclient import TestClient
@@ -42,6 +44,24 @@ def create_synthetic_pdf(pages_text: Sequence[str]) -> bytes:
     for text in pages_text:
         page = doc.new_page()
         page.insert_text((50, 72), text, fontsize=12)
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    return pdf_bytes
+
+
+def create_scanned_pdf(text_lines: Sequence[str]) -> bytes:
+    """Create a PDF whose page contains a raster image instead of PDF text."""
+    image = Image.new("RGB", (800, 220), color="white")
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=28)
+    for index, line in enumerate(text_lines):
+        draw.text((24, 16 + index * 48), line, fill="black", font=font)
+    image_buffer = io.BytesIO()
+    image.save(image_buffer, format="PNG")
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=612, height=240)
+    page.insert_image(pymupdf.Rect(30, 30, 582, 210), stream=image_buffer.getvalue())
     pdf_bytes = doc.tobytes()
     doc.close()
     return pdf_bytes
@@ -163,7 +183,15 @@ def test_pdf_page_count_bounding():
     assert max(pages_seen) <= 10
 
 
-def test_pdf_scanned_or_empty_detection():
+def test_pdf_scanned_or_empty_detection(monkeypatch):
+    pytest.importorskip("numpy", reason="numpy is required for PDF OCR")
+    from app.context import document_extractor
+
+    class EmptyOCREngine:
+        def predict(self, image):
+            return [{"rec_texts": [], "rec_scores": [], "rec_boxes": []}]
+
+    monkeypatch.setattr(document_extractor, "get_ocr_engine", lambda: EmptyOCREngine())
     # Blank PDF with no text blocks
     doc = pymupdf.open()
     doc.new_page()  # empty page
@@ -185,6 +213,36 @@ def test_pdf_scanned_or_empty_detection():
     assert result.status == "SUCCESS"
     assert "scanned or image-only" in result.diagnostic.lower()
     assert result.evidence_items == []
+
+
+def test_pdf_ocr_failure_is_failed_without_invented_evidence(monkeypatch):
+    pytest.importorskip("numpy", reason="numpy is required to enter the PDF OCR path")
+    from app.context import document_extractor
+
+    pdf_bytes = create_scanned_pdf(["PO-FAIL-01", "100 burgers"])
+    attachment = AttachmentRecord(
+        attachment_id="att_ocr_failure",
+        tenant_id="synthetic_tenant_a",
+        evidence_ref="ev_att_ocr_failure",
+        filename="unreadable_scan.pdf",
+        media_type="application/pdf",
+        size_bytes=len(pdf_bytes),
+        content_sha256="2" * 64,
+    )
+
+    def raise_ocr_error():
+        raise RuntimeError("test OCR model unavailable")
+
+    monkeypatch.setattr(document_extractor, "get_ocr_engine", raise_ocr_error)
+    result = extract_pdf_document(attachment, pdf_bytes)
+
+    assert result.status == "FAILED"
+    assert "OCR extraction failed" in result.diagnostic
+    assert "test OCR model unavailable" in result.diagnostic
+    assert result.text_content == ""
+    assert result.extracted_fields == []
+    assert result.evidence_items == []
+    assert result.is_payment_notice is False
 
 
 def test_pdf_extraction_api_and_persistence(shared_repo):
@@ -236,18 +294,21 @@ def test_pdf_extraction_api_and_persistence(shared_repo):
 
 
 def test_scanned_purchase_order_pdf_ocr_fallback():
-    pdf_path = os.path.join("output", "pdf", "promiseflow_p1_synthetic_scanned_purchase_order.pdf")
-    if not os.path.exists(pdf_path):
-        pytest.skip(f"Scanned fixture {pdf_path} not found")
-
-    with open(pdf_path, "rb") as f:
-        pdf_bytes = f.read()
+    pytest.importorskip("paddleocr", reason="PaddleOCR extra is required for scanned PDF OCR")
+    pdf_bytes = create_scanned_pdf(
+        [
+            "PO-DEMO-2026-1042",
+            "100 burgers",
+            "2026-10-26",
+            "RESCHEDULING CLAUSE MANUAL CONFIRMATION REQUIRED",
+        ]
+    )
 
     att = AttachmentRecord(
         attachment_id="att_scanned_po_01",
         tenant_id="synthetic_tenant_a",
         evidence_ref="ev_att_scanned_po_01",
-        filename="promiseflow_p1_synthetic_scanned_purchase_order.pdf",
+        filename="generated_scanned_purchase_order.pdf",
         media_type="application/pdf",
         size_bytes=len(pdf_bytes),
         content_sha256="0" * 64,
@@ -272,3 +333,10 @@ def test_scanned_purchase_order_pdf_ocr_fallback():
     assert item_fields[0]["quantity"] == 100
 
     assert "rescheduling_clause" in field_map
+    assert result.status == "SUCCESS", result.diagnostic
+    assert result.text_content
+    assert result.evidence_items
+    assert all(item.method == "OCR" for item in result.evidence_items)
+    assert all(item.attachment_id == att.attachment_id for item in result.evidence_items)
+    assert all(item.evidence_ref == att.evidence_ref for item in result.evidence_items)
+    assert any("PO-DEMO-2026-1042" in item.quote for item in result.evidence_items)
