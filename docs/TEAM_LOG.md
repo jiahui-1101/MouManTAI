@@ -3825,7 +3825,7 @@ The durable P1 OrderRequest/version and approved commercial/disclosure sources r
   - `docs/TEAM_LOG.md`
 - **Changes Implemented**:
   1. **State Transitionbar**: Eliminated dark/black backgrounds (`rgba(15, 23, 42, 0.8)`) across `.state-transitions-container`. Updated container to clean light grey (`#f1f5f9`, border `1px solid #cbd5e1`, border-radius `6px`, text `#0f172a`). Ensured all inner typography and status badges have high-contrast visible text: `.transitions-label` (`#0f172a`, bold uppercase), `.from-state` (`#1e293b`), `.to-state` (`#0f172a`), `.arrow-separator` (`#0284c7`), `.dimension-tag` (`#334155`), and explicit light-mode high-contrast tokens for `.status-badge` (`.badge-neutral`, `.badge-success`, `.badge-danger`, `.badge-warning`, `.badge-info`).
-  2. **Recorded Reason**: Updated `.gov-reason` text, `.gov-reason-label`, and `.gov-reason-text` to crisp high-contrast black/dark slate (`#0f172a`), with `.gov-actor` and `.gov-detail` styled at `#1e293b` on light blue `#f0f9ff` callout card with `#0284c7` border.
+  2. **Recorded Reason**: Updated `.gov-reason` text, `.gov-reason-label`, and `.gov-reason-text` to crisp high-contrast dark slate grey (`#1e293b`), with `.gov-actor` and `.gov-detail` styled at `#1e293b` on light blue `#f0f9ff` callout card with `#0284c7` border.
   3. **Evidence Refs Content**: Updated `.evidence-chip` in both global styles and activity styles to `#0f172a` (bold monospace, `#f1f5f9` background, `#cbd5e1` border) and `.evidence-label` to `#0f172a`. Synchronized `.recovery-evidence-chip` in `recovery.css` to `#0f172a` on `#f1f5f9` with `#cbd5e1` border.
 - **Validation**:
   - `git diff --check`: Passed (no trailing whitespace or conflict markers).
