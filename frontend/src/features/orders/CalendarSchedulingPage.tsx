@@ -12,7 +12,14 @@ import { demoScheduleSource, ordersDemoEnabled } from './demoSource';
 import { CalendarEventPanel } from './CalendarEventPanel';
 import { CalendarResources } from './CalendarResources';
 import { portfolioCalendarHref } from './portfolioCalendarContext';
+import { dbScheduleSource, ordersPersistedEnabled } from './dbSource';
 import './calendar.css';
+
+const defaultScheduleSource = (): ScheduleSource => {
+  if (ordersPersistedEnabled()) return dbScheduleSource;
+  if (ordersDemoEnabled()) return demoScheduleSource;
+  return unavailableScheduleSource;
+};
 
 interface CalendarPageProps { source?: ScheduleSource; timeZone?: string; initialDate?: string }
 function CalendarWorkspace({ source, timeZone, initialDate }: Required<Pick<CalendarPageProps, 'source' | 'timeZone'>> & Pick<CalendarPageProps, 'initialDate'>) {
@@ -158,7 +165,7 @@ function CalendarContents({ data, filters, setFilters, window, view, date, openD
 }
 
 /** Route-ready; source and zone configuration must come from reviewed application integration. */
-export function CalendarSchedulingPage({ source = ordersDemoEnabled() ? demoScheduleSource : unavailableScheduleSource, timeZone = 'Asia/Kuala_Lumpur', initialDate }: CalendarPageProps = {}) {
+export function CalendarSchedulingPage({ source = defaultScheduleSource(), timeZone = 'Asia/Kuala_Lumpur', initialDate }: CalendarPageProps = {}) {
   const { tenantId, actorId } = useAuth();
   if (!validZone(timeZone)) return <ErrorState kind="validation" title="Unsupported calendar time zone" description="A valid IANA business time zone is required." />;
   return <CalendarWorkspace key={`${tenantId}:${actorId}:${source.cacheKey}:${timeZone}`} source={source} timeZone={timeZone} initialDate={initialDate} />;
