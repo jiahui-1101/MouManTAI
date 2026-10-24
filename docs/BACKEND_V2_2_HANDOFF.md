@@ -1,3 +1,5 @@
+> Latest checkpoint: real PostgreSQL gate PASSED on 2026-10-24; owner approval pending. Earlier NOT_RUN entries below are historical. See the final validation section.
+
 # MouManTAI 2.2 Backend — Living Handoff
 
 Updated (UTC and MYT): 2026-10-23; exact test/checkpoint times appended below.
@@ -189,3 +191,17 @@ The A6 stacked Draft PR is [#55](https://github.com/jiahui-1101/MouManTAI/pull/5
 - Live GitHub shows #48 merged into `main` at `de3483499accd11cfed718147911cdbaab214837`. Fetched `origin/main` is `eaa5097452f17f5c4f1c9ccc6c0a5b9f5678c86a`; corrected #48 head `568e5deff97a29244944ae31b5d138fa910a4042` is its ancestor. P1, P5 and Backend B approved #48's corrected head; Actions run `40054989068` succeeded across five jobs, including PostgreSQL. JH's two old inline threads are both resolved and outdated.
 - Retargeted PR #50 to `main`; merged current `main` into its branch by normal merge and pushed the update at `9c4da682a75985bf5c6e34ddeb47f31c579af587`. The corrected #48 head is an ancestor, and the net PR diff contains only #50's 9 owned files. After the refresh, full v2.2 was **268 passed** and adjacent P1/Core was **21 passed, 22 skipped** because `P1_TEST_DATABASE_URL` is unset. `git diff --check origin/main...HEAD` passed. GitHub reports mergeable; exact-head Actions has no PR-triggered run yet. The PR remains Draft pending fresh reviews and CI.
 - PR #52 was closed without merge after its canonical OrderTerms corrections were incorporated into #50; do not reopen or duplicate that implementation.
+
+## 2026-10-24 final real PostgreSQL validation (supersedes earlier NOT_RUN checkpoints)
+
+**PostgreSQL gate PASSED; BLOCKED_BY_OWNER_APPROVAL. Keep Draft.** Validated code/test HEAD: `79b46197c1f3735e08b533f79c5cdca6f0d608c9`. PR #50 merged at `4ffb6c2b1999362aa0e27cb3d834af58cc057267`; #55 now targets `main` and includes fetched main `585467d4389e5d8ada6e5e59a78c96306f3a0bc1` through normal merge commits `997c7a3fe63fc62f8787dff044ee1f8d222945e7` and `ab0e4b632dce04fab7cfbd3204511983fb94dbb1`. No published history was rewritten.
+
+Real PostgreSQL 16.15, task-owned disposable Docker container, actual Alembic head `0017_p1_real_channel_provenance`: required gate **22 passed / 0 failed / 0 skipped**, including all 14 previously skipped DB cases plus two new migrated-schema transaction regressions. Server reports READ ONLY and REPEATABLE READ; a deliberate DML probe is rejected with SQLSTATE 25006; a concurrent committed review cannot mix context/version/review states, and a subsequent stale-version read fails closed. Production code and migrations are unchanged.
+
+Full v2.2: **290 passed**. Combined v2.2/Backend B feasibility/Core/reservation/outbox: **642 passed**. Selected P1/Core: **43 passed / 0 skipped**. Full P1: **625 passed / 1 failed / 4 skipped / 0 setup errors**. The one OCR acceptance failure reproduces on unchanged pre-task #55 `f2300c5ef67750403c32dc4ddd191b2e77acf2eb`; optional OCR/PDF dependencies are unavailable. No claim that the whole P1 suite is green. Scoped Ruff, format, compileall and diff checks pass.
+
+Exact test-head CI [40072357617](https://github.com/jiahui-1101/MouManTAI/actions/runs/40072357617) passed all five jobs, including frontend typecheck/Vitest/build. The current CI does not set P1_TEST_DATABASE_URL or run app/context/tests, so it does not replace the separate real PostgreSQL evidence. The final documentation-only publication SHA and its exact-head CI are recorded in the [existing PR #55 description](https://github.com/jiahui-1101/MouManTAI/pull/55), avoiding a self-referential commit SHA.
+
+P1/P5 CHANGES_REQUESTED reviews remain effective until owners re-review. Fresh requests sent to mavisbong41, Gan0117 and jiahui-1101. No unresolved inline review threads were returned; no review was dismissed or discussion resolved by the author. Main's ruleset requires Backend Tests (PostgreSQL Authoritative), prohibits force updates and branch deletion; legacy protection endpoint returned 404.
+
+The durable P1 OrderRequest/version and approved commercial/disclosure sources remain unavailable. The reader still supplies commercial_terms=None, leaves request_version absent, and stays INCOMPLETE. No acceptance, reservation, approval or Core transition is activated. Backend B must independently reread current authoritative evidence. Full commands, provenance and limitations follow in BACKEND_V2_2_VALIDATION.md.
