@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -9,8 +10,10 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
+from starlette.requests import Request as StarletteRequest
 
 from app.context.channels.config import (
     ChannelsConfig,
@@ -103,7 +106,7 @@ def test_telegram_send_is_allowlisted_and_replay_safe(repo, state_mgr):
 
 
 def test_telegram_outbound_fails_closed_for_unlisted_recipient(repo, state_mgr):
-    config = TelegramChannelConfig(bot_token="123456789:fixture-token", outbound_enabled=True,
+    config = TelegramChannelConfig(bot_token="123456789:fixture-token", tenant_id="tenant_tg_c2", outbound_enabled=True,
         test_recipient_ids=["88"])
     adapter = TelegramAdapter(config, repo, state_mgr)
 
@@ -168,6 +171,11 @@ def test_whatsapp_rejects_wrong_phone_number_account_and_preserves_quoted_parent
     assert envelope.tenant_id == "tenant_wa_c2"
     assert envelope.provider_message_id == "wamid.child"
     assert envelope.reply_to_provider_message_id == "wamid.parent"
+
+    unconfigured = WhatsAppAdapter(WhatsAppChannelConfig(app_secret="fixture-secret",
+        tenant_id="tenant_wa_c2"), repo, state_mgr)
+    with pytest.raises(WhatsAppWebhookError, match="phone number"):
+        unconfigured.parse_webhook_payload(payload)
 
 
 def test_whatsapp_document_retrieval_is_host_bounded_and_saves_evidence(repo, state_mgr):
@@ -277,7 +285,7 @@ def test_resend_signature_raw_body_timestamp_and_provider_receive_flow(repo, sta
         {"svix-id": event_id, "svix-timestamp": timestamp, "svix-signature": f"v1,{signature}"})
 
     assert envelope.tenant_id == "tenant_email_c2"
-    assert envelope.provider_message_id == "<inbound-1@example.test>"
+    assert envelope.provider_message_id == "resend_recv_1"
     assert envelope.thread_ref == "<inbound-1@example.test>"
     assert envelope.reply_to_provider_message_id == "<parent@example.test>"
     assert "Please quote 10 boxes" in envelope.text
@@ -290,6 +298,17 @@ def test_resend_signature_raw_body_timestamp_and_provider_receive_flow(repo, sta
     with pytest.raises(ResendWebhookError, match="signature"):
         adapter.process_received_event(raw + b" ",
             {"svix-id": event_id, "svix-timestamp": timestamp, "svix-signature": f"v1,{signature}"})
+
+
+def test_resend_native_id_length_respects_p1_provider_id_limit(repo, state_mgr):
+    config = ResendChannelConfig(api_key="re_fixture", webhook_secret="whsec_fixture",
+        tenant_id="tenant_email_c2", inbound_addresses=["orders@example.test"])
+    adapter = ResendAdapter(config, repo, state_mgr)
+    raw = json.dumps({"type": "email.received", "data": {"email_id": "e" * 194,
+        "to": ["orders@example.test"]}}).encode()
+
+    with pytest.raises(ResendWebhookError, match="invalid email id"):
+        adapter.process_received_event(raw, {}, signature_verified=True)
 
 
 def test_signed_resend_route_ingests_via_existing_p1_repository(repo, state_mgr):
@@ -328,7 +347,7 @@ def test_signed_resend_route_ingests_via_existing_p1_repository(repo, state_mgr)
     assert response.json()["processed"] is True
     assert duplicate.status_code == 200 and duplicate.json()["duplicate"] is True
     stored = repo.list("tenant_email_c2", channel="EMAIL").items[0]
-    assert stored.raw.provider_message_id == "<route-message@example.test>"
+    assert stored.raw.provider_message_id == "resend_route_recv_1"
     assert stored.raw.adapter_mode == "REAL"
 
 
@@ -401,7 +420,7 @@ def test_telegram_timeout_is_unknown_and_never_automatically_replayed(repo, stat
         calls.append(request)
         raise httpx.ReadTimeout("simulated provider timeout", request=request)
 
-    config = TelegramChannelConfig(bot_token="123456789:fixture-token", outbound_enabled=True,
+    config = TelegramChannelConfig(bot_token="123456789:fixture-token", tenant_id="tenant_tg_c2", outbound_enabled=True,
         test_recipient_ids=["77"])
     adapter = TelegramAdapter(config, repo, state_mgr,
         http_client=httpx.Client(transport=httpx.MockTransport(handler)))
@@ -414,7 +433,7 @@ def test_telegram_timeout_is_unknown_and_never_automatically_replayed(repo, stat
 
 
 def test_resend_rejects_header_injection_and_unapproved_recipients(repo, state_mgr):
-    config = ResendChannelConfig(api_key="re_fixture", outbound_enabled=True,
+    config = ResendChannelConfig(api_key="re_fixture", tenant_id="tenant_email_c2", outbound_enabled=True,
         test_recipients=["buyer@example.test"], verified_from_email="orders@verified.example.test")
     adapter = ResendAdapter(config, repo, state_mgr)
 
@@ -491,3 +510,133 @@ def test_safe_get_retries_only_read_gateway_failures():
         lambda request: httpx.Response(200, content=b"0123456789")))
     with pytest.raises(ProviderPayloadTooLarge):
         read_limited_get(oversize_client, "https://provider.test/media", 5)
+
+
+def test_provider_api_bases_reject_plain_http():
+    for config_type in (TelegramChannelConfig, GmailChannelConfig, WhatsAppChannelConfig, ResendChannelConfig):
+        with pytest.raises(ValidationError):
+            config_type(api_base_url="http://provider.test")
+        with pytest.raises(ValidationError):
+            config_type(api_base_url="https://user:secret@provider.test")
+    with pytest.raises(ValidationError):
+        GmailChannelConfig(token_endpoint="http://oauth.test/token")
+
+
+def test_real_provider_readiness_rejects_synthetic_tenant_fallback(repo, state_mgr):
+    telegram = TelegramChannelConfig(bot_token="123456789:fixture-token", webhook_secret="hook-secret")
+    gmail = GmailChannelConfig(client_id="client", client_secret="secret", refresh_token="refresh")
+    whatsapp = WhatsAppChannelConfig(phone_number_id="phone-1", access_token="token",
+        app_secret="secret", verify_token="verify")
+    resend = ResendChannelConfig(api_key="re_fixture", webhook_secret="whsec_fixture",
+        inbound_addresses=["orders@example.test"], outbound_enabled=True,
+        verified_from_email="orders@verified.example.test", test_recipients=["buyer@example.test"])
+
+    assert not telegram.is_configured
+    telegram_adapter = TelegramAdapter(telegram, repo, state_mgr)
+    assert not telegram_adapter.validate_webhook_secret("hook-secret")
+    with pytest.raises(TelegramApiError, match="tenant assignment"):
+        telegram_adapter.process_update({"update_id": 1, "message": {
+            "message_id": 1, "from": {"id": 77}, "chat": {"id": 77, "type": "private"}, "text": "hello"}})
+    assert not gmail.is_configured
+    assert not whatsapp.is_configured
+    assert not resend.is_inbound_configured
+    assert not resend.is_outbound_configured
+    with pytest.raises(WhatsAppWebhookError, match="tenant assignment"):
+        WhatsAppAdapter(whatsapp, repo, state_mgr).parse_webhook_payload(
+            {"entry": [{"changes": [{"field": "messages", "value": {"metadata": {"phone_number_id": "phone-1"}}}]}]}
+        )
+    with pytest.raises(ResendWebhookError, match="tenant assignment"):
+        ResendAdapter(resend, repo, state_mgr).process_received_event(
+            json.dumps({"type": "email.received", "data": {"email_id": "recv_1"}}).encode(),
+            {}, signature_verified=True)
+
+
+def test_malformed_success_send_responses_are_cached_unknown(repo, state_mgr):
+    cases = [
+        ("TELEGRAM", [], lambda client: TelegramAdapter(
+            TelegramChannelConfig(bot_token="123456789:fixture-token", tenant_id="tenant_tg_c2",
+                outbound_enabled=True, test_recipient_ids=["77"]), repo, state_mgr, client),
+            lambda adapter, key: adapter.send_text("77", "message", idempotency_key=key)),
+        ("TELEGRAM", {"ok": True, "result": {"message_id": True}}, lambda client: TelegramAdapter(
+            TelegramChannelConfig(bot_token="123456789:fixture-token", tenant_id="tenant_tg_c2",
+                outbound_enabled=True, test_recipient_ids=["77"]), repo, state_mgr, client),
+            lambda adapter, key: adapter.send_text("77", "message", idempotency_key=key)),
+        ("WHATSAPP", {"messages": [None]}, lambda client: WhatsAppAdapter(
+            WhatsAppChannelConfig(phone_number_id="phone-1", access_token="token", app_secret="secret",
+                verify_token="verify", tenant_id="tenant_wa_c2", outbound_enabled=True,
+                test_recipient_ids=["6012345"], approved_templates=["hello_world"]), repo, state_mgr, client),
+            lambda adapter, key: adapter.send_template("6012345", "hello_world", "en_US", idempotency_key=key)),
+        ("RESEND", ["malformed"], lambda client: ResendAdapter(
+            ResendChannelConfig(api_key="re_fixture", tenant_id="tenant_email_c2", outbound_enabled=True,
+                test_recipients=["buyer@example.test"], verified_from_email="orders@verified.example.test"),
+            repo, state_mgr, client),
+            lambda adapter, key: adapter.send_reply(to="buyer@example.test", subject="Re: PO",
+                text="message", idempotency_key=key)),
+    ]
+
+    for provider, malformed_body, make_adapter, send in cases:
+        calls = []
+        client = httpx.Client(transport=httpx.MockTransport(
+            lambda request, calls=calls, body=malformed_body: (calls.append(request) or httpx.Response(200, json=body))))
+        adapter = make_adapter(client)
+        first = send(adapter, f"malformed-{provider.lower()}")
+        replay = send(adapter, f"malformed-{provider.lower()}")
+        assert first.state == "UNKNOWN" and first.error_code == "PROVIDER_RESPONSE_INVALID"
+        assert replay.idempotent_replay is True
+        assert len(calls) == 1
+
+
+def test_bounded_webhook_reader_stops_when_stream_crosses_limit():
+    from app.context.channels.router import _read_bounded_body
+
+    messages = [
+        {"type": "http.request", "body": b"123", "more_body": True},
+        {"type": "http.request", "body": b"456", "more_body": True},
+        {"type": "http.request", "body": b"ignored", "more_body": False},
+    ]
+    consumed = 0
+
+    async def receive():
+        nonlocal consumed
+        consumed += 1
+        return messages.pop(0)
+
+    request = StarletteRequest({"type": "http", "method": "POST", "path": "/webhook",
+        "headers": [], "query_string": b""}, receive)
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(_read_bounded_body(request, 5))
+
+    assert error.value.status_code == 413
+    assert consumed == 2
+
+
+def test_whatsapp_route_checks_signature_before_json_parsing(repo, state_mgr):
+    config = ChannelsConfig(whatsapp=WhatsAppChannelConfig(phone_number_id="phone-test-1",
+        access_token="fixture-token", app_secret="fixture-secret", verify_token="verify",
+        tenant_id="tenant_wa_c2"))
+    manager = ChannelManager(config=config, repository=repo, state_manager=state_mgr)
+    test_app = FastAPI()
+    test_app.include_router(channels_router)
+    test_app.dependency_overrides[get_manager] = lambda: manager
+
+    with TestClient(test_app) as client:
+        response = client.post("/v1/channels/whatsapp/webhook", content=b"not-json",
+            headers={"X-Hub-Signature-256": "sha256=bad"})
+
+    assert response.status_code == 401
+
+
+def test_gmail_inline_attachment_rejects_encoded_oversize_before_decode(repo, state_mgr, monkeypatch):
+    import app.context.channels.gmail as gmail_module
+
+    decoded = []
+    monkeypatch.setattr(gmail_module, "_base64url_decode", lambda value: decoded.append(value) or b"%PDF-1.4")
+    adapter = GmailAdapter(GmailChannelConfig(tenant_id="tenant_gmail_c2"), repo, state_mgr)
+    encoded_limit = ((10 * 1024 * 1024 + 2) // 3) * 4
+    payload = {"mimeType": "multipart/mixed", "parts": [{"mimeType": "application/pdf",
+        "filename": "po.pdf", "body": {"data": "A" * (encoded_limit + 1)}}]}
+
+    _, attachments = adapter._extract_body_and_attachments("msg-inline", payload, datetime.now(UTC))
+
+    assert decoded == []
+    assert attachments == []

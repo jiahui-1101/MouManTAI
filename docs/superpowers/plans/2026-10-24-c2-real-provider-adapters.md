@@ -76,4 +76,6 @@
 - [x] Document exact environment variables, official provider setup, test recipient constraints, timeouts, error/retry semantics, and safe test procedure.
 - [x] Record why P4 wiring remains pending, which source metadata current P1 persists, and which C1 contract fields still need integration after review/merge.
 - [x] Run fixture/regression tests and static checks; distinguish the synthetic-identity prerequisite for route integration tests.
+- [x] Close provider review findings for stable Resend native IDs, strict WhatsApp account matching, bounded/signature-first webhook parsing, bounded Gmail inline attachment decoding, HTTPS provider endpoints, and process-cache eviction disclosure.
+- [x] Require a non-synthetic server-side tenant assignment before real provider readiness or inbound/outbound side effects; classify malformed 2xx send bodies as cached `UNKNOWN`.
 - [ ] Push a separate `codex/c2-real-provider-adapters` branch and open a Draft PR requesting review only from `jiahui-1101`; do not mark ready or merge.

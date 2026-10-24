@@ -218,11 +218,13 @@ class ResendAdapter:
             raise ResendWebhookError("Resend webhook body is invalid JSON") from exc
         if not isinstance(event, dict) or event.get("type") != "email.received":
             raise ResendWebhookError("Unsupported Resend webhook event")
+        if not self.config.has_tenant_assignment:
+            raise ResendWebhookError("Resend tenant assignment is not configured")
         event_data = event.get("data") or {}
         if not isinstance(event_data, dict):
             raise ResendWebhookError("Resend event data is invalid")
         email_id = str(event_data.get("email_id") or "")
-        if not email_id or len(email_id) > 200 or not re.fullmatch(r"[A-Za-z0-9._-]+", email_id):
+        if not email_id or len(email_id) > 193 or not re.fullmatch(r"[A-Za-z0-9._-]+", email_id):
             raise ResendWebhookError("Resend event has an invalid email id")
         raw_to = event_data.get("to", [])
         raw_to = raw_to if isinstance(raw_to, list) else [raw_to]
@@ -260,7 +262,9 @@ class ResendAdapter:
         own_message_ids = self._message_ids(rfc_message_id)
         parent_ids = self._message_ids(rfc_headers.get("in-reply-to"))
         reference_ids = self._message_ids(rfc_headers.get("references"))
-        provider_id = own_message_ids[-1] if own_message_ids else f"resend_{email_id}"
+        # Sender-controlled RFC Message-ID is retained for threading, never used as
+        # the provider delivery key or tenant-scoped persistence identity.
+        provider_id = f"resend_{email_id}"
         subject = str(email_data.get("subject") or event_data.get("subject") or "").strip()
         if _SENSITIVE_HEADER_CHARS.search(subject):
             subject = ""
@@ -363,11 +367,13 @@ class ResendAdapter:
                 data = response.json()
             except ValueError:
                 data = {}
-            if state == "ACCEPTED" and data.get("id"):
-                return ProviderSendResult("RESEND", "ACCEPTED", str(data["id"]),
-                    provider_status="ACCEPTED", idempotency_key=key)
             if state == "ACCEPTED":
-                state, error_class, error_code = "UNKNOWN", "UNKNOWN", "PROVIDER_RESPONSE_INVALID"
+                provider_id = data.get("id") if isinstance(data, dict) else None
+                if isinstance(provider_id, str) and provider_id.strip():
+                    return ProviderSendResult("RESEND", "ACCEPTED", provider_id,
+                        provider_status="ACCEPTED", idempotency_key=key)
+                return ProviderSendResult("RESEND", "UNKNOWN", provider_status=str(response.status_code),
+                    error_class="UNKNOWN", error_code="PROVIDER_RESPONSE_INVALID", idempotency_key=key)
             return ProviderSendResult("RESEND", state, provider_status=str(response.status_code),
                 error_class=error_class, error_code=error_code, idempotency_key=key)
 

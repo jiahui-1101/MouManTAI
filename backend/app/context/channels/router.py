@@ -23,6 +23,27 @@ def get_manager() -> ChannelManager:
     return get_channel_manager()
 
 
+async def _read_bounded_body(request: Request, max_bytes: int) -> bytes:
+    """Read a webhook body incrementally and stop as soon as it exceeds its limit."""
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_length = int(content_length)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length")
+        if declared_length < 0:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length")
+        if declared_length > max_bytes:
+            raise HTTPException(status_code=413, detail="Webhook body exceeds the supported size")
+
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > max_bytes:
+            raise HTTPException(status_code=413, detail="Webhook body exceeds the supported size")
+        body.extend(chunk)
+    return bytes(body)
+
+
 # --- Channel Status & Trigger ---
 
 @router.get("/status")
@@ -46,12 +67,12 @@ async def telegram_webhook(
     x_telegram_bot_api_secret_token: Annotated[str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")] = None,
 ) -> dict[str, Any]:
     """Receive Telegram Bot API webhook updates."""
+    if not manager.telegram.config.has_tenant_assignment:
+        raise HTTPException(status_code=503, detail="Telegram tenant assignment is not configured")
     if not manager.telegram.validate_webhook_secret(x_telegram_bot_api_secret_token):
         raise HTTPException(status_code=403, detail="Invalid Telegram webhook authentication")
 
-    raw_body = await request.body()
-    if len(raw_body) > MAX_WEBHOOK_BODY_BYTES:
-        raise HTTPException(status_code=413, detail="Telegram webhook body exceeds the supported size")
+    raw_body = await _read_bounded_body(request, MAX_WEBHOOK_BODY_BYTES)
 
     try:
         update = json.loads(raw_body)
@@ -95,13 +116,20 @@ async def whatsapp_webhook_notification(
     x_hub_signature_256: Annotated[str | None, Header(alias="X-Hub-Signature-256")] = None,
 ) -> dict[str, Any]:
     """Receive incoming WhatsApp Cloud API webhook notifications with HMAC-SHA256 signature verification."""
-    raw_body = await request.body()
-    if len(raw_body) > MAX_WEBHOOK_BODY_BYTES:
-        raise HTTPException(status_code=413, detail="WhatsApp webhook body exceeds the supported size")
+    if not manager.whatsapp.config.has_tenant_assignment:
+        raise HTTPException(status_code=503, detail="WhatsApp tenant assignment is not configured")
+    raw_body = await _read_bounded_body(request, MAX_WEBHOOK_BODY_BYTES)
     try:
-        payload = await request.json()
-    except Exception:
+        manager.whatsapp.validate_signature(raw_body, x_hub_signature_256)
+    except InvalidSignatureError as exc:
+        logger.warning("WhatsApp webhook signature validation failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=401, detail="Invalid HMAC-SHA256 signature")
+    try:
+        payload = json.loads(raw_body)
+    except (ValueError, UnicodeDecodeError):
         raise HTTPException(status_code=400, detail="Invalid JSON body")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="WhatsApp webhook body must be a JSON object")
 
     try:
         results = manager.whatsapp.handle_webhook_event(raw_body, x_hub_signature_256, payload)
@@ -140,9 +168,9 @@ async def resend_webhook(
     svix_signature: Annotated[str | None, Header(alias="svix-signature")] = None,
 ) -> dict[str, Any]:
     """Accept signed Resend email.received events and persist through the existing P1 repository."""
-    raw_body = await request.body()
-    if len(raw_body) > MAX_WEBHOOK_BODY_BYTES:
-        raise HTTPException(status_code=413, detail="Resend webhook body exceeds the supported size")
+    if not manager.resend.config.is_inbound_configured:
+        raise HTTPException(status_code=503, detail="Resend inbound channel is not configured")
+    raw_body = await _read_bounded_body(request, MAX_WEBHOOK_BODY_BYTES)
     headers = {key: value for key, value in {
         "svix-id": svix_id, "svix-timestamp": svix_timestamp, "svix-signature": svix_signature,
     }.items() if value is not None}

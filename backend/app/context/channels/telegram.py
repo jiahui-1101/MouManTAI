@@ -222,7 +222,8 @@ class TelegramAdapter:
     def validate_webhook_secret(self, supplied_secret: str | None) -> bool:
         """Fail closed if the webhook secret is missing or does not match."""
         expected = self.config.webhook_secret
-        return bool(expected and supplied_secret and hmac.compare_digest(expected, supplied_secret))
+        return bool(self.config.has_tenant_assignment and expected and supplied_secret
+                    and hmac.compare_digest(expected, supplied_secret))
 
     def _provider_message_id(self, chat_id: str, message_id: Any) -> str:
         account = self.config.bot_account_id
@@ -262,13 +263,17 @@ class TelegramAdapter:
                 data = response.json()
             except ValueError:
                 data = {}
-            if state == "ACCEPTED" and data.get("ok") is True:
-                provider_id = data.get("result", {}).get("message_id")
-                return ProviderSendResult("TELEGRAM", "ACCEPTED",
-                    self._provider_message_id(recipient, provider_id) if provider_id is not None else None,
-                    provider_status="ACCEPTED", idempotency_key=key)
             if state == "ACCEPTED":
-                state, error_class, error_code = "REJECTED", "PERMANENT", "PROVIDER_RESPONSE_INVALID"
+                result_data = data.get("result") if isinstance(data, dict) else None
+                provider_id = result_data.get("message_id") if isinstance(result_data, dict) else None
+                if (isinstance(data, dict) and data.get("ok") is True
+                        and isinstance(provider_id, int) and not isinstance(provider_id, bool)
+                        and provider_id > 0):
+                    return ProviderSendResult("TELEGRAM", "ACCEPTED",
+                        self._provider_message_id(recipient, provider_id),
+                        provider_status="ACCEPTED", idempotency_key=key)
+                return ProviderSendResult("TELEGRAM", "UNKNOWN", provider_status=str(response.status_code),
+                    error_class="UNKNOWN", error_code="PROVIDER_RESPONSE_INVALID", idempotency_key=key)
             return ProviderSendResult("TELEGRAM", state, provider_status=str(response.status_code),
                 error_class=error_class, error_code=error_code, idempotency_key=key)
 
@@ -423,6 +428,8 @@ class TelegramAdapter:
 
     def process_update(self, update: dict[str, Any]) -> IngestResponse | None:
         """Process a single Telegram update: normalize, ingest, and advance cursor."""
+        if not self.config.has_tenant_assignment:
+            raise TelegramApiError("Telegram tenant assignment is not configured")
         update_id = update.get("update_id")
         envelope = self.parse_update(update)
 

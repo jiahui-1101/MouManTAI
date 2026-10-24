@@ -12,15 +12,34 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
 
 class ChannelConfigBase(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", validate_default=True)
     request_timeout_seconds: float = Field(default=10.0, ge=1.0, le=30.0)
+
+    @property
+    def has_tenant_assignment(self) -> bool:
+        tenant_id = str(getattr(self, "tenant_id", "")).strip()
+        return bool(tenant_id and not tenant_id.casefold().startswith("synthetic"))
+
+    @field_validator("api_base_url", check_fields=False)
+    @classmethod
+    def require_secure_provider_base(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        try:
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError("provider API base URL has an invalid port") from exc
+        if (parsed.scheme.lower() != "https" or not parsed.hostname or parsed.username
+                or parsed.password or parsed.query or parsed.fragment):
+            raise ValueError("provider API base URL must use HTTPS and contain no credentials, query, or fragment")
+        return value.rstrip("/")
 
 
 class TelegramChannelConfig(ChannelConfigBase):
@@ -40,7 +59,7 @@ class TelegramChannelConfig(ChannelConfigBase):
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.bot_token and len(self.bot_token.strip()) > 5)
+        return bool(self.bot_token and len(self.bot_token.strip()) > 5 and self.has_tenant_assignment)
 
 
 class GmailChannelConfig(ChannelConfigBase):
@@ -60,12 +79,26 @@ class GmailChannelConfig(ChannelConfigBase):
     auto_start: bool = True
     credentials_file: str | None = None
 
+    @field_validator("token_endpoint", "auth_endpoint")
+    @classmethod
+    def require_secure_oauth_endpoint(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        try:
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError("Gmail OAuth endpoint has an invalid port") from exc
+        if (parsed.scheme.lower() != "https" or not parsed.hostname or parsed.username
+                or parsed.password or parsed.query or parsed.fragment):
+            raise ValueError("Gmail OAuth endpoints must use HTTPS and contain no credentials, query, or fragment")
+        return value
+
     @property
     def is_configured(self) -> bool:
         return bool(
             self.client_id
             and self.client_secret
             and (self.refresh_token or self.access_token)
+            and self.has_tenant_assignment
         )
 
     @property
@@ -88,11 +121,12 @@ class ResendChannelConfig(ChannelConfigBase):
 
     @property
     def is_inbound_configured(self) -> bool:
-        return bool(self.api_key and self.webhook_secret)
+        return bool(self.api_key and self.webhook_secret and self.inbound_addresses and self.has_tenant_assignment)
 
     @property
     def is_outbound_configured(self) -> bool:
-        return bool(self.api_key and self.verified_from_email and self.outbound_enabled and self.test_recipients)
+        return bool(self.api_key and self.verified_from_email and self.outbound_enabled
+                    and self.test_recipients and self.has_tenant_assignment)
 
 
 class WhatsAppChannelConfig(ChannelConfigBase):
@@ -114,6 +148,7 @@ class WhatsAppChannelConfig(ChannelConfigBase):
             and self.access_token
             and self.app_secret
             and self.verify_token
+            and self.has_tenant_assignment
         )
 
     @property

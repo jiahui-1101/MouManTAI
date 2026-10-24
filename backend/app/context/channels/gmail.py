@@ -379,7 +379,11 @@ class GmailAdapter:
                     if attachment_id:
                         content = self.download_attachment(message_id, attachment_id)
                     else:
-                        content = _base64url_decode(body.get("data", ""))
+                        inline_data = body.get("data", "")
+                        encoded_limit = ((MAX_ATTACHMENT_BYTES + 2) // 3) * 4
+                        if not isinstance(inline_data, str) or len(inline_data) > encoded_limit:
+                            raise AttachmentLimitExceeded("Gmail inline attachment exceeds the configured size limit")
+                        content = _base64url_decode(inline_data)
 
                     detected_mime, clean_filename = validate_attachment(filename, content, mime_type)
                     stable = hashlib.sha256(f"{message_id}:{attachment_id or filename}".encode()).hexdigest()[:24]

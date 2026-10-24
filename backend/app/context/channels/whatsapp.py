@@ -229,11 +229,15 @@ class WhatsAppAdapter:
                 data = response.json()
             except ValueError:
                 data = {}
-            if state == "ACCEPTED" and data.get("messages"):
-                return ProviderSendResult("WHATSAPP", "ACCEPTED", data["messages"][0].get("id"),
-                    provider_status="ACCEPTED", idempotency_key=key)
             if state == "ACCEPTED":
-                state, error_class, error_code = "UNKNOWN", "UNKNOWN", "PROVIDER_RESPONSE_INVALID"
+                messages = data.get("messages") if isinstance(data, dict) else None
+                first_message = messages[0] if isinstance(messages, list) and messages else None
+                provider_id = first_message.get("id") if isinstance(first_message, dict) else None
+                if isinstance(provider_id, str) and provider_id.strip():
+                    return ProviderSendResult("WHATSAPP", "ACCEPTED", provider_id,
+                        provider_status="ACCEPTED", idempotency_key=key)
+                return ProviderSendResult("WHATSAPP", "UNKNOWN", provider_status=str(response.status_code),
+                    error_class="UNKNOWN", error_code="PROVIDER_RESPONSE_INVALID", idempotency_key=key)
             return ProviderSendResult("WHATSAPP", state, provider_status=str(response.status_code),
                 error_class=error_class, error_code=error_code, idempotency_key=key)
 
@@ -269,8 +273,8 @@ class WhatsAppAdapter:
     def _validate_account_metadata(self, value: dict[str, Any]) -> None:
         metadata = value.get("metadata") or {}
         actual = str(metadata.get("phone_number_id", ""))
-        expected = str(self.config.phone_number_id or "")
-        if expected and actual != expected:
+        expected = str(self.config.phone_number_id or "").strip()
+        if not expected or actual != expected:
             raise WhatsAppWebhookError("WhatsApp webhook phone number account is missing or does not match configured account")
 
     # --- Webhook Notification Processing ---
@@ -281,6 +285,8 @@ class WhatsAppAdapter:
         Safely handles non-message callbacks (status receipts: sent, delivered, read)
         without raising errors or creating artificial messages.
         """
+        if not self.config.has_tenant_assignment:
+            raise WhatsAppWebhookError("WhatsApp tenant assignment is not configured")
         envelopes: list[RawMessageEnvelope] = []
         received_at = self._clock()
 
