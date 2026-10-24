@@ -9,6 +9,8 @@ import { instant, timestamp } from './queue';
 import { portfolioDimensions, type PortfolioSnapshot, type PortfolioSource } from './portfolioTypes';
 import { PortfolioUnavailableError, PortfolioVersionError, portfolioFresh, unavailablePortfolioSource, validatePortfolio } from './portfolioSource';
 import { metricDifference, metricText, verifiedRecommendation } from './portfolioView';
+import { PortfolioStrategyAvailability } from './PortfolioStrategyAvailability';
+import { PortfolioCalendarContext } from './portfolioCalendarContext';
 import './portfolio.css';
 
 const executionNotice = 'Scenario membership is a proposal only. Comparison does not accept orders, establish customer assent, reserve resources or change confirmed agreements.';
@@ -109,6 +111,7 @@ export function PortfolioComparisonPage({ source = unavailablePortfolioSource }:
       <Link to="/orders">Back to Order Decision Queue</Link></div>
       <button className="foundation-button foundation-button-secondary" type="button" disabled={query.isFetching} onClick={refresh}>Refresh portfolio</button></header>
     <p><Link to="/orders/calendar">Production & Delivery Calendar</Link> · Scenario inclusion does not create scheduled work.</p>
+    <PortfolioCalendarContext />
     <UncertaintyNote kind="conditional">{executionNotice} Operational acceptance, reservation and scenario saving are unavailable here.</UncertaintyNote>
     <div className="pc-source"><StatusBadge state="UNKNOWN" label={data ? 'Source response received · read only' : 'Backend data unavailable'} />
       <EvidenceTierBadge evidenceTier={data?.evidenceTier ?? 'TARGET'} {...(data ? { integrationMode: data.integrationMode } : {})} />
@@ -122,6 +125,7 @@ export function PortfolioComparisonPage({ source = unavailablePortfolioSource }:
       <ErrorState error={query.error} retrySafe onRetry={refresh} />)}
     {data && !conflict && !available && <EmptyState kind="unavailable" title="Current verified snapshot unavailable"
       description="Source evidence is unverified, stale, expired, future-dated or of unknown freshness. Metrics, allocations and recommendations are withheld. Refresh or review individual orders." />}
+    <PortfolioStrategyAvailability data={available && !conflict ? data : undefined} />
     {available && !conflict && (data.scenarios.length ?
       <PortfolioResults key={`${auth.tenantId}:${auth.actorId}:${data.snapshotId}:${data.snapshotVersion}:${data.updatedAt}:${data.scenarios.map(s => `${s.id}:${s.version}`).join('|')}`} data={data} now={observedNow} /> :
       <EmptyState kind="empty" title="No source scenarios" description="The source returned no scenarios. Continue with individual order assessments; no local portfolio is invented." />)}

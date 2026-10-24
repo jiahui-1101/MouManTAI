@@ -10,6 +10,7 @@ import { authorityLabel, eventLabel, eventsForDay, filterSchedule, initialCalend
 import type { CalendarFilters, CalendarView, ScheduleSnapshot, ScheduleSource } from './calendarTypes';
 import { CalendarEventPanel } from './CalendarEventPanel';
 import { CalendarResources } from './CalendarResources';
+import { portfolioCalendarHref } from './portfolioCalendarContext';
 import './calendar.css';
 
 interface CalendarPageProps { source?: ScheduleSource; timeZone?: string; initialDate?: string }
@@ -45,7 +46,7 @@ function CalendarWorkspace({ source, timeZone, initialDate }: Required<Pick<Cale
   return <section className="schedule-calendar" aria-labelledby="cal-title">
     <header className="cal-heading"><div><p className="cal-eyebrow">Orders & planning · read only</p><h1 id="cal-title">Production & Delivery Calendar</h1>
       <p>Inspect sourced work, delivery dates and resource constraints. Planning views do not authorize production or change customer agreements.</p>
-      <nav aria-label="Calendar feature navigation"><Link to="/orders">Order Decision Queue</Link><Link to="/orders/portfolio">Portfolio Comparison</Link></nav></div>
+      <nav aria-label="Calendar feature navigation"><Link to="/orders">Order Decision Queue</Link><Link to={window ? portfolioCalendarHref(date, window) : '/orders/portfolio'}>Portfolio Comparison</Link></nav></div>
       <button className="foundation-button foundation-button-secondary" type="button" onClick={refresh} disabled={query.isFetching || !window}>Refresh calendar</button></header>
     <UncertaintyNote kind="conditional">Read only. Portfolio inclusion is not a production job; a requested delivery date is not a promised date. No acceptance, reservation, drag-and-drop or rescheduling submission is connected.</UncertaintyNote>
     <div className="cal-source"><StatusBadge state="UNKNOWN" label={data ? 'Source response received · read only' : 'Schedule data unavailable'} />
