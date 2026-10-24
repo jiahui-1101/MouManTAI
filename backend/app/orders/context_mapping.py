@@ -86,6 +86,7 @@ class PriceDisclosureEvidence(ImmutableContract):
     context_id: Text
     context_version: int = Field(ge=1)
     order_request_id: Text
+    request_version: int = Field(ge=1, strict=True)
     terms_revision: int = Field(ge=1)
     terms_hash: Text
     source_id: Text
@@ -98,6 +99,35 @@ class PriceDisclosureEvidence(ImmutableContract):
     currentness_checked_at: AwareDatetime | None = None
     currentness_ref: Text | None = None
     currentness_disclosure_ref: Text | None = None
+    currentness_authority_ref: Text | None = None
+
+
+class OrderRequestVersionEvidence(ImmutableContract):
+    """Trusted adapter evidence for one current durable OrderRequest version.
+
+    ``request_version`` is an independent lifecycle version. It is never
+    inferred from the context version, terms revision, or terms hash. A
+    server-side adapter must load the exact current request row and bind the
+    evidence below within its tenant-scoped consistent read.
+    """
+
+    tenant_id: Text
+    customer_id: Text
+    context_id: Text
+    context_version: int = Field(ge=1, strict=True)
+    order_request_id: Text
+    request_version: int = Field(ge=1, strict=True)
+    terms_revision: int = Field(ge=1, strict=True)
+    terms_hash: Text
+    source_id: Text
+    source_version: Text
+    source_record_id: Text
+    verification_status: Literal["VERIFIED", "UNVERIFIED"]
+    authority_ref: Text | None = None
+    observed_at: AwareDatetime
+    currentness_status: Literal["CURRENT", "STALE", "UNKNOWN"] = "UNKNOWN"
+    currentness_checked_at: AwareDatetime | None = None
+    currentness_ref: Text | None = None
     currentness_authority_ref: Text | None = None
 
 
@@ -126,6 +156,11 @@ class OrderCommercialEvidence(ImmutableContract):
     context_version: int = Field(ge=1)
     customer_id: Text
     order_request_id: Text | None = None
+    request_version: int | None = Field(default=None, ge=1, strict=True)
+    request_version_source_id: Text | None = None
+    request_version_source_version: Text | None = None
+    request_version_source_ref: Text | None = None
+    request_version_evidence: OrderRequestVersionEvidence | None = None
     terms_revision: int | None = Field(default=None, ge=1)
     items: tuple[CommercialOrderLine, ...] | None = None
     fulfilment_method: Literal["DELIVERY", "PICKUP"] | None = None
@@ -149,6 +184,11 @@ class AcceptanceCandidate(ImmutableContract):
 
     tenant_id: Text
     order_request_id: Text | None = None
+    request_version: int | None = Field(default=None, ge=1, strict=True)
+    request_version_source_id: Text | None = None
+    request_version_source_version: Text | None = None
+    request_version_source_ref: Text | None = None
+    request_version_evidence: OrderRequestVersionEvidence | None = None
     source_context_id: Text
     source_context_version: int = Field(ge=1)
     source_context_version_record_id: Text | None = None
@@ -181,6 +221,17 @@ class AcceptanceCandidate(ImmutableContract):
             raise ValueError("Canonical terms are present only for a ready candidate")
         if (self.canonical_terms is None) != (self.terms_hash is None):
             raise ValueError("Canonical terms and their hash must be present together")
+        if self.canonical_terms is None and any(
+            value is not None
+            for value in (
+                self.request_version,
+                self.request_version_source_id,
+                self.request_version_source_version,
+                self.request_version_source_ref,
+                self.request_version_evidence,
+            )
+        ):
+            raise ValueError("Request-version source details are present only on a ready candidate")
         if self.canonical_terms is not None:
             if self.canonical_terms.tenant_id != self.tenant_id:
                 raise ValueError("Candidate tenant must match canonical terms")
@@ -192,6 +243,42 @@ class AcceptanceCandidate(ImmutableContract):
                 raise ValueError("Candidate terms revision must match canonical terms")
             if self.canonical_terms.terms_hash != self.terms_hash:
                 raise ValueError("Candidate terms hash does not match canonical terms")
+            version_evidence = self.request_version_evidence
+            if (
+                self.request_version is None
+                or not self.request_version_source_id
+                or not self.request_version_source_version
+                or not self.request_version_source_ref
+                or version_evidence is None
+            ):
+                raise ValueError("Canonical terms require authoritative request-version evidence")
+            if (
+                version_evidence.tenant_id != self.tenant_id
+                or version_evidence.customer_id != self.customer_id
+                or version_evidence.context_id != self.source_context_id
+                or version_evidence.context_version != self.source_context_version
+                or version_evidence.order_request_id != self.order_request_id
+                or version_evidence.request_version != self.request_version
+                or version_evidence.source_id != self.request_version_source_id
+                or version_evidence.source_version != self.request_version_source_version
+                or version_evidence.terms_revision != self.terms_revision
+                or version_evidence.terms_hash != self.terms_hash
+                or version_evidence.source_record_id != self.request_version_source_ref
+                or version_evidence.verification_status != "VERIFIED"
+                or not version_evidence.authority_ref
+                or version_evidence.currentness_status != "CURRENT"
+                or version_evidence.currentness_checked_at is None
+                or not version_evidence.currentness_ref
+                or not version_evidence.currentness_authority_ref
+                or version_evidence.currentness_checked_at.astimezone(UTC)
+                < version_evidence.observed_at.astimezone(UTC)
+            ):
+                raise ValueError("Request-version evidence must be current and bind to candidate")
+            if any(
+                row.request_version != self.request_version
+                for row in self.price_disclosure_evidence
+            ):
+                raise ValueError("Price disclosures must bind to the candidate request version")
             if not self.customer_identity_associations:
                 raise ValueError("Canonical terms require versioned customer identity evidence")
             association_ids = tuple(
@@ -348,6 +435,19 @@ def _make_candidate(
     return AcceptanceCandidate(
         tenant_id=context.tenant_id,
         order_request_id=validated_commercial.order_request_id if validated_commercial else None,
+        request_version=validated_commercial.request_version if validated_commercial else None,
+        request_version_source_id=(
+            validated_commercial.request_version_source_id if validated_commercial else None
+        ),
+        request_version_source_version=(
+            validated_commercial.request_version_source_version if validated_commercial else None
+        ),
+        request_version_source_ref=(
+            validated_commercial.request_version_source_ref if validated_commercial else None
+        ),
+        request_version_evidence=(
+            validated_commercial.request_version_evidence if validated_commercial else None
+        ),
         source_context_id=context.context_id,
         source_context_version=context.context_version,
         source_context_version_record_id=current_version.version_id if current_version else None,
@@ -1112,12 +1212,109 @@ def map_order_context(
             conflicts=_unique(fields),
         )
 
+    missing_request_version = tuple(
+        field
+        for field, missing_value in (
+            ("request_version", commercial_terms.request_version is None),
+            ("request_version_source_id", not commercial_terms.request_version_source_id),
+            (
+                "request_version_source_version",
+                not commercial_terms.request_version_source_version,
+            ),
+            ("request_version_source_ref", not commercial_terms.request_version_source_ref),
+            ("request_version_evidence", commercial_terms.request_version_evidence is None),
+        )
+        if missing_value
+    )
+    if missing_request_version:
+        return _make_candidate(
+            context,
+            readiness="INCOMPLETE",
+            current_version=current_version,
+            commercial=commercial_terms,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("AUTHORITATIVE_REQUEST_VERSION_MISSING",),
+            missing=missing_request_version,
+        )
+
+    request_version_evidence = commercial_terms.request_version_evidence
+    assert request_version_evidence is not None
+    if request_version_evidence.request_version != commercial_terms.request_version:
+        return _make_candidate(
+            context,
+            readiness="STALE_SOURCE",
+            current_version=current_version,
+            commercial=None,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("ORDER_REQUEST_VERSION_MISMATCH",),
+        )
+    if (
+        request_version_evidence.verification_status != "VERIFIED"
+        or not request_version_evidence.authority_ref
+        or request_version_evidence.currentness_status != "CURRENT"
+        or request_version_evidence.currentness_checked_at is None
+        or not request_version_evidence.currentness_ref
+        or not request_version_evidence.currentness_authority_ref
+        or request_version_evidence.currentness_checked_at.astimezone(UTC)
+        < request_version_evidence.observed_at.astimezone(UTC)
+    ):
+        return _make_candidate(
+            context,
+            readiness="STALE_SOURCE",
+            current_version=current_version,
+            commercial=None,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("ORDER_REQUEST_VERSION_UNVERIFIED_OR_STALE",),
+        )
+    if (
+        request_version_evidence.tenant_id != context.tenant_id
+        or request_version_evidence.customer_id != context.customer_id
+        or request_version_evidence.context_id != context.context_id
+        or request_version_evidence.context_version != context.context_version
+        or request_version_evidence.order_request_id != commercial_terms.order_request_id
+        or request_version_evidence.source_id != commercial_terms.request_version_source_id
+        or request_version_evidence.source_version
+        != commercial_terms.request_version_source_version
+        or request_version_evidence.terms_revision != commercial_terms.terms_revision
+        or request_version_evidence.source_record_id != commercial_terms.request_version_source_ref
+    ):
+        return _make_candidate(
+            context,
+            readiness="TERMS_CONFLICT",
+            current_version=current_version,
+            commercial=None,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("ORDER_REQUEST_VERSION_BINDING_MISMATCH",),
+            conflicts=("request_version_evidence",),
+        )
+    if request_version_evidence.terms_hash != mapped_terms.terms_hash:
+        return _make_candidate(
+            context,
+            readiness="TERMS_CONFLICT",
+            current_version=current_version,
+            commercial=None,
+            source_evidence_refs=base_refs,
+            identity_evidence=identity_refs,
+            identity_associations=identity_associations,
+            reasons=("ORDER_REQUEST_VERSION_TERMS_MISMATCH",),
+            conflicts=("request_version_evidence",),
+        )
+
     disclosure_binding_matches = all(
         record.tenant_id == context.tenant_id
         and record.customer_id == context.customer_id
         and record.context_id == context.context_id
         and record.context_version == context.context_version
         and record.order_request_id == commercial_terms.order_request_id
+        and record.request_version == commercial_terms.request_version
         and record.terms_revision == commercial_terms.terms_revision
         and record.terms_hash == mapped_terms.terms_hash
         and record.source_id == price_source.source_id
@@ -1144,6 +1341,12 @@ def map_order_context(
         + list(terms_evidence)
         + list(identity_refs)
         + list(disclosure_refs)
+        + [request_version_evidence.source_record_id]
+        + [request_version_evidence.source_id]
+        + [request_version_evidence.source_version]
+        + [request_version_evidence.authority_ref]
+        + [request_version_evidence.currentness_ref]
+        + [request_version_evidence.currentness_authority_ref]
         + [
             record.authority_ref
             for record in commercial_terms.price_disclosure_evidence

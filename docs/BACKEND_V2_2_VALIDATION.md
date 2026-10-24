@@ -139,3 +139,47 @@ Current gaps: no adapter authenticates the origin/freshness of an OrderCommercia
 - PostgreSQL validation is **NOT_RUN / BLOCKED**. `P1_TEST_DATABASE_URL`, `P1_DATABASE_URL`, `TEST_DATABASE_URL`, `DATABASE_URL`, and `TEST_MIGRATION_DATABASE_URL` were unset. The 35 gated tests were skipped, not passed. No database was created or touched. Live PostgreSQL repeatable-read/read-only transaction assertions remain unverified.
 - The current A6 handoff, implementation status, dependency, and owner gates are maintained in [`docs/BACKEND_A6_LATEST_HANDOFF.md`](BACKEND_A6_LATEST_HANDOFF.md). It supersedes the earlier local-only A6 publication status above while preserving that checkpoint as history.
 - Published as Draft PR [#55](https://github.com/jiahui-1101/MouManTAI/pull/55), base `backend-a/feat-v2-2-p1-order-context-mapper` at `fd7be2e2dae0b3275ea344f9f4d567b836c93cb1`; requested P1 `mavisbong41` and P5 `Gan0117`. The PR compare is 4 commits ahead / 0 behind and lists 11 A6-only files. No PR-triggered workflow runs were returned. This metadata update contains documentation only; tested Python code remains at `acefd0fa8c4f01d55943f1324aee6ef9c7a692c2`.
+## 2026-10-24 — Prompt 2: PR #50/#52 consolidation validation
+
+Dependency evidence, read before editing:
+- PR #48 HEAD `568e5deff97a29244944ae31b5d138fa910a4042`; exact-head GitHub CI `40054989068` completed SUCCESS with all five jobs, including the authoritative PostgreSQL job with zero skips.
+- PR #50 starting HEAD `fd7be2e2dae0b3275ea344f9f4d567b836c93cb1`; PR #52 `8d7ca20c0651db947092dec34510fe1b0b63aaaa`; PR #55 `2a97cf553b8d686d277d322b40db15fdabcc3ae8`, based on the exact #50 starting head.
+- PR #48's two reservation/version findings are corrected in the pushed source and tests; reviewer re-approval remains pending. The technical dependency is present, not approved/merged.
+
+Implementation in the isolated PR #50 worktree:
+- Merged corrected #48 into #50 with merge commit `c49889e07a8c20679e51fad4d9553a901680490e` (no rebase/history rewrite).
+- Consolidation code commit `c7a05149b6d51513e9bf2d8acf35b4989b5be260`. Changed implementation/test files: `backend/app/orders/terms.py`, `backend/tests/v2_2/test_terms.py`. PR #48 additionally contributes its corrected `backend/app/integrations/business_ports.py` and `backend/tests/v2_2/test_business_ports.py` unchanged through the merge. `context_mapping.py` and `test_context_mapping.py` remain unchanged from #50.
+- All nine distinct #52-added term regression functions were retained alongside #50's tests: evidence-reference/currentness boundary; proposed revision mismatch; Kuala Lumpur wrong offset; both explicit DST folds and equivalent UTC instants; repeated local hour requires explicit offset; spring transition; UTC-instant order through a DST fold; wrong repeated-hour offset; nonexistent local time. Shared fixed hash vector remains present. Terms hash semantics are unchanged.
+
+Commands (run from `backend`, each pytest run used a fresh GUID-based `--basetemp` below `C:\Users\User\.codex\worktrees\backend-a-order-mapper` and `MOUMANTAI_SYNTHETIC_MODE=1`):
+- `python -m pytest tests/v2_2/test_terms.py -o addopts= --basetemp=$temp -q --tb=short` → **56 passed, 5 warnings**.
+- `python -m pytest tests/v2_2/test_context_mapping.py -o addopts= --basetemp=$temp -q --tb=short` → **52 passed, 5 warnings**.
+- `python -m pytest tests/v2_2/test_business_ports.py -o addopts= --basetemp=$temp -q --tb=short` → **68 passed, 5 warnings**.
+- `python -m pytest tests/v2_2 -o addopts= --basetemp=$temp -q --tb=short` → **243 passed, 5 warnings**.
+- `python -m pytest app/context/tests/test_order_context_storage.py app/context/tests/test_association_models_and_storage.py app/context/tests/test_context_api.py app/context/tests/test_review_readiness.py app/context/tests/test_core_publisher.py app/context/tests/test_p2_consumer.py tests/test_core_api.py tests/test_core_assessment_writer_provenance.py -o addopts= --basetemp=$temp -q -rs --tb=short` → **21 passed, 22 skipped, 5 warnings**. Every skip reports `P1_TEST_DATABASE_URL is unset; PostgreSQL validation NOT RUN`.
+- `python -m pytest app/feasibility/tests -o addopts= --basetemp=$temp -q -rs --tb=short` → **288 passed, 1 warning**.
+- `python -m pytest tests/test_resource_reservations.py tests/test_outbox_events.py tests/test_p5_integration_recovery.py tests/test_core_api.py tests/test_core_assessment_writer_provenance.py -o addopts= --basetemp=$temp -q -rs --tb=short` → **48 passed, 5 warnings**.
+- Ruff `check --select E,F,I --ignore E501,F401,F841` on terms, mapper, ports and relevant tests → pass. `ruff format --check` on mapper/ports and their tests → pass. Full terms/test_terms formatting check → pre-existing fail; the same check on their unchanged pre-consolidation #50 HEAD also exited 1. `python -m compileall -q app tests/v2_2` → pass. `python -m alembic heads` → one head, `0017_p1_real_channel_provenance`. `git diff --check` → pass. Secret scan on changed source/test files → no matches.
+- No local PostgreSQL database was started or used. There is no approved disposable P1 database URL; all gated P1 tests are reported NOT_RUN/skipped, not passed. PR #48 PostgreSQL CI does not validate PR #55's separate database tests.
+
+PR #50's own exact-head CI will be checked after the normal push. No CI result is inferred from #48. PRs remain Draft; no merge, auto-merge or production operation.
+
+Independent read-only review of the consolidated implementation found no actionable code issues. It confirmed the corrected #48 contract is an ancestor, all 17 #52 test function definitions remain (nine transferred because absent from original #50), PR #50 mapper files are unchanged, and hash semantics remain stable. Latest fetched Main is `b1255f5a428e8cd87a0ecb48576bc373b6286c50` (#58); it is separate UI/design/spec changes and was not pulled into this stacked PR. This review does not constitute owner signoff.
+
+Publication follow-up: final code/docs checkpoint `ba2d5ad9956ad0cba82e417f7a14b336cfb56025` was pushed normally and verified at the existing PR #50 branch. PR #50 remains open Draft and unmerged, based on corrected #48 HEAD `568e5deff97a29244944ae31b5d138fa910a4042`. Exact-head GitHub workflow lookup found no PR-triggered run. Fresh P1/P5/Backend B review requests were sent; no new review submission was available at this checkpoint. PR #55 remains based at its old #50 SHA `fd7be2e2dae0b3275ea344f9f4d567b836c93cb1`; refresh it only through a reviewed update. Its PostgreSQL-gated P1 tests remain NOT_RUN without an approved disposable database.
+
+Request-version regression checkpoint (PR #50 follow-up, 2026-10-24; local worktree based on `ed2ed58baf74784fa94625013106363f68a739be`):
+
+- `python -m pytest -p no:cacheprovider -o 'addopts=' tests/v2_2/test_context_mapping.py --tb=short` → **77 passed, 5 warnings**.
+- `python -m pytest -p no:cacheprovider -o 'addopts=' tests/v2_2/test_terms.py tests/v2_2/test_business_ports.py --tb=short` → **124 passed, 5 warnings**.
+- Full v2.2 suite → **268 passed, 5 warnings**.
+- Adjacent P1/Core contract suite → **21 passed, 22 skipped** because `P1_TEST_DATABASE_URL` was unset. **BLOCKED — REAL POSTGRESQL VALIDATION NOT PERFORMED.**
+- Ruff check and format, Python compileall, and `git diff --check` passed. These are local results; GitHub exact-head CI has not run for the follow-up yet.
+
+## PR #55 refresh validation — 2026-10-24
+
+- Focused P1 source reader: **22 passed, 5 warnings**.
+- Full v2.2 suite after merging #50 `f676da95c6d0e453327df4edfb1593c0c0d17144`: **290 passed, 5 warnings**.
+- `python -m pytest -p no:cacheprovider -o 'addopts=' backend/app/context/tests/test_order_context_source_snapshot.py backend/app/context/tests/test_postgres_repository.py -q -rA --tb=short` → **6 passed, 13 skipped**. Every skip says `P1_TEST_DATABASE_URL is unset; PostgreSQL validation NOT RUN`.
+- `python -m alembic -c backend/alembic.ini heads` → one head, `0017_p1_real_channel_provenance`. This verifies migration graph metadata only; it is not a PostgreSQL migration run.
+- **BLOCKED — REAL POSTGRESQL VALIDATION NOT PERFORMED.** A disposable local PostgreSQL DB and `P1_TEST_DATABASE_URL` are required. Reproduce from `backend` with `python -m pytest -p no:cacheprovider -o 'addopts=' app/context/tests/test_p1_alembic_migration.py app/context/tests/test_order_context_source_snapshot.py app/context/tests/test_postgres_repository.py -q -rA --tb=short` after setting that URL to the disposable DB.

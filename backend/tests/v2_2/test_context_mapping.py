@@ -161,6 +161,8 @@ def _commercial_defaults():
         "context_version": 3,
         "customer_id": CUSTOMER,
         "order_request_id": "order_request_a",
+        "request_version_source_id": "fixture.order_request_reader",
+        "request_version_source_version": "schema_v1",
         "terms_revision": 1,
         "items": [
             {
@@ -243,6 +245,7 @@ def make_disclosure_record(commercial=None, **updates):
         "context_id": commercial.get("context_id", CONTEXT),
         "context_version": commercial.get("context_version", 3),
         "order_request_id": commercial.get("order_request_id") or "order_request_a",
+        "request_version": commercial.get("request_version") or 1,
         "terms_revision": commercial.get("terms_revision") or 1,
         "terms_hash": terms_hash,
         "source_id": source["source_id"],
@@ -262,11 +265,68 @@ def make_disclosure_record(commercial=None, **updates):
 
 
 def make_commercial(**updates):
+    """Compatibility helper for the explicitly synthetic trusted-adapter fixture."""
+    return make_verified_commercial(**updates)
+
+
+def make_request_version_evidence(commercial, *, request_version=None, **updates):
+    from app.orders.context_mapping import OrderRequestVersionEvidence
+
+    version = commercial.get("request_version") if request_version is None else request_version
+    row_ref = (
+        commercial.get("request_version_source_ref") or f"fixture:order_request_row:v{version}"
+    )
+    return OrderRequestVersionEvidence.model_validate(
+        {
+            "tenant_id": commercial["tenant_id"],
+            "customer_id": commercial["customer_id"],
+            "context_id": commercial["context_id"],
+            "context_version": commercial["context_version"],
+            "order_request_id": commercial["order_request_id"],
+            "request_version": version,
+            "terms_revision": commercial["terms_revision"],
+            "terms_hash": _terms_hash_for(commercial),
+            "source_id": commercial["request_version_source_id"],
+            "source_version": commercial["request_version_source_version"],
+            "source_record_id": row_ref,
+            "verification_status": "VERIFIED",
+            "authority_ref": "fixture_read_transaction_a",
+            "observed_at": "2026-10-24T08:01:00Z",
+            "currentness_status": "CURRENT",
+            "currentness_checked_at": "2026-10-24T08:05:00Z",
+            "currentness_ref": "order_request_currentness_a",
+            "currentness_authority_ref": "fixture_repeatable_read_adapter_a",
+        }
+        | updates
+    )
+
+
+def make_verified_commercial(**updates):
+    """Typed adapter-output fixture; it does not assert that P1 persists this source."""
     from app.orders.context_mapping import OrderCommercialEvidence
 
-    data = _commercial_defaults() | updates
+    data = _commercial_defaults() | {"request_version": 1} | updates
+    version = data["request_version"]
+    if (
+        "request_version_source_ref" not in data
+        and isinstance(version, int)
+        and not isinstance(version, bool)
+    ):
+        data["request_version_source_ref"] = f"fixture:order_request_row:v{version}"
     if "price_disclosure_evidence" not in updates:
         data["price_disclosure_evidence"] = [make_disclosure_record(data)]
+    if (
+        "request_version_evidence" not in updates
+        and isinstance(version, int)
+        and not isinstance(version, bool)
+        and version > 0
+        and data.get("order_request_id")
+        and data.get("terms_revision") is not None
+    ):
+        try:
+            data["request_version_evidence"] = make_request_version_evidence(data)
+        except (ValidationError, KeyError, TypeError, ValueError):
+            pass
     return OrderCommercialEvidence.model_validate(data)
 
 
@@ -291,7 +351,7 @@ def map_context(
         source_messages=source_messages if source_messages is not None else [make_source_message()],
         associations=associations if associations is not None else [make_association()],
         reviews=reviews if reviews is not None else [make_context_review(context)],
-        commercial_terms=commercial if commercial is not None else make_commercial(),
+        commercial_terms=commercial if commercial is not None else make_verified_commercial(),
         existing_core_terms=existing_core_terms,
     )
 
@@ -329,6 +389,129 @@ def test_missing_order_request_id_is_incomplete_and_never_replaced_with_context_
     assert result.canonical_terms is None
     assert "order_request_id" in result.missing_fields
     assert result.source_context_id == CONTEXT
+
+
+def test_mapping_without_authoritative_request_version_is_incomplete():
+    result = map_context(
+        commercial=make_commercial(
+            request_version=None,
+            request_version_source_ref=None,
+            request_version_evidence=None,
+        )
+    )
+
+    assert result.readiness_status == "INCOMPLETE"
+    assert "request_version" in result.missing_fields
+
+
+@pytest.mark.parametrize("request_version", [0, -1, True, 1.5, "2"])
+def test_commercial_source_rejects_invalid_request_versions(request_version):
+    with pytest.raises(ValidationError):
+        make_commercial(request_version=request_version)
+
+
+def test_request_version_advances_independently_of_unchanged_terms_revision_and_hash():
+    first = map_context(commercial=make_verified_commercial(request_version=1))
+    second = map_context(commercial=make_verified_commercial(request_version=2))
+
+    assert first.readiness_status == second.readiness_status == "READY_FOR_VALIDATION"
+    assert first.request_version == 1
+    assert second.request_version == 2
+    assert first.terms_revision == second.terms_revision == 1
+    assert first.terms_hash == second.terms_hash
+
+
+def test_stale_request_version_evidence_fails_closed_when_terms_are_unchanged():
+    commercial = _commercial_defaults() | {"request_version": 2}
+    commercial["request_version_source_ref"] = "fixture:order_request_row:v2"
+    commercial["price_disclosure_evidence"] = [make_disclosure_record(commercial)]
+    commercial["request_version_evidence"] = make_request_version_evidence(
+        commercial, request_version=1
+    )
+
+    result = map_context(commercial=make_commercial(**commercial))
+
+    assert result.readiness_status == "STALE_SOURCE"
+    assert result.canonical_terms is None
+    assert result.request_version is None
+
+
+@pytest.mark.parametrize(
+    "evidence_updates",
+    [
+        {"tenant_id": "tenant_b"},
+        {"customer_id": "customer_b"},
+        {"context_id": "context_b"},
+        {"order_request_id": "order_request_b"},
+        {"terms_revision": 2},
+        {"source_id": "another_order_request_source"},
+        {"source_version": "other_schema"},
+        {"source_record_id": "another_order_request_row"},
+    ],
+)
+def test_mismatched_request_version_source_identity_fails_closed(evidence_updates):
+    commercial_data = _commercial_defaults() | {"request_version": 3}
+    commercial_data["request_version_source_ref"] = "fixture:order_request_row:v3"
+    commercial_data["price_disclosure_evidence"] = [make_disclosure_record(commercial_data)]
+    commercial_data["request_version_evidence"] = make_request_version_evidence(
+        commercial_data, **evidence_updates
+    )
+
+    result = map_context(commercial=make_commercial(**commercial_data))
+
+    assert result.readiness_status in {"TERMS_CONFLICT", "STALE_SOURCE"}
+    assert result.canonical_terms is None
+    assert result.request_version is None
+
+
+def test_disclosure_version_must_match_authoritative_request_version():
+    commercial = _commercial_defaults() | {"request_version": 4}
+    commercial["request_version_source_ref"] = "fixture:order_request_row:v4"
+    commercial["price_disclosure_evidence"] = [
+        make_disclosure_record(commercial, request_version=3)
+    ]
+    commercial["request_version_evidence"] = make_request_version_evidence(commercial)
+
+    result = map_context(commercial=make_commercial(**commercial))
+
+    assert result.readiness_status == "TERMS_CONFLICT"
+    assert result.canonical_terms is None
+
+
+def test_request_version_value_without_authoritative_source_evidence_is_incomplete():
+    result = map_context(
+        commercial=make_commercial(request_version=7, request_version_evidence=None)
+    )
+
+    assert result.readiness_status == "INCOMPLETE"
+    assert result.request_version is None
+    assert "request_version_evidence" in result.missing_fields
+
+
+@pytest.mark.parametrize(
+    "evidence_updates",
+    [
+        {"verification_status": "UNVERIFIED", "authority_ref": None},
+        {"currentness_status": "STALE"},
+        {"currentness_status": "UNKNOWN"},
+        {"currentness_checked_at": "2026-10-24T08:00:00Z"},
+        {"currentness_ref": None},
+        {"currentness_authority_ref": None},
+    ],
+)
+def test_unverified_or_stale_request_version_source_fails_closed(evidence_updates):
+    commercial_data = _commercial_defaults() | {"request_version": 5}
+    commercial_data["request_version_source_ref"] = "fixture:order_request_row:v5"
+    commercial_data["price_disclosure_evidence"] = [make_disclosure_record(commercial_data)]
+    evidence = make_request_version_evidence(commercial_data, **evidence_updates)
+
+    result = map_context(
+        commercial=make_commercial(**commercial_data, request_version_evidence=evidence)
+    )
+
+    assert result.readiness_status == "STALE_SOURCE"
+    assert result.canonical_terms is None
+    assert result.request_version is None
 
 
 @pytest.mark.parametrize(
@@ -473,6 +656,16 @@ def test_acceptance_candidate_rejects_unrelated_currentness_evidence_directly():
     )
 
     with pytest.raises(ValidationError, match="Price disclosure evidence"):
+        AcceptanceCandidate.model_validate(candidate_data)
+
+
+def test_ready_candidate_requires_its_exact_request_version_evidence():
+    from app.orders.context_mapping import AcceptanceCandidate
+
+    candidate_data = map_context().model_dump()
+    candidate_data["request_version"] = None
+
+    with pytest.raises(ValidationError, match="request-version evidence"):
         AcceptanceCandidate.model_validate(candidate_data)
 
 
@@ -895,5 +1088,10 @@ def test_mapping_has_no_core_or_external_side_effects_and_existing_hash_contract
     result = map_context(existing_core_terms=original)
     assert result.readiness_status == "READY_FOR_VALIDATION"
     assert result.terms_hash == before
+    assert result.request_version == 1
+    assert result.terms_revision == 1
     assert compare_terms(original, result.canonical_terms).matches
     assert original.terms_hash == before
+    assert result.agreement_basis == "UNKNOWN"
+    assert result.customer_assent_evidence == ()
+    assert result.proposal_id is None

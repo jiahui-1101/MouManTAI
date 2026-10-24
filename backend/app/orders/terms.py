@@ -55,11 +55,13 @@ class ImmutableContract(BaseModel):
 
 
 class PriceSource(ImmutableContract):
-    """Binding price-source identity plus nonbinding evidence references.
+    """Binding source identity and nonbinding evidence references.
 
     The source type, ID, version, policy and disclosure time participate in
-    OrderTerms v1 equality. Evidence references are provenance metadata and
-    must be validated independently against a trusted, current evidence source.
+    OrderTerms v1 equality. Evidence references are provenance metadata. A
+    matching hash does not authenticate a disclosure, establish currentness,
+    or prove customer agreement; callers must validate those facts through a
+    trusted evidence source independently.
     """
 
     source_type: Literal["APPROVED_CATALOG", "APPROVED_QUOTE"]
@@ -90,7 +92,7 @@ class OrderTerms(ImmutableContract):
     tenant_id: Text
     order_request_id: Text
     customer_id: Text
-    terms_revision: int = Field(ge=1)
+    terms_revision: int = Field(ge=1, strict=True)
     items: tuple[OrderLine, ...] = Field(min_length=1, max_length=100)
     fulfilment_method: Literal["DELIVERY", "PICKUP"]
     location_ref: Text
@@ -133,12 +135,12 @@ class OrderTerms(ImmutableContract):
         """Return versioned binding values, not a proof or evidence verdict.
 
         List item order is irrelevant; exact IDs, unit spelling, conditions and
-        price-source identity/version/policy/disclosed-at are binding. Terms
-        revision, message IDs, general evidence refs, and price-source evidence
-        refs are omitted for v1 compatibility and provenance corrections. No
-        fuzzy SKU/unit/address equivalence. Callers must validate evidence
-        existence, tenant binding, relation, currentness, revocation and assent
-        separately; hash equality establishes none of those facts.
+        price-source identity/version/policy/disclosed-at are binding. Evidence
+        references, terms revision, and source-message IDs are omitted for v1
+        compatibility and provenance corrections. No fuzzy SKU/unit/address
+        equivalence. Callers must independently validate evidence existence,
+        tenant binding, relation, currentness, revocation and customer assent;
+        hash equality establishes none of those facts.
         """
         values = self.model_dump(mode="json", exclude={
             "terms_revision", "source_message_ids", "evidence_refs", "price_source",
@@ -167,10 +169,10 @@ def _validate_window_timezone(value: datetime, zone: ZoneInfo, field_name: str) 
     """Validate local offset timestamps against the named business zone.
 
     UTC timestamps represent absolute instants and are accepted directly.
-    Non-UTC inputs must identify one valid local wall time in the named zone
-    and use that time's actual offset. A matching explicit offset can select
-    one fold of a repeated wall hour; nonexistent or still-ambiguous inputs fail
-    closed. An explicit UTC instant is another unambiguous representation.
+    Other offsets must identify one valid local wall time and use that time's
+    actual zone offset. A matching explicit offset selects one fold of a
+    repeated wall hour; nonexistent, mismatched, or still-ambiguous values
+    fail closed. An explicit UTC instant is another unambiguous representation.
     """
     offset = value.utcoffset()
     if offset is None:
@@ -223,7 +225,7 @@ def compare_terms(original: OrderTerms, proposed: OrderTerms) -> TermsComparison
 
 def require_exact_terms(original: OrderTerms, proposed: OrderTerms, *, tenant_id: str,
                         expected_revision: int, expected_terms_hash: str) -> None:
-    """Guard an unchanged original revision; caller must load terms from trusted storage.
+    """Guard an unchanged original revision loaded from trusted storage.
 
     Passing this guard does not authorize acceptance, establish source trust,
     validate current disclosure, grant customer assent, or replace P2/role/

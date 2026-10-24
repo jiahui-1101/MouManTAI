@@ -79,3 +79,9 @@ Draft PR #55: [https://github.com/jiahui-1101/MouManTAI/pull/55](https://github.
 Requested reviewers: P1 `mavisbong41` and P5 `Gan0117`. GitHub compare reports 4 commits ahead / 0 behind the requested base and 11 changed A6 files. No PR-triggered workflow runs were returned for the published head. The worktree was clean after the normal push and is rechecked after this documentation-only follow-up. No merge, auto-merge, Main push, production communication, acceptance, reservation, or Core transition was performed.
 
 Next safe Backend A slice after P1/P5 review: define and implement a trusted tenant-scoped commercial price-source and disclosure-currentness reader, preserving the mapper's fail-closed behavior. Do not add durable OrderRequest storage or acceptance workflow until its identity/version model and P4 assent evidence have explicit owner review; Backend B must approve the reread contract.
+
+## Independent request-version / parent refresh — 2026-10-24
+
+PR #50's corrected candidate contract now requires an independent positive `request_version` with source identity and currentness evidence. Repository inspection still finds no durable P1 OrderRequest record or authoritative request-version reader. This P1 source reader passes `commercial_terms=None` and returns `INCOMPLETE`; it does not infer request version from `context_version`, terms revision/hash, or any ID. A regression now advances the P1 context version and proves the candidate's OrderRequest version stays absent and readiness stays `INCOMPLETE`.
+
+The #55 branch was refreshed by a non-rewriting merge of #50's new request-version contract. The refresh does not add a P1 column or migration. PR #55 remains blocked on P1/P5 source-reader review and real disposable PostgreSQL evidence; see the 2026-10-24 refresh section below for exact local validation.

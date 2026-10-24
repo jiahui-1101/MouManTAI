@@ -226,12 +226,39 @@ def test_current_p1_snapshot_is_loaded_but_stays_incomplete_without_commercial_r
     assert result.candidate.readiness_status == "INCOMPLETE"
     assert result.candidate.canonical_terms is None
     assert result.candidate.order_request_id is None
+    assert result.candidate.request_version is None
     assert result.candidate.terms_hash is None
     assert result.candidate.agreement_basis == "UNKNOWN"
     assert result.candidate.customer_assent_evidence == ()
     assert result.candidate.source_context_version_record_id == "context_version_2"
     assert result.candidate.customer_identity_associations[0].association_version == 7
     assert "COMMERCIAL_EVIDENCE_MISSING" in result.candidate.validation_reason_codes
+
+
+def test_advancing_context_version_does_not_fabricate_order_request_version():
+    snapshot = make_snapshot()
+    context = snapshot.context.model_copy(update={"context_version": 3})
+    version = snapshot.context_versions[0].model_copy(
+        update={
+            "version_id": "context_version_3",
+            "context_version": 3,
+            "snapshot": context.model_dump(mode="json"),
+        }
+    )
+    review = snapshot.context_reviews[0].model_copy(
+        update={"context_version_before": 2, "context_version_after": 3}
+    )
+    snapshot.context = context
+    snapshot.context_versions = (version,)
+    snapshot.context_reviews = (review,)
+
+    result, _ = read(snapshot, expected_context_version=3)
+
+    assert result.status == "INCOMPLETE"
+    assert result.candidate is not None
+    assert result.candidate.source_context_version == 3
+    assert result.candidate.request_version is None
+    assert result.candidate.canonical_terms is None
 
 
 def test_missing_trusted_tenant_scope_fails_closed_before_repository_read():

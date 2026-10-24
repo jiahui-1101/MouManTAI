@@ -37,3 +37,7 @@ Backend B may use the candidate only as a locator and preparation snapshot. Befo
 ## Before durable OrderRequest or acceptance work
 
 Required first: a reviewed production tenant provider; P1/P5 agreement on association and review authority/currentness; an approved tenant-scoped catalog/quote and disclosure-currentness reader; an owner-reviewed durable OrderRequest identity/version model and migration; P4/Product Owner definition of original-offer versus exact-proposal assent evidence and still-open S1–S5 signoffs; and Backend B review of the shared read/revalidation contract. No persistence, migration, acceptance API, reservation, P2 extension, or Core transition is included here.
+
+## Independent request-version boundary — 2026-10-24
+
+PR #50 now carries a separate `request_version`, but the current P1 schema and this reader do not persist or retrieve an authoritative OrderRequest lifecycle version. The reader continues to pass no commercial evidence, so its result is `INCOMPLETE`. In particular, a changed `context_version` does not populate `request_version`; the test suite asserts that behavior. Do not add a P1 migration or treat the mapper's synthetic adapter fixture as database-backed evidence without P1/P5 approval.
