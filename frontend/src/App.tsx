@@ -23,6 +23,7 @@ import { ImpactDetailPage } from "./features/feasibility/ImpactDetailPage";
 import { RecoveryCaseRoutePage } from "./features/recovery/RecoveryCaseRoutePage";
 import { RecoveryPage } from "./features/recovery/RecoveryPage";
 import { SupplierComparisonPage, SupplierDetailPage, SupplierDirectoryPage } from "./features/suppliers/SupplierWorkspace";
+import { ForecastPage } from "./features/forecast/ForecastPage";
 
 export function CommitmentFeasibilityRoute() {
   const { authHeaders: auth } = useAuth();
@@ -119,7 +120,8 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/planning" element={<FeaturePlaceholder owner="Planning" title="Planning" />} />
               <Route path="/planning/feasibility" element={<Navigate to="/orders" replace />} />
               <Route path="/planning/portfolio" element={<PortfolioComparisonPage />} />
-              <Route path="/planning/forecasts" element={<FeaturePlaceholder owner="Planning" title="Forecasts" />} />
+              <Route path="/planning/forecasts" element={<ForecastPage />} />
+              <Route path="/forecasts" element={<Navigate to="/planning/forecasts" replace />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
               <Route path="/suppliers" element={<SupplierDirectoryPage />} />
