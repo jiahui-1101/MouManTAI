@@ -1,6 +1,6 @@
 # C2 real provider adapters
 
-Status: final C1 integration pass, 2026-10-25, existing PR [#96](https://github.com/jiahui-1101/MouManTAI/pull/96), branch `codex/c2-real-provider-adapters`. Frozen Main is `1c34b8dbcdd944b60c856ceb7a5dd7ada890564f` (merged C1 #90); prior C2 HEAD was `ef27d8a61263a3ebe26399d40ea0371d88eb7769`. No replacement PR. Actual final publication HEAD and its exact-head CI are recorded in the PR description after push. Validated code commit is recorded below after local verification.
+Status: final C1 integration pass, 2026-10-25, existing PR [#96](https://github.com/jiahui-1101/MouManTAI/pull/96), branch `codex/c2-real-provider-adapters`. Frozen Main is `1c34b8dbcdd944b60c856ceb7a5dd7ada890564f` (merged C1 #90); prior C2 HEAD was `ef27d8a61263a3ebe26399d40ea0371d88eb7769`. Validated code/merge HEAD: `1d14946fb5fc1fefdebb44138f669637d8553edb`. A documentation-only follow-up records this code SHA; final publication SHA and fresh exact-head CI are in the PR description (a commit cannot contain its own resulting hash). No replacement PR.
 
 These adapters reuse C1 `RawMessageEnvelope`, native reply framing, existing P1 `MessageRepository` and `p1_dev.inbound_messages` / `attachments`. Five conflicts in config/Gmail/router/Telegram/WhatsApp were reconciled block by block. No shared schema, migration, Core/Orders/P4 authority, OCR, #95, #102, #103 or frontend business code changed relative to frozen Main. Main removed root requirements; v2.2 requirements remain in `docs/requirements/v2.2/`.
 
@@ -107,13 +107,13 @@ Final local adapter source checkpoint (2026-10-25): **707 passed, 3 skipped, 24 
 ```text
 python -m pytest -q -o addopts= --basetemp=<unique-task-temp> tests/v2_2 app/context/tests/test_c2_canonical_integration.py app/context/tests/test_c1_completion_persistence.py app/context/tests/test_c1_adapter_framing.py app/context/tests/test_c1_repository_regression.py app/context/tests/test_postgres_repository.py app/context/tests/test_p1_alembic_migration.py app/context/tests/test_reply_framing.py app/context/tests/test_telegram_channel.py app/context/tests/test_whatsapp_channel.py app/context/tests/test_gmail_channel.py app/context/tests/test_channel_manager_and_routes.py app/context/tests/test_real_provenance_and_ai_pipeline.py app/context/tests/test_channel_e2e_integration.py app/communication/tests/test_route_integration.py --tb=short
 
-REQUIRE_POSTGRES=1 TEST_DATABASE_APPROVED=1 TEST_DATABASE_URL=<p4_test_c2_final_20261025_test> TEST_MIGRATION_DATABASE_URL=<p4_test_c2_migration_20261025_test> P4_TEST_DATABASE_URL=<suite-url> P1_DATABASE_URL=<suite-url> python -m pytest tests -q -o addopts= --basetemp=<unique-task-temp> --tb=short --junitxml=<task-temp>/c2-pg-final.xml
+python -m pytest tests -q -o addopts= --basetemp=<unique-task-temp> --tb=short --junitxml=<task-temp>/c2-pg-final.xml
 
 python -m ruff check --select F,I app/context/channels/config.py app/context/channels/gmail.py app/context/channels/manager.py app/context/channels/provider_transport.py app/context/channels/resend.py app/context/channels/router.py app/context/channels/telegram.py app/context/channels/whatsapp.py tests/v2_2/test_c2_provider_adapters.py tests/v2_2/test_c2_integration_security.py app/context/tests/test_c2_canonical_integration.py
 python -m ruff check tests/v2_2/test_c2_integration_security.py app/context/tests/test_c2_canonical_integration.py
 python -m compileall -q app/context/channels
 python -m alembic heads
-git diff --check
+git -c core.whitespace=cr-at-eol diff --check 1c34b8d...HEAD
 ```
 
 Static checks above passed; new files are formatted. A broad channel-directory Ruff scan additionally found two unchanged Main diagnostics (`state.py` unused os and `worker.py` undefined Any); those unrelated files were not changed. The same catalog alignment test still **fails (1 failed, 62 deselected)** outside CI on C2 and the frozen Main source: `python -m pytest -q -o addopts= app/context/tests/test_deterministic_extraction.py -k test_catalog_is_provisional_fixture_aligned_and_tenant_scoped --tb=short`. Test/catalog/extractor sources match frozen Main exactly. Prior C1 report contains the clean Main reproduction; P1 owner disposition remains pending. No assertion or catalog policy was weakened.
