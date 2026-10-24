@@ -9,6 +9,7 @@ Adheres strictly to REQUIREMENTS_BACKEND.md Section 10 and REQUIREMENTS_FRONTEND
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Literal
@@ -179,15 +180,21 @@ def get_forecasts(
     chosen_reader = None
 
     if mode == "db":
-        db_reader = DatabaseDemandReader(db, unit="pcs", as_of=snapshot_time)
-        service = ForecastService(
-            demand_reader=db_reader,
-            snapshot_reader=None,
-            p2_reader=None,
-            supplier_reader=None,
-        )
-        readiness = service.readiness(context.tenant_id, sku_id, "pcs", cutoff, now)
-        if isinstance(readiness, ValidatedSeries) and readiness.status == ForecastStatus.AVAILABLE:
+        readiness = None
+        db_reader = None
+        try:
+            db_reader = DatabaseDemandReader(db, unit="pcs", as_of=snapshot_time)
+            service = ForecastService(
+                demand_reader=db_reader,
+                snapshot_reader=None,
+                p2_reader=None,
+                supplier_reader=None,
+            )
+            readiness = service.readiness(context.tenant_id, sku_id, "pcs", cutoff, now)
+        except Exception:
+            readiness = None
+
+        if db_reader is not None and isinstance(readiness, ValidatedSeries) and readiness.status == ForecastStatus.AVAILABLE:
             chosen_reader = db_reader
         else:
             return ForecastResponse(
@@ -234,15 +241,24 @@ def get_forecasts(
                 disclaimer="Authoritative DB mode: Real historical data is insufficient. Switch to Demo mode to preview baseline algorithms.",
             )
     elif mode == "auto":
-        db_reader = DatabaseDemandReader(db, unit="pcs", as_of=snapshot_time)
-        check_service = ForecastService(demand_reader=db_reader)
-        readiness = check_service.readiness(context.tenant_id, sku_id, "pcs", cutoff, now)
-        if isinstance(readiness, ValidatedSeries) and readiness.status == ForecastStatus.AVAILABLE:
-            chosen_reader = db_reader
-            is_synthetic = False
-        else:
+        is_synthetic_mode = os.getenv("MOUMANTAI_SYNTHETIC_MODE") == "1"
+        if is_synthetic_mode:
             chosen_reader = DemoDemandReader(days=21, unit="pcs", as_of=snapshot_time)
             is_synthetic = True
+        else:
+            try:
+                db_reader = DatabaseDemandReader(db, unit="pcs", as_of=snapshot_time)
+                check_service = ForecastService(demand_reader=db_reader)
+                readiness = check_service.readiness(context.tenant_id, sku_id, "pcs", cutoff, now)
+                if isinstance(readiness, ValidatedSeries) and readiness.status == ForecastStatus.AVAILABLE:
+                    chosen_reader = db_reader
+                    is_synthetic = False
+                else:
+                    chosen_reader = DemoDemandReader(days=21, unit="pcs", as_of=snapshot_time)
+                    is_synthetic = True
+            except Exception:
+                chosen_reader = DemoDemandReader(days=21, unit="pcs", as_of=snapshot_time)
+                is_synthetic = True
     else:
         chosen_reader = DemoDemandReader(days=21, unit="pcs", as_of=snapshot_time)
         is_synthetic = True

@@ -127,8 +127,8 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/planning/feasibility" element={<Navigate to="/orders" replace />} />
               {/* AZ-01: /planning/portfolio alias -> Developer B PortfolioComparisonPage */}
               <Route path="/planning/portfolio" element={<PortfolioComparisonPage />} />
-              <Route path="/planning/forecasts" element={<ForecastPage />} />
-              <Route path="/forecasts" element={<Navigate to="/planning/forecasts" replace />} />
+              <Route path="/planning/forecasts" element={<FeaturePlaceholder owner="Planning" title="Forecasts" />} />
+              <Route path="/forecasts" element={<ForecastPage />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
               <Route path="/suppliers" element={<SupplierDirectoryPage />} />

@@ -137,7 +137,10 @@ class DatabaseDemandReader(DemandReader):
             )
             .order_by(CommitmentRecord.updated_at.asc())
         )
-        records = self.db.scalars(query).all()
+        try:
+            records = self.db.scalars(query).all()
+        except Exception:
+            records = []
 
         daily_quantities: dict[date, Decimal] = {}
         source_evidence: list[str] = []
