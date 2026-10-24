@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 COPY backend/pyproject.toml ./
-RUN pip install --no-cache-dir ".[dev]"
+RUN pip install --no-cache-dir ".[ocr,optimization]"
 COPY backend/app ./app
 COPY backend/migrations ./migrations
 COPY backend/alembic.ini ./alembic.ini
