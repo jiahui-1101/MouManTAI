@@ -125,7 +125,7 @@ describe('Review & Amend workspace', () => {
   });
 
   it('saves audited field edits with the current actor and version', async () => {
-    vi.spyOn(operationalApi, 'reviewContext').mockResolvedValue({ ...context, context_version: 2 });
+    vi.spyOn(operationalApi, 'reviewContext').mockResolvedValue({ ...context, context_version: 2, requested_items: [{ sku: 'CROISSANT', quantity: '25', unit: 'box' }] });
     render(<ReviewDrawer {...props} actorId="user_manager_01" actorRole="MANAGER" />);
     await screen.findByText(/Approved SKU\/unit pairs: SOURDOUGH \/ pcs/);
     fireEvent.change(screen.getByLabelText('SKU / Product'), { target: { value: 'CROISSANT' } });
@@ -141,7 +141,7 @@ describe('Review & Amend workspace', () => {
     }), { 'X-Actor-ID': 'user_manager_01', 'X-Actor-Role': 'MANAGER' }));
     expect(onUpdated).toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole('status')).toHaveTextContent(/Saved context v2.*Save & Accept/i);
+    expect(await screen.findByRole('status')).toHaveTextContent(/Saved context v2.*Save & Accept/i);
   });
 
   it('saves then accepts through two audited commands with the returned version', async () => {
