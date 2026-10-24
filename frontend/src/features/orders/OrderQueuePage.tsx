@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../../shared/api';
@@ -7,6 +6,7 @@ import { StatusBadge } from '../../shared/StatusBadge';
 import { OrderQueueUnavailableError, unavailableOrderQueueSource, type OrderQueueSource } from './api';
 import type { OrderQueueItem, QueueFilters, StatusView } from './types';
 import { initialFilters, profitText, selectOrders, shown, timestamp } from './queue';
+import { useQueuePreferences } from './useQueuePreferences';
 import './orders.css';
 
 const statusViews: { value: StatusView; label: string }[] = [
@@ -55,8 +55,7 @@ export interface OrderQueuePageProps { source?: OrderQueueSource }
 /** Requires existing AuthProvider, QueryClientProvider and Router; registers no routes. */
 export function OrderQueuePage({ source = unavailableOrderQueueSource }: OrderQueuePageProps = {}) {
   const { authHeaders: auth } = useAuth();
-  const [filters, setFilters] = useState<QueueFilters>(initialFilters);
-  const [analysis, setAnalysis] = useState('QUEUE');
+  const { filters, setFilters, analysis, setAnalysis } = useQueuePreferences(auth);
   const query = useQuery({
     queryKey: ['orders', 'queue', source.cacheKey, auth.tenantId, auth.actorId],
     queryFn: ({ signal }) => source.load(auth, signal),
