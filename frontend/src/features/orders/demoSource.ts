@@ -53,7 +53,7 @@ export const demoOrderQueueSource: OrderQueueSource = {
 export interface DemoDetailDto {
   tenant_id: string; actor_id: string; integration_mode: 'SYNTHETIC'; evidence_tier: 'DEMO-ONLY';
   source_at: string; source: string; order: DemoOrderDto;
-  related_commitment: { commitment_id: string; order_id: string; tenant_id: string; version: number;
+  related_commitment: { commitment_id: string; order_id: string; tenant_id: string; customer_id: string; version: number;
     agreement_state: string; risk_state: string; recovery_state: string; evidence_refs: string[] } | null;
   assessment_availability: 'UNAVAILABLE' | 'UNVERIFIABLE' | 'HISTORICAL_ONLY';
   assessment_reason: string; assessments: unknown[];
@@ -61,12 +61,12 @@ export interface DemoDetailDto {
 export function mapDemoDetail(dto: DemoDetailDto, id: string, auth: RequestAuthHeaders): OrderDetail {
   validateDemoQueue({ ...dto, schema_version: 'orders-demo-v1', coverage: 'partial', read_authorized: true, orders: [dto.order] }, auth);
   const o = dto.order; const c = dto.related_commitment;
-  if (o.order_id !== id || (c && (c.tenant_id !== auth.tenantId || c.order_id !== id || c.commitment_id !== o.commitment_id)) ||
+  if (o.order_id !== id || (c && (c.tenant_id !== auth.tenantId || c.order_id !== id || c.commitment_id !== o.commitment_id || !nonempty(c.customer_id))) ||
       !['UNAVAILABLE', 'UNVERIFIABLE', 'HISTORICAL_ONLY'].includes(dto.assessment_availability) ||
       !nonempty(dto.assessment_reason) || !Array.isArray(dto.assessments)) throw new Error('Synthetic detail association mismatch');
   return { id, tenantId: dto.tenant_id, customer: o.customer_display_name, channel: o.source_channel,
     receivedAt: o.received_at, originalDeadline: o.requested_delivery_at, currentDeadline: o.requested_delivery_at,
-    status: o.lifecycle_status, commitmentId: c?.commitment_id,
+    status: o.lifecycle_status, commitmentId: c?.commitment_id, customerId: c?.customer_id,
     lines: o.requested_items.map(l => ({ sku: l.sku, product: l.sku, quantity: { amount: l.quantity, unit: l.unit } })),
     fields: [{ name: 'Synthetic original request', value: dto.source, status: 'SYNTHETIC', evidence: o.evidence_refs.map(ref => ({ ref })) }],
     assessment: { freshness: 'UNKNOWN', sourceVerified: false, complete: false, status: 'UNKNOWN',

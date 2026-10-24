@@ -70,6 +70,7 @@ class RelatedCommitment(DemoContract):
     commitment_id: str
     order_id: str
     tenant_id: str
+    customer_id: str
     version: int
     agreement_state: str
     risk_state: str
@@ -118,6 +119,7 @@ def detail(order_id: str, context: Context, db: Annotated[Session, Depends(get_d
         related = RelatedCommitment(
             commitment_id=commitment.commitment_id, order_id=commitment.order_id,
             tenant_id=commitment.tenant_id, version=commitment.commitment_version,
+            customer_id=commitment.customer_id,
             agreement_state=commitment.agreement_state.value, risk_state=commitment.risk_state.value,
             recovery_state=commitment.recovery_state.value, evidence_refs=commitment.evidence_refs,
         )

@@ -8,6 +8,12 @@ const auth = { tenantId: 'synthetic-decision-tenant', actorId: 'user_manager_01'
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 afterEach(() => vi.unstubAllGlobals());
 describe('Verified Core decision read adapter', () => {
+  it('binds customer identity independently of a synthetic display label', () => {
+    const displayed = { ...order(), customer: 'Friendly synthetic customer label', customerId: 'synthetic-customer' };
+    expect(mapCoreDecision(coreFixture.commitment, displayed, auth.tenantId).currentAgreement).not.toBeNull();
+    expect(() => mapCoreDecision({ ...coreFixture.commitment, customer_id: 'different' }, displayed, auth.tenantId)).toThrow(/binding/);
+    expect(() => mapCoreDecision(coreFixture.commitment, { ...displayed, customerId: '' }, auth.tenantId)).toThrow(/binding/);
+  });
   it('maps actual FastAPI-serialized legacy confirmation without inventing request identity, price, assent or reservation', () => {
     const mapped = mapCoreDecision(coreFixture.commitment, order(), auth.tenantId);
     expect(mapped.currentAgreement?.version).toBe('3'); expect(mapped.currentAgreement?.terms.basis).toBe('LEGACY_CORE_TERMS');
