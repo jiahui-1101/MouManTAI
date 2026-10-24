@@ -265,4 +265,26 @@ describe('Review & Amend workspace', () => {
     view.rerender(<ReviewDrawer {...props} context={missing} isOpen={false} />);
     expect(screen.queryByTestId('review-drawer')).not.toBeInTheDocument();
   });
+
+  it('permits item amendments when tenant has no pre-configured catalog', async () => {
+    vi.mocked(reviewApi.getReviewCatalog).mockResolvedValue([]);
+    const saved = { ...context, context_version: 2, requested_items: [{ sku: 'CHICKEN NUGGETS', quantity: '20', unit: 'box' }] };
+    const review = vi.spyOn(operationalApi, 'reviewContext').mockResolvedValue(saved);
+    vi.mocked(operationalApi.getContext).mockResolvedValue(saved);
+    render(<ReviewDrawer {...props} />);
+    await screen.findByText(/Approved SKU\/unit pairs: none configured/);
+    fireEvent.change(screen.getByLabelText('SKU / Product'), { target: { value: 'CHICKEN NUGGETS' } });
+    fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '20' } });
+    fireEvent.change(screen.getByLabelText('Unit'), { target: { value: 'box' } });
+    fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Customer specified chicken nuggets' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /confirm the change to a major field/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith(context.context_id, expect.objectContaining({
+      action: 'EDIT_FIELD',
+      field_edits: {
+        requested_items: [{ sku: 'CHICKEN NUGGETS', quantity: '20', unit: 'box' }],
+      },
+    }), expect.anything()));
+    expect(onUpdated).toHaveBeenCalledWith(saved);
+  });
 });
