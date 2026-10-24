@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Protocol
 
+from app.context.ai.protocol import InferenceFailure
 from app.context.association_schemas import IdentityLinkStatus, MessageAssociationRecord
 from app.context.document_schemas import (
     AttachmentRecord,
@@ -97,8 +98,11 @@ class MessageIntelligenceService:
 
     @classmethod
     def from_env(cls, *, supplier_identity_resolver: SupplierIdentityResolver | None = None):
-        """Construct deterministic C3 only; P1 owns provider activation."""
+        """Activate C3 only through the configured P1 provider boundary."""
+        from .p1_gateway import P1ClassificationGateway
+
         return cls(
+            semantic_gateway=P1ClassificationGateway.from_env_or_none(),
             supplier_identity_resolver=supplier_identity_resolver,
             limits=DefaultLimits.from_env(),
         )
@@ -197,6 +201,22 @@ class MessageIntelligenceService:
                         reasons.append("DETERMINISTIC_CONTRADICTION")
                     except (ValueError, TypeError):
                         reasons.append("AI_OUTPUT_INVALID")
+                    except InferenceFailure as failure:
+                        reasons.append("SEMANTIC_PROVIDER_FAILED")
+                        audit = failure.audit or {}
+                        provider_attempts.append(ProviderAttempt(
+                            provider="QWEN", attempt_number=1,
+                            status=self._attempt_status(audit.get("primary_error", failure.code)),
+                            error_code=audit.get("primary_error", failure.code),
+                            duration_ms=audit.get("primary_latency_ms", failure.latency_ms or 0),
+                        ))
+                        if audit.get("fallback_attempts", 0):
+                            provider_attempts.append(ProviderAttempt(
+                                provider="GEMINI", attempt_number=1,
+                                status=self._attempt_status(audit.get("fallback_error")),
+                                error_code=audit.get("fallback_error"),
+                                duration_ms=audit.get("fallback_latency_ms", 0),
+                            ))
                     except Exception:  # noqa: BLE001 - never echo provider text
                         reasons.append("SEMANTIC_PROVIDER_FAILED")
                     else:
@@ -362,7 +382,7 @@ class MessageIntelligenceService:
         ]
         originals.extend(("DOCUMENT_EVIDENCE", item.quote, item.evidence_id) for item in documents)
         if (
-            len(originals) > self.limits.max_segments
+            len(originals) > min(self.limits.max_segments, 4)
             or sum(len(text) for _, text, _ in originals) > self.limits.max_input_characters
         ):
             return [], {}, "AI_INPUT_BUDGET_EXCEEDED"
@@ -419,7 +439,7 @@ class MessageIntelligenceService:
                     quote=doc.quote,
                 )
             pairs.append((claim, link))
-        if not pairs:
+        if not pairs and assessment.intent not in {"UNKNOWN", "OTHER"}:
             raise ProviderEvidenceError("INVALID_OUTPUT")
         return pairs
 
@@ -437,6 +457,20 @@ class MessageIntelligenceService:
         return next(
             ((claim.value, link) for claim, link in pairs if claim.kind == kind), (None, None)
         )
+
+    @staticmethod
+    def _attempt_status(code: str | None):
+        if code == "timeout":
+            return "TIMEOUT"
+        if code == "rate_limited":
+            return "RATE_LIMITED"
+        if code == "response_budget_exceeded":
+            return "BUDGET_EXCEEDED"
+        if code in {"credentials_missing", "provider_disabled"}:
+            return "NOT_CONFIGURED"
+        if code in {"invalid_json", "schema_validation", "incomplete_or_invalid_output", "invalid_output"}:
+            return "INVALID_OUTPUT"
+        return "PROVIDER_ERROR"
 
     @staticmethod
     def _source_reference(
@@ -481,6 +515,8 @@ class MessageIntelligenceService:
             adapter_mode=raw.adapter_mode,
             relationship_source=raw.relationship_source,
             content_sha256=message.content_sha256,
+            source_updated_at=message.updated_at,
+            extractor_version=message.extractor_version,
             received_at=raw.received_at,
             message_at=raw.message_at,
             thread_ref=raw.thread_ref,

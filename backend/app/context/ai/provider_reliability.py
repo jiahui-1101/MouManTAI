@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 from pydantic import ValidationError
 
-from .prompts import SYSTEM_PROMPT
+from .prompts import C3_CLASSIFICATION_PROMPT, SYSTEM_PROMPT
 from .protocol import (
     MODEL_CONFIG,
     InferenceFailure,
@@ -153,7 +153,21 @@ def _restore_original_spans(
         fields.append(
             observation.model_copy(update={"quote": source[observation.start : observation.end]})
         )
-    restored = answer.model_copy(update={"fields": fields, "raw_output": ""})
+    classification = answer.classification
+    if classification is not None:
+        claims = []
+        for claim in classification.claims:
+            citation = claim.evidence
+            source = originals.get(citation.segment_id)
+            if source is None or citation.end > len(source):
+                raise InferenceFailure("source_evidence_invalid")
+            if any(citation.start < right and left < citation.end
+                   for left, right in redacted_spans.get(citation.segment_id, ())):
+                raise InferenceFailure("redacted_evidence_blocked")
+            claims.append(claim.model_copy(update={"evidence": citation.model_copy(
+                update={"quote": source[citation.start:citation.end]})}))
+        classification = classification.model_copy(update={"claims": claims})
+    restored = answer.model_copy(update={"fields": fields, "classification": classification, "raw_output": ""})
     return validate_evidence(restored, original)
 
 
@@ -220,6 +234,21 @@ def _gemini_schema() -> dict:
     }
 
 
+def _c3_gemini_schema() -> dict:
+    citation = {"type": "object", "properties": {
+        "segment_id": {"type": "string"}, "quote": {"type": "string"},
+        "start": {"type": "integer"}, "end": {"type": "integer"}},
+        "required": ["segment_id", "quote", "start", "end"], "additionalProperties": False}
+    return {"type": "object", "properties": {
+        "intent": {"type": "string", "enum": ["CUSTOMER_INQUIRY", "CUSTOMER_ORDER_REQUEST", "SUPPLIER_DELAY", "OTHER", "UNKNOWN"]},
+        "inquiry_topic": {"type": ["string", "null"], "enum": ["PRICE", "AVAILABILITY", "DELIVERY", "PRODUCT_INFO", "OTHER", None]},
+        "claims": {"type": "array", "maxItems": 12, "items": {"type": "object", "properties": {
+            "kind": {"type": "string", "enum": ["INQUIRY", "SUPPLIER_DELAY", "DELIVERY_REFERENCE", "REPORTED_ETA", "ORDER_REQUEST"]},
+            "value": {"type": "string"}, "evidence": citation},
+            "required": ["kind", "value", "evidence"], "additionalProperties": False}}},
+        "required": ["intent", "inquiry_topic", "claims"], "additionalProperties": False}
+
+
 class GeminiEndpointAdapter:
     """Direct, bounded Google Gemini structured-output adapter."""
 
@@ -259,7 +288,7 @@ class GeminiEndpointAdapter:
         model = quote(self.config.model_id, safe="-_.")
         url = f"{GEMINI_API_BASE}models/{model}:generateContent"
         payload = {
-            "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "systemInstruction": {"parts": [{"text": C3_CLASSIFICATION_PROMPT if request.task == "c3_classification" else SYSTEM_PROMPT}]},
             "contents": [
                 {
                     "role": "user",
@@ -279,7 +308,7 @@ class GeminiEndpointAdapter:
                 "responseFormat": {
                     "text": {
                         "mimeType": "APPLICATION_JSON",
-                        "schema": _gemini_schema(),
+                        "schema": _c3_gemini_schema() if request.task == "c3_classification" else _gemini_schema(),
                     }
                 },
             },
@@ -343,7 +372,11 @@ class GeminiEndpointAdapter:
         except (KeyError, IndexError, TypeError, json.JSONDecodeError):
             raise InferenceFailure("invalid_json") from None
         try:
-            RawFallbackAnswer.model_validate(decoded)
+            if request.task == "c3_classification":
+                from app.message_intelligence.contracts import SemanticAssessment
+                SemanticAssessment.model_validate(decoded)
+            else:
+                RawFallbackAnswer.model_validate(decoded)
         except ValidationError:
             raise InferenceFailure("schema_validation") from None
 
@@ -358,6 +391,8 @@ class GeminiEndpointAdapter:
             load_seconds=0.0,
             inference_seconds=0.0,
         )
+        if request.task == "c3_classification":
+            return validate_evidence(ungrounded, request).model_copy(update={"raw_output": ""})
         grounded = _recover_token_bounded_output(ungrounded, request)
         if grounded is None:
             raise InferenceFailure("source_evidence_invalid")
