@@ -1,0 +1,311 @@
+.daily-performance-container {
+  padding: 1.5rem 2rem;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.view-period-toggle {
+  display: inline-flex;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-surface, #fff);
+  overflow: hidden;
+}
+
+.view-period-toggle .toggle-btn {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.view-period-toggle .toggle-btn.active {
+  background: var(--primary-color, #0f172a);
+  color: #fff;
+}
+
+.coverage-gap-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius-md, 8px);
+  margin-bottom: 1.5rem;
+}
+
+.coverage-gap-banner .gap-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.coverage-gap-banner .gap-content {
+  flex: 1;
+}
+
+.coverage-gap-banner .gap-title {
+  color: #92400e;
+  font-size: 0.9375rem;
+  margin-bottom: 0.25rem;
+}
+
+.coverage-gap-banner .gap-description {
+  color: #78350f;
+  font-size: 0.8125rem;
+  margin: 0 0 0.5rem 0;
+  line-height: 1.45;
+}
+
+.coverage-gap-banner .gap-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.coverage-gap-banner .gap-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  background: #fef3c7;
+  color: #78350f;
+  border: 1px solid #fcd34d;
+}
+
+.coverage-gap-banner .gap-badge.not-measured {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+
+.metrics-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.metric-card {
+  background: var(--bg-surface, #fff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  padding: 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.metric-card.success {
+  border-left: 4px solid #10b981;
+}
+
+.metric-card.warning {
+  border-left: 4px solid #f59e0b;
+}
+
+.metric-card.danger {
+  border-left: 4px solid #ef4444;
+}
+
+.metric-card .metric-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted, #64748b);
+  margin-bottom: 0.35rem;
+}
+
+.metric-card .metric-value {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-primary, #0f172a);
+  margin-bottom: 0.35rem;
+}
+
+.metric-card .metric-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted, #64748b);
+  line-height: 1.35;
+}
+
+.completion-rate-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.25rem;
+  background: var(--bg-surface, #fff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  margin-bottom: 1.5rem;
+}
+
+.completion-rate-bar .rate-label {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text-primary, #0f172a);
+}
+
+.completion-rate-bar .rate-value {
+  font-size: 0.875rem;
+}
+
+.workload-stages-section {
+  background: var(--bg-surface, #fff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  padding: 1.25rem;
+}
+
+.performance-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.performance-table th {
+  padding: 0.75rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.performance-table td {
+  padding: 0.85rem;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  vertical-align: middle;
+}
+
+.workload-tag {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.75rem;
+  border-radius: var(--radius-sm, 4px);
+  margin-right: 0.25rem;
+}
+
+.workload-tag.planned {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.workload-tag.unmeasured {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.verification-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.verification-tag.verified {
+  color: #059669;
+}
+
+.verification-tag.unverified {
+  color: #d97706;
+}
+
+.reported-status-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.reported-meta {
+  font-size: 0.7rem;
+  color: #92400e;
+}
+
+.action-complete-text {
+  font-size: 0.75rem;
+  color: #059669;
+  font-weight: 600;
+}
+
+.action-reported-text {
+  font-size: 0.75rem;
+  color: #d97706;
+  font-weight: 600;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.report-completed-modal {
+  background: #fff;
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  max-width: 540px;
+  width: 100%;
+  padding: 1.5rem;
+}
+
+.invariant-callout-warning {
+  background: #fffbeb;
+  border-left: 4px solid #f59e0b;
+  padding: 0.85rem 1rem;
+  border-radius: 4px;
+  margin: 1rem 0;
+  font-size: 0.8125rem;
+  color: #78350f;
+}
+
+.invariant-callout-warning strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: #92400e;
+}
+
+.invariant-callout-warning p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  margin-bottom: 0.35rem;
+}
+
+.form-input, .form-textarea {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
