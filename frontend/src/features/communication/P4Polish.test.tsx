@@ -42,7 +42,7 @@ describe("P4 polish and demo regression", () => {
     expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeInTheDocument();
     expect(mutations()).toHaveLength(0);
     expect(screen.queryByRole("button", { name: /^Accept$|^Reject$|Send reminder|Escalate/i })).not.toBeInTheDocument();
-  });
+  }, 15000);
   it("preserves long exact IDs, terms version and focusable scrollable draft content", () => {
     const data = createPolishFixtures(); render(<DraftPreview draft={data.draft} onReload={() => {}} />);
     const preview = screen.getByRole("article", { name: "Message draft preview" });

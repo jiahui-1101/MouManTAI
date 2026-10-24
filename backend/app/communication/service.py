@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -316,6 +316,8 @@ class CommunicationRequestService:
             min(authorization.proposal_expires_at, authorization.approval_expires_at)
             if authorization.proposal_expires_at is not None else None
         )
+        source_origin = self._resolve_source_origin_for(ref.commitment_id, authorization.channel)
+        delivery_mode = "SIMULATED"
         view = CommunicationRequestView(
             communication_id=f"comm_{uuid4().hex}", reference=ref,
             request_status=RequestStatus.BLOCKED if reasons else RequestStatus.READY_FOR_DRAFTING,
@@ -328,6 +330,8 @@ class CommunicationRequestService:
             channel=authorization.channel, channel_evidence_refs=authorization.channel_evidence_refs,
             expires_at=expiry,
             created_by=context.actor_id, created_at=now,
+            source_origin=source_origin,
+            delivery_mode=delivery_mode,
         )
         self.repository.add(view)
         self._ensure_source(view.communication_id, ref)
@@ -388,13 +392,67 @@ class CommunicationRequestService:
                 "COMMUNICATION_PERSISTENCE_UNAVAILABLE", "Communication storage unavailable", status_code=503,
             ) from exc
 
+    def _resolve_source_origin_for(self, commitment_id: str, channel: Any) -> str:
+        try:
+            with self.db.begin_nested():
+                from sqlalchemy import text
+                row = self.db.execute(text(
+                    "SELECT m.provider, m.channel, m.synthetic_provider "
+                    "FROM p1_dev.order_contexts c "
+                    "JOIN p1_dev.inbound_messages m ON m.message_id = ANY(SELECT json_array_elements_text(c.source_message_ids)) "
+                    "WHERE c.core_commitment_id = :commitment_id OR c.order_id = :commitment_id "
+                    "LIMIT 1"
+                ), {"commitment_id": commitment_id}).fetchone()
+                if row:
+                    provider, ch_name, syn_prov = row[0], row[1], row[2]
+                    if provider == "GMAIL_API" or (ch_name == "EMAIL" and not syn_prov):
+                        return "GMAIL"
+                    if ch_name == "TELEGRAM" or provider == "TELEGRAM_BOT_API":
+                        return "TELEGRAM"
+                    if ch_name == "WHATSAPP" and not syn_prov and provider != "SYNTHETIC":
+                        return "WHATSAPP"
+        except Exception:
+            pass
+
+        ch = str(channel.value if hasattr(channel, "value") else (channel or ""))
+        if ch.startswith("MOCK_"):
+            return "SYNTHETIC"
+        if ch in ("GMAIL", "EMAIL"):
+            return "GMAIL"
+        if ch == "TELEGRAM":
+            return "TELEGRAM"
+        if ch == "WHATSAPP":
+            return "WHATSAPP"
+        return "SYNTHETIC"
+
+    def _resolve_source_origin(self, view: CommunicationRequestView) -> str:
+        return self._resolve_source_origin_for(view.reference.commitment_id, view.channel)
+
+    def _resolve_delivery_mode(self, view: CommunicationRequestView) -> str:
+        try:
+            with self.db.begin_nested():
+                outbounds = OutboundRepository(self.db).list(view.reference.tenant_id, view.communication_id)
+                for row in outbounds:
+                    if row.provider_confirmed and row.status == "SENT":
+                        return "REAL"
+        except Exception:
+            pass
+        return "SIMULATED"
+
     def _with_outbound(self, view: CommunicationRequestView) -> CommunicationRequestView:
         # Read-only display projection; intake's immutable snapshot is untouched.
+        status = None
         try:
             with self.db.begin_nested():
                 statuses = {row.status for row in OutboundRepository(self.db).list(
                     view.reference.tenant_id, view.communication_id)}
             status = next((s for s in ("SENT", "FAILED", "DELIVERY_UNKNOWN", "QUEUED") if s in statuses), None)
-            return view.model_copy(update={"outbound_status": status})
         except SQLAlchemyError:
-            return view.model_copy(update={"outbound_status": None})
+            pass
+        source_origin = getattr(view, "source_origin", None) or self._resolve_source_origin(view)
+        delivery_mode = getattr(view, "delivery_mode", None) or self._resolve_delivery_mode(view)
+        return view.model_copy(update={
+            "outbound_status": status,
+            "source_origin": source_origin,
+            "delivery_mode": delivery_mode,
+        })

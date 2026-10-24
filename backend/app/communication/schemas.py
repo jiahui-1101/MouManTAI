@@ -95,6 +95,8 @@ class CommunicationRequestView(ContractModel):
     created_by: ReferenceId
     created_at: OffsetAwareDatetime
     outbound_status: Literal["QUEUED", "SENT", "FAILED", "DELIVERY_UNKNOWN"] | None = None
+    source_origin: Literal["GMAIL", "TELEGRAM", "WHATSAPP", "SYNTHETIC"] | str | None = None
+    delivery_mode: Literal["REAL", "SIMULATED"] | str | None = None
 
 
 class PrepareDraftRequest(ContractModel):
