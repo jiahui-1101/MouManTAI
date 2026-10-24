@@ -391,81 +391,51 @@ export function RequestedDeliveryField({
 
   return (
     <div className="hr-delivery-workspace" onFocus={onFocus} data-component="RequestedDeliveryField">
-      {/* Label and Evidence trigger */}
+      {/* Label row */}
       <div className="hr-field-label">
         <label htmlFor="delivery-date-input">
           Requested delivery <span className="hr-req-star">*</span> (major field)
         </label>
         <span
-          className={`hr-chip ${
-            !date ? 'amber' : hasTime ? 'green' : 'blue'
-          }`}
+          className={`hr-chip ${!date ? 'amber' : hasTime ? 'green' : 'blue'}`}
           data-testid="delivery-status-chip"
         >
-          {!date ? 'Date missing' : hasTime ? 'Confirmed' : 'Date only (Time unresolved)'}
+          {!date ? 'Date missing' : hasTime ? 'Confirmed' : 'Date only'}
         </span>
         {onToggleEvidence && (
           <button
             type="button"
             className="hr-ev-btn"
             title="Show evidence"
-            onClick={e => {
-              e.stopPropagation();
-              onToggleEvidence();
-            }}
+            onClick={e => { e.stopPropagation(); onToggleEvidence(); }}
           >
             🔍
           </button>
         )}
       </div>
 
-      {/* Relative / Vague Evidence Suggestion Notice */}
+      {/* Vague hint banner */}
       {isVagueOrRelative && !dismissSuggestion && (
         <div className="hr-delivery-suggestion-box" role="region" aria-label="Delivery suggestion hint">
           <div className="hr-suggestion-top">
             <span className="hr-suggestion-badge">💡 Source hint</span>
             <span className="hr-suggestion-quote">"{evidenceQuote}"</span>
-            <button
-              type="button"
-              className="hr-suggestion-close"
-              title="Dismiss hint"
-              onClick={() => setDismissSuggestion(true)}
-            >
-              ×
-            </button>
+            <button type="button" className="hr-suggestion-close" title="Dismiss" onClick={() => setDismissSuggestion(true)}>×</button>
           </div>
           <p className="hr-suggestion-text">
-            Customer requested a relative or approximate time window. Under zero-guessing policy, exact delivery time
-            remains unresolved until explicitly confirmed by the reviewer.
+            Customer requested a relative or approximate time. Exact delivery time remains unresolved until confirmed.
           </p>
           <div className="hr-suggestion-actions">
-            <button
-              type="button"
-              className="hr-btn-suggestion secondary"
-              onClick={handleApplyDateOnlySuggestion}
-              data-testid="apply-date-only-suggestion"
-            >
-              Keep date only (Time unresolved)
-            </button>
-            <button
-              type="button"
-              className="hr-btn-suggestion primary"
-              onClick={handleApplyMorningSlotSuggestion}
-              data-testid="apply-morning-slot-suggestion"
-            >
-              Confirm 10:00 AM slot
-            </button>
+            <button type="button" className="hr-btn-suggestion secondary" onClick={handleApplyDateOnlySuggestion} data-testid="apply-date-only-suggestion">Keep date only</button>
+            <button type="button" className="hr-btn-suggestion primary" onClick={handleApplyMorningSlotSuggestion} data-testid="apply-morning-slot-suggestion">Confirm 10:00 AM</button>
           </div>
         </div>
       )}
 
-      {/* Main Delivery Input Grid */}
-      <div className="hr-delivery-form-grid">
-        {/* Date picker */}
+      {/* ── Row 1: Date + Timezone ── */}
+      <div className="hr-delivery-row-1">
         <div className="hr-form-col">
-          <label htmlFor="delivery-date-input" className="hr-sub-label">
-            Delivery date
-          </label>
+          <label htmlFor="delivery-date-input" className="hr-sub-label">Delivery date</label>
           <input
             type="date"
             id="delivery-date-input"
@@ -476,11 +446,24 @@ export function RequestedDeliveryField({
             aria-label="Delivery date"
           />
         </div>
-
-        {/* Timezone picker */}
         <div className="hr-form-col">
+          <label htmlFor="delivery-qualifier-select" className="hr-sub-label">Timing qualifier</label>
+          <select
+            id="delivery-qualifier-select"
+            className="hr-filter-select"
+            value={timingQualifier}
+            onChange={handleQualifierChange}
+            disabled={disabled}
+            aria-label="Timing qualifier"
+          >
+            {QUALIFIER_OPTIONS.map(q => (
+              <option key={q.value} value={q.value}>{q.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="hr-form-col hr-tz-col">
           <label htmlFor="delivery-tz-select" className="hr-sub-label">
-            Timezone <span className="hr-tz-default-note">(Default: MYT)</span>
+            Timezone <span className="hr-tz-default-note">(MYT default)</span>
           </label>
           <select
             id="delivery-tz-select"
@@ -491,172 +474,86 @@ export function RequestedDeliveryField({
             aria-label="Delivery timezone"
           >
             {TIMEZONE_OPTIONS.map(tz => (
-              <option key={tz.id} value={tz.id}>
-                {tz.label}
-              </option>
+              <option key={tz.id} value={tz.id}>{tz.label}</option>
             ))}
           </select>
         </div>
       </div>
 
-      {/* Time Picker and Timing Qualifier Row */}
-      <div className="hr-delivery-time-row">
-        {/* Time input block */}
-        <div className="hr-time-block">
-          <div className="hr-time-header">
-            <label htmlFor="delivery-has-time-toggle" className="hr-checkbox-label">
-              <input
-                type="checkbox"
-                id="delivery-has-time-toggle"
-                checked={hasTime}
-                onChange={handleToggleExactTime}
-                disabled={disabled}
-              />
-              <span>Specify exact time</span>
-            </label>
-            {!hasTime && (
-              <span className="hr-time-unresolved-pill">
-                Time unresolved · Zero-guessing active
-              </span>
-            )}
-          </div>
-
-          {hasTime ? (
-            <div className="hr-time-controls" data-testid="time-picker-controls">
-              {/* Hour selector */}
-              <select
-                className="hr-time-select"
-                value={hour12}
-                onChange={handleHourChange}
-                disabled={disabled}
-                aria-label="Delivery hour"
-              >
-                {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map(h => (
-                  <option key={h} value={h}>
-                    {h}
-                  </option>
-                ))}
-              </select>
-
-              <span className="hr-time-colon">:</span>
-
-              {/* Minute selector */}
-              <select
-                className="hr-time-select"
-                value={minute}
-                onChange={handleMinuteChange}
-                disabled={disabled}
-                aria-label="Delivery minute"
-              >
-                {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map(m => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-
-              {/* AM / PM Segmented Control */}
-              <div className="hr-ampm-segment" role="group" aria-label="AM or PM">
-                <button
-                  type="button"
-                  className={`hr-ampm-btn ${ampm === 'AM' ? 'active' : ''}`}
-                  onClick={() => handleAmPmToggle('AM')}
-                  disabled={disabled}
-                >
-                  AM
-                </button>
-                <button
-                  type="button"
-                  className={`hr-ampm-btn ${ampm === 'PM' ? 'active' : ''}`}
-                  onClick={() => handleAmPmToggle('PM')}
-                  disabled={disabled}
-                >
-                  PM
-                </button>
-              </div>
-
-              {/* Quick time slots */}
-              <div className="hr-quick-slots">
-                <button
-                  type="button"
-                  className="hr-slot-pill"
-                  onClick={() => applyTimeSlot('09', '00', 'AM')}
-                  title="9:00 AM"
-                >
-                  Morning (9am)
-                </button>
-                <button
-                  type="button"
-                  className="hr-slot-pill"
-                  onClick={() => applyTimeSlot('12', '00', 'PM')}
-                  title="12:00 PM"
-                >
-                  Noon (12pm)
-                </button>
-                <button
-                  type="button"
-                  className="hr-slot-pill"
-                  onClick={() => applyTimeSlot('03', '00', 'PM')}
-                  title="3:00 PM"
-                >
-                  Afternoon (3pm)
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className="hr-time-disabled-hint">
-              Date only order. Clock time is left unresolved to prevent fabricating arbitrary delivery promises.
-            </p>
-          )}
-        </div>
-
-        {/* Qualifier selector */}
-        <div className="hr-qualifier-block">
-          <label htmlFor="delivery-qualifier-select" className="hr-sub-label">
-            Timing qualifier
-          </label>
-          <select
-            id="delivery-qualifier-select"
-            className="hr-filter-select"
-            value={timingQualifier}
-            onChange={handleQualifierChange}
+      {/* ── Row 2: Time toggle + inline time picker ── */}
+      <div className="hr-delivery-row-2">
+        <label className="hr-checkbox-label">
+          <input
+            type="checkbox"
+            id="delivery-has-time-toggle"
+            checked={hasTime}
+            onChange={handleToggleExactTime}
             disabled={disabled}
-            aria-label="Timing qualifier"
-          >
-            {QUALIFIER_OPTIONS.map(q => (
-              <option key={q.value} value={q.value}>
-                {q.label}
-              </option>
-            ))}
-          </select>
-        </div>
+          />
+          <span>Specify exact time</span>
+        </label>
+
+        {hasTime ? (
+          <div className="hr-time-inline" data-testid="time-picker-controls">
+            {/* Hour */}
+            <select
+              className="hr-time-select hr-time-select-sm"
+              value={hour12}
+              onChange={handleHourChange}
+              disabled={disabled}
+              aria-label="Delivery hour"
+            >
+              {['01','02','03','04','05','06','07','08','09','10','11','12'].map(h => (
+                <option key={h} value={h}>{h}</option>
+              ))}
+            </select>
+            <span className="hr-time-colon">:</span>
+            {/* Minute */}
+            <select
+              className="hr-time-select hr-time-select-sm"
+              value={minute}
+              onChange={handleMinuteChange}
+              disabled={disabled}
+              aria-label="Delivery minute"
+            >
+              {['00','05','10','15','20','25','30','35','40','45','50','55'].map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            {/* AM/PM */}
+            <div className="hr-ampm-segment" role="group" aria-label="AM or PM">
+              <button type="button" className={`hr-ampm-btn ${ampm === 'AM' ? 'active' : ''}`} onClick={() => handleAmPmToggle('AM')} disabled={disabled}>AM</button>
+              <button type="button" className={`hr-ampm-btn ${ampm === 'PM' ? 'active' : ''}`} onClick={() => handleAmPmToggle('PM')} disabled={disabled}>PM</button>
+            </div>
+            {/* Quick slots */}
+            <div className="hr-quick-slots-inline">
+              <button type="button" className="hr-slot-pill" onClick={() => applyTimeSlot('09','00','AM')}>9am</button>
+              <button type="button" className="hr-slot-pill" onClick={() => applyTimeSlot('12','00','PM')}>12pm</button>
+              <button type="button" className="hr-slot-pill" onClick={() => applyTimeSlot('03','00','PM')}>3pm</button>
+            </div>
+          </div>
+        ) : (
+          <span className="hr-time-unresolved-pill">Time unresolved · Zero-guessing active</span>
+        )}
       </div>
 
-      {/* Human-readable Preview Bar */}
+      {/* ── Preview bar ── */}
       <div className="hr-delivery-preview-bar" data-testid="delivery-human-preview">
-        <span className="hr-preview-icon" aria-hidden="true">
-          🗓️
-        </span>
-        <span className="hr-preview-text">
-          <strong>Selected delivery:</strong> {humanPreview}
-        </span>
+        <span className="hr-preview-icon" aria-hidden="true">🗓️</span>
+        <span className="hr-preview-text"><strong>Selected delivery:</strong> {humanPreview}</span>
       </div>
 
-      {/* Advanced Details Toggle (shows raw ISO and raw input for tests/power users) */}
+      {/* Advanced toggle */}
       <details
         className="hr-delivery-advanced"
         open={isAdvancedOpen}
         onToggle={e => setIsAdvancedOpen((e.target as HTMLDetailsElement).open)}
       >
-        <summary className="hr-advanced-summary">
-          Advanced details &amp; ISO 8601 timestamp
-        </summary>
+        <summary className="hr-advanced-summary">Advanced details &amp; ISO 8601 timestamp</summary>
         <div className="hr-advanced-body">
           <div className="hr-advanced-row">
             <span className="hr-advanced-label">Serialized ISO 8601:</span>
-            <code className="hr-advanced-code" data-testid="serialized-iso-code">
-              {serializedValue || '(null - unresolved)'}
-            </code>
+            <code className="hr-advanced-code" data-testid="serialized-iso-code">{serializedValue || '(null - unresolved)'}</code>
           </div>
           <div className="hr-advanced-row">
             <span className="hr-advanced-label">Qualifier:</span>
@@ -666,8 +563,6 @@ export function RequestedDeliveryField({
             <span className="hr-advanced-label">Timezone Offset:</span>
             <code>{selectedTz.offset} ({selectedTz.code})</code>
           </div>
-
-          {/* Fallback raw input to guarantee backward compatibility with automated test suites */}
           <div style={{ marginTop: '10px' }}>
             <label htmlFor="delivery-input" className="hr-advanced-label" style={{ display: 'block', marginBottom: '4px' }}>
               Manual ISO override (power user)
@@ -677,10 +572,7 @@ export function RequestedDeliveryField({
               id="delivery-input"
               className="hr-filter-input"
               value={serializedValue}
-              onChange={e => {
-                const val = e.target.value;
-                onChange(val, timingQualifier);
-              }}
+              onChange={e => { onChange(e.target.value, timingQualifier); }}
               placeholder="2026-10-28T10:00:00+08:00"
               disabled={disabled}
             />

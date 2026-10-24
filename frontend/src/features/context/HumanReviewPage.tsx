@@ -298,7 +298,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
         </div>
         <button
           type="button"
-          className="hr-btn-footer hr-compact-action"
+          className="hr-btn-footer"
           onClick={() => void loadQueue()}
           disabled={loading}
         >
@@ -797,6 +797,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
   const [managerReviewNote, setManagerReviewNote] = useState('');
   const [markUnresolvedModalOpen, setMarkUnresolvedModalOpen] = useState(false);
   const [markUnresolvedReason, setMarkUnresolvedReason] = useState('');
+  const [conflictsReviewed, setConflictsReviewed] = useState(false);
   const [linkOrderModalOpen, setLinkOrderModalOpen] = useState(false);
   const [selectedCandidateOrder, setSelectedCandidateOrder] = useState('');
   const [linkOrderReason, setLinkOrderReason] = useState('');
@@ -863,6 +864,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
 
       setDirtyFields(new Set());
       setReviewerNote('');
+      setConflictsReviewed(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load task details');
     } finally {
@@ -941,7 +943,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
 
   // Save changes handler
   const handleConfirmSave = async () => {
-    if (!context || saving || !isDirty || (hasMajorFieldChanges && !majorFieldConfirmed)) return;
+    if (!context || saving || (saveMode !== 'accept' && !isDirty) || (hasMajorFieldChanges && !majorFieldConfirmed)) return;
     const finalReason = modalReason.trim() || reviewerNote.trim();
     if (!finalReason) return;
 
@@ -963,6 +965,9 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
       if (instructionsChanged) {
         fieldEdits.special_instructions = specialInstructions;
       }
+      if (conflictsReviewed) {
+        fieldEdits.conflicts = [];
+      }
 
       const action = saveMode === 'accept' ? 'ACCEPT_EXTRACTION' : 'EDIT_FIELD';
 
@@ -975,12 +980,13 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
           note: finalReason,
         },
         {
+          'X-Tenant-ID': context.tenant_id,
           'X-Actor-ID': actorId || 'user_staff_01',
           'X-Actor-Role': actorRole || 'STAFF',
         }
       );
 
-      const updated = await operationalApi.getContext(context.context_id);
+      const updated = await operationalApi.getContext(context.context_id, { 'X-Tenant-ID': context.tenant_id });
       if (updated.context_version < saved.context_version || Object.entries(fieldEdits).some(([key, value]) => {
         const actual = updated[key as keyof OrderContextRecord];
         if (key === 'requested_delivery_at' && typeof actual === 'string' && typeof value === 'string') return Date.parse(actual) !== Date.parse(value);
@@ -997,6 +1003,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
       setSpecialInstructions(updated.special_instructions || '');
       setDirtyFields(new Set());
       setReviewerNote('');
+      setConflictsReviewed(false);
       setSaveModalOpen(false);
       setShowUnsavedBanner(false);
       setReviewState(saveMode === 'accept' ? 'Accepted' : 'In progress');
@@ -1005,11 +1012,13 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
       if (saveMode === 'accept') {
         markTaskResolved(taskId);
         context.source_message_ids?.forEach(id => markTaskResolved(id));
+        navigate(returnTo || '/inbox/human-review');
+        return;
       }
 
       if (onContextUpdated) onContextUpdated(updated);
       notifyReviewContextSaved();
-      const reloadedReviews = await operationalApi.listContextReviews(context.context_id).catch(() => []);
+      const reloadedReviews = await operationalApi.listContextReviews(context.context_id, { 'X-Tenant-ID': context.tenant_id }).catch(() => []);
       setAuditReviews(reloadedReviews);
       const refreshedIssues = await getConversationIssues(taskId, updated).catch(() => null);
       if (refreshedIssues?.issues) setIssues(refreshedIssues.issues);
@@ -1046,6 +1055,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
           note: `[Manager Escalation] ${managerReviewNote.trim()}`,
         },
         {
+          'X-Tenant-ID': context.tenant_id,
           'X-Actor-ID': actorId || 'user_staff_01',
           'X-Actor-Role': actorRole || 'STAFF',
         }
@@ -1070,6 +1080,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
           note: `[Marked Unresolved] ${markUnresolvedReason.trim()}`,
         },
         {
+          'X-Tenant-ID': context.tenant_id,
           'X-Actor-ID': actorId || 'user_staff_01',
           'X-Actor-Role': actorRole || 'STAFF',
         }
@@ -1308,8 +1319,16 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
       {/* 4. Red Alert Bar (IssueBanner) */}
       {(missingCount > 0 || conflictCount > 0) && (
         <div className="hr-issue-banner" role="alert" data-component="IssueBanner">
-          Information needs review · {missingCount} missing · {conflictCount} conflicts
-          {missingList.length > 0 && ` (${missingList.join(', ')})`}
+          <div>
+            Information needs review · {missingCount} missing · {conflictCount} conflicts
+            {missingList.length > 0 && ` (${missingList.join(', ')})`}
+          </div>
+          {conflictCount > 0 && (
+            <label className="ra-conflict-check" style={{ marginTop: '0.25rem', display: 'inline-flex', alignItems: 'center', gap: '0.5rem', fontWeight: 'normal', cursor: 'pointer' }}>
+              <input type="checkbox" checked={conflictsReviewed} onChange={e => setConflictsReviewed(e.target.checked)} />
+              I reviewed and resolved all listed conflicts with evidence
+            </label>
+          )}
         </div>
       )}
 
@@ -1401,6 +1420,43 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
             <div className="hr-card-box">
               <h2>Extracted fields</h2>
               <p className="hint">Edit values supported by the original request. Every change needs an audit reason.</p>
+
+              {/* Audit reason & notes — inline at top for immediate visibility */}
+              <div className="hr-audit-inline" data-component="AuditNoteCard">
+                {suggestedClarification && (
+                  <div className="hr-ai-box" data-component="AISuggestion">
+                    <div className="hr-ai-top">
+                      <span>AI suggested clarification</span>
+                      <span className="hr-chip blue">Requires staff approval</span>
+                    </div>
+                    <q className="hr-ai-quote">"{suggestedClarification}"</q>
+                    <button
+                      type="button"
+                      className="hr-ai-use-btn"
+                      onClick={() => {
+                        setReviewerNote(suggestedClarification);
+                        markDirty('note');
+                      }}
+                    >
+                      Use as clarification note
+                    </button>
+                  </div>
+                )}
+                <div className="hr-audit-inline-row">
+                  <label htmlFor="reviewer-note" className="hr-audit-inline-label">
+                    Reviewer note <span className="hr-req-star">*</span>
+                  </label>
+                  <textarea
+                    id="reviewer-note"
+                    className="hr-filter-input hr-audit-inline-textarea"
+                    rows={2}
+                    placeholder="State reason for changes, confirmation evidence, or clarification details…"
+                    value={reviewerNote}
+                    onChange={e => setReviewerNote(e.target.value)}
+                  />
+                  <div className="hr-helper-text">Audited reason is recorded in the context timeline.</div>
+                </div>
+              </div>
 
               {/* Delivery Field — Orbyte date/time picker */}
               <div
@@ -1549,44 +1605,6 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                   }}
                   placeholder="Optional handling or packaging details"
                 />
-              </div>
-            </div>
-
-            {/* Audit reason & notes card */}
-            <div className="hr-card-box hr-audit-card" data-component="AuditNoteCard">
-              <h2>Audit reason &amp; notes</h2>
-              {suggestedClarification && (
-                <div className="hr-ai-box" data-component="AISuggestion">
-                  <div className="hr-ai-top">
-                    <span>AI suggested clarification</span>
-                    <span className="hr-chip blue">Requires staff approval</span>
-                  </div>
-                  <q className="hr-ai-quote">"{suggestedClarification}"</q>
-                  <button
-                    type="button"
-                    className="hr-ai-use-btn"
-                    onClick={() => {
-                      setReviewerNote(suggestedClarification);
-                      markDirty('note');
-                    }}
-                  >
-                    Use as clarification note
-                  </button>
-                </div>
-              )}
-              <div className="hr-field-label">
-                <label htmlFor="reviewer-note">Reviewer note <span className="hr-req-star">*</span></label>
-              </div>
-              <textarea
-                id="reviewer-note"
-                className="hr-filter-input"
-                rows={3}
-                placeholder="State reason for changes, confirmation evidence, or clarification details…"
-                value={reviewerNote}
-                onChange={e => setReviewerNote(e.target.value)}
-              />
-              <div className="hr-helper-text">
-                Audited business reason is recorded in the context timeline.
               </div>
             </div>
 
@@ -1952,7 +1970,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
               <button
                 type="button"
                 className="hr-btn-footer primary"
-                disabled={saving || !isDirty || !reviewerNote.trim() || !deliveryValidation.isValid || items.some(it => !it.sku || !it.unit || !it.quantity) || context?.customer_identity_status !== 'LINK_VERIFIED' || Boolean(context?.missing_fields?.length || context?.conflicts?.length)}
+                disabled={saving || !reviewerNote.trim() || !deliveryValidation.isValid || items.some(it => !it.sku || !it.unit || !it.quantity) || Boolean(context?.conflicts?.length && !conflictsReviewed)}
                 onClick={() => {
                   setSaveMode('accept');
                   setModalReason(reviewerNote);

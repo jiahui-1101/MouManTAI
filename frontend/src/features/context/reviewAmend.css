@@ -82,3 +82,9 @@
 .ra-footer > div { display: flex; gap: 8px; }
 @media (max-width: 900px) { .ra-dialog { inset: 0; max-height: 100vh; border-radius: 0; } .ra-columns { grid-template-columns: minmax(0,1fr); } .ra-source { position: static; max-height: none; } .ra-status-strip { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 600px) { .ra-header, .ra-footer { padding: 12px; } .ra-heading h2 { font-size: 18px; } .ra-scroll { padding: 12px; } .ra-card { padding: 14px; } .ra-item-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .ra-item-grid label:first-child { grid-column: 1 / -1; } .ra-footer { align-items: flex-start; flex-direction: column; } .ra-footer > div { width: 100%; flex-wrap: wrap; } .ra-menu-list { right: 0; width: min(280px, 85vw); } }
+
+.ra-dialog .hr-time-select { width: auto !important; min-width: 54px !important; height: 36px; padding: 0 8px !important; }
+.ra-dialog .hr-ampm-btn { width: auto !important; }
+.ra-dialog .hr-slot-pill { width: auto !important; }
+.ra-dialog .hr-delivery-row-2 { flex-wrap: nowrap !important; }
+.ra-dialog .hr-time-inline { flex-wrap: nowrap !important; }
