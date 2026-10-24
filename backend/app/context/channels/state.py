@@ -65,6 +65,7 @@ class ChannelStateManager:
                 "cursor": None,
                 "tokens": {},
                 "seen_ids": [],
+                "ignored_ids": [],
                 "status": "UNCONFIGURED",
                 "last_error": None,
                 "last_poll_at": None,
@@ -123,7 +124,23 @@ class ChannelStateManager:
         with self._lock:
             data = self._get_channel_data(channel, tenant_id)
             seen: list[str] = data.setdefault("seen_ids", [])
-            return provider_id in seen
+            ignored: list[str] = data.setdefault("ignored_ids", [])
+            return provider_id in seen or provider_id in ignored
+
+    def is_ignored_provider_id(self, channel: str, tenant_id: str, provider_id: str) -> bool:
+        with self._lock:
+            data = self._get_channel_data(channel, tenant_id)
+            ignored: list[str] = data.setdefault("ignored_ids", [])
+            return provider_id in ignored
+
+    def add_ignored_provider_id(self, channel: str, tenant_id: str, provider_id: str) -> None:
+        with self._lock:
+            data = self._get_channel_data(channel, tenant_id)
+            ignored: list[str] = data.setdefault("ignored_ids", [])
+            if provider_id not in ignored:
+                ignored.append(provider_id)
+                data["updated_at"] = datetime.now(timezone.utc).isoformat()
+                self._save()
 
     def mark_seen_provider_id(self, channel: str, tenant_id: str, provider_id: str, max_history: int = 500) -> None:
         with self._lock:

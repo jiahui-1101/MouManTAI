@@ -414,3 +414,24 @@ class InMemoryMessageRepository:
         )
         self.contexts[(tenant_id, context_id)] = updated_ctx
         return updated_ctx
+
+    def delete_message(self, tenant_id: str, message_id: str) -> bool:
+        msg_key = (tenant_id, message_id)
+        if msg_key not in self.messages:
+            return False
+        stored = self.messages.pop(msg_key)
+        fp_key = (tenant_id, stored.raw.channel, stored.raw.provider_message_id)
+        self.fingerprints.pop(fp_key, None)
+        self.attempts.pop(msg_key, None)
+        self.associations.pop(msg_key, None)
+        to_del = []
+        for c_key, ctx in self.contexts.items():
+            if c_key[0] == tenant_id and message_id in (ctx.source_message_ids or []):
+                rem = [m for m in ctx.source_message_ids if m != message_id]
+                if not rem:
+                    to_del.append(c_key)
+                else:
+                    self.contexts[c_key] = ctx.model_copy(update={"source_message_ids": rem})
+        for c_key in to_del:
+            self.contexts.pop(c_key, None)
+        return True

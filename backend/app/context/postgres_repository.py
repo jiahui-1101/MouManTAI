@@ -11,6 +11,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 from sqlalchemy import (
     CheckConstraint,
+    delete,
     DateTime,
     Index,
     LargeBinary,
@@ -1844,6 +1845,71 @@ class PostgresMessageRepository:
                     diagnostic=payload.get("diagnostic"),
                     extracted_at=row.created_at,
                 )
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def delete_message(self, tenant_id: str, message_id: str) -> bool:
+        try:
+            with Session(self.engine) as session, session.begin():
+                msg = session.scalar(
+                    select(InboundMessage).where(
+                        InboundMessage.tenant_id == tenant_id,
+                        InboundMessage.message_id == message_id,
+                    )
+                )
+                if msg is None:
+                    return False
+
+                provider_msg_id = msg.provider_message_id
+                channel = msg.channel
+
+                # Delete or detach from contexts
+                contexts = session.scalars(
+                    select(OrderContext).where(
+                        OrderContext.tenant_id == tenant_id,
+                        OrderContext.source_message_ids.contains([message_id]),
+                    )
+                ).all()
+
+                for ctx in contexts:
+                    remaining_sources = [sid for sid in (ctx.source_message_ids or []) if sid != message_id]
+                    if not remaining_sources and not ctx.core_commitment_id and not ctx.order_id:
+                        session.execute(
+                            delete(ContextReview).where(ContextReview.context_id == ctx.context_id)
+                        )
+                        session.execute(
+                            delete(OrderContextVersion).where(OrderContextVersion.context_id == ctx.context_id)
+                        )
+                        session.delete(ctx)
+                    else:
+                        ctx.source_message_ids = remaining_sources
+
+                # Delete extraction attempts and associations
+                session.execute(
+                    delete(ExtractionAttempt).where(
+                        ExtractionAttempt.tenant_id == tenant_id,
+                        ExtractionAttempt.message_id == message_id,
+                    )
+                )
+                session.execute(
+                    delete(MessageAssociation).where(
+                        MessageAssociation.tenant_id == tenant_id,
+                        MessageAssociation.message_id == message_id,
+                    )
+                )
+
+                # Delete the message itself
+                session.delete(msg)
+
+            # Record ignored provider id so channel background polling permanently skips it
+            if provider_msg_id:
+                try:
+                    from app.context.channels.state import get_state_manager
+                    get_state_manager().add_ignored_provider_id(channel, tenant_id, provider_msg_id)
+                except Exception:
+                    pass
+
+            return True
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
 
