@@ -285,3 +285,35 @@ Initial unrestricted-temp P1 run: 582 passed, 1 failed, 7 skipped, 40 setup erro
 Remaining failure: `app/context/tests/test_batch8_acceptance.py::test_e2e_11_pdf_image_evidence_traceable_payment_unverified` expects OCR SUCCESS but returns FAILED. Exact same command against pre-task #55 f2300c5 reproduced **1 failed**; the production extractor and acceptance test are unchanged. Optional paddleocr/pymupdf packages are absent; no heavy models were installed for the read-only database scope. Remaining skips: image OCR module, PDF extraction module, and two explicitly opt-in live inference cases. They are not PostgreSQL gate skips. P1 owns OCR environment/test follow-up. No assertions or tests were weakened/deleted.
 
 Independent static review of the two new transaction tests found no actionable issue; it did not independently rerun tests. Scope remains test/evidence-only, plus normal main merges. Future live source integration still requires authenticated tenant provider, durable request/version, commercial/disclosure authority, P1/P5 design approval and Backend B decision-time reread.
+
+## PR #49 strict supplier-version validation follow-up (2026-10-24)
+
+This follow-up resolves Jiahui's `CHANGES_REQUESTED` review on exact prior HEAD `e73914770ee54ce5fd12199b1aa103968338d193`. That review found Pydantic coercing booleans, integral floats and numeric strings to version `1`, allowing malformed evidence to reach `MATCHES`.
+
+- **Main synchronization:** fetched `origin/main` at `e2d02c6ffcb5171a1c65c9e3bfb2c5e0d7e804f7`. Before synchronization, PR #49 was at `e73914770ee54ce5fd12199b1aa103968338d193`, based on `main` at `57636642750d366a85045c3655afa0c51581e3be`, 14 commits ahead and 3 behind. Merged latest Main with a normal merge commit; no conflicts. The Main-only change brought into this branch was `.github/workflows/p1-source-reader-postgres.yml`. The code/test publication HEAD was `947acba5841ba67a2727f787aa87eb633d44c19e`, based on current Main, 16 commits ahead and 0 behind.
+- **Contract:** all four supplier inputs (`CategorySpec.version`, `SupplierRequirement.spec_version`, `SupplierOffer.quote_version`, `SupplierOffer.spec_version`) and both `OfferComparison` output version fields require strict positive integers. `OfferComparison.spec_version` still permits `None` when the schema is unavailable. No version normalization was added. All four statuses and the advisory/no-authority boundaries remain unchanged.
+- **Requirements:** this remains within the v2.2 supplier contracts in `docs/requirements/v2.2/REQUIREMENTS_SYSTEM.md` (`SYS-SUP-02/03/06/08`) and `docs/requirements/v2.2/REQUIREMENTS_BACKEND.md` (`BE-SUP-02`). The six-document v2.2 pack is present and checksummed in `docs/V2_2_SOURCE_CHECKSUMS.json`; illustrative templates and S1–S5 assumptions remain unratified.
+
+### Local validation on the code/test change
+
+| Check | Result | Observed result |
+|---|---|---|
+| Supplier comparison | **PASS** | `python -m pytest -p no:cacheprovider -o "addopts=" tests/v2_2/test_supplier_comparison.py -q -rA --tb=short` — 80 passed, 5 warnings. Includes eight malformed values across each of six input/output version fields, positive integer cases, and four model-validation-before-comparison cases. |
+| Canonical OrderTerms + P2 supplier pipeline | **PASS** | `python -m pytest -p no:cacheprovider -o "addopts=" tests/v2_2/test_terms.py app/feasibility/tests/test_supplier_pipeline.py -q -rA --tb=short` — 70 passed, 5 warnings. |
+| Full v2.2 contract suite | **PASS** | `python -m pytest -p no:cacheprovider -o "addopts=" tests/v2_2 -q -rA --tb=short` — 370 passed, 5 warnings. |
+| PR #59 sourcing compatibility snapshot | **PASS** | `tests/v2_2/test_sourcing.py` — 28 passed, 5 warnings in a detached scratch worktree at child HEAD `6dcebe5d7baf46f0136160abe153ee30885331c6`, with only the updated PR #49 comparator overlaid. The PR #59 branch/ref and files were not changed. |
+| Ruff check | **PASS** | `python -m ruff check app/suppliers tests/v2_2/test_supplier_comparison.py` — all checks passed. |
+| Ruff format | **PASS** | `python -m ruff format --check app/suppliers tests/v2_2/test_supplier_comparison.py` — 3 files already formatted. |
+| Compileall | **PASS** | `python -m compileall -q app/suppliers` — exit 0. |
+| Diff check | **PASS** | `git diff --check` — exit 0. |
+| Local PostgreSQL | **NOT RUN** | The supplier comparator is pure/in-memory and the diff adds no migration or DB-backed supplier test. Database URLs and libpq connection variables were removed from local test processes; no database was contacted. |
+
+### Exact-head GitHub Actions and PostgreSQL
+
+The code/test HEAD `947acba5841ba67a2727f787aa87eb633d44c19e` passed all five jobs in [GitHub Actions run 40082154805](https://github.com/jiahui-1101/MouManTAI/actions/runs/40082154805): Backend Tests, Backend Tests (PostgreSQL Authoritative), Feature Suites, Frontend Checks, and Hygiene & Secret Checks. PostgreSQL used the workflow's isolated disposable `postgres:16` service (reported server version **16.15**), with dedicated `p4_test_moumantai_suite` and `moumantai_migration` databases. The test log reports Alembic revision `0017_p1_real_channel_provenance (head)` and `pytest backend/tests -v -rs --junitxml=pg-report.xml`: **801 passed, 0 failed, 0 skipped, 40 warnings**; the explicit zero-skips verification step passed. The PostgreSQL suite fixture applies actual Alembic migrations to its suite database, and `test_migration_0007.py` exercises upgrade/downgrade/re-upgrade against its dedicated migration database. Tests that explicitly construct ORM schemas (for example `test_amendment_protection.py`, `test_outbox_events.py`, `test_registry.py`, and the two P1 integration tests that call `Base.metadata.create_all`) are not evidence of migrated PostgreSQL schemas. The final documentation-only publication is tracked on the live [PR #49 checks page](https://github.com/jiahui-1101/MouManTAI/pull/49/checks).
+
+### Reviews and downstream handoff
+
+- Jiahui's `CHANGES_REQUESTED` review on `e73914770ee54ce5fd12199b1aa103968338d193` was not dismissed. A fresh P3 review was requested after publishing the fix. No unresolved inline review threads were returned.
+- P1 Mavis's approval cites `e73914770ee54ce5fd12199b1aa103968338d193`; P5's latest recorded approval text cites `63fb44de2e85917562602076d997b50b29ac79a8`. These decisions predate the final documentation-only publication and do not replace any fresh owner review required by GitHub. No approval was made by this task.
+- PR #59 remains open/Draft at base `62040da02b4ec3532ea02d734567e0913996ec2b`, head `6dcebe5d7baf46f0136160abe153ee30885331c6`. Its base is stale after #49 advanced to `947acba5841ba67a2727f787aa87eb633d44c19e`; its owner must refresh the child onto the updated #49 branch and rerun supplier/sourcing compatibility and exact-head CI. #59 was not changed and is not claimed merge-ready.
