@@ -7,13 +7,13 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.core import models as _core_models  # noqa: F401 - register ORM tables for Alembic metadata
-from app.orders import models as _order_models  # noqa: F401 - register OrderRequest tables
+from app.orders import models as _order_models  # noqa: F401 - register OrderRequest, Mock Orbyte and P4 Orders tables
+from app.suppliers import models as _supplier_models  # noqa: F401 - register Mock supplier tables
 from app.communication import models as _communication_models  # noqa: F401 - register P4 ORM tables
 from app.feasibility import persisted_sources as _p2_sources  # noqa: F401 - register P2 ORM tables
 from app.recovery import durable_plans as _p3_plans  # noqa: F401 - register P3 plan tables
 from app.core import manager_approval as _manager_approval  # noqa: F401 - register Core approval table
 from app.recovery import durable_actions as _p3_actions  # noqa: F401 - register P3 action tables
-from app.orders import models as _orders_models  # noqa: F401 - register P4 orders table
 from app.db.base import Base
 
 
