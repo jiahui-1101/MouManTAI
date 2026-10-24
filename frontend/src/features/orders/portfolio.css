@@ -45,3 +45,17 @@
 .pc-decision-nav span { flex: 1 1 20rem; font-size: .85rem; color: var(--ui-muted,#4d5e79); }
 @media(max-width:1000px) { .pc-scope-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media(max-width:520px) { .pc-scope-grid { grid-template-columns: minmax(0,1fr); } .pc-decision-nav { align-items: start; flex-direction: column; } .pc-decision-nav span { flex-basis: auto; } }
+
+.pc-strategy-card { display: flex; flex-direction: column; gap: .35rem; border-top: 3px solid var(--ui-divider,#dce2eb); }
+.pc-strategy-card h3 { font-size: 1.4rem; margin: .15rem 0; }
+.pc-strategy-card > p { font-size: .88rem; }
+.pc-strategy-card > button { margin-top: auto; width: 100%; white-space: normal; }
+.pc-strategy-card.pc-strategy-selected { border-color: var(--ui-primary,#0767e8); box-shadow: 0 0 0 1px var(--ui-primary,#0767e8); }
+.pc-strategy-metrics { font-size: .85rem; }
+.pc-strategy-metrics div { align-items: baseline; }
+.pc-recommended { color: var(--ui-primary,#0767e8); font-size: .8rem; font-weight: 700; }
+.pc-active-scenario { padding: 1rem; border-radius: .75rem; background: var(--ui-surface,#fff); border: 1px solid var(--ui-divider,#dce2eb); }
+.pc-active-scenario label { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; font-size: .9rem; }
+.pc-active-scenario select { max-width: 100%; border: 1px solid var(--ui-divider,#dce2eb); background: var(--ui-surface,#fff); color: inherit; border-radius: .5rem; padding: .65rem; }
+.pc-cards:has(> .pc-strategy-card) { grid-template-columns: repeat(3,minmax(0,1fr)); }
+@media(max-width:1000px) { .pc-cards:has(> .pc-strategy-card) { grid-template-columns: minmax(0,1fr); } }

@@ -1,14 +1,23 @@
+import { metricText, verifiedRecommendation } from './portfolioView';
 import type { PortfolioSnapshot } from './portfolioTypes';
 
 const strategies = [['FCFS', 'FCFS'], ['PROFIT', 'Profit'], ['EXPIRY', 'Expiry-aware']] as const;
 
 /** Presence in a current authorized response is not feasibility or execution permission. */
-export function PortfolioStrategyAvailability({ data }: { data?: PortfolioSnapshot }) {
+export function PortfolioStrategyAvailability({ data, selectedId, onSelect, now = Date.now() }: { data?: PortfolioSnapshot; selectedId?: string; onSelect?: (id: string) => void; now?: number }) {
   return <section aria-label="Strategy availability"><h2>Strategy availability</h2>
     <p>Returned scenarios may still contain unknown or redacted metrics. Strategy presence does not establish feasibility or authorize execution.</p>
     <div className="pc-cards">{strategies.map(([strategy, label]) => {
       const returned = data?.scenarios.filter(s => s.strategy === strategy);
-      return <article className="pc-card" key={strategy} aria-label={`Availability: ${label}`}><h3>{label}</h3>
+      const active = returned?.find(s => s.id === selectedId) ?? returned?.[0];
+      const descriptions = { FCFS: 'Prioritize eligible orders by verified received time.', PROFIT: 'Compare eligible portfolios using authorized estimated profit.', EXPIRY: 'Consider verified material expiry exposure and waste constraints.' };
+      const recommended = data && verifiedRecommendation(data, now);
+      return <article className={`pc-card pc-strategy-card ${active?.id === selectedId ? 'pc-strategy-selected' : ''}`} key={strategy} aria-label={`Availability: ${label}`}><p className="pc-eyebrow">{strategy === 'FCFS' ? 'First Come, First Served' : 'Advisory strategy'}</p><h3>{strategy === 'PROFIT' ? 'Profit-first' : label}</h3>
+        <p>{descriptions[strategy]}</p>
+        {recommended && active?.id === recommended.scenarioId && <span className="pc-recommended">Recommended · source-backed</span>}
+        <dl className="pc-strategy-metrics">{([['profit','Estimated Profit'],['included','Selected Order Count'],['capacity','Capacity Utilization']] as const).map(([key,name]) => <div key={key}><dt>{name}</dt><dd>{data && active ? metricText(data,active,key,now) : 'Unavailable'}</dd></div>)}
+          <div><dt>Waste / Expiry Risk</dt><dd>Unavailable · no metric contract</dd></div><div><dt>Solver Status</dt><dd>{active?.solverStatus ?? 'Not evaluated'}</dd></div></dl>
+        <button type="button" className="foundation-button foundation-button-secondary" aria-pressed={!!active && active.id === selectedId} disabled={!active || !onSelect} onClick={() => active && onSelect?.(active.id)}>Select {label} strategy</button>
         {!returned ? <p>Not verified · no current authorized snapshot is available.</p> : returned.length ? <>
           <p>Returned by source · {returned.length} scenario{returned.length === 1 ? '' : 's'}.</p>
           {returned.some(s => s.validation !== 'VALIDATED') && <p>Validation is incomplete or mismatched for one or more returned scenarios. Positive metrics remain withheld for those scenarios.</p>}

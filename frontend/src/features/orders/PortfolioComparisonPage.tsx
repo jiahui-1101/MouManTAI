@@ -17,10 +17,14 @@ import './portfolio.css';
 const executionNotice = 'Scenario membership is a proposal only. Comparison does not accept orders, establish customer assent, reserve resources or change confirmed agreements.';
 
 function PortfolioResults({ data, now }: { data: PortfolioSnapshot; now: number }) {
+  const [activeId, setActiveId] = useState(() => data.scenarios[0]?.id ?? '');
+  const active = data.scenarios.find(s => s.id === activeId);
   const [selected, setSelected] = useState(() => data.scenarios.map(s => s.id));
   const scenarios = data.scenarios.filter(s => selected.includes(s.id));
   const recommendation = verifiedRecommendation(data, now);
   return <>
+    <PortfolioStrategyAvailability data={data} now={now} selectedId={activeId} onSelect={setActiveId} />
+    <section className="pc-active-scenario" aria-label="Selected strategy detail"><label>Selected scenario<select value={activeId} onChange={e => setActiveId(e.target.value)}>{data.scenarios.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label><h2>Selected Strategy: {active?.label}</h2><p>Scenario {active?.id} · version {active?.version} · {active?.solverStatus}</p><p>Selection changes this display only. Comparison checkboxes below remain independent.</p></section>
     {data.coverage === 'PARTIAL' && <UncertaintyNote kind="insufficient-evidence">Partial source coverage. Missing metrics remain Unknown; no whole-portfolio recommendation is available.</UncertaintyNote>}
     <fieldset className="pc-selection"><legend>Scenarios to compare</legend>
       {data.scenarios.map(s => <label key={s.id}><input type="checkbox" checked={selected.includes(s.id)}
@@ -127,7 +131,7 @@ export function PortfolioComparisonPage({ source = unavailablePortfolioSource }:
     {data && !conflict && !available && <EmptyState kind="unavailable" title="Current verified snapshot unavailable"
       description="Source evidence is unverified, stale, expired, future-dated or of unknown freshness. Metrics, allocations and recommendations are withheld. Refresh or review individual orders." />}
     <PortfolioAnalysisScope data={available && !conflict ? data : undefined} />
-    <PortfolioStrategyAvailability data={available && !conflict ? data : undefined} />
+    {(!available || conflict || !data.scenarios.length) && <PortfolioStrategyAvailability data={available && !conflict ? data : undefined} />}
     {available && !conflict && (data.scenarios.length ?
       <PortfolioResults key={`${auth.tenantId}:${auth.actorId}:${data.snapshotId}:${data.snapshotVersion}:${data.updatedAt}:${data.scenarios.map(s => `${s.id}:${s.version}`).join('|')}`} data={data} now={observedNow} /> :
       <EmptyState kind="empty" title="No source scenarios" description="The source returned no scenarios. Continue with individual order assessments; no local portfolio is invented." />)}

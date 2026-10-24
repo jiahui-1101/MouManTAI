@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { PortfolioAnalysisScope } from './PortfolioAnalysisScope';
 import { portfolioFixture } from './portfolioTest.fixtures';
 afterEach(cleanup);
@@ -15,4 +15,15 @@ it('labels loaded strategy statuses and source time without claiming solver elig
  expect(screen.getByText('FCFS / PROFIT')).toBeInTheDocument();
  expect(screen.getByText('Current verified snapshot')).toBeInTheDocument();
  expect(screen.getByText(/Complete returned snapshot/)).toBeInTheDocument();
+});
+
+import { PortfolioStrategyAvailability } from './PortfolioStrategyAvailability';
+it('selects only returned strategies and preserves the per-metric profit redaction guard', () => {
+ const data=portfolioFixture(); data.scenarios[1].metrics.profit!.state='REDACTED'; data.scenarios[1].metrics.profit!.value='987654';
+ let selected=''; render(<PortfolioStrategyAvailability data={data} selectedId="s0" now={Date.parse('2026-10-24T03:00:00Z')} onSelect={id=>{selected=id;}} />);
+ expect(screen.getByRole('button',{name:'Select FCFS strategy'})).toHaveAttribute('aria-pressed','true');
+ fireEvent.click(screen.getByRole('button',{name:'Select Profit strategy'})); expect(selected).toBe('s1');
+ expect(screen.getByRole('button',{name:'Select Expiry-aware strategy'})).toBeDisabled();
+ expect(document.body).not.toHaveTextContent('987654');
+ expect(screen.queryByText(/Recommended · source-backed/)).not.toBeInTheDocument();
 });
