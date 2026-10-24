@@ -52,7 +52,6 @@
 - [Challenges & Learnings](#challenges--learnings)
 - [Future Improvements](#future-improvements)
 - [Team](#team)
-- [Submission Checklist](#submission-checklist)
 - [License](#license)
 
 ---
@@ -1264,19 +1263,6 @@ Key test areas: amendment protection, stale-version and snapshot races, tenant i
 Prepared for the **SDC Hackathon 2026 Domain 2 — Orbyte Smart SME Challenge**, with thanks to **Alpha Red Solutions**.
 
 ---
-
-## Submission Checklist
-
-- [x] Team domain and SDG track filled in
-- [ ] Team name, slide deck, video, live app and Replit links added
-- [ ] Required submission PDFs attached under `submission/`
-- [ ] Preliminary submission (`submission/SDC2026_XMM_Preliminary.pdf`) — file not present in the current `main` snapshot
-- [ ] Technology declaration (`submission/SDC2026_XMM_TechDeclaration.pdf`) — file not present in the current `main` snapshot
-- [ ] Replit proof of use (`submission/SDC2026_XMM_Replit_POU.pdf`) — file not present in the current `main` snapshot
-- [ ] RunPod proof of use (`submission/SDC2026_XMM_Runpod_POU.pdf`) — file not present in the current `main` snapshot
-- [ ] Files renamed with team name
-- [ ] "How to Run" verified from a clean environment
-- [x] No API keys or secrets committed
 
 ## License
 
