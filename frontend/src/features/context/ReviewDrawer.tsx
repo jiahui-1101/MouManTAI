@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ContextReviewRequest, ExtractionAttemptRecord, OrderContextRecord, RequestedItem, StoredMessage } from './types';
-import { getReviewCatalog, operationalApi } from './operationalApi';
+import { getReviewCatalog, notifyReviewContextSaved, operationalApi } from './operationalApi';
 import { extractEvidenceItemGroups, reviewCandidates } from './reviewCandidates';
 import { ExtractionProvenance } from './ExtractionProvenance';
 import { useOptionalAuth } from '../../shared/auth';
@@ -95,6 +95,7 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
   const [specialInstructions, setSpecialInstructions] = useState(context.special_instructions || '');
   const [note, setNote] = useState('');
   const [conflictsReviewed, setConflictsReviewed] = useState(false);
+  const [majorFieldConfirmed, setMajorFieldConfirmed] = useState(false);
   const [catalog, setCatalog] = useState<{ sku: string; unit: string }[]>([]);
   const [catalogState, setCatalogState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [targetItem, setTargetItem] = useState('');
@@ -108,7 +109,11 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
   const original = sourceMessage || message?.raw?.text || '';
   const candidates = reviewCandidates(record);
   const suggested = getSuggestedClarification(record);
-  const dirty = JSON.stringify(items) !== JSON.stringify(initialItems(record)) || deliveryAt !== initialDelivery(record) || qualifier !== (record.delivery_qualifier || String(record.field_evidence?.requested_delivery_at?.[0]?.qualifier || '')) || specialInstructions !== (record.special_instructions || '') || conflictsReviewed;
+  const itemsDirty = JSON.stringify(items) !== JSON.stringify(initialItems(record));
+  const deliveryDirty = deliveryAt !== initialDelivery(record) || qualifier !== (record.delivery_qualifier || String(record.field_evidence?.requested_delivery_at?.[0]?.qualifier || ''));
+  const instructionsDirty = specialInstructions !== (record.special_instructions || '');
+  const dirty = itemsDirty || deliveryDirty || instructionsDirty || conflictsReviewed;
+  const majorFieldDirty = itemsDirty || deliveryDirty;
   const noteReady = !!note.trim();
   const itemValuesReady = items.length > 0 && items.every(item => !!item.sku.trim() && !!item.unit.trim() && /^[0-9]+(?:\.[0-9]+)?$/.test(item.quantity.trim()) && Number(item.quantity) > 0);
   const deliveryValid = !deliveryAt || (/(Z|[+-][0-9]{2}:[0-9]{2})$/.test(deliveryAt) && !Number.isNaN(Date.parse(deliveryAt)));
@@ -118,7 +123,7 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
     if (field === 'requested_delivery_at') return !!deliveryAt && deliveryValid;
     return false;
   });
-  const acceptReady = noteReady && itemValuesReady && catalogReady && deliveryValid && missingResolved && record.customer_identity_status === 'LINK_VERIFIED' && (!record.conflicts?.length || conflictsReviewed);
+  const acceptReady = noteReady && itemValuesReady && catalogReady && deliveryValid && missingResolved && record.customer_identity_status === 'LINK_VERIFIED' && (!record.conflicts?.length || conflictsReviewed) && (!majorFieldDirty || majorFieldConfirmed);
 
   useEffect(() => {
     let active = true;
@@ -149,6 +154,16 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
     return operationalApi.reviewContext(base.context_id, request, headers);
   };
 
+  const reloadConfirmed = async (saved: OrderContextRecord, edits: Record<string, unknown> = {}) => {
+    const fresh = await operationalApi.getContext(saved.context_id);
+    if (fresh.context_version < saved.context_version || Object.entries(edits).some(([key, value]) => {
+      const actual = fresh[key as keyof OrderContextRecord];
+      if (key === 'requested_delivery_at' && typeof actual === 'string' && typeof value === 'string') return Date.parse(actual) !== Date.parse(value);
+      return JSON.stringify(actual ?? null) !== JSON.stringify(value ?? null);
+    })) throw new Error('Review write returned, but the saved values are not visible in the authoritative context. Refresh before retrying.');
+    return fresh;
+  };
+
   const submit = async (action: 'EDIT_FIELD' | 'ACCEPT_EXTRACTION' | 'REQUEST_MORE_INFO' | 'MARK_UNRESOLVED') => {
     setError(null);
     if (!noteReady) { setError('Reviewer note is required for an audited decision.'); return; }
@@ -157,35 +172,41 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
     try {
       let updated = record;
       if (action === 'EDIT_FIELD' || (action === 'ACCEPT_EXTRACTION' && dirty)) {
-        if (!itemValuesReady) throw new Error('Enter an explicit approved SKU, positive quantity and unit for every item.');
-        if (!deliveryValid) throw new Error('Enter an ISO timestamp with explicit UTC offset.');
-        const approved = catalogState === 'ready' ? catalog : await (catalogLoader || getReviewCatalog)();
-        for (let index = 0; index < items.length; index++) {
-          const item = items[index];
-          if (!Array.isArray(approved) || !approved.some(product => product.sku === item.sku.trim() && product.unit === item.unit.trim())) throw new Error(`Item #${index + 1}: Map to an approved SKU and its supported unit. Unknown products remain unresolved.`);
+        if (majorFieldDirty && !majorFieldConfirmed) throw new Error('Confirm the major field change before saving.');
+        const edits: Record<string, unknown> = {};
+        if (itemsDirty) {
+          if (!itemValuesReady) throw new Error('Enter an explicit approved SKU, positive quantity and unit for every edited item. Leave unknown products unresolved.');
+          const approved = catalogState === 'ready' ? catalog : await (catalogLoader || getReviewCatalog)();
+          for (let index = 0; index < items.length; index++) {
+            const item = items[index];
+            if (!Array.isArray(approved) || !approved.some(product => product.sku === item.sku.trim() && product.unit === item.unit.trim())) throw new Error(`Item #${index + 1}: Map to an approved SKU and its supported unit. Unknown products remain unresolved.`);
+          }
+          edits.requested_items = items.map(item => ({ sku: item.sku.trim(), quantity: item.quantity.trim(), unit: item.unit.trim() }));
         }
-        const edits: Record<string, unknown> = {
-          requested_items: items.map(item => ({ sku: item.sku.trim(), quantity: item.quantity.trim(), unit: item.unit.trim() })),
-          delivery_qualifier: qualifier,
-        };
-        if (deliveryAt) edits.requested_delivery_at = new Date(deliveryAt).toISOString();
-        edits.special_instructions = specialInstructions;
-        if (!deliveryAt && record.requested_delivery_at) edits.requested_delivery_at = null;
-        if (!record.conflicts?.length || conflictsReviewed) edits.conflicts = [];
-        updated = await sendReview('EDIT_FIELD', record, edits);
+        if (deliveryDirty) {
+          if (!deliveryValid) throw new Error('Enter an ISO timestamp with explicit UTC offset.');
+          edits.requested_delivery_at = deliveryAt ? new Date(deliveryAt).toISOString() : null;
+          edits.delivery_qualifier = qualifier;
+        }
+        if (instructionsDirty) edits.special_instructions = specialInstructions;
+        if (conflictsReviewed) edits.conflicts = [];
+        updated = await reloadConfirmed(await sendReview('EDIT_FIELD', record, edits), edits);
         setRecord(updated);
         setItems(initialItems(updated));
         setDeliveryAt(initialDelivery(updated));
         setQualifier(updated.delivery_qualifier || '');
         setSpecialInstructions(updated.special_instructions || '');
         setConflictsReviewed(false);
+        setMajorFieldConfirmed(false);
         onUpdated(updated);
+        notifyReviewContextSaved();
       }
       if (action === 'ACCEPT_EXTRACTION') {
         if (!acceptReady) throw new Error('Resolve required fields, identity and conflicts before accepting extraction.');
-        updated = await sendReview('ACCEPT_EXTRACTION', updated);
+        updated = await reloadConfirmed(await sendReview('ACCEPT_EXTRACTION', updated));
         setRecord(updated);
         onUpdated(updated);
+        notifyReviewContextSaved();
       } else if (action === 'REQUEST_MORE_INFO' || action === 'MARK_UNRESOLVED') {
         updated = await sendReview(action, record);
         setRecord(updated);
@@ -229,11 +250,12 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
             </section>
             <details className="ra-card ra-disclosure"><summary>AI candidates &amp; evidence ({candidates.length})</summary><p className="ra-hint">Provisional observations are not approved inventory items. Choose a target item before applying a candidate.</p>{items.length > 1 && <label>Apply candidates to item<select aria-label="Apply candidates to item" value={targetItem} onChange={event => setTargetItem(event.target.value)}><option value="">Choose an item</option>{items.map((item, index) => <option key={index} value={String(index)}>Item #{index + 1} — {item.sku || 'unmapped'}</option>)}</select></label>}<div className="ra-candidates">{candidates.map(candidate => <div className="ra-candidate" key={candidate.key}><button type="button" className="ra-button" disabled={submitting || candidate.unverifiedProduct || (items.length > 1 && !targetItem) || (candidate.field === 'requested_delivery_at' && !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(candidate.value))} onClick={() => applyCandidate(candidate)}>{candidate.unverifiedProduct ? `Unverified product: ${candidate.value}` : `Apply ${candidate.field === 'sku' ? 'SKU' : candidate.field === 'quantity' ? 'Quantity' : candidate.field === 'unit' ? 'Unit' : 'Delivery'}: ${candidate.value}`}</button><span>{candidate.method}{candidate.group ? ` · item ${candidate.group}` : ''}</span><details><summary>Evidence</summary>Source: {candidate.source || 'unspecified'} [{String(candidate.start ?? '?')}:{String(candidate.end ?? '?')}] “{candidate.quote}”</details></div>)}</div></details>
             <section className="ra-card" data-component="AuditNoteCard"><h3>Audit reason &amp; notes</h3>{suggested && <div className="ra-suggestion" data-component="AISuggestion" data-testid="p1-suggested-clarification"><strong>Suggested clarification wording <span className="ra-chip ra-chip-blue">Preview only · requires staff approval</span></strong><p>“{suggested}”</p><button type="button" className="ra-button" onClick={() => setNote(suggested)}>Use as clarification note</button></div>}<label htmlFor="p1-input-audit-note">Reviewer note <span aria-hidden="true">*</span></label><textarea id="p1-input-audit-note" rows={3} value={note} onChange={event => setNote(event.target.value)} placeholder="Reason for change, confirmation evidence, or clarification details" disabled={submitting} /><p className="ra-hint">Recorded with reviewer identity, time and context version. A clarification note is not sent to the customer.</p></section>
+            {majorFieldDirty && <label className="ra-conflict-check"><input type="checkbox" checked={majorFieldConfirmed} onChange={event => setMajorFieldConfirmed(event.target.checked)} disabled={submitting} /> I confirm the change to a major field.</label>}
             <details className="ra-card ra-disclosure" data-component="TechnicalDetails"><summary>Technical details and provenance</summary>{extraction ? <ExtractionProvenance attempt={extraction} /> : <p>No extraction telemetry is available here.</p>}<p>Context {record.context_id} · version {record.context_version} · last review {record.last_reviewed_at || 'not recorded'}</p></details>
           </div>
         </div>
       </div>
-      <footer className="ra-footer" role="contentinfo" data-component="StickyActionBar"><span>{!dirty ? 'No field changes yet' : !noteReady ? 'Unsaved changes · reviewer note required' : 'Unsaved changes'}</span><div><button type="button" className="ra-button" onClick={requestClose}>Cancel</button><button type="button" className="ra-button ra-primary" disabled={submitting || !dirty || !noteReady} onClick={() => void submit('EDIT_FIELD')}>Save changes</button><button type="button" className="ra-button ra-primary" disabled={submitting || !acceptReady} onClick={() => void submit('ACCEPT_EXTRACTION')}>Save &amp; Accept</button></div></footer>
+      <footer className="ra-footer" role="contentinfo" data-component="StickyActionBar"><span>{!dirty ? 'No field changes yet' : !noteReady ? 'Unsaved changes · reviewer note required' : 'Unsaved changes'}</span><div><button type="button" className="ra-button" onClick={requestClose}>Cancel</button><button type="button" className="ra-button ra-primary" disabled={submitting || !dirty || !noteReady || (majorFieldDirty && !majorFieldConfirmed)} onClick={() => void submit('EDIT_FIELD')}>Save changes</button><button type="button" className="ra-button ra-primary" disabled={submitting || !acceptReady} onClick={() => void submit('ACCEPT_EXTRACTION')}>Save &amp; Accept</button></div></footer>
     </section>
   </>;
   return typeof document !== 'undefined' ? createPortal(content, document.body) : content;

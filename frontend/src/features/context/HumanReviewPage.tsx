@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../shared/auth';
-import { operationalApi } from './operationalApi';
+import { notifyReviewContextSaved, operationalApi } from './operationalApi';
 import type {
   ContextReviewRecord,
   ExtractionAttemptRecord,
@@ -687,7 +687,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
   const [timezoneSelect, setTimezoneSelect] = useState<string>('');
   const [specialInstructions, setSpecialInstructions] = useState<string>('');
   const [reviewerNote, setReviewerNote] = useState<string>('');
-  const [dirtyFields, setDirtyFields] = useState<Set<string>>(new Set());
+  const [, setDirtyFields] = useState<Set<string>>(new Set());
 
   // UI States
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -701,6 +701,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
   const [saveMode, setSaveMode] = useState<'save' | 'accept'>('save');
   const [majorFieldConfirmed, setMajorFieldConfirmed] = useState(false);
   const [modalReason, setModalReason] = useState('');
+  const [saving, setSaving] = useState(false);
   const [reprocessConfirmOpen, setReprocessConfirmOpen] = useState(false);
   const [managerReviewModalOpen, setManagerReviewModalOpen] = useState(false);
   const [managerReviewNote, setManagerReviewNote] = useState('');
@@ -813,11 +814,11 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
   const missingCount = missingList.length;
 
   // Major fields modified check
-  const hasMajorFieldChanges = useMemo(() => {
-    return dirtyFields.has('sku') || dirtyFields.has('quantity') || dirtyFields.has('delivery');
-  }, [dirtyFields]);
-
-  const isDirty = dirtyFields.size > 0;
+  const itemsChanged = Boolean(context) && JSON.stringify(items) !== JSON.stringify(context!.requested_items?.length ? context!.requested_items.map(it => ({ sku: it.sku || '', quantity: it.quantity || '', unit: it.unit || '' })) : [{ sku: '', quantity: '', unit: '' }]);
+  const deliveryChanged = Boolean(context) && (deliveryAt !== (context!.requested_delivery_at || '') || timingQualifier !== (context!.delivery_qualifier || 'Unresolved'));
+  const instructionsChanged = Boolean(context) && specialInstructions !== (context!.special_instructions || '');
+  const hasMajorFieldChanges = itemsChanged || deliveryChanged;
+  const isDirty = itemsChanged || deliveryChanged || instructionsChanged;
 
   // Mark field dirty & highlight
   const markDirty = (field: string) => {
@@ -850,26 +851,32 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
 
   // Save changes handler
   const handleConfirmSave = async () => {
-    if (!context) return;
+    if (!context || saving || !isDirty || (hasMajorFieldChanges && !majorFieldConfirmed)) return;
     const finalReason = modalReason.trim() || reviewerNote.trim();
     if (!finalReason) return;
 
+    setSaving(true);
+    setError(null);
     try {
       const fieldEdits: Record<string, unknown> = {};
-      if (dirtyFields.has('delivery')) {
-        fieldEdits.requested_delivery_at = deliveryValidation.normalized || deliveryAt;
+      if (deliveryChanged) {
+        if (deliveryAt && !deliveryValidation.isValid) throw new Error('Enter a valid delivery time with an explicit timezone before saving.');
+        fieldEdits.requested_delivery_at = deliveryAt ? deliveryValidation.normalized : null;
         fieldEdits.delivery_qualifier = timingQualifier;
       }
-      if (dirtyFields.has('items') || dirtyFields.has('sku') || dirtyFields.has('quantity') || dirtyFields.has('unit')) {
+      if (itemsChanged) {
+        if (items.some(it => !it.sku.trim() || !it.unit.trim() || !/^[0-9]+(?:\.[0-9]+)?$/.test(it.quantity.trim()) || Number(it.quantity) <= 0)) {
+          throw new Error('Edited items need an approved SKU, positive quantity and unit. Leave unknown products unresolved.');
+        }
         fieldEdits.requested_items = items;
       }
-      if (dirtyFields.has('instructions')) {
+      if (instructionsChanged) {
         fieldEdits.special_instructions = specialInstructions;
       }
 
       const action = saveMode === 'accept' ? 'ACCEPT_EXTRACTION' : 'EDIT_FIELD';
 
-      const updated = await operationalApi.reviewContext(
+      const saved = await operationalApi.reviewContext(
         context.context_id,
         {
           action,
@@ -883,6 +890,12 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
         }
       );
 
+      const updated = await operationalApi.getContext(context.context_id);
+      if (updated.context_version < saved.context_version || Object.entries(fieldEdits).some(([key, value]) => {
+        const actual = updated[key as keyof OrderContextRecord];
+        if (key === 'requested_delivery_at' && typeof actual === 'string' && typeof value === 'string') return Date.parse(actual) !== Date.parse(value);
+        return JSON.stringify(actual ?? null) !== JSON.stringify(value ?? null);
+      })) throw new Error('Review write returned, but the saved values are not visible in the authoritative context. Refresh before retrying.');
       setContext(updated);
       setDirtyFields(new Set());
       setReviewerNote('');
@@ -892,10 +905,15 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
       showToast(saveMode === 'accept' ? 'Saved & extraction review confirmed. Audit entry recorded.' : 'Saved. Audit entry recorded.');
 
       if (onContextUpdated) onContextUpdated(updated);
+      notifyReviewContextSaved();
       const reloadedReviews = await operationalApi.listContextReviews(context.context_id).catch(() => []);
       setAuditReviews(reloadedReviews);
+      const refreshedIssues = await getConversationIssues(taskId, updated).catch(() => null);
+      if (refreshedIssues?.issues) setIssues(refreshedIssues.issues);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -1280,7 +1298,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
 
               {/* Delivery Field */}
               <div
-                className={`hr-field-row ${dirtyFields.has('delivery') ? 'is-modified' : ''}`}
+                className={`hr-field-row ${deliveryChanged ? 'is-modified' : ''}`}
                 data-key="delivery"
                 data-component="FieldRow"
                 onClick={() => handleFocusKey('delivery')}
@@ -1365,7 +1383,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
 
               {/* Items Section */}
               <div
-                className={`hr-field-row ${dirtyFields.has('items') ? 'is-modified' : ''}`}
+                className={`hr-field-row ${itemsChanged ? 'is-modified' : ''}`}
                 data-component="ItemsTable"
               >
                 <div className="hr-field-label">
@@ -1392,9 +1410,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                         value={item.sku}
                         aria-label="SKU / Product"
                         onChange={e => {
-                          const next = [...items];
-                          next[idx].sku = e.target.value;
-                          setItems(next);
+                          setItems(previous => previous.map((item, i) => i === idx ? { ...item, sku: e.target.value } : item));
                           markDirty('sku');
                           markDirty('items');
                         }}
@@ -1407,9 +1423,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                         value={item.quantity}
                         aria-label="Quantity"
                         onChange={e => {
-                          const next = [...items];
-                          next[idx].quantity = e.target.value;
-                          setItems(next);
+                          setItems(previous => previous.map((item, i) => i === idx ? { ...item, quantity: e.target.value } : item));
                           markDirty('quantity');
                           markDirty('items');
                         }}
@@ -1420,9 +1434,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                         value={item.unit}
                         aria-label="Unit"
                         onChange={e => {
-                          const next = [...items];
-                          next[idx].unit = e.target.value;
-                          setItems(next);
+                          setItems(previous => previous.map((item, i) => i === idx ? { ...item, unit: e.target.value } : item));
                           markDirty('unit');
                           markDirty('items');
                         }}
@@ -1467,7 +1479,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                   type="button"
                   className="hr-btn-footer hr-compact-action"
                   style={{ marginTop: '10px' }}
-                  onClick={() => setItems(prev => [...prev, { sku: '', quantity: '', unit: '' }])}
+                  onClick={() => { setItems(prev => [...prev, { sku: '', quantity: '', unit: '' }]); markDirty('items'); }}
                 >
                   + Add item
                 </button>
@@ -1864,7 +1876,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
                 ? 'No field changes yet'
                 : !reviewerNote.trim()
                 ? 'Unsaved changes · reviewer note is required'
-                : `${dirtyFields.size} field change(s) not saved`}
+                : `${Number(itemsChanged) + Number(deliveryChanged) + Number(instructionsChanged)} field change(s) not saved`}
             </div>
             <div className="hr-sticky-right">
               <button
@@ -1880,7 +1892,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
               <button
                 type="button"
                 className="hr-btn-footer primary"
-                disabled={!isDirty || !reviewerNote.trim()}
+                disabled={saving || !isDirty || !reviewerNote.trim()}
                 onClick={() => {
                   setSaveMode('save');
                   setModalReason(reviewerNote);
@@ -1892,7 +1904,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
               <button
                 type="button"
                 className="hr-btn-footer primary"
-                disabled={!isDirty || !reviewerNote.trim() || !deliveryValidation.isValid || items.some(it => !it.unit)}
+                disabled={saving || !isDirty || !reviewerNote.trim() || !deliveryValidation.isValid || items.some(it => !it.sku || !it.unit || !it.quantity) || context?.customer_identity_status !== 'LINK_VERIFIED' || Boolean(context?.missing_fields?.length || context?.conflicts?.length)}
                 onClick={() => {
                   setSaveMode('accept');
                   setModalReason(reviewerNote);
@@ -1952,7 +1964,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
               <button
                 type="button"
                 className="hr-btn-footer primary"
-                disabled={!modalReason.trim() || (hasMajorFieldChanges && !majorFieldConfirmed)}
+                disabled={saving || !modalReason.trim() || (hasMajorFieldChanges && !majorFieldConfirmed)}
                 onClick={handleConfirmSave}
               >
                 {saveMode === 'accept' ? 'Confirm & Accept Review' : 'Save Changes'}

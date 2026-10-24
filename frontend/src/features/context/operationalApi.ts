@@ -31,6 +31,10 @@ export function getReviewCatalog(): Promise<{ sku: string; unit: string }[]> {
   return request('/v1/contexts/catalog');
 }
 
+export function notifyReviewContextSaved(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('moumantai:review-context-saved'));
+}
+
 export interface OperationalApi {
   config(): Promise<DevelopmentContext>;
   list(query: MessageQuery): Promise<MessagePage>;

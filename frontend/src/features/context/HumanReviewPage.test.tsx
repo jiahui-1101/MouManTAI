@@ -138,6 +138,7 @@ describe('HumanReviewPage component', () => {
     vi.spyOn(operationalApi, 'getExtraction').mockResolvedValue(mockExtraction);
     vi.spyOn(operationalApi, 'getAssociation').mockResolvedValue(mockAssociation);
     vi.spyOn(operationalApi, 'getContextByOrder').mockResolvedValue(mockContext);
+    vi.spyOn(operationalApi, 'getContext').mockResolvedValue({ ...mockContext, context_version: 2 });
     vi.spyOn(operationalApi, 'createContextFromMessage').mockResolvedValue(mockContext);
     vi.spyOn(operationalApi, 'listContextReviews').mockResolvedValue([
       {
@@ -359,6 +360,7 @@ describe('HumanReviewPage component', () => {
 
     it('submits amendments with Reason modal and major field confirmation', async () => {
       const onUpdated = vi.fn();
+      vi.mocked(operationalApi.getContext).mockResolvedValue({ ...mockContext, context_version: 2, requested_items: [{ ...(mockContext.requested_items || [])[0], sku: 'SOURDOUGH' }] });
       renderPage(<HumanReviewPage selectedTaskId="msg_hr_1" onContextUpdated={onUpdated} />);
 
       await waitFor(() => {

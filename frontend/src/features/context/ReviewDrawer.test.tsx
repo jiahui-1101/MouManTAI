@@ -28,6 +28,7 @@ describe('Review & Amend workspace', () => {
   beforeEach(() => {
     vi.restoreAllMocks(); onClose.mockReset(); onUpdated.mockReset();
     vi.spyOn(reviewApi, 'getReviewCatalog').mockResolvedValue([{ sku: 'SOURDOUGH', unit: 'pcs' }, { sku: 'CROISSANT', unit: 'box' }, { sku: 'BAGEL', unit: 'pcs' }]);
+    vi.spyOn(operationalApi, 'getContext').mockResolvedValue({ ...context, context_version: 2 });
   });
 
   it('shows a single split workspace, source highlights and three footer actions', () => {
@@ -63,6 +64,8 @@ describe('Review & Amend workspace', () => {
     fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '25' } });
     fireEvent.change(screen.getByLabelText('Unit'), { target: { value: 'box' } });
     fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Customer corrected item' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /confirm the change to a major field/i }));
+    vi.mocked(operationalApi.getContext).mockResolvedValue({ ...context, context_version: 2, requested_items: [{ sku: 'CROISSANT', quantity: '25', unit: 'box' }] });
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(operationalApi.reviewContext).toHaveBeenCalledWith('ctx_drawer_test', expect.objectContaining({
       action: 'EDIT_FIELD', expected_context_version: 1, note: 'Customer corrected item',
@@ -81,6 +84,8 @@ describe('Review & Amend workspace', () => {
     fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '25' } });
     fireEvent.change(screen.getByLabelText('Unit'), { target: { value: 'box' } });
     fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Verified with buyer' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /confirm the change to a major field/i }));
+    vi.mocked(operationalApi.getContext).mockResolvedValueOnce({ ...context, context_version: 2, requested_items: [{ sku: 'CROISSANT', quantity: '25', unit: 'box' }] }).mockResolvedValueOnce({ ...context, context_version: 3, status: 'INFORMATION_READY' });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save & Accept' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Save & Accept' }));
     await waitFor(() => expect(review).toHaveBeenCalledTimes(2));
@@ -104,13 +109,49 @@ describe('Review & Amend workspace', () => {
     render(<ReviewDrawer {...props} />);
     fireEvent.change(screen.getByLabelText('SKU / Product'), { target: { value: 'UNKNOWN' } });
     fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Review' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /confirm the change to a major field/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/approved SKU/i);
     expect(review).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText('SKU / Product'), { target: { value: 'SOURDOUGH' } });
-    fireEvent.change(screen.getByLabelText(/Requested delivery/i), { target: { value: 'tomorrow' } });
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+  });
+
+  it('saves an instructions-only correction while SKU and identity remain unresolved', async () => {
+    const partial = { ...context, customer_id: null, customer_identity_status: 'UNVERIFIED', requested_items: [], missing_fields: ['sku_mapping', 'customer_identity'] } as OrderContextRecord;
+    const saved = { ...partial, context_version: 2, special_instructions: 'Keep refrigerated' };
+    const review = vi.spyOn(operationalApi, 'reviewContext').mockResolvedValue(saved);
+    vi.mocked(operationalApi.getContext).mockResolvedValue(saved);
+    render(<ReviewDrawer {...props} context={partial} />);
+    fireEvent.change(screen.getByLabelText('Special instructions'), { target: { value: 'Keep refrigerated' } });
+    fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Customer specified refrigeration' } });
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Save & Accept' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
-    expect(screen.getByRole('alert')).toHaveTextContent(/explicit UTC offset/i);
+    await waitFor(() => expect(review).toHaveBeenCalledWith(partial.context_id, expect.objectContaining({ action: 'EDIT_FIELD', field_edits: { special_instructions: 'Keep refrigerated' } }), expect.anything()));
+    expect(onUpdated).toHaveBeenCalledWith(saved);
+  });
+
+  it.each([400, 403, 409, 422, 503])('keeps a %i backend error visible and preserves the open edit', async status => {
+    vi.spyOn(operationalApi, 'reviewContext').mockRejectedValue(new Error(`Backend rejected (${status})`));
+    render(<ReviewDrawer {...props} />);
+    fireEvent.change(screen.getByLabelText('Special instructions'), { target: { value: 'Keep refrigerated' } });
+    fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Customer instruction' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(`Backend rejected (${status})`);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onUpdated).not.toHaveBeenCalled();
+  });
+
+  it('does not report success when the write response is ahead of the persisted context', async () => {
+    vi.spyOn(operationalApi, 'reviewContext').mockResolvedValue({ ...context, context_version: 2, special_instructions: 'Keep refrigerated' });
+    vi.mocked(operationalApi.getContext).mockResolvedValue(context);
+    render(<ReviewDrawer {...props} />);
+    fireEvent.change(screen.getByLabelText('Special instructions'), { target: { value: 'Keep refrigerated' } });
+    fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Customer instruction' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/saved values are not visible/i);
+    expect(onUpdated).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('keeps backend errors visible without closing or inventing success', async () => {
