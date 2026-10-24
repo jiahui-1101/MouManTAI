@@ -15,6 +15,7 @@ from pydantic import (
 )
 
 Identifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+RFCIdentifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=998)]
 Channel = Literal["WHATSAPP", "EMAIL", "TELEGRAM", "UNKNOWN"]
 ProcessingStatus = Literal["RECEIVED", "PROCESSING", "PROCESSED", "PROCESSING_FAILED"]
 Readiness = Literal["READY", "PARTIAL", "CONFLICT", "UNRESOLVED"]
@@ -46,6 +47,10 @@ class RawMessageEnvelope(P1Model):
     tenant_id: Identifier
     channel: Channel
     provider_message_id: Identifier
+    # Stable, provider-owned scope. These stay absent on historical messages
+    # whose account identity cannot be recovered without guessing.
+    provider_account_id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)] | None = None
+    provider_native_message_id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=998)] | None = None
     sender_identity_id: Identifier
     sender_alias: Annotated[str, StringConstraints(min_length=1, max_length=200)]
     received_at: Timestamp
@@ -56,7 +61,16 @@ class RawMessageEnvelope(P1Model):
     text: str = Field(min_length=1, max_length=20_000)
     attachments: list[Attachment] = Field(default_factory=list, max_length=10)
     thread_ref: str | None = Field(default=None, max_length=200)
-    reply_to_provider_message_id: str | None = Field(default=None, max_length=200)
+    conversation_id: str | None = Field(default=None, max_length=998)
+    reply_to_provider_message_id: str | None = Field(default=None, max_length=998)
+    rfc_message_id: str | None = Field(default=None, max_length=998)
+    rfc_in_reply_to: list[RFCIdentifier] = Field(default_factory=list, max_length=20)
+    rfc_references: list[RFCIdentifier] = Field(default_factory=list, max_length=50)
+    native_attachment_source_ids: list[Identifier] = Field(default_factory=list, max_length=10)
+    relationship_source: Literal["PROVIDER_QUOTE", "SENDER_HEADER", "NONE", "UNKNOWN"] = "UNKNOWN"
+    source_authenticity: Literal["VERIFIED", "UNVERIFIED", "SYNTHETIC"] = "UNVERIFIED"
+    correlation_id: str | None = Field(default=None, max_length=200)
+    framing_error: str | None = Field(default=None, max_length=500)
     language: str | None = Field(default=None, max_length=35)
     adapter_mode: Literal["SYNTHETIC", "REAL"] = "SYNTHETIC"
 
@@ -64,6 +78,8 @@ class RawMessageEnvelope(P1Model):
     def supported_original_content(self):
         if not self.text.strip() or not self.sender_alias.strip():
             raise ValueError("message text and sender alias must contain non-whitespace characters")
+        if (self.provider_account_id is None) != (self.provider_native_message_id is None):
+            raise ValueError("provider account and native message ID must be supplied together")
         def contains_nul(value):
             if isinstance(value, str):
                 return "\x00" in value

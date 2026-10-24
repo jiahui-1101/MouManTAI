@@ -133,6 +133,11 @@ class ContextService:
 
             assoc = self.repo.save_association(assoc_record)
 
+        if message.raw.framing_error:
+            framing_review = "Provider relationship framing requires human review"
+            if framing_review not in assoc.conflicts:
+                assoc.conflicts.append(framing_review)
+
 
 
         # 3. Parse fields from extraction attempt
@@ -245,7 +250,8 @@ class ContextService:
         has_assoc_conflict = bool(assoc.conflicts)
         raw_text_msg = message.raw.text or ""
         is_explicit_new_order = bool(EXPLICIT_NEW_ORDER_RE.search(raw_text_msg))
-        has_thread_or_reply = bool(message.raw.reply_to_provider_message_id or message.raw.thread_ref)
+        has_exact_parent_reference = bool(message.raw.reply_to_provider_message_id or message.raw.rfc_in_reply_to)
+        has_broad_thread = bool(message.raw.thread_ref)
         has_explicit_followup_cue = bool(EXPLICIT_FOLLOWUP_RE.search(raw_text_msg))
         has_incoming_sku = any(grp.get("sku") for grp in item_groups.values()) or any(
             f.field_name == "sku" and f.value for f in attempt.fields
@@ -257,16 +263,28 @@ class ContextService:
         can_attempt_followup_merge = (
             not is_explicit_new_order
             and not has_assoc_conflict
-            and (has_thread_or_reply or has_explicit_followup_cue or is_partial_clarification)
+            and (has_exact_parent_reference or has_broad_thread or has_explicit_followup_cue or is_partial_clarification)
         )
 
         if existing_context is None and can_attempt_followup_merge:
-            # 1. Check thread_ref / reply_to_provider_message_id first if present
-            if has_thread_or_reply and hasattr(self.repo, "get_contexts_by_thread_or_reply"):
+            # A provider quote/header is a separate exact relation. An unresolved
+            # exact reference must not fall through to sender/thread heuristics.
+            if has_exact_parent_reference and hasattr(self.repo, "get_contexts_by_exact_parent"):
+                exact_contexts = self.repo.get_contexts_by_exact_parent(tenant_id, message_id)
+                if len(exact_contexts) == 1:
+                    existing_context = exact_contexts[0]
+                elif len(exact_contexts) > 1:
+                    assoc.conflicts.append(
+                        "Ambiguous context association: exact provider parent has multiple active order contexts; manual review required"
+                    )
+
+            # 2. Broad conversation grouping remains available when no exact
+            # parent was asserted by the provider.
+            if existing_context is None and not has_exact_parent_reference and has_broad_thread and hasattr(self.repo, "get_contexts_by_thread_or_reply"):
                 thread_ctxs = self.repo.get_contexts_by_thread_or_reply(
                     tenant_id,
                     message.raw.sender_identity_id,
-                    message.raw.reply_to_provider_message_id,
+                    None,
                     message.raw.thread_ref,
                 )
                 if len(thread_ctxs) == 1:
@@ -276,8 +294,9 @@ class ContextService:
                         "Ambiguous context association: multiple active order contexts match thread/reply reference; manual review required"
                     )
 
-            # 2. If not resolved via thread/reply and no ambiguity conflict yet, check active contexts for customer/sender
-            if existing_context is None and not assoc.conflicts:
+            # 3. Sender/customer follow-up cues apply only when the provider did
+            # not assert an exact parent reference.
+            if existing_context is None and not assoc.conflicts and not has_exact_parent_reference:
                 candidate_map: dict[str, OrderContextRecord] = {}
                 if cust_id and hasattr(self.repo, "list_active_contexts_by_customer"):
                     for c in self.repo.list_active_contexts_by_customer(tenant_id, cust_id):

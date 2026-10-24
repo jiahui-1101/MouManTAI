@@ -1,5 +1,6 @@
 """Real Alembic chain in a newly-created, uniquely-named disposable PG DB."""
 import os
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -88,3 +89,150 @@ def test_clean_chain_supports_p1_persistence_review_core_replay_and_owned_rollba
     assert 'commitments' in inspect(engine).get_table_names()
     command.upgrade(config,'head')
     assert len(inspect(engine).get_table_names(schema='p1_dev'))==8
+
+
+def test_scoped_message_migration_preserves_legacy_unknown_provenance(migrated_database):
+    from app.context.postgres_repository import PostgresMessageRepository
+
+    engine, config = migrated_database
+    command.downgrade(config, '0017_p1_real_channel_provenance')
+    received = '2026-10-24T05:00:00+00:00'
+    legacy_raw = {
+        'tenant_id': 'legacy-tenant',
+        'channel': 'TELEGRAM',
+        'provider_message_id': 'tg_42_7',
+        'sender_identity_id': '42',
+        'sender_alias': 'Legacy customer',
+        'received_at': received,
+        'message_at': received,
+        'business_timezone': None,
+        'text': 'Legacy message with an unscoped reply reference',
+        'attachments': [],
+        'thread_ref': '42',
+        'reply_to_provider_message_id': '6',
+        'language': None,
+        'adapter_mode': 'SYNTHETIC',
+    }
+    with engine.begin() as connection:
+        connection.execute(text('''
+            INSERT INTO p1_dev.inbound_messages (
+                message_id, tenant_id, channel, provider_message_id, synthetic_provider,
+                provider, raw, immutable_fingerprint, content_sha256, processing_status,
+                ingested_at, updated_at
+            ) VALUES (
+                'legacy-row', 'legacy-tenant', 'TELEGRAM', 'tg_42_7', 'SYNTHETIC_TELEGRAM',
+                'SYNTHETIC', CAST(:raw AS JSONB), :fingerprint, :digest, 'RECEIVED',
+                CAST(:received AS TIMESTAMPTZ), CAST(:received AS TIMESTAMPTZ)
+            )
+        '''), {
+            'raw': json.dumps(legacy_raw),
+            'fingerprint': 'a' * 64,
+            'digest': 'b' * 64,
+            'received': received,
+        })
+
+    command.upgrade(config, 'head')
+    repository = PostgresMessageRepository(engine)
+    legacy = repository.get('legacy-tenant', 'legacy-row')
+
+    assert legacy is not None
+    assert legacy.raw.reply_to_provider_message_id == '6'
+    assert legacy.raw.provider_account_id is None
+    assert legacy.raw.provider_native_message_id is None
+    assert legacy.raw.source_authenticity == 'UNVERIFIED'
+    assert repository.resolve_exact_parent('legacy-tenant', 'legacy-row').state == 'LEGACY_UNKNOWN'
+
+
+def test_scoped_delivery_collision_blocks_downgrade_without_data_loss(migrated_database):
+    from app.context.postgres_repository import PostgresMessageRepository
+    from app.context.tests.test_c1_completion_persistence import NOW, real_message
+
+    engine, config = migrated_database
+    repository = PostgresMessageRepository(engine)
+    legacy_key = "shared-provider-message-id"
+    first_raw = real_message("native-1", account="phone-a", channel="WHATSAPP").model_copy(
+        update={"provider_message_id": legacy_key}
+    )
+    second_raw = real_message("native-2", account="phone-b", channel="WHATSAPP").model_copy(
+        update={"provider_message_id": legacy_key}
+    )
+
+    first = repository.ingest(first_raw, NOW)
+    second = repository.ingest(second_raw, NOW)
+    assert not first.duplicate
+    assert not second.duplicate
+
+    with pytest.raises(RuntimeError, match="Cannot downgrade 0018"):
+        command.downgrade(config, "0017_p1_real_channel_provenance")
+
+    with engine.connect() as connection:
+        version = connection.scalar(text("SELECT version_num FROM alembic_version"))
+        rows = (
+            connection.execute(
+                text("""
+                SELECT provider_account_id, provider_native_message_id, provider_message_id,
+                       source_authenticity, raw
+                FROM p1_dev.inbound_messages
+                WHERE tenant_id = 'tenant-a' AND provider_message_id = :legacy_key
+                ORDER BY provider_account_id
+            """),
+                {"legacy_key": legacy_key},
+            )
+            .mappings()
+            .all()
+        )
+
+    indexes = {
+        index["name"] for index in inspect(engine).get_indexes("inbound_messages", schema="p1_dev")
+    }
+    assert version == "0024_merge_c1_ah"
+    assert {"uq_p1_delivery_legacy", "uq_p1_delivery_scoped"} <= indexes
+    assert len(rows) == 2
+    assert {row["provider_account_id"] for row in rows} == {"phone-a", "phone-b"}
+    assert {row["provider_native_message_id"] for row in rows} == {"native-1", "native-2"}
+    assert {row["provider_message_id"] for row in rows} == {legacy_key}
+    assert {row["source_authenticity"] for row in rows} == {"VERIFIED"}
+    assert all(row["raw"]["provider_message_id"] == legacy_key for row in rows)
+
+
+@pytest.mark.parametrize("starting_head", ["0020_merge_c1_p4", "0023_mock_memory_history"])
+def test_c1_ah_merge_upgrades_either_history_and_preserves_source_rows(
+    migrated_database, starting_head
+):
+    engine, config = migrated_database
+    command.downgrade(config, "0017_p1_real_channel_provenance")
+    command.upgrade(config, starting_head)
+    # Both histories already contain P1's immutable source table. Insert a
+    # legacy row before crossing the merge, without asserting new provenance.
+    with engine.begin() as connection:
+        connection.execute(text("""
+            INSERT INTO p1_dev.inbound_messages (
+                message_id, tenant_id, channel, provider_message_id,
+                synthetic_provider, provider, raw, immutable_fingerprint,
+                content_sha256, processing_status, ingested_at, updated_at
+            ) VALUES (
+                'merge-source', 'merge-tenant', 'TELEGRAM', 'merge-native',
+                'SYNTHETIC_TELEGRAM', 'SYNTHETIC', '{}', :fingerprint,
+                :digest, 'RECEIVED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+        """), {"fingerprint": "c" * 64, "digest": "d" * 64})
+    command.upgrade(config, "head")
+    expected_tables = {
+        "order_requests", "p4_orders", "mock_supplier_datasets",
+        "mock_forecast_datasets", "mock_optimization_datasets", "mock_memory_datasets",
+    }
+    assert expected_tables <= set(inspect(engine).get_table_names())
+    with engine.connect() as connection:
+        before = connection.execute(text(
+            "SELECT * FROM p1_dev.inbound_messages WHERE message_id = 'merge-source'"
+        )).mappings().one()
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0024_merge_c1_ah"
+        )
+    # Replaying the join applies neither parent's DDL again.
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        after = connection.execute(text(
+            "SELECT * FROM p1_dev.inbound_messages WHERE message_id = 'merge-source'"
+        )).mappings().one()
+    assert dict(after) == dict(before)

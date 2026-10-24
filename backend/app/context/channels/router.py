@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from fastapi.responses import PlainTextResponse
 
 from .manager import ChannelManager, get_channel_manager
-from .whatsapp import InvalidSignatureError, WebhookVerificationError
+from .reply_framing import FramingError, verify_telegram_secret
+from .whatsapp import InvalidSignatureError, InvalidWhatsAppAccountError, WebhookVerificationError
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +44,11 @@ async def telegram_webhook(
     x_telegram_bot_api_secret_token: Annotated[str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")] = None,
 ) -> dict[str, Any]:
     """Receive Telegram Bot API webhook updates."""
-    # Verify secret token if configured
     expected_secret = manager.config.telegram.webhook_secret
-    if expected_secret:
-        if not x_telegram_bot_api_secret_token or x_telegram_bot_api_secret_token != expected_secret:
-            raise HTTPException(status_code=403, detail="Invalid Telegram secret token")
+    try:
+        verify_telegram_secret(expected_secret, x_telegram_bot_api_secret_token)
+    except FramingError:
+        raise HTTPException(status_code=403, detail="Invalid Telegram secret token")
 
     try:
         update = await request.json()
@@ -57,7 +58,7 @@ async def telegram_webhook(
     if not isinstance(update, dict):
         raise HTTPException(status_code=422, detail="Update must be a JSON object")
 
-    result = manager.telegram.process_update(update)
+    result = manager.telegram.process_update(update, source_verified=True)
     return {
         "ok": True,
         "processed": result is not None,
@@ -110,6 +111,9 @@ async def whatsapp_webhook_notification(
     except InvalidSignatureError as exc:
         logger.warning("WhatsApp webhook signature validation failed: %s", exc)
         raise HTTPException(status_code=401, detail="Invalid HMAC-SHA256 signature")
+    except InvalidWhatsAppAccountError as exc:
+        logger.warning("WhatsApp account scope rejected: %s", exc)
+        raise HTTPException(status_code=403, detail="WhatsApp callback account does not match configuration")
     except Exception as exc:
         logger.error("Error processing WhatsApp webhook event: %s", exc)
         raise HTTPException(status_code=500, detail=f"Webhook processing error: {exc}")
@@ -153,6 +157,9 @@ def gmail_oauth_callback(
 
     try:
         token_data = manager.gmail.exchange_code(code)
+        verification = manager.gmail.verify_connection()
+        if not verification.get("authenticated"):
+            raise HTTPException(status_code=403, detail="Authenticated Gmail account could not be verified")
         try:
             manager.gmail.start_polling()
         except Exception as poll_exc:
@@ -162,6 +169,8 @@ def gmail_oauth_callback(
             "message": "Gmail OAuth credentials successfully configured and saved.",
             "has_refresh_token": "refresh_token" in token_data,
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("Gmail OAuth token exchange failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Token exchange failed: {exc}")
