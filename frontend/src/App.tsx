@@ -11,7 +11,6 @@ import { ConfirmationWorkspacePage } from "./features/communication/Confirmation
 import { FollowUpQueuePage } from "./features/communication/FollowUpQueuePage";
 import { DurableInbox } from "./features/context/DurableInbox";
 import { HumanReviewPage } from "./features/context/HumanReviewPage";
-import { OrderContextDetail } from "./features/context/OrderContextDetail";
 import { AuthProvider, useAuth } from "./shared/auth";
 import { apiRequest, authHeaders } from "./shared/api";
 import { createP2PublicApiSource } from "./features/feasibility/apiSource";
@@ -19,7 +18,13 @@ import { CommitmentFeasibilityPage } from "./features/feasibility/CommitmentFeas
 import { ImpactDetailPage } from "./features/feasibility/ImpactDetailPage";
 import { RecoveryCaseRoutePage } from "./features/recovery/RecoveryCaseRoutePage";
 import { RecoveryPage } from "./features/recovery/RecoveryPage";
+import { DailyPerformancePage } from "./features/overview/DailyPerformance";
 import { SupplierComparisonPage, SupplierDetailPage, SupplierDirectoryPage } from "./features/suppliers/SupplierWorkspace";
+// Developer B - Orders & Planning components (frontend-orders-planning, commit 30ebb20)
+import { OrderDetailPage } from "./features/orders/OrderDetailPage";
+import { OrderQueuePage } from "./features/orders/OrderQueuePage";
+import { PortfolioComparisonPage } from "./features/orders/PortfolioComparisonPage";
+import { CalendarSchedulingPage } from "./features/orders/CalendarSchedulingPage";
 
 export function CommitmentFeasibilityRoute() {
   const { authHeaders: auth } = useAuth();
@@ -92,21 +97,30 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
             <Route element={<AppShell />}>
               <Route path="/" element={<OverviewPage />} />
               <Route path="/overview" element={<OverviewPage />} />
-              <Route path="/calendar" element={<FeaturePlaceholder owner="Shared shell" title="Calendar" />} />
+              {/* AZ-02: /calendar alias -> Developer B CalendarSchedulingPage */}
+              <Route path="/calendar" element={<CalendarSchedulingPage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/inbox" element={<DurableInbox />} />
               <Route path="/human-review" element={<HumanReviewPage />} />
-              <Route path="/orders" element={<FeaturePlaceholder owner="Orders" title="All Orders" />} />
-              <Route path="/orders/pending" element={<FeaturePlaceholder owner="Orders" title="Pending Acceptance" />} />
-              <Route path="/orders/:id" element={<OrderContextDetail />} />
+              {/* AZ-03: /orders -> Developer B OrderQueuePage (general queue) */}
+              <Route path="/orders" element={<OrderQueuePage />} />
+              {/* AZ-03: /orders/pending -> Developer B OrderQueuePage (pending acceptance filter) */}
+              <Route path="/orders/pending" element={<OrderQueuePage />} />
+              {/* AZ-01: /orders/portfolio canonical -> Developer B PortfolioComparisonPage */}
+              <Route path="/orders/portfolio" element={<PortfolioComparisonPage />} />
+              {/* AZ-02: /orders/calendar canonical -> Developer B CalendarSchedulingPage */}
+              <Route path="/orders/calendar" element={<CalendarSchedulingPage />} />
+              <Route path="/orders/:id" element={<OrderDetailPage />} />
               <Route path="/planning" element={<FeaturePlaceholder owner="Planning" title="Planning" />} />
               <Route path="/planning/feasibility" element={<FeaturePlaceholder owner="Planning" title="Feasibility" />} />
-              <Route path="/planning/portfolio" element={<FeaturePlaceholder owner="Planning" title="Portfolio Comparison" />} />
+              {/* AZ-01: /planning/portfolio alias -> Developer B PortfolioComparisonPage */}
+              <Route path="/planning/portfolio" element={<PortfolioComparisonPage />} />
               <Route path="/planning/forecasts" element={<FeaturePlaceholder owner="Planning" title="Forecasts" />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
               <Route path="/suppliers" element={<SupplierDirectoryPage />} />
               <Route path="/suppliers/compare" element={<SupplierComparisonPage />} />
+              <Route path="/supplier-comparison" element={<SupplierComparisonPage />} />
               <Route path="/suppliers/:id" element={<SupplierDetailPage />} />
               <Route path="/suppliers/sourcing" element={<FeaturePlaceholder owner="Suppliers" title="Sourcing" />} />
               <Route path="/recovery" element={<FeaturePlaceholder owner="Recovery" title="Emergency Cases" />} />
@@ -117,7 +131,8 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/confirmations/:id" element={<ConfirmationWorkspacePage />} />
               <Route path="/communications/follow-ups" element={<FollowUpQueuePage />}/>
               <Route path="/insights" element={<FeaturePlaceholder owner="Insights" title="Insights" />} />
-              <Route path="/insights/performance" element={<FeaturePlaceholder owner="Insights" title="Performance" />} />
+              <Route path="/insights/performance" element={<DailyPerformancePage />} />
+              <Route path="/performance" element={<DailyPerformancePage />} />
               <Route path="/insights/history" element={<FeaturePlaceholder owner="Insights" title="Decision History" />} />
               <Route path="/settings" element={<FeaturePlaceholder owner="Settings" title="Settings" />} />
               {routeExtensions.map((route) => (

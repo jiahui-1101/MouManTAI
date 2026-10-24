@@ -5,6 +5,7 @@ export interface NavigationItem {
   label: string;
   icon: NavigationIcon;
   to?: string;
+  path?: string;
   /** Detail routes stay under their business parent without becoming sidebar destinations. */
   activeFor?: string[];
   activePrefixes?: readonly string[];
@@ -47,17 +48,29 @@ export const navigation: NavigationItem[] = [
 ];
 
 export function isItemActive(item: NavigationItem, pathname: string): boolean {
-  if (item.to && (pathname === item.to || (item.to !== "/" && pathname.startsWith(`${item.to}/`)))) return true;
+  const target = item.to ?? item.path;
+
+  if (target) {
+    if (pathname === target) return true;
+    if (target === "/suppliers") {
+      return pathname === "/suppliers" || (pathname.startsWith("/suppliers/") && !pathname.startsWith("/suppliers/compare"));
+    }
+    if (target === "/recovery") {
+      return pathname === "/recovery";
+    }
+    if (target === "/recovery/plans" || target === "/recovery/:id/plans") {
+      return pathname.includes("/recovery/") && pathname.includes("/plans");
+    }
+    if (target !== "/" && pathname.startsWith(`${target}/`)) return true;
+  }
+
   if (item.activeFor?.some(path => path === pathname || (path !== "/" && path.endsWith("/") && pathname.startsWith(path)))) return true;
   if (item.activePrefixes?.some(prefix => pathname.startsWith(prefix))) return true;
   return item.children?.some(child => isItemActive(child, pathname)) ?? false;
 }
 
-export function isNavigationItemActive(item: { to?: string; activePrefixes?: readonly string[]; activeFor?: string[] }, pathname: string): boolean {
-  if (item.to && (pathname === item.to || (item.to !== "/" && pathname.startsWith(`${item.to}/`)))) return true;
-  if (item.activePrefixes?.some((prefix) => pathname.startsWith(prefix))) return true;
-  if (item.activeFor?.some((path) => path === pathname || (path !== "/" && path.endsWith("/") && pathname.startsWith(path)))) return true;
-  return false;
+export function isNavigationItemActive(item: { to?: string; path?: string; activePrefixes?: readonly string[]; activeFor?: string[] }, pathname: string): boolean {
+  return isItemActive(item as NavigationItem, pathname);
 }
 
 export function activeAncestors(items: NavigationItem[], pathname: string): string[] {

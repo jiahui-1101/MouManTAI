@@ -27,8 +27,8 @@ export interface MessageQuery {
   limit?: number;
 }
 
-export function getReviewCatalog(): Promise<{ sku: string; unit: string }[]> {
-  return request('/v1/contexts/catalog');
+export function getReviewCatalog(headers?: Record<string, string>): Promise<{ sku: string; unit: string }[]> {
+  return request('/v1/contexts/catalog', headers ? { headers } : undefined);
 }
 
 export interface OperationalApi {
@@ -41,13 +41,13 @@ export interface OperationalApi {
   listAttempts(id: string): Promise<ExtractionHistoryResponse>;
   getAssociation(id: string): Promise<MessageAssociationRecord>;
   decideAssociation(id: string, request: AssociationDecisionRequest, headers?: Record<string, string>): Promise<MessageAssociationRecord>;
-  getContext(id: string): Promise<OrderContextRecord>;
-  getContextByOrder(orderId: string): Promise<OrderContextRecord>;
+  getContext(id: string, headers?: Record<string, string>): Promise<OrderContextRecord>;
+  getContextByOrder(orderId: string, headers?: Record<string, string>): Promise<OrderContextRecord>;
   createContextFromMessage(messageId: string): Promise<OrderContextRecord>;
   reviewContext(id: string, req: ContextReviewRequest, headers?: Record<string, string>): Promise<OrderContextRecord>;
   updateContext(id: string, req: ContextUpdateRequest, headers?: Record<string, string>): Promise<OrderContextRecord>;
-  listContextVersions(id: string): Promise<OrderContextVersionRecord[]>;
-  listContextReviews(id: string): Promise<ContextReviewRecord[]>;
+  listContextVersions(id: string, headers?: Record<string, string>): Promise<OrderContextVersionRecord[]>;
+  listContextReviews(id: string, headers?: Record<string, string>): Promise<ContextReviewRecord[]>;
   publishContext(id: string, headers?: Record<string, string>): Promise<OrderContextRecord>;
   getCatalog(): Promise<{ sku: string; unit: string }[]>;
   uploadAttachment(file: File): Promise<AttachmentRecord>;
@@ -112,8 +112,8 @@ export const operationalApi: OperationalApi = {
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(req),
     }),
-  getContext: id => request(`/v1/contexts/${encodeURIComponent(id)}`),
-  getContextByOrder: orderId => request(`/v1/contexts/by-order/${encodeURIComponent(orderId)}`),
+  getContext: (id, headers) => request(`/v1/contexts/${encodeURIComponent(id)}`, headers ? { headers } : undefined),
+  getContextByOrder: (orderId, headers) => request(`/v1/contexts/by-order/${encodeURIComponent(orderId)}`, headers ? { headers } : undefined),
   createContextFromMessage: messageId =>
     request(`/v1/contexts/from-message/${encodeURIComponent(messageId)}`, { method: 'POST' }),
   reviewContext: (id, req, headers = {}) =>
@@ -128,8 +128,8 @@ export const operationalApi: OperationalApi = {
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(req),
     }),
-  listContextVersions: id => request(`/v1/contexts/${encodeURIComponent(id)}/versions`),
-  listContextReviews: id => request(`/v1/contexts/${encodeURIComponent(id)}/reviews`),
+  listContextVersions: (id, headers) => request(`/v1/contexts/${encodeURIComponent(id)}/versions`, headers ? { headers } : undefined),
+  listContextReviews: (id, headers) => request(`/v1/contexts/${encodeURIComponent(id)}/reviews`, headers ? { headers } : undefined),
   publishContext: (id, headers = {}) =>
     request(`/v1/contexts/${encodeURIComponent(id)}/publish`, {
       method: 'POST',

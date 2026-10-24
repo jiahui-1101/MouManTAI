@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
 import { ApiError } from "../../shared/api";
 import { useAuth } from "../../shared/auth";
-import { ConfirmationDialog, LastUpdated, StateTimeline } from "../../shared/ui";
+import { ConfirmationDialog } from "../../shared/ConfirmationDialog";
 import { decideRecoveryPlan, executeRecoveryTask, generateRecoveryPlans, getActionHistory, getApprovalHistory, getRecoveryCaseOrTrigger, getRecoveryPlans, requestRecoveryCommunication } from "./api";
 import type { ApprovalDecision, DurableActionView, RecoveryCase, RecoveryPlanVersion } from "./types";
 import { SyntheticRecoveryDemo } from "./SyntheticRecoveryDemo";
@@ -128,7 +128,6 @@ function PlanCard({
         <span>Policy score: {plan.ranking_score ?? "Not ranked"}{plan.rank ? ` · rank ${plan.rank}` : ""}</span>
         {stale && <span className="recovery-stale">STALE EVALUATION</span>}
       </div>
-      {plan.risks.length > 0 && <div className="recovery-risk-summary"><strong>Known risks</strong><ul>{plan.risks.map((risk) => <li key={risk}>{risk.replaceAll("_", " ")}</li>)}</ul></div>}
       {plan.score_breakdown && (
         <p className="muted text-sm">
           Score components: cost {plan.score_breakdown.cost_score}, delay {plan.score_breakdown.delay_score},
@@ -229,8 +228,7 @@ function ManagerReviewPanel({ decisions, actorRole }: { decisions: ApprovalDecis
             <article className="recovery-review-record" key={decision.approval_id}>
               <strong>{decision.decision} · {decision.plan_id} v{decision.plan_version}</strong>
               <span>{decision.actor_id} ({decision.actor_role}) · {decision.decided_at ? new Date(decision.decided_at).toLocaleString() : "Decision time not recorded"}</span>
-              <span>Scope: {decision.action_scope.join(", ") || "Not returned"} · cost limit: {decision.approved_cost_limit ?? "Not returned"}</span>
-              <span>Snapshot v{decision.snapshot_version} · {decision.reason} · expires {decision.expires_at ? new Date(decision.expires_at).toLocaleString() : "not returned"}</span>
+              <span>Snapshot v{decision.snapshot_version} · {decision.reason}</span>
               <EvidenceList refs={[...decision.evidence_refs, ...decision.audit_refs]} />
             </article>
           ))}
@@ -339,15 +337,13 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
   const { authHeaders, actorRole } = useAuth();
   const queryClient = useQueryClient();
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+  const [executeIdempotencyKey, setExecuteIdempotencyKey] = useState<string | null>(null);
   const [pendingDecision, setPendingDecision] = useState<{
     decision: "approve" | "reject" | "request-revision";
-    idempotencyKey: string;
+    plan: RecoveryPlanVersion;
+    version: number;
   } | null>(null);
   const [decisionReason, setDecisionReason] = useState("");
-  const [decisionReasonError, setDecisionReasonError] = useState(false);
-  const [executeDialogOpen, setExecuteDialogOpen] = useState(false);
-  const [executionOutcomeUnknown, setExecutionOutcomeUnknown] = useState(false);
-  const executeIdempotencyKey = useRef<string | null>(null);
 
   const caseQuery = useQuery({
     queryKey: ["recovery-case", commitmentId, authHeaders.tenantId],
@@ -380,9 +376,6 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
   const fullCase = caseData && "trigger_assessment" in caseData ? caseData : undefined;
   const plans = plansQuery.data?.plans ?? fullCase?.plans ?? [];
   const selectedPlan = useMemo(() => plans.find((plan) => plan.plan_id === selectedPlanId), [plans, selectedPlanId]);
-  const executeIntentStorageKey = selectedPlan
-    ? `moumantai:recovery-execute:${authHeaders.tenantId}:${selectedPlan.plan_id}:${selectedPlan.plan_version}`
-    : null;
   const approvalsQuery = useQuery({
     queryKey: ["recovery-approvals", selectedPlanId, authHeaders.tenantId],
     queryFn: () => getApprovalHistory(selectedPlanId!, authHeaders),
@@ -395,30 +388,6 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
     enabled: !!selectedPlanId && fullCase?.storage_mode === "DURABLE_DATABASE",
     retry: false,
   });
-  useEffect(() => {
-    if (!selectedPlan || !executeIntentStorageKey) return;
-    try {
-      const stored = sessionStorage.getItem(executeIntentStorageKey);
-      if (stored) {
-        const intent = JSON.parse(stored) as { idempotencyKey?: string; state?: string };
-        if (intent.idempotencyKey && (intent.state === "IN_FLIGHT" || intent.state === "UNKNOWN")) {
-          executeIdempotencyKey.current = intent.idempotencyKey;
-          setExecutionOutcomeUnknown(true);
-          return;
-        }
-      }
-    } catch {
-      // If storage cannot be read, the normal server history remains authoritative.
-    }
-    executeIdempotencyKey.current = null;
-    setExecutionOutcomeUnknown(false);
-  }, [executeIntentStorageKey, selectedPlan]);
-  useEffect(() => {
-    if (!executionOutcomeUnknown || !actionsQuery.data?.some((action) => action.status === "SUCCEEDED") || !executeIntentStorageKey) return;
-    setExecutionOutcomeUnknown(false);
-    executeIdempotencyKey.current = null;
-    try { sessionStorage.removeItem(executeIntentStorageKey); } catch { /* storage is optional */ }
-  }, [actionsQuery.data, executeIntentStorageKey, executionOutcomeUnknown]);
   const refreshWorkflow = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["recovery-case", commitmentId, authHeaders.tenantId] }),
@@ -428,24 +397,16 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
     ]);
   };
   const decisionMutation = useMutation({
-    mutationFn: ({ plan, decision, reason, version, idempotencyKey }: { plan: RecoveryPlanVersion; decision: "approve" | "reject" | "request-revision"; reason: string; version: number; idempotencyKey: string }) =>
-      decideRecoveryPlan(plan, decision, reason, version, idempotencyKey, authHeaders),
+    mutationFn: ({ plan, decision, reason, version }: { plan: RecoveryPlanVersion; decision: "approve" | "reject" | "request-revision"; reason: string; version: number }) =>
+      decideRecoveryPlan(plan, decision, reason, version, authHeaders),
     onSuccess: refreshWorkflow,
   });
   const executeMutation = useMutation({
-    mutationFn: ({ plan, version, idempotencyKey }: { plan: RecoveryPlanVersion; version: number; idempotencyKey: string }) => executeRecoveryTask(plan, version, idempotencyKey, authHeaders),
-    onSuccess: refreshWorkflow,
-    onError: (error) => {
-      // Network failures and server errors can occur after the durable action was
-      // recorded. Keep execution blocked until the action history is reconciled.
-      if (!(error instanceof ApiError) || error.status >= 500) {
-        setExecutionOutcomeUnknown(true);
-        if (executeIntentStorageKey && executeIdempotencyKey.current) {
-          try { sessionStorage.setItem(executeIntentStorageKey, JSON.stringify({ idempotencyKey: executeIdempotencyKey.current, state: "UNKNOWN" })); } catch { /* preserve in-memory lock if storage is unavailable */ }
-        }
-      } else if (executeIntentStorageKey) {
-        try { sessionStorage.removeItem(executeIntentStorageKey); } catch { /* storage is optional */ }
-      }
+    mutationFn: ({ plan, version, idempotencyKey }: { plan: RecoveryPlanVersion; version: number; idempotencyKey?: string }) =>
+      executeRecoveryTask(plan, version, authHeaders, idempotencyKey),
+    onSuccess: async () => {
+      setExecuteIdempotencyKey(null);
+      await refreshWorkflow();
     },
   });
   const handoffMutation = useMutation({
@@ -456,6 +417,7 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
 
   useEffect(() => {
     if (selectedPlanId && !plans.some((plan) => plan.plan_id === selectedPlanId)) setSelectedPlanId(null);
+    setExecuteIdempotencyKey(null);
   }, [plans, selectedPlanId]);
 
   if (caseQuery.isLoading) {
@@ -502,7 +464,6 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
           <p className="eyebrow">P3 · Recovery planning</p>
           <h2>Recovery workspace</h2>
           <p className="muted">Compare typed, evidence-linked options for commitment {caseData.commitment_id}.</p>
-          <LastUpdated value={caseData.updated_at} />
         </div>
         <span className="status-pill warning">{caseData.storage_mode.replaceAll("_", " ")}</span>
       </header>
@@ -598,26 +559,80 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
         <p>Only a verified Manager can decide or create the synthetic internal review task. Approval does not change customer terms.</p>
         {(approvalsQuery.isError || actionsQuery.isError) && <p className="recovery-inline-error" role="alert">{errorMessage(approvalsQuery.error ?? actionsQuery.error)} <button type="button" className="btn btn-outline btn-sm" onClick={() => { void approvalsQuery.refetch(); void actionsQuery.refetch(); }}>Retry history</button></p>}
         <div className="recovery-option-meta">
-          {(["approve", "reject", "request-revision"] as const).map((decision) => <button key={decision} type="button" className="btn btn-outline btn-sm" disabled={actorRole !== "MANAGER" || decisionMutation.isPending || executeMutation.isPending || selectedPlan.actions.length === 0 || selectedPlan.feasibility_status === "INFEASIBLE" || selectedPlan.feasibility_status === "UNKNOWN" || selectedPlan.snapshot_version !== snapshot.snapshot_version || (selectedPlan.core_commitment_version ?? selectedPlan.evaluation.commitment_version) !== caseData.commitment_version} onClick={() => {
-            setPendingDecision({ decision, idempotencyKey: crypto.randomUUID() });
-            setDecisionReason("");
-            setDecisionReasonError(false);
-          }}>{decision === "request-revision" ? "Request revision" : decision === "approve" ? "Manager approve" : "Reject"}</button>)}
+          {(["approve", "reject", "request-revision"] as const).map((decision) => (
+            <button
+              key={decision}
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={
+                actorRole !== "MANAGER" ||
+                decisionMutation.isPending ||
+                executeMutation.isPending ||
+                selectedPlan.feasibility_status === "INFEASIBLE" ||
+                selectedPlan.feasibility_status === "UNKNOWN" ||
+                selectedPlan.snapshot_version !== snapshot.snapshot_version ||
+                (selectedPlan.core_commitment_version ?? selectedPlan.evaluation.commitment_version) !== caseData.commitment_version
+              }
+              onClick={() => {
+                setDecisionReason("");
+                setPendingDecision({ decision, plan: selectedPlan, version: caseData.commitment_version });
+              }}
+            >
+              {decision === "request-revision" ? "Request revision" : decision === "approve" ? "Manager approve" : "Reject"}
+            </button>
+          ))}
         </div>
-        {decisionMutation.isError && <p className="recovery-inline-error" role="alert">{errorMessage(decisionMutation.error)} <button type="button" className="btn btn-outline btn-sm" onClick={() => decisionMutation.reset()}>Dismiss</button></p>}
+        {decisionMutation.isError && (
+          <p className="recovery-inline-error" role="alert">
+            {errorMessage(decisionMutation.error)}{" "}
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => decisionMutation.reset()}>
+              Dismiss
+            </button>
+          </p>
+        )}
         <ManagerReviewPanel decisions={approvalsQuery.data ?? []} actorRole={actorRole} />
         <p>Verified internal review task: {actionsQuery.data?.find((action) => action.status === "SUCCEEDED")?.task_id ?? "none"}</p>
-        {executionOutcomeUnknown && <div className="recovery-execution-gate" role="alert">
-          <strong>Execution outcome is unknown.</strong>
-          <span>Do not submit another execution request. Refresh the durable action history and reconcile the result before continuing.</span>
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => { void actionsQuery.refetch(); }}>Refresh action status</button>
-          {actionsQuery.data?.length === 0 && !actionsQuery.isFetching && <span>No action record is visible yet. Execution remains blocked because the request outcome cannot be confirmed.</span>}
-        </div>}
-        <button type="button" className="btn btn-primary btn-sm" disabled={actorRole !== "MANAGER" || executionOutcomeUnknown || executeMutation.isPending || decisionMutation.isPending || approvalsQuery.data?.at(-1)?.decision !== "APPROVED" || (approvalsQuery.data?.at(-1)?.expires_at ? Date.parse(approvalsQuery.data.at(-1)!.expires_at!) <= Date.now() : true) || selectedPlan.snapshot_version !== snapshot.snapshot_version || (selectedPlan.core_commitment_version ?? selectedPlan.evaluation.commitment_version) !== caseData.commitment_version} onClick={() => {
-          executeIdempotencyKey.current ??= crypto.randomUUID();
-          setExecuteDialogOpen(true);
-        }}>{executeMutation.isPending ? "Creating and verifying task…" : "Create internal review task"}</button>
-        {executeMutation.isError && <p className="recovery-inline-error" role="alert">{errorMessage(executeMutation.error)} <button type="button" className="btn btn-outline btn-sm" onClick={() => executeMutation.reset()}>Dismiss</button></p>}
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={
+            actorRole !== "MANAGER" ||
+            executeMutation.isPending ||
+            decisionMutation.isPending ||
+            approvalsQuery.data?.at(-1)?.decision !== "APPROVED" ||
+            (approvalsQuery.data?.at(-1)?.expires_at ? Date.parse(approvalsQuery.data.at(-1)!.expires_at!) <= Date.now() : true) ||
+            selectedPlan.snapshot_version !== snapshot.snapshot_version ||
+            (selectedPlan.core_commitment_version ?? selectedPlan.evaluation.commitment_version) !== caseData.commitment_version
+          }
+          onClick={() => {
+            if (window.confirm("Create a synthetic internal review task for this approved plan? Customer terms will not change.")) {
+              const key = executeIdempotencyKey ?? crypto.randomUUID();
+              if (!executeIdempotencyKey) setExecuteIdempotencyKey(key);
+              executeMutation.mutate({ plan: selectedPlan, version: caseData.commitment_version, idempotencyKey: key });
+            }
+          }}
+        >
+          {executeMutation.isPending ? "Creating and verifying task…" : "Create internal review task"}
+        </button>
+        {executeMutation.isError && (
+          <p className="recovery-inline-error" role="alert">
+            {errorMessage(executeMutation.error)}{" "}
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={() => {
+                const key = executeIdempotencyKey ?? crypto.randomUUID();
+                if (!executeIdempotencyKey) setExecuteIdempotencyKey(key);
+                executeMutation.mutate({ plan: selectedPlan, version: caseData.commitment_version, idempotencyKey: key });
+              }}
+            >
+              Retry task
+            </button>{" "}
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => executeMutation.reset()}>
+              Dismiss
+            </button>
+          </p>
+        )}
         {selectedPlan.option_id === "revised_schedule" && <div className="recovery-option-meta">
           <button type="button" className="btn btn-outline btn-sm"
             disabled={actorRole !== "MANAGER" || handoffMutation.isPending || approvalsQuery.data?.at(-1)?.decision !== "APPROVED" ||
@@ -634,10 +649,6 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
         </div>}
         <h3>Action history</h3>
         {(actionsQuery.data ?? []).map((action: DurableActionView) => <p key={action.execution_id}>{action.status} · attempts {action.attempts} · task {action.task_id ?? "none"} · receipt {action.receipt_ref ?? "none"}{action.last_error ? ` · ${action.last_error}` : ""}</p>)}
-        <StateTimeline label="Approval and action status" stages={[
-          { id: "approval", label: "Manager approval", status: approvalsQuery.data?.at(-1)?.decision === "APPROVED" ? "completed" : approvalsQuery.data?.length ? "failed" : "pending", timestamp: approvalsQuery.data?.at(-1)?.decided_at ?? approvalsQuery.data?.at(-1)?.approved_at, description: approvalsQuery.data?.at(-1)?.decision ?? "No durable approval decision returned", evidenceRefs: approvalsQuery.data?.at(-1)?.audit_refs ?? [] },
-          { id: "execution", label: "Internal review task", status: actionsQuery.data?.some((action) => action.status === "SUCCEEDED") ? "completed" : actionsQuery.data?.some((action) => action.status === "FAILED") ? "failed" : actionsQuery.data?.length ? "current" : "pending", timestamp: actionsQuery.data?.at(-1)?.updated_at, description: actionsQuery.data?.at(-1)?.status ?? "No action record returned; approval does not mean execution", evidenceRefs: actionsQuery.data?.at(-1)?.audit_id ? [actionsQuery.data.at(-1)!.audit_id!] : [] },
-        ]} />
       </section>}
       {!selectedPlan && <ManagerReviewPanel decisions={[]} actorRole={actorRole} />}
       <RecoveryActivityTimeline caseData={caseData} plans={plans} />
@@ -645,63 +656,73 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
         <strong>Evidence and assumptions stay visible.</strong>
         <span>Approval decisions are version- and snapshot-scoped. The internal task does not communicate externally or mutate the authoritative Core commitment.</span>
       </section>
-      <ConfirmationDialog
-        open={!!pendingDecision && !!selectedPlan}
-        title={pendingDecision?.decision === "approve" ? "Approve this recovery plan?" : pendingDecision?.decision === "reject" ? "Reject this recovery plan?" : "Request a plan revision?"}
-        description="Review the exact plan version, action scope, and current evidence before recording a manager decision. This does not execute an action or change customer terms."
-        confirmLabel={pendingDecision?.decision === "approve" ? "Confirm approval" : pendingDecision?.decision === "reject" ? "Confirm rejection" : "Confirm revision request"}
-        pending={decisionMutation.isPending}
-        requiredAcknowledgement="I have reviewed this plan version, its listed action scope, and its evidence."
-        onOpenChange={(open) => { if (!open && !decisionMutation.isPending) setPendingDecision(null); }}
-        onConfirm={async () => {
-          if (!selectedPlan || !pendingDecision) return;
-          if (!decisionReason.trim()) {
-            setDecisionReasonError(true);
-            throw new Error("A reason is required for this manager decision.");
+      {pendingDecision && (
+        <ConfirmationDialog
+          open={!!pendingDecision}
+          title={
+            pendingDecision.decision === "approve"
+              ? "Manager Approval"
+              : pendingDecision.decision === "reject"
+              ? "Reject Recovery Plan"
+              : "Request Plan Revision"
           }
-          await decisionMutation.mutateAsync({ plan: selectedPlan, decision: pendingDecision.decision, reason: decisionReason.trim(), version: caseData.commitment_version, idempotencyKey: pendingDecision.idempotencyKey });
-          setPendingDecision(null);
-          setDecisionReason("");
-        }}
-        scope={selectedPlan && <>
-          <p>Plan {selectedPlan.plan_id} v{selectedPlan.plan_version} · commitment v{caseData.commitment_version} · snapshot v{selectedPlan.snapshot_version}</p>
-          <ul>{selectedPlan.actions.map((action) => <li key={action.action_id}>{action.type.replaceAll("_", " ")}{action.preconditions.length ? ` — ${action.preconditions.join("; ")}` : ""}</li>)}</ul>
-          <p>Affected commitments: {selectedPlan.evaluation.affected_commitment_ids.join(", ") || "None reported"} · estimated cost: {formatCost(selectedPlan.estimated_extra_cost, selectedPlan.currency)}</p>
-          <p>Evidence: {selectedPlan.evidence_refs.join(", ") || "None recorded"}</p>
-          <label className="recovery-decision-reason">Reason for this decision
-            <textarea value={decisionReason} onChange={(event) => { setDecisionReason(event.target.value); setDecisionReasonError(false); }} maxLength={1000} rows={3} />
-          </label>
-          {decisionReasonError && <p className="recovery-inline-error" role="alert">Enter a reason before confirming.</p>}
-        </>}
-        consequence={<p>Approval remains separate from execution. Any internal task requires a later explicit action and fresh server validation. Customer agreement and fulfilment are unchanged.</p>}
-      />
-      {selectedPlan && <ConfirmationDialog
-        open={executeDialogOpen}
-        title="Create an internal review task?"
-        description="This requests the backend's allowlisted internal review task for the approved plan. It does not purchase, notify a supplier, change customer terms, or prove fulfilment."
-        confirmLabel="Create internal review task"
-        pending={executeMutation.isPending}
-        requiredAcknowledgement="I have reviewed the approved plan and want to create this internal task."
-        onOpenChange={(open) => { if (!executeMutation.isPending) setExecuteDialogOpen(open); }}
-        onConfirm={async () => {
-          const idempotencyKey = executeIdempotencyKey.current ??= crypto.randomUUID();
-          if (executeIntentStorageKey) {
-            try { sessionStorage.setItem(executeIntentStorageKey, JSON.stringify({ idempotencyKey, state: "IN_FLIGHT" })); } catch { /* retain key in memory for this session */ }
+          description={`Record manager decision for plan ${pendingDecision.plan.plan_id} v${pendingDecision.plan.plan_version}. Approval does not change customer terms.`}
+          confirmLabel={
+            pendingDecision.decision === "approve"
+              ? "Confirm Approval"
+              : pendingDecision.decision === "reject"
+              ? "Confirm Rejection"
+              : "Submit Revision Request"
           }
-          await executeMutation.mutateAsync({ plan: selectedPlan, version: caseData.commitment_version, idempotencyKey });
-          setExecutionOutcomeUnknown(false);
-          executeIdempotencyKey.current = null;
-          if (executeIntentStorageKey) {
-            try { sessionStorage.removeItem(executeIntentStorageKey); } catch { /* storage is optional */ }
-          }
-        }}
-        scope={<>
-          <p>Plan {selectedPlan.plan_id} v{selectedPlan.plan_version} · commitment v{caseData.commitment_version} · snapshot v{selectedPlan.snapshot_version}</p>
-          <ul>{selectedPlan.actions.map((action) => <li key={action.action_id}>{action.type.replaceAll("_", " ")}{action.preconditions.length ? ` — ${action.preconditions.join("; ")}` : ""}</li>)}</ul>
-          <p>Estimated cost {formatCost(selectedPlan.estimated_extra_cost, selectedPlan.currency)} · affected commitments {selectedPlan.evaluation.affected_commitment_ids.join(", ") || "None reported"}</p>
-        </>}
-        consequence={<p>The backend revalidates the plan, approval, commitment version, snapshot and policy before creating a task. A successful receipt proves only the internal task state, not that the commitment was fulfilled.</p>}
-      />}
+          cancelLabel="Cancel"
+          confirmDisabled={decisionReason.trim().length < 5}
+          pending={decisionMutation.isPending}
+          onConfirm={() => {
+            if (decisionReason.trim().length < 5) return;
+            decisionMutation.mutate({
+              plan: pendingDecision.plan,
+              decision: pendingDecision.decision,
+              reason: decisionReason.trim(),
+              version: pendingDecision.version,
+            });
+          }}
+          onOpenChange={(open) => {
+            if (!open) {
+              setPendingDecision(null);
+              setDecisionReason("");
+            }
+          }}
+        >
+          <div style={{ marginTop: "1rem" }}>
+            <label htmlFor="decision-reason-input" style={{ display: "block", marginBottom: "0.4rem", fontWeight: 600 }}>
+              Decision reason <span style={{ fontWeight: "normal", color: "var(--orbyte-text-muted)" }}>(required, min 5 characters)</span>
+            </label>
+            <textarea
+              id="decision-reason-input"
+              rows={3}
+              style={{
+                width: "100%",
+                padding: "0.5rem",
+                borderRadius: "var(--orbyte-radius)",
+                border: "1px solid var(--orbyte-border)",
+                background: "var(--orbyte-surface)",
+                color: "var(--orbyte-text)",
+                boxSizing: "border-box",
+              }}
+              placeholder={`Provide rationale for ${pendingDecision.decision.replaceAll("-", " ")}...`}
+              value={decisionReason}
+              onChange={(e) => setDecisionReason(e.target.value)}
+              aria-describedby="decision-reason-hint"
+              autoFocus
+            />
+            <p id="decision-reason-hint" className="text-sm muted" style={{ marginTop: "0.25rem", fontSize: "0.85rem" }}>
+              {decisionReason.trim().length < 5
+                ? `${5 - decisionReason.trim().length} more character(s) required to enable confirmation`
+                : "✓ Reason meets requirement"}
+            </p>
+          </div>
+        </ConfirmationDialog>
+      )}
     </div>
   );
 }
