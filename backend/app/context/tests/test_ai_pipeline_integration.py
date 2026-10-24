@@ -1,5 +1,6 @@
 """Integration tests for P1 BATCH 7: Validated AI Pipeline in repository processing and context lifecycle."""
 
+import json
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
@@ -7,7 +8,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.orm import Session
 
-from app.context.ai.protocol import InferenceFailure, InferenceInput, InferenceOutput, MODEL_CONFIG
+from app.context.ai.protocol import MODEL_CONFIG, InferenceFailure, InferenceInput, InferenceOutput
+from app.context.ai.provider_reliability import QwenGeminiReliabilityAdapter
 from app.context.ai.service import ModelProposalService
 from app.context.context_service import ContextService
 from app.context.core_publisher import CoreContextPublisher
@@ -170,6 +172,35 @@ def test_pipeline_falls_back_to_rules_on_endpoint_unavailable(pg_engine):
     assert "unavailable" in res.attempt.diagnostic or "fallback" in res.attempt.diagnostic
     # Rule fields preserved
     assert any(f.field_name == "sku" for f in res.attempt.fields)
+
+
+def test_both_provider_failures_are_durable_human_review_conflicts(pg_engine):
+    class FailingGemini:
+        async def infer(self, request):
+            raise InferenceFailure("schema_validation", attempt_count=1, latency_ms=2)
+
+    primary = FakeEndpoint(fail_error=InferenceFailure("timeout", latency_ms=1))
+    endpoint = QwenGeminiReliabilityAdapter(primary, FailingGemini())
+    service = ModelProposalService(endpoint=endpoint, enabled=True, stages=("qwen",))
+    repo = PostgresMessageRepository(pg_engine, proposal_service=service)
+    text = "Need 40 or 50 burgers tomorrow"
+    ingested = repo.ingest(make_envelope(text), NOW).message
+
+    processed = repo.process("synthetic_tenant_a", ingested.message_id)
+    diagnostic = json.loads(processed.attempt.diagnostic)
+
+    assert diagnostic["review_required"] is True
+    assert diagnostic["review_reason_code"] == "MODEL_PROVIDER_FAILURE"
+    assert diagnostic["provider_reliability"]["primary_error"] == "timeout"
+    assert diagnostic["provider_reliability"]["fallback_error"] == "schema_validation"
+    assert "synthetic-gemini-key" not in processed.attempt.diagnostic
+
+    context = ContextService(repo).create_or_update_from_message(
+        "synthetic_tenant_a", ingested.message_id
+    )
+    assert context.status == "CONFLICT"
+    assert any("provider failure" in reason.lower() for reason in context.conflicts)
+    assert context.core_commitment_id is None
 
 
 def test_pipeline_rejects_hallucinated_model_spans(pg_engine):
