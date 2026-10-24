@@ -29,10 +29,9 @@ export const navigation: NavigationItem[] = [
     { id: "portfolio-comparison", label: "Portfolio Comparison", icon: "portfolio", to: "/planning/portfolio" },
     { id: "forecasts", label: "Forecasts", icon: "forecast", to: "/planning/forecasts" },
   ] },
-  { id: "suppliers", label: "Suppliers", icon: "supplier", children: [
+  { id: "suppliers", label: "Suppliers", icon: "supplier", activeFor: ["/suppliers/"], children: [
     { id: "supplier-directory", label: "Supplier Directory", icon: "supplier", to: "/suppliers" },
     { id: "offer-comparison", label: "Offer Comparison", icon: "compare", to: "/suppliers/compare" },
-    { id: "sourcing", label: "Sourcing", icon: "sourcing", to: "/suppliers/sourcing" },
   ] },
   { id: "recovery", label: "Recovery", icon: "recovery", activeFor: ["/recovery/"], children: [
     { id: "emergency-cases", label: "Emergency Cases", icon: "recovery", to: "/recovery" },
