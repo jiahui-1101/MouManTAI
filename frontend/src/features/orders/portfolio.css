@@ -80,3 +80,14 @@
 .pc-matrix table th:nth-child(4) { color:#854d0e; }
 .pc-context-note,.pc-dependency { padding:1rem; background:var(--ui-background,#f4f8ff); border-radius:.65rem; border:1px dashed var(--ui-divider,#dce2eb); font-size:.9rem; }
 .pc-matrix .pc-scroll { margin-top:1rem; }
+
+.pc-allocation-meta { display:flex; flex-wrap:wrap; gap:.75rem 2rem; font-size:.88rem; margin:1rem 0; }
+.pc-allocation-counts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; }
+.pc-allocation-counts div { background:var(--ui-background,#f4f8ff); padding:.75rem; border-radius:.5rem; }
+.pc-allocation-counts dt { color:var(--ui-muted,#4d5e79); font-size:.8rem; }
+.pc-allocation-counts dd { margin:.3rem 0 0; font-weight:600; }
+.pc-membership { display:inline-block; padding:.25rem .5rem; border-radius:.35rem; font-size:.8rem; font-weight:600; background:#f1f5f9; color:#334155; }
+.pc-membership-INCLUDED { color:#1d4ed8; background:#eff6ff; }
+.pc-membership-DEFERRED { color:#854d0e; background:#fef9c3; }
+.pc-membership-EXCLUDED { color:#9f1239; background:#fff1f2; }
+@media(max-width:520px) { .pc-allocation-counts { grid-template-columns:minmax(0,1fr); } }

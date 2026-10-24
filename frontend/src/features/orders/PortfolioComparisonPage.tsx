@@ -13,6 +13,7 @@ import { PortfolioStrategyAvailability } from './PortfolioStrategyAvailability';
 import { PortfolioCalendarContext } from './portfolioCalendarContext';
 import { PortfolioAnalysisScope } from './PortfolioAnalysisScope';
 import { PortfolioComparisonMatrix } from './PortfolioComparisonMatrix';
+import { PortfolioAllocationPanel, supportedAllocation } from './PortfolioAllocationPanel';
 import './portfolio.css';
 
 const executionNotice = 'Scenario membership is a proposal only. Comparison does not accept orders, establish customer assent, reserve resources or change confirmed agreements.';
@@ -44,6 +45,7 @@ function PortfolioResults({ data, now }: { data: PortfolioSnapshot; now: number 
     </article>)}</div>
     {!!scenarios.length && <>
       <PortfolioComparisonMatrix data={data} scenarios={scenarios} now={now} />
+      <PortfolioAllocationPanel data={data} scenario={active} now={now} />
       <h2>Order allocation breakdown</h2><p>{executionNotice}</p>
       {!data.orders.length ? <EmptyState kind="unavailable" title="Order breakdown unavailable" description="No source-provided order identities and request versions." /> :
         <div className="pc-scroll" tabIndex={0} role="region" aria-label="Order allocations, scroll horizontally"><table>
@@ -52,9 +54,9 @@ function PortfolioResults({ data, now }: { data: PortfolioSnapshot; now: number 
               <th scope="row"><Link to={`/orders/${encodeURIComponent(o.id)}`}>{o.id}</Link><small>Request version: {o.requestVersion}</small>
                 <small>Customer / reference: {o.customerReference || 'Unknown'}</small><small>Requested delivery: {timestamp(o.deadline)}</small>
                 <small>Evidence: {o.evidence.join(', ') || 'Unavailable'}</small></th>
-              {scenarios.map(s => { const a = s.allocations.find(a => a.orderId === o.id); const supported = a && a.evidence.length > 0;
-                return <td key={s.id}><strong>{supported ? a.membership : 'UNKNOWN'}</strong><small>{supported ? a.reason || 'Reason unavailable' : 'Allocation evidence unavailable'}</small>
-                  <small>Resource requirements: {supported ? a.resources || 'Unknown' : 'Unknown'}</small><small>Conflicts: {supported ? a.conflict || 'Unknown' : 'Unknown'}</small>
+              {scenarios.map(s => { const a = s.allocations.find(a => a.orderId === o.id); const supported = supportedAllocation(s, a);
+                return <td key={s.id}><strong>{supported ? a!.membership : 'UNKNOWN'}</strong><small>{supported ? a!.reason || 'Reason unavailable' : 'Allocation evidence unavailable'}</small>
+                  <small>Resource requirements: {supported ? a!.resources || 'Unknown' : 'Unknown'}</small><small>Conflicts: {supported ? a!.conflict || 'Unknown' : 'Unknown'}</small>
                   <small>Evidence: {a?.evidence.join(', ') || 'Unavailable'}</small></td>; })}</tr>)}</tbody></table></div>}
       <h2>Constraints and trade-offs</h2>
       {scenarios.map(s => <section key={s.id} className="pc-card" aria-label={`Constraints: ${s.label}`}><h3>{s.label}</h3>
@@ -126,6 +128,7 @@ export function PortfolioComparisonPage({ source = unavailablePortfolioSource }:
     <PortfolioAnalysisScope data={available && !conflict ? data : undefined} />
     {(!available || conflict || !data.scenarios.length) && <PortfolioStrategyAvailability data={available && !conflict ? data : undefined} />}
     {(!available || conflict || !data.scenarios.length) && <PortfolioComparisonMatrix now={observedNow} />}
+    {(!available || conflict || !data.scenarios.length) && <PortfolioAllocationPanel now={observedNow} />}
     {available && !conflict && (data.scenarios.length ?
       <PortfolioResults key={`${auth.tenantId}:${auth.actorId}:${data.snapshotId}:${data.snapshotVersion}:${data.updatedAt}:${data.scenarios.map(s => `${s.id}:${s.version}`).join('|')}`} data={data} now={observedNow} /> :
       <EmptyState kind="empty" title="No source scenarios" description="The source returned no scenarios. Continue with individual order assessments; no local portfolio is invented." />)}

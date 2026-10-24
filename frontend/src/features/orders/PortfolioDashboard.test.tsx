@@ -39,3 +39,18 @@ it('shows a fixed three-strategy matrix, preserving redaction and unknown scope 
  expect(document.body).not.toHaveTextContent('987654');
  expect(screen.getByText(/Matching snapshot versions alone/)).toBeInTheDocument();
 });
+
+import { MemoryRouter } from 'react-router-dom';
+import { PortfolioAllocationPanel } from './PortfolioAllocationPanel';
+it('uses only source order IDs for drilldown and preserves missing quantity and run information', () => {
+ const data=portfolioFixture(); render(<MemoryRouter><PortfolioAllocationPanel data={data} scenario={data.scenarios[0]} now={Date.parse('2026-10-24T03:00:00Z')} /></MemoryRouter>);
+ expect(screen.getByRole('link',{name:'View Details for one'})).toHaveAttribute('href','/orders/one');
+ expect(screen.getByText('Include')).toBeInTheDocument(); expect(screen.getByText('Defer')).toBeInTheDocument(); expect(screen.getByText('Exclude')).toBeInTheDocument();
+ expect(screen.getAllByText('Unavailable · quantity contract missing')).toHaveLength(3);
+ expect(screen.queryByRole('button')).not.toBeInTheDocument();
+});
+it.each(['INFEASIBLE','MODEL_INVALID','SOLVER_UNAVAILABLE'])('does not present allocations or profit as usable for %s', status => {
+ const data=portfolioFixture(); data.scenarios[0].solverStatus=status;
+ render(<MemoryRouter><PortfolioAllocationPanel data={data} scenario={data.scenarios[0]} now={Date.parse('2026-10-24T03:00:00Z')} /></MemoryRouter>);
+ expect(screen.queryByRole('table')).not.toBeInTheDocument(); expect(screen.getByText(/Allocation withheld/)).toBeInTheDocument();
+});
