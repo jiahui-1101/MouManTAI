@@ -12,6 +12,7 @@ import { FollowUpQueuePage } from "./features/communication/FollowUpQueuePage";
 import { DurableInbox } from "./features/context/DurableInbox";
 import { OrderDetailPage } from "./features/orders/OrderDetailPage";
 import { OrderQueuePage } from "./features/orders/OrderQueuePage";
+import { OrderRequestDetailPage, OrderRequestListPage } from "./features/orders/OrderRequestPages";
 import { PortfolioComparisonPage } from "./features/orders/PortfolioComparisonPage";
 import { CalendarSchedulingPage } from "./features/orders/CalendarSchedulingPage";
 import { HumanReviewPage } from "./features/context/HumanReviewPage";
@@ -123,6 +124,8 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               {/* AZ-02: /orders/calendar canonical -> Developer B CalendarSchedulingPage */}
               <Route path="/orders/calendar" element={<CalendarSchedulingPage />} />
               <Route path="/orders/:id" element={<OrderDetailPage />} />
+              <Route path="/order-requests" element={<OrderRequestListPage />} />
+              <Route path="/order-requests/:id" element={<OrderRequestDetailPage />} />
               <Route path="/planning" element={<FeaturePlaceholder owner="Planning" title="Planning" />} />
               <Route path="/planning/feasibility" element={<Navigate to="/orders" replace />} />
               {/* AZ-01: /planning/portfolio alias -> Developer B PortfolioComparisonPage */}
