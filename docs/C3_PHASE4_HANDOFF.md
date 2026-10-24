@@ -16,7 +16,8 @@ Inquiry drafts remain gated by verified customer association and approved, curre
 
 - `backend/tests/test_c3_phase4.py` against a fresh Alembic-migrated PostgreSQL 16 database: **11 passed**. Covers Qwen success, timeout, malformed output, Gemini fallback, valid ambiguous output, forged model identity, invalid evidence span, tenant and stale-source rejection, all three terminal decisions, tamper rejection and durable storage.
 - C1/C2/P1 selected provider and provenance regressions against PostgreSQL: **passed** with existing skips in that selection. Initial run hit a Windows temp-directory permission error; rerun with a workspace-local pytest base directory passed.
-- Frontend `npm test`: **1,232 passed, 5 skipped**; `npm run build`: **passed**. No frontend source changed.
+- Frontend `npm test` at the current `main` head: **1,236 passed, 5 skipped**; `npm run build`: **passed**. No frontend source changed.
+- Three P1 migration regressions against disposable PostgreSQL databases: **passed** after making their head assertion follow Alembic's current revision.
 - Alembic: exactly one head, `0026_c3_message_reviews`. Python compile and `git diff --check`: **passed**.
 - Real Qwen/Gemini inference smoke: **NOT_RUN**; authorized endpoint/API credentials were not available in the environment.
 
