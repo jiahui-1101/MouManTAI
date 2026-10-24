@@ -3,7 +3,6 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-
 from app.forecasting.backtesting import backtest, compare_on_same_holdout
 from app.forecasting.baselines import MovingAverage, Naive, SeasonalNaive, forecast
 from app.forecasting.models import (

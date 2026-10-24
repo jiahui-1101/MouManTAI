@@ -202,6 +202,41 @@ jobs:
       - name: Run optimizer tests
         run: pytest -v backend/app/optimization/tests
 
+  backend-integration:
+    name: Backend B/D/F/G/H + Foundation integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: "sqlite+pysqlite:///:memory:"
+      DISABLE_SQLALCHEMY_CEXT: "1"
+      MOUMANTAI_SYNTHETIC_MODE: "1"
+      PYTHONPATH: tests/v2_2
+      REQUIRE_POSTGRES: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend and real OR-Tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install --no-binary=sqlalchemy -e ".[dev,optimization]"
+      - name: Run combined backend and Foundation suites
+        run: >-
+          pytest --import-mode=importlib -v
+          tests
+          app/feasibility/tests
+          app/operational_reporting/tests
+          app/forecasting/tests
+          app/decision_memory/tests
+          app/optimization/tests
+          app/communication/tests
+
   frontend-checks:
     name: Frontend Checks (Typecheck, Vitest, Build)
     runs-on: ubuntu-latest

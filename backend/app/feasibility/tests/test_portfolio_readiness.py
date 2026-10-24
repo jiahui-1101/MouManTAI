@@ -1,7 +1,6 @@
 from datetime import timedelta
 
 import pytest
-
 from app.core.schemas import FeasibilityState
 from app.feasibility.capacity import CapacityResult
 from app.feasibility.inventory import calculate_atp

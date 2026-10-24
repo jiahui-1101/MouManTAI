@@ -4,7 +4,6 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
-
 from app.operational_reporting.models import (
     EventKind,
     Evidence,

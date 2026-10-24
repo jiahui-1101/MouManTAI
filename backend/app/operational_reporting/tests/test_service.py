@@ -3,9 +3,6 @@
 from dataclasses import replace
 from datetime import date, timedelta
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
-
 from app.core.dependencies import RequestContext
 from app.core.models import CommitmentRecord
 from app.operational_reporting.models import (
@@ -29,6 +26,8 @@ from app.operational_reporting.service import (
     read_daily,
 )
 from app.operational_reporting.tests.test_d1 import NOW, event, facts, recipient, status
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 CONTEXT = RequestContext("t", "actor", "CUSTOMER", "correlation")
 

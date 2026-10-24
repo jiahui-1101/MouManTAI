@@ -5,8 +5,6 @@ from decimal import Decimal
 from itertools import pairwise
 
 import pytest
-from pydantic import ValidationError
-
 from app.optimization.cp_sat import ORTOOLS_VERSION, solve
 from app.optimization.models import (
     AuthorizedLot,
@@ -35,6 +33,7 @@ from app.optimization.service import (
     schedule_digest,
 )
 from app.optimization.validation import validate_spec
+from pydantic import ValidationError
 
 NOW = datetime(2026, 10, 24, 0, 0, tzinfo=UTC)
 

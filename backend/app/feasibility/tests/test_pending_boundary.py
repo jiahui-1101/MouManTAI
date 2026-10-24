@@ -5,7 +5,6 @@ adapter. The shared candidate persistence and target mapping are not agreed.
 """
 
 import pytest
-
 from app.core.schemas import AgreementState
 from app.feasibility.service import evaluate
 from app.feasibility.tests.test_service import changed, fixture

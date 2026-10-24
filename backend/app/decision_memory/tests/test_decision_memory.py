@@ -1,8 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from pydantic import ValidationError
-
 from app.decision_memory.assembly import assemble_case
 from app.decision_memory.governance import propose_review
 from app.decision_memory.lessons import summarize
@@ -20,6 +18,7 @@ from app.decision_memory.models import (
 from app.decision_memory.retrieval import retrieve
 from app.decision_memory.service import DecisionMemoryService
 from app.decision_memory.validation import HistoryValidationError, validate_source
+from pydantic import ValidationError
 
 T = datetime(2026, 10, 20, tzinfo=UTC)
 

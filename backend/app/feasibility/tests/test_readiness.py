@@ -3,7 +3,6 @@
 from datetime import timedelta
 
 import pytest
-
 from app.feasibility.readiness import assess_operational_readiness
 from app.feasibility.tests.test_service import changed, competing_snapshot, fixture
 
