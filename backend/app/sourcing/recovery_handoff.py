@@ -34,6 +34,10 @@ class AlternativeSupplyHandoff(ImmutableContract):
     quote_version: int
     spec_version: int
     comparison_status: Text
+    historical_comparison_status: Text
+    quote_validity_at_handoff: Literal["VALID_AT_HANDOFF", "EXPIRED_AT_HANDOFF"]
+    demand_binding_status: Literal["PARTIAL_QUANTITY_UNIT_MATCH", "MISMATCHED"]
+    supply_coverage_status: Literal["UNVERIFIED"] = "UNVERIFIED"
     availability_trust: Text
     quantity: Quantity
     unit: Text
@@ -71,6 +75,36 @@ def prepare_alternative_supply(
     ):
         raise ValueError("Recovery context and selected quote mismatch")
     missing = set(selection.outstanding_risks)
+    quote_expired = entry.quote_valid_until <= now
+    if quote_expired:
+        missing.add("QUOTE_EXPIRED")
+    missing.add("CURRENT_TRUSTED_QUOTATION_REVALIDATION")
+    # The versioned requirement ID and version are not carried by the canonical
+    # SupplierRequirement/DossierEntry contract, so this handoff cannot prove
+    # that the selected quote still belongs to the current demand revision.
+    missing.update(
+        (
+            "REQUIREMENT_ID_REVALIDATION",
+            "REQUIREMENT_VERSION_REVALIDATION",
+            "SKU_REVALIDATION",
+        )
+    )
+    demand_binding_matches = (
+        context.quantity == entry.required_quantity
+        and context.unit == entry.required_unit
+        and entry.quoted_unit == entry.required_unit
+    )
+    if context.unit != entry.required_unit or entry.quoted_unit != entry.required_unit:
+        missing.add("DEMAND_UNIT_REVALIDATION")
+    if context.quantity != entry.required_quantity:
+        missing.add("DEMAND_QUANTITY_REVALIDATION")
+    if entry.quoted_available_quantity is None:
+        missing.add("SUPPLIER_AVAILABILITY_REVALIDATION")
+    elif entry.quoted_available_quantity < entry.required_quantity:
+        missing.update(("INSUFFICIENT_QUOTED_QUANTITY", "SUPPLIER_AVAILABILITY_REVALIDATION"))
+    # Even an adequate quoted quantity is not current inventory or a trusted
+    # versioned availability receipt. Revalidate at operational consideration.
+    missing.add("SUPPLIER_AVAILABILITY_REVALIDATION")
     if not entry.evidence_refs or not context.evidence_refs:
         missing.add("SOURCE_EVIDENCE")
     if entry.quoted_arrival is None:
@@ -99,7 +133,12 @@ def prepare_alternative_supply(
         quote_id=entry.quote_id,
         quote_version=entry.quote_version,
         spec_version=entry.spec_version,
-        comparison_status=entry.canonical_status,
+        comparison_status="STALE_COMPARISON" if quote_expired else entry.canonical_status,
+        historical_comparison_status=entry.canonical_status,
+        quote_validity_at_handoff=("EXPIRED_AT_HANDOFF" if quote_expired else "VALID_AT_HANDOFF"),
+        demand_binding_status=(
+            "PARTIAL_QUANTITY_UNIT_MATCH" if demand_binding_matches else "MISMATCHED"
+        ),
         availability_trust=entry.availability_trust,
         quantity=context.quantity,
         unit=context.unit,

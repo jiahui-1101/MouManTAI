@@ -22,6 +22,11 @@ class DossierEntry(ImmutableContract):
     supplier_id: Text
     quote_id: Text
     quote_version: int
+    required_quantity: Decimal
+    required_unit: Text
+    quoted_unit: Text
+    quoted_available_quantity: Decimal | None
+    availability_evidence_refs: tuple[Text, ...]
     category_id: Text
     spec_version: int
     canonical_status: Literal["MATCHES", "CONDITIONAL", "INCOMPATIBLE", "UNKNOWN"]
@@ -104,6 +109,11 @@ def build_dossier(
                 supplier_id=offer.supplier_id,
                 quote_id=offer.quote_id,
                 quote_version=offer.quote_version,
+                required_quantity=requirement.quantity,
+                required_unit=requirement.unit,
+                quoted_unit=offer.unit,
+                quoted_available_quantity=offer.available_quantity,
+                availability_evidence_refs=offer.availability_evidence_refs,
                 category_id=offer.category_id,
                 spec_version=offer.spec_version,
                 canonical_status=comparison.status,

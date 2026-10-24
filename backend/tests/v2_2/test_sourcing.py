@@ -147,6 +147,50 @@ def rfq_request(**updates):
     return RFQRequirement.model_validate(value | updates)
 
 
+def handoff_fixture(
+    *,
+    handoff_now=NOW,
+    quote_updates=None,
+    requirement_updates=None,
+    context_updates=None,
+    selection_requirement_version=1,
+):
+    required = requirement().model_copy(update=requirement_updates or {})
+    quoted = offer(**(quote_updates or {}))
+    entry = build_dossier(schema(), required, (quoted,), (), now=NOW)[0]
+    selection = preview_selection(
+        SelectionRequest(
+            tenant_id="t",
+            sourcing_case_id="case-1",
+            requirement_id="req-1",
+            requirement_version=selection_requirement_version,
+            supplier_id=quoted.supplier_id,
+            quote_id=quoted.quote_id,
+            quote_version=quoted.quote_version,
+            spec_version=quoted.spec_version,
+            reason_draft="Review this quotation",
+            source_context_version="ctx-1",
+            current_source_context_version="ctx-1",
+        ),
+        entry,
+    )
+    context = RecoveryContext.model_validate(
+        {
+            "tenant_id": "t",
+            "commitment_id": "commitment-1",
+            "commitment_version": 2,
+            "sourcing_case_id": "case-1",
+            "quantity": "100",
+            "unit": "pcs",
+            "requirement_deadline": NOW + timedelta(days=3),
+            "current_source_version": "ctx-1",
+            "evidence_refs": ("risk-event",),
+            **(context_updates or {}),
+        }
+    )
+    return prepare_alternative_supply(context, selection, entry, now=handoff_now)
+
+
 def test_three_supplier_sourcing_flow_has_no_operational_side_effects():
     a = offer(
         "a",
@@ -541,3 +585,159 @@ def test_recovery_handoff_rejects_stale_selected_context():
     )
     with pytest.raises(ValueError):
         prepare_alternative_supply(context, selection, entry, now=NOW)
+
+
+@pytest.mark.parametrize("expiry_delta", [timedelta(hours=1), timedelta(hours=2)])
+def test_recovery_handoff_does_not_reuse_expired_dossier_match(expiry_delta):
+    handoff = handoff_fixture(
+        quote_updates={"valid_until": NOW + timedelta(hours=1)},
+        handoff_now=NOW + expiry_delta,
+    )
+    assert handoff.historical_comparison_status == "MATCHES"
+    assert handoff.comparison_status == "STALE_COMPARISON"
+    assert handoff.quote_validity_at_handoff == "EXPIRED_AT_HANDOFF"
+    assert "QUOTE_EXPIRED" in handoff.missing_prerequisites
+    assert "CURRENT_TRUSTED_QUOTATION_REVALIDATION" in handoff.missing_prerequisites
+    assert handoff.status == "CONDITIONAL"
+    assert handoff.received_inventory is False
+    assert handoff.p2_feasibility_override is False
+    assert handoff.purchasing_integration == "NOT_CONFIGURED"
+
+
+def test_valid_handoff_quote_is_still_advisory_and_requires_revalidation():
+    handoff = handoff_fixture()
+    assert handoff.historical_comparison_status == "MATCHES"
+    assert handoff.comparison_status == "MATCHES"
+    assert handoff.quote_validity_at_handoff == "VALID_AT_HANDOFF"
+    assert handoff.demand_binding_status == "PARTIAL_QUANTITY_UNIT_MATCH"
+    assert handoff.supply_coverage_status == "UNVERIFIED"
+    assert "CURRENT_TRUSTED_QUOTATION_REVALIDATION" in handoff.missing_prerequisites
+    assert "REQUIREMENT_VERSION_REVALIDATION" in handoff.missing_prerequisites
+    assert "REQUIREMENT_ID_REVALIDATION" in handoff.missing_prerequisites
+    assert "SKU_REVALIDATION" in handoff.missing_prerequisites
+    assert "SUPPLIER_AVAILABILITY_REVALIDATION" in handoff.missing_prerequisites
+    assert handoff.status == "CONDITIONAL"
+    assert handoff.received_inventory is False
+    assert handoff.p2_feasibility_override is False
+    assert handoff.purchasing_integration == "NOT_CONFIGURED"
+
+
+@pytest.mark.parametrize(
+    ("context_updates", "expected_prerequisite"),
+    [
+        ({"unit": "case"}, "DEMAND_UNIT_REVALIDATION"),
+        ({"quantity": "101"}, "DEMAND_QUANTITY_REVALIDATION"),
+    ],
+)
+def test_recovery_handoff_flags_demand_unit_and_quantity_mismatch(
+    context_updates, expected_prerequisite
+):
+    handoff = handoff_fixture(context_updates=context_updates)
+    assert handoff.demand_binding_status == "MISMATCHED"
+    assert expected_prerequisite in handoff.missing_prerequisites
+    assert handoff.supply_coverage_status == "UNVERIFIED"
+    assert handoff.status == "CONDITIONAL"
+
+
+def test_mismatched_requirement_or_supplier_units_stay_unverified():
+    quantity_context_mismatch = handoff_fixture(requirement_updates={"quantity": Decimal(120)})
+    assert quantity_context_mismatch.demand_binding_status == "MISMATCHED"
+    assert "DEMAND_QUANTITY_REVALIDATION" in quantity_context_mismatch.missing_prerequisites
+    unit_mismatch = handoff_fixture(quote_updates={"unit": "case"})
+    assert unit_mismatch.demand_binding_status == "MISMATCHED"
+    assert "DEMAND_UNIT_REVALIDATION" in unit_mismatch.missing_prerequisites
+    assert unit_mismatch.supply_coverage_status == "UNVERIFIED"
+
+
+def test_unbound_requirement_version_and_stale_quote_need_owner_revalidation():
+    handoff = handoff_fixture(
+        selection_requirement_version=99,
+        quote_updates={"quote_version": 7},
+    )
+    assert "REQUIREMENT_VERSION_REVALIDATION" in handoff.missing_prerequisites
+    assert "CURRENT_TRUSTED_QUOTATION_REVALIDATION" in handoff.missing_prerequisites
+    assert "SUPPLIER_AVAILABILITY_REVALIDATION" in handoff.missing_prerequisites
+    assert handoff.status == "CONDITIONAL"
+
+
+def test_insufficient_claimed_quote_quantity_is_never_confirmed_supply():
+    handoff = handoff_fixture(quote_updates={"available_quantity": Decimal(50)})
+    assert handoff.historical_comparison_status == "INCOMPATIBLE"
+    assert "INSUFFICIENT_QUOTED_QUANTITY" in handoff.missing_prerequisites
+    assert "SUPPLIER_AVAILABILITY_REVALIDATION" in handoff.missing_prerequisites
+    assert handoff.supply_coverage_status == "UNVERIFIED"
+    assert handoff.status == "CONDITIONAL"
+    assert handoff.received_inventory is False
+    assert handoff.p2_feasibility_override is False
+    assert handoff.purchasing_integration == "NOT_CONFIGURED"
+
+
+def test_dossier_match_for_smaller_demand_cannot_cover_larger_recovery_demand():
+    handoff = handoff_fixture(context_updates={"quantity": "250"})
+    assert handoff.historical_comparison_status == "MATCHES"
+    assert handoff.demand_binding_status == "MISMATCHED"
+    assert "DEMAND_QUANTITY_REVALIDATION" in handoff.missing_prerequisites
+    assert "SUPPLIER_AVAILABILITY_REVALIDATION" in handoff.missing_prerequisites
+    assert handoff.supply_coverage_status == "UNVERIFIED"
+    assert handoff.status == "CONDITIONAL"
+    assert handoff.received_inventory is False
+    assert handoff.purchasing_integration == "NOT_CONFIGURED"
+
+
+def test_selection_rejects_same_supplier_with_different_quote_identity():
+    entry = build_dossier(schema(), requirement(), (offer(),), (), now=NOW)[0]
+    with pytest.raises(ValueError, match="Selected quote or specification version mismatch"):
+        preview_selection(
+            SelectionRequest(
+                tenant_id="t",
+                sourcing_case_id="case-1",
+                requirement_id="req-1",
+                requirement_version=1,
+                supplier_id="b",
+                quote_id="different-quote",
+                quote_version=1,
+                spec_version=1,
+                reason_draft="Review",
+                source_context_version="ctx-1",
+                current_source_context_version="ctx-1",
+            ),
+            entry,
+        )
+
+
+def test_stale_quote_version_cannot_be_reused_after_dossier_refresh():
+    requirement_row = requirement()
+    original_offer = offer(quote_version=1)
+    old_entry = build_dossier(schema(), requirement_row, (original_offer,), (), now=NOW)[0]
+    selection = preview_selection(
+        SelectionRequest(
+            tenant_id="t",
+            sourcing_case_id="case-1",
+            requirement_id="req-1",
+            requirement_version=1,
+            supplier_id=original_offer.supplier_id,
+            quote_id=original_offer.quote_id,
+            quote_version=original_offer.quote_version,
+            spec_version=original_offer.spec_version,
+            reason_draft="Review original quotation",
+            source_context_version="ctx-1",
+            current_source_context_version="ctx-1",
+        ),
+        old_entry,
+    )
+    refreshed_entry = build_dossier(
+        schema(), requirement_row, (offer(quote_version=2),), (), now=NOW
+    )[0]
+    context = RecoveryContext(
+        tenant_id="t",
+        commitment_id="commitment-1",
+        commitment_version=2,
+        sourcing_case_id="case-1",
+        quantity=Decimal(100),
+        unit="pcs",
+        requirement_deadline=NOW + timedelta(days=3),
+        current_source_version="ctx-1",
+        evidence_refs=("risk-event",),
+    )
+    with pytest.raises(ValueError, match="Recovery context and selected quote mismatch"):
+        prepare_alternative_supply(context, selection, refreshed_entry, now=NOW)
