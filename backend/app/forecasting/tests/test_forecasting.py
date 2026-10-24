@@ -83,6 +83,16 @@ def series(days=21, start=START):
     )
 
 
+@pytest.mark.parametrize("field", ["observation_version", "supersedes_version"])
+@pytest.mark.parametrize("invalid", [True, False, 1.0, 1.5, "1", "bad", 0, -1])
+def test_observation_versions_reject_coercion_and_nonpositive_values(field, invalid):
+    _, rows = fixture()
+    payload = rows[0].model_dump()
+    payload[field] = invalid
+    with pytest.raises(ValueError, match=field):
+        DemandObservation.model_validate(payload)
+
+
 def test_baselines_and_evidence():
     s = series()
     cutoff = s.manifest.complete_through

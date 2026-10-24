@@ -81,8 +81,8 @@ class DemandObservation(Frozen):
     tenant_id: str
     sku_id: str
     observation_id: str
-    observation_version: int = Field(ge=1)
-    supersedes_version: int | None = None
+    observation_version: int = Field(ge=1, strict=True)
+    supersedes_version: int | None = Field(default=None, ge=1, strict=True)
     period: date
     quantity: Quantity | None
     unit: str
