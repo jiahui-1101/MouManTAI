@@ -13,7 +13,7 @@ from app.sourcing.selection import SelectionPreview
 class RecoveryContext(ImmutableContract):
     tenant_id: Text
     commitment_id: Text
-    commitment_version: int = Field(ge=1)
+    commitment_version: int = Field(ge=1, strict=True)
     recovery_case_id: Text | None = None
     sourcing_case_id: Text
     quantity: Quantity
@@ -26,13 +26,13 @@ class RecoveryContext(ImmutableContract):
 class AlternativeSupplyHandoff(ImmutableContract):
     tenant_id: Text
     commitment_id: Text
-    commitment_version: int
+    commitment_version: int = Field(ge=1, strict=True)
     recovery_case_id: Text | None
     sourcing_case_id: Text
     supplier_id: Text
     quote_id: Text
-    quote_version: int
-    spec_version: int
+    quote_version: int = Field(ge=1, strict=True)
+    spec_version: int = Field(ge=1, strict=True)
     comparison_status: Text
     historical_comparison_status: Text
     quote_validity_at_handoff: Literal["VALID_AT_HANDOFF", "EXPIRED_AT_HANDOFF"]

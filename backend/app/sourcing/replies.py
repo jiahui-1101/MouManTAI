@@ -14,14 +14,14 @@ from app.suppliers.comparison import SupplierOffer
 class NormalizedReply(ImmutableContract):
     tenant_id: Text
     sourcing_case_id: Text
-    requirement_version: int = Field(ge=1)
+    requirement_version: int = Field(ge=1, strict=True)
     supplier_id: Text
     supplier_identity_verified: bool
     identity_evidence_refs: tuple[Text, ...]
     message_id: Text
     source_refs: tuple[Text, ...]
     quote_id: Text
-    quote_version: int = Field(ge=1)
+    quote_version: int = Field(ge=1, strict=True)
     offer: SupplierOffer
     received_at: AwareDatetime
 
@@ -29,7 +29,7 @@ class NormalizedReply(ImmutableContract):
 class ReplySummary(ImmutableContract):
     supplier_id: Text
     quote_id: Text
-    quote_version: int
+    quote_version: int = Field(ge=1, strict=True)
     message_ids: tuple[Text, ...]
     source_refs: tuple[Text, ...]
     readiness: Literal["COMPLETE_FOR_COMPARISON", "PARTIAL", "CONFLICT", "EXPIRED"]

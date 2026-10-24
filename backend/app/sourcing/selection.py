@@ -12,11 +12,11 @@ class SelectionRequest(ImmutableContract):
     tenant_id: Text
     sourcing_case_id: Text
     requirement_id: Text
-    requirement_version: int = Field(ge=1)
+    requirement_version: int = Field(ge=1, strict=True)
     supplier_id: Text
     quote_id: Text
-    quote_version: int = Field(ge=1)
-    spec_version: int = Field(ge=1)
+    quote_version: int = Field(ge=1, strict=True)
+    spec_version: int = Field(ge=1, strict=True)
     reason_draft: Text
     source_context_version: Text
     current_source_context_version: Text
@@ -26,11 +26,11 @@ class SelectionPreview(ImmutableContract):
     tenant_id: Text
     sourcing_case_id: Text
     requirement_id: Text
-    requirement_version: int
+    requirement_version: int = Field(ge=1, strict=True)
     supplier_id: Text
     quote_id: Text
-    quote_version: int
-    spec_version: int
+    quote_version: int = Field(ge=1, strict=True)
+    spec_version: int = Field(ge=1, strict=True)
     canonical_status: Text
     evidence_refs: tuple[Text, ...]
     historical_on_time_rate: str | None

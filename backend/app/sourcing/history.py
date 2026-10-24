@@ -17,9 +17,9 @@ class DeliveryFact(ImmutableContract):
     tenant_id: Text
     supplier_id: Text
     purchase_order_id: Text
-    purchase_order_version: int = Field(ge=1)
+    purchase_order_version: int = Field(ge=1, strict=True)
     quote_id: Text | None = None
-    quote_version: int | None = Field(default=None, ge=1)
+    quote_version: int | None = Field(default=None, ge=1, strict=True)
     sku: Text
     unit: Text
     promised_quantity: Quantity

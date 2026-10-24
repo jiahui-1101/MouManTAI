@@ -29,9 +29,9 @@ class RFQRequirement(ImmutableContract):
     tenant_id: Text
     sourcing_case_id: Text
     requirement_id: Text
-    requirement_version: int = Field(ge=1)
+    requirement_version: int = Field(ge=1, strict=True)
     category_id: Text
-    spec_version: int = Field(ge=1)
+    spec_version: int = Field(ge=1, strict=True)
     sku: Text
     quantity: Quantity
     unit: Text
@@ -46,7 +46,7 @@ class RFQRequirement(ImmutableContract):
     business_timezone: Text
     source_context_version: Text
     template_id: Text | None
-    template_version: int | None = Field(default=None, ge=1)
+    template_version: int | None = Field(default=None, ge=1, strict=True)
     template_approval_ref: Text | None = None
 
     @model_validator(mode="after")

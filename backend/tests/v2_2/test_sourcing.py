@@ -191,6 +191,70 @@ def handoff_fixture(
     return prepare_alternative_supply(context, selection, entry, now=handoff_now)
 
 
+@pytest.mark.parametrize("invalid_version", [True, False, 1.0, 1.5, "1", "oops", 0, -1])
+def test_sourcing_version_fields_reject_coercion_and_nonpositive_values(invalid_version):
+    rfq = rfq_request()
+    quoted = offer()
+    entry = build_dossier(schema(), requirement(), (quoted,), (), now=NOW)[0]
+    selection_request = SelectionRequest(
+        tenant_id="t",
+        sourcing_case_id="case-1",
+        requirement_id="req-1",
+        requirement_version=1,
+        supplier_id="b",
+        quote_id="q-b",
+        quote_version=1,
+        spec_version=1,
+        reason_draft="Review this quote",
+        source_context_version="ctx-1",
+        current_source_context_version="ctx-1",
+    )
+    selection = preview_selection(selection_request, entry)
+    context = RecoveryContext(
+        tenant_id="t",
+        commitment_id="commitment-1",
+        commitment_version=2,
+        sourcing_case_id="case-1",
+        quantity="100",
+        unit="pcs",
+        requirement_deadline=NOW + timedelta(days=3),
+        current_source_version="ctx-1",
+        evidence_refs=("risk-event",),
+    )
+    handoff = prepare_alternative_supply(context, selection, entry, now=NOW)
+    reply = NormalizedReply(
+        tenant_id="t",
+        sourcing_case_id="case-1",
+        requirement_version=1,
+        supplier_id="b",
+        supplier_identity_verified=True,
+        identity_evidence_refs=("identity-b",),
+        message_id="message-b",
+        source_refs=("message-b",),
+        quote_id="q-b",
+        quote_version=1,
+        offer=quoted,
+        received_at=NOW,
+    )
+    summary = consolidate_replies(rfq, prepare_rfq(rfq, schema(), now=NOW), (reply,), now=NOW)[0]
+    samples = (
+        (rfq, ("requirement_version", "spec_version", "template_version")),
+        (fact(), ("purchase_order_version", "quote_version")),
+        (reply, ("requirement_version", "quote_version")),
+        (summary, ("quote_version",)),
+        (entry, ("quote_version", "spec_version")),
+        (selection_request, ("requirement_version", "quote_version", "spec_version")),
+        (selection, ("requirement_version", "quote_version", "spec_version")),
+        (context, ("commitment_version",)),
+        (handoff, ("commitment_version", "quote_version", "spec_version")),
+    )
+    for model, fields in samples:
+        for field in fields:
+            with pytest.raises(ValidationError) as error:
+                type(model).model_validate(model.model_dump() | {field: invalid_version})
+            assert any(detail["loc"] == (field,) for detail in error.value.errors())
+
+
 def test_three_supplier_sourcing_flow_has_no_operational_side_effects():
     a = offer(
         "a",

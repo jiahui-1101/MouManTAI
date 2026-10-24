@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import AwareDatetime
+from pydantic import AwareDatetime, Field
 
 from app.orders.terms import ImmutableContract, Text
 from app.sourcing.history import HistoryMetrics
@@ -21,14 +21,14 @@ class DossierEntry(ImmutableContract):
     tenant_id: Text
     supplier_id: Text
     quote_id: Text
-    quote_version: int
+    quote_version: int = Field(ge=1, strict=True)
     required_quantity: Decimal
     required_unit: Text
     quoted_unit: Text
     quoted_available_quantity: Decimal | None
     availability_evidence_refs: tuple[Text, ...]
     category_id: Text
-    spec_version: int
+    spec_version: int = Field(ge=1, strict=True)
     canonical_status: Literal["MATCHES", "CONDITIONAL", "INCOMPATIBLE", "UNKNOWN"]
     advisory_status: Literal[
         "COMPATIBLE_FOR_CONSIDERATION",
