@@ -501,4 +501,21 @@ describe("OverviewPage (FE-02a–e, UI-01)", () => {
       expect(screen.getByTestId("active-role")).toHaveTextContent("OWNER"); // mock returns OWNER
     });
   });
+
+  it("renders calibrated DEMO-ONLY / SYNTHETIC badge and subnav links to Daily Performance and Activity (FE-FOUND-01)", async () => {
+    renderOverview();
+
+    // Verify badge
+    const badge = await screen.findByTestId("synthetic-badge");
+    expect(badge).toHaveTextContent("DEMO-ONLY / SYNTHETIC");
+
+    // Verify subnav links
+    const perfLink = screen.getByTestId("daily-performance-link");
+    expect(perfLink).toBeInTheDocument();
+    expect(perfLink).toHaveAttribute("href", "/insights/performance");
+
+    const actLink = screen.getByTestId("activity-history-link");
+    expect(actLink).toBeInTheDocument();
+    expect(actLink).toHaveAttribute("href", "/activity");
+  });
 });

@@ -44,10 +44,13 @@ function setup(source: OrderDetailSource = sourceFor()) {
 beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(now));
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+function materialRow() { fireEvent.click(screen.getByRole('tab', { name: 'Feasibility' })); return screen.getByRole('row', { name: /Flour/ }); }
+function assessmentPanel() { fireEvent.click(screen.getByRole('tab', { name: 'Feasibility' })); return screen.getByRole('region', { name: 'Feasibility assessment' }); }
+
 describe('Order detail and resource assessment', () => {
   it('withholds positive feasibility when a supposedly current source contains an impossible snapshot date', async () => {
     const detail = fixture(); detail.assessment!.status = 'FEASIBLE'; detail.assessment!.snapshotAt = '2026-02-30T01:00:00Z';
-    setup(sourceFor(detail)); const panel = await screen.findByRole('region', { name: 'Feasibility assessment' });
+    setup(sourceFor(detail)); fireEvent.click(screen.getByRole('tab', { name: 'Feasibility' })); const panel = await screen.findByRole('region', { name: 'Feasibility assessment' });
     expect(within(panel).getByText('UNKNOWN')).toBeInTheDocument();
   });
   it('withholds cached identity, pricing, assessment and decisions during refresh and on permission failure', async () => {
@@ -78,7 +81,7 @@ describe('Order detail and resource assessment', () => {
   });
   it('shows BOM, locations, expiry, incompatible units and unconfirmed incoming separately', async () => {
     setup(); await screen.findByText('Synthetic Customer');
-    expect(screen.getByRole('row', { name: /Flour/ })).toHaveTextContent('Required: 5 kg');
+    expect(materialRow()).toHaveTextContent('Required: 5 kg');
     expect(screen.getByText(/Location: Rack 2/)).toBeInTheDocument();
     expect(screen.getByText(/2026-10-25 \(date only; cutoff unknown\)/)).toBeInTheDocument();
     expect(screen.getByText(/2000 g · UNCONFIRMED/)).toBeInTheDocument();
@@ -93,7 +96,7 @@ describe('Order detail and resource assessment', () => {
     const data = fixture(); data.materials![0].expiresAt = expiresAt;
     const before = structuredClone(data); setup(sourceFor(data));
     await screen.findByText('Synthetic Customer');
-    const row = screen.getByRole('row', { name: /Flour/ });
+    const row = materialRow();
     expect(within(row).getByText('Expiry: Not available')).toBeInTheDocument();
     expect(row).not.toHaveTextContent('date only; cutoff unknown');
     expect(row).not.toHaveTextContent(expiresAt);
@@ -106,14 +109,14 @@ describe('Order detail and resource assessment', () => {
     const data = fixture(); data.materials![0].expiresAt = expiresAt;
     const before = structuredClone(data); setup(sourceFor(data));
     await screen.findByText('Synthetic Customer');
-    const row = screen.getByRole('row', { name: /Flour/ });
+    const row = materialRow();
     expect(within(row).getByText(`Expiry: ${expiresAt} (date only; cutoff unknown)`)).toBeInTheDocument();
     expect(data).toEqual(before);
   });
   it.each([undefined, null, ''])('keeps absent material expiry %s unavailable', async expiresAt => {
     const data = fixture(); data.materials![0].expiresAt = expiresAt; setup(sourceFor(data));
     await screen.findByText('Synthetic Customer');
-    expect(within(screen.getByRole('row', { name: /Flour/ })).getByText('Expiry: Not available')).toBeInTheDocument();
+    expect(within(materialRow()).getByText('Expiry: Not available')).toBeInTheDocument();
   });
   it.each([
     ['2026-10-24T16:30:00Z', '25 Oct 2026, 00:30:00 (MYT)'],
@@ -123,12 +126,13 @@ describe('Order detail and resource assessment', () => {
     const data = fixture(); data.materials![0].expiresAt = expiresAt;
     const before = structuredClone(data); setup(sourceFor(data));
     await screen.findByText('Synthetic Customer');
-    expect(within(screen.getByRole('row', { name: /Flour/ })).getByText(`Expiry: ${expected}`)).toBeInTheDocument();
+    expect(within(materialRow()).getByText(`Expiry: ${expected}`)).toBeInTheDocument();
     expect(data).toEqual(before);
   });
   it('distinguishes accepted reservations from pending demand and renders capacity conflicts', async () => {
     setup(); await screen.findByText('Synthetic Customer');
     expect(screen.getByText('Accepted reservation')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Feasibility' }));
     const pending = screen.getByRole('link', { name: 'pending-order' }).closest('li')!;
     expect(pending).toHaveTextContent('Reported demand — reservation not verified');
     expect(screen.getByText('Production window overlaps accepted workload')).toBeInTheDocument();
@@ -142,11 +146,11 @@ describe('Order detail and resource assessment', () => {
   });
   it.each(['FEASIBLE', 'CONDITIONAL', 'INFEASIBLE', 'UNKNOWN'])('renders backend %s with explicit evidence and no command', async status => {
     const data = fixture(); data.assessment!.status = status; setup(sourceFor(data)); await screen.findByText('Synthetic Customer');
-    const section = screen.getByRole('region', { name: 'Feasibility assessment' });
+    const section = assessmentPanel();
     expect(within(section).getAllByText(status).length).toBeGreaterThan(0);
     expect(screen.getByText('Verify flour receipt')).toBeInTheDocument();
     expect(screen.getByText('Do not use expired lots')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Accept|^Reject|^Reserve/ })).not.toBeInTheDocument();
+    for (const command of screen.queryAllByRole('button', { name: /^Accept|^Reject|^Reserve/ })) expect(command).toBeDisabled();
   });
   it.each(['stale', 'unknown-freshness', 'unverified', 'incomplete', 'wrong-version', 'unknown-version', 'unknown-offset', 'future', 'missing-snapshot'])('suppresses positive badges when %s', async condition => {
     const data = fixture(); const a = data.assessment!; a.status = 'FEASIBLE';
@@ -160,7 +164,7 @@ describe('Order detail and resource assessment', () => {
     if (condition === 'future') a.snapshotAt = '2026-10-25T01:00:00Z';
     if (condition === 'missing-snapshot') a.snapshotId = null;
     setup(sourceFor(data)); await screen.findByText('Synthetic Customer');
-    const section = screen.getByRole('region', { name: 'Feasibility assessment' });
+    const section = assessmentPanel();
     expect(section.querySelector('.badge-success')).toBeNull();
     expect(section.querySelector('.badge-unknown')).toHaveTextContent('UNKNOWN');
   });

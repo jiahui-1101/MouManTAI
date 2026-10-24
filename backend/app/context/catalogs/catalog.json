@@ -86,5 +86,156 @@
       "炒饭"
     ],
     "source_ref": "catalog:approved:synthetic_tenant_a:rice_pack"
+  },
+  {
+    "tenant_id": "synthetic_tenant_a",
+    "sku": "CHICKEN_NUGGETS",
+    "unit": "box",
+    "aliases": [
+      "chicken nuggets",
+      "chicken nugget",
+      "nuggets",
+      "nugget",
+      "炸鸡块",
+      "鸡块",
+      "雞塊",
+      "box of chicken nuggets",
+      "boxes of chicken nuggets"
+    ],
+    "source_ref": "catalog:approved:synthetic_tenant_a:chicken_nuggets_box"
+  },
+  {
+    "tenant_id": "synthetic_tenant_a",
+    "sku": "CHICKEN_NUGGETS",
+    "unit": "pcs",
+    "aliases": [
+      "chicken nuggets",
+      "chicken nugget",
+      "nuggets",
+      "nugget",
+      "炸鸡块",
+      "鸡块",
+      "雞塊"
+    ],
+    "source_ref": "catalog:approved:synthetic_tenant_a:chicken_nuggets_pcs"
+  },
+  {
+    "tenant_id": "synthetic_tenant_a",
+    "sku": "chicken nuggets",
+    "unit": "box",
+    "aliases": [
+      "chicken nuggets",
+      "chicken nugget",
+      "nuggets",
+      "nugget",
+      "炸鸡块",
+      "鸡块",
+      "雞塊",
+      "box of chicken nuggets",
+      "boxes of chicken nuggets"
+    ],
+    "source_ref": "catalog:approved:synthetic_tenant_a:chicken_nuggets_literal_box"
+  },
+  {
+    "tenant_id": "synthetic_tenant_a",
+    "sku": "chicken nuggets",
+    "unit": "pcs",
+    "aliases": [
+      "chicken nuggets",
+      "chicken nugget",
+      "nuggets",
+      "nugget",
+      "炸鸡块",
+      "鸡块",
+      "雞塊"
+    ],
+    "source_ref": "catalog:approved:synthetic_tenant_a:chicken_nuggets_literal_pcs"
+  },
+  {
+    "tenant_id": "tenant_demo_01",
+    "sku": "BURGER",
+    "unit": "pcs",
+    "aliases": [
+      "burger",
+      "burgers",
+      "beef burger",
+      "beef burgers",
+      "chicken burger",
+      "chicken burgers",
+      "roti burger",
+      "bgr",
+      "bgrs",
+      "hbg",
+      "buhger",
+      "汉堡",
+      "汉堡包",
+      "漢堡",
+      "漢堡包"
+    ],
+    "source_ref": "catalog:approved:tenant_demo_01:burger"
+  },
+  {
+    "tenant_id": "tenant_demo_01",
+    "sku": "CHICKEN_NUGGETS",
+    "unit": "box",
+    "aliases": [
+      "chicken nuggets",
+      "chicken nugget",
+      "nuggets",
+      "nugget",
+      "炸鸡块",
+      "鸡块",
+      "雞塊",
+      "box of chicken nuggets",
+      "boxes of chicken nuggets"
+    ],
+    "source_ref": "catalog:approved:tenant_demo_01:chicken_nuggets_box"
+  },
+  {
+    "tenant_id": "tenant_demo_01",
+    "sku": "CHICKEN_NUGGETS",
+    "unit": "pcs",
+    "aliases": [
+      "chicken nuggets",
+      "chicken nugget",
+      "nuggets",
+      "nugget",
+      "炸鸡块",
+      "鸡块",
+      "雞塊"
+    ],
+    "source_ref": "catalog:approved:tenant_demo_01:chicken_nuggets_pcs"
+  },
+  {
+    "tenant_id": "tenant_demo_01",
+    "sku": "chicken nuggets",
+    "unit": "box",
+    "aliases": [
+      "chicken nuggets",
+      "chicken nugget",
+      "nuggets",
+      "nugget",
+      "炸鸡块",
+      "鸡块",
+      "雞塊",
+      "box of chicken nuggets",
+      "boxes of chicken nuggets"
+    ],
+    "source_ref": "catalog:approved:tenant_demo_01:chicken_nuggets_literal_box"
+  },
+  {
+    "tenant_id": "tenant_demo_01",
+    "sku": "chicken nuggets",
+    "unit": "pcs",
+    "aliases": [
+      "chicken nuggets",
+      "chicken nugget",
+      "nuggets",
+      "nugget",
+      "炸鸡块",
+      "鸡块",
+      "雞塊"
+    ],
+    "source_ref": "catalog:approved:tenant_demo_01:chicken_nuggets_literal_pcs"
   }
 ]

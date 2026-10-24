@@ -233,6 +233,7 @@ function fakeApi(): OperationalApi {
     getAttachmentExtraction: vi.fn(),
     getAttachmentMetadata: vi.fn(),
     getAttachmentPageCount: vi.fn().mockResolvedValue({ total_pages: 1, media_type: 'application/pdf' }),
+    deleteMessage: vi.fn().mockResolvedValue({ status: 'deleted', message_id: 'stored_message_1' }),
   };
 }
 
@@ -703,4 +704,34 @@ it('renders truthful provenance source labels: Synthetic, Telegram, Gmail, and W
   expect(badgeTexts).toContain('Telegram');
   expect(badgeTexts).toContain('Gmail');
   expect(badgeTexts).toContain('WhatsApp');
+});
+
+test('opens confirmation modal and deletes message when trash icon is clicked', async () => {
+  const api = fakeApi();
+  vi.mocked(api.list).mockResolvedValue(page([message]));
+  render(<DurableInbox api={api} />);
+
+  const deleteBtn = await screen.findByRole('button', { name: `Delete message ${message.raw.provider_message_id}` });
+  expect(deleteBtn).toBeInTheDocument();
+
+  // Click delete button
+  fireEvent.click(deleteBtn);
+
+  // Confirmation modal appears
+  expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Delete message' })).toBeInTheDocument();
+
+  // Cancel first
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(api.deleteMessage).not.toHaveBeenCalled();
+
+  // Re-open and confirm
+  fireEvent.click(deleteBtn);
+  const confirmBtn = await screen.findByRole('button', { name: 'Delete' });
+  fireEvent.click(confirmBtn);
+
+  await waitFor(() => {
+    expect(api.deleteMessage).toHaveBeenCalledWith(message.message_id);
+  });
 });

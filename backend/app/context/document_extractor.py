@@ -413,14 +413,17 @@ def extract_pdf_document(
 
     # Status assessment
     diagnostic = None
-    if total_pages > max_pages:
+    if ocr_error:
+        status = "FAILED"
+        diagnostic = f"OCR extraction failed for scanned or image-only PDF: {ocr_error}"
+        if total_pages > max_pages:
+            diagnostic += f" Processing was bounded to the first {max_pages} pages."
+    elif total_pages > max_pages:
         status = "PARTIAL"
         diagnostic = f"Document has {total_pages} pages; bounded processing inspected first {max_pages} pages."
     elif not full_text.strip():
         status = "SUCCESS"
-        diagnostic = "Scanned or image-only PDF detected; 0 machine-readable text blocks found."
-        if ocr_error:
-            diagnostic += f" (OCR error: {ocr_error})"
+        diagnostic = "Scanned or image-only PDF detected; OCR completed with 0 recognized text blocks."
     elif used_ocr:
         status = "SUCCESS"
         diagnostic = f"Image-only PDF detected; executed OCR ({len(evidence_items)} text blocks, {len(extracted_fields)} fields extracted)."
@@ -543,14 +546,16 @@ def extract_image_ocr(
         if raw_boxes is not None:
             rec_boxes = raw_boxes.tolist() if hasattr(raw_boxes, "tolist") else list(raw_boxes)
 
-    full_text = "\n".join(rec_texts)
+    recognized_lines = [
+        (idx, text.strip())
+        for idx, text in enumerate(rec_texts)
+        if isinstance(text, str) and text.strip()
+    ]
+    full_text = "\n".join(text for _, text in recognized_lines)
     is_payment = is_payment_document(full_text)
 
     evidence_items: list[DocumentEvidence] = []
-    for idx, text in enumerate(rec_texts):
-        cleaned = text.strip()
-        if not cleaned:
-            continue
+    for idx, cleaned in recognized_lines:
         bbox = None
         if idx < len(rec_boxes):
             box = rec_boxes[idx]
@@ -582,7 +587,7 @@ def extract_image_ocr(
     )
 
     diagnostic = None
-    if not rec_texts:
+    if not recognized_lines:
         status = "SUCCESS"
         diagnostic = "0 text lines detected by OCR"
     else:
