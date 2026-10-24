@@ -391,6 +391,7 @@ def test_private_p1_gateway_restricts_processor_to_server_tenant_scope(runtime):
     client,_,_,_,_,processor_headers,_=runtime
     wrong={**processor_headers,"X-Tenant-ID":"synthetic_tenant_b"}
     assert client.get("/v1/messages",headers=wrong).status_code==403
+    assert client.get("/v1/channels/status",headers=wrong).status_code==403
     missing={k:v for k,v in processor_headers.items() if k!="X-Tenant-ID"}
     assert client.get("/v1/messages",headers=missing).status_code==403
 
