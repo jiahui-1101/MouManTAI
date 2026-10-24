@@ -1,3 +1,5 @@
+> Latest checkpoint: real PostgreSQL gate PASSED on 2026-10-24; owner approval pending. Earlier NOT_RUN entries below are historical. See the final validation section.
+
 # v2.2 backend validation evidence — 24 October 2026 MYT
 
 Code snapshot: `7e14477` (foundation plus supplier contracts). Later commits are documentation only.
@@ -118,6 +120,27 @@ Current gaps: no adapter authenticates the origin/freshness of an OrderCommercia
 - Static checks: scoped `ruff check --select E,F,I --ignore E501` on the four changed Python files passed; `ruff format --check` on mapper and mapper tests passed; `compileall` on terms and mapper passed; root `git diff --check` passed. Full default Ruff and whole-file formatting still identify pre-existing legacy style in `terms.py`/`test_terms.py`; no unrelated style rewrite was made.
 - Review correction: for repeated New York wall time `2026-11-01 01:30`, explicit `-04:00` and `-05:00` each resolve to their distinct valid instant; equivalent UTC values have identical canonical values/hash. Missing or invalid offsets and nonexistent local times fail closed. A known fixed v1 hash vector now guards serialization compatibility. PostgreSQL integration remains **NOT_RUN**; no approved disposable PostgreSQL URL was configured.
 
+## Backend A6 trusted P1 source reader — 2026-10-24
+
+- Code commit: `5a423da6033b99e0e56ce3bb9867630a1e05c939`, branch `backend-a/feat-v2-2-p1-trusted-source-reader`, based on fetched PR #50 head `fd7be2e2dae0b3275ea344f9f4d567b836c93cb1`. Fetched Main was `67627cb782a02c7e47bd0812d861f55ff8bb5982`. PR #48/#49/#50/#52/#53 refs and compatibility note are in `BACKEND_V2_2_HANDOFF.md`. This is a local code checkpoint; not pushed and no PR opened.
+- Focused adapter tests: `python -m pytest tests/v2_2/test_p1_source_reader.py -o addopts= -q --tb=short` → **18 passed, 5 warnings**.
+- Existing v2.2 regressions: `python -m pytest tests/v2_2 -o addopts= -q --tb=short --basetemp=../pytest-tmp-a6-v22-final` → **194 passed, 5 warnings**.
+- Selected P1/Core regressions: `python -m pytest app/context/tests/test_order_context_storage.py app/context/tests/test_association_models_and_storage.py app/context/tests/test_context_api.py app/context/tests/test_review_readiness.py app/context/tests/test_core_publisher.py app/context/tests/test_p2_consumer.py tests/test_core_api.py tests/test_core_assessment_writer_provenance.py -o addopts= -q --tb=short --basetemp=../pytest-tmp-a6-p1core-final` → **21 passed, 22 PostgreSQL-gated skipped, 5 warnings**.
+- P1 source snapshot/repository checks: `python -m pytest app/context/tests/test_order_context_source_snapshot.py app/context/tests/test_postgres_repository.py -o addopts= -q --tb=short --basetemp=../pytest-tmp-a6-postgres-final` → **6 passed, 13 skipped**. The P1 database-backed snapshot test was skipped because `P1_TEST_DATABASE_URL` was unset. No PostgreSQL connection, shared/development database, or destructive fixture was used.
+- Static checks: scoped `ruff check --select E,F,I --ignore E501,F401,F841` on the six changed Python files passed; `ruff format --check` on the new reader and test files passed; `python -m compileall -q` on the reader/repository/test files passed; `git diff --check` passed. `F401`/`F841` are excluded because the existing large P1 repository files already contain unrelated legacy lint findings; no cleanup outside A6 was made.
+- **Implemented / locally tested**: read-only P1 records loaded in one tenant-filtered PostgreSQL repeatable-read/read-only transaction; typed `AcceptanceCandidate` prepared through the existing mapper; missing/unverified/stale/conflicting/unproven inputs fail closed. **Not integrated/reviewed/production-gated**: no authenticated tenant provider is wired; no route or commercial/disclosure/assent reader exists; no request, acceptance, reservation, Core transition, P2 extension, message send, migration or order persistence is present. P1/P5 and eventual Backend B review remain required. See `docs/BACKEND_A_P1_SOURCE_READER.md` for the data boundary and blockers.
+
+### Backend A6 final review and validation — 2026-10-24
+
+- Fresh remote check: `origin/main` `67627cb782a02c7e47bd0812d861f55ff8bb5982`; PR #48 `741976d3cdd59352d66a30c5712ce9eca5d3bc16`; #49 `62040da02b4ec3532ea02d734567e0913996ec2b`; #50 `fd7be2e2dae0b3275ea344f9f4d567b836c93cb1`; #52 `8d7ca20c0651db947092dec34510fe1b0b63aaaa`; #53 `3680e82266e8b2a982df2928e75b42160a58ce2d`. A6 test commit `acefd0fa8c4f01d55943f1324aee6ef9c7a692c2` is based on current PR #50; the following publication documentation is a separate logical commit.
+- Independent A6 review found no critical A6-owned implementation defect. Added three explicit fail-closed regression cases for OCR, PDF text, and attachment-only references. No mapper, repository behavior, shared schema, or lifecycle semantics were changed during this finalization.
+- Fresh focused A6 tests: **21 passed / 5 FastAPI/Starlette deprecation warnings**. Fresh v2.2 regressions: **197 passed / 5 warnings**.
+- Selected P1/Core compatibility suite: **21 passed / 22 skipped / 5 warnings**. All 22 skips explicitly state `P1_TEST_DATABASE_URL is unset; PostgreSQL validation NOT RUN`.
+- P1 snapshot/repository suite: **6 passed / 13 skipped**. All 13 skips explicitly state `P1_TEST_DATABASE_URL is unset; PostgreSQL validation NOT RUN`.
+- Scoped Ruff check and formatting check passed; scoped compileall exited 0; `git diff --check` passed. Ruff excludes `E501`, `F401`, and `F841` on existing large P1 files to avoid unrelated legacy findings.
+- PostgreSQL validation is **NOT_RUN / BLOCKED**. `P1_TEST_DATABASE_URL`, `P1_DATABASE_URL`, `TEST_DATABASE_URL`, `DATABASE_URL`, and `TEST_MIGRATION_DATABASE_URL` were unset. The 35 gated tests were skipped, not passed. No database was created or touched. Live PostgreSQL repeatable-read/read-only transaction assertions remain unverified.
+- The current A6 handoff, implementation status, dependency, and owner gates are maintained in [`docs/BACKEND_A6_LATEST_HANDOFF.md`](BACKEND_A6_LATEST_HANDOFF.md). It supersedes the earlier local-only A6 publication status above while preserving that checkpoint as history.
+- Published as Draft PR [#55](https://github.com/jiahui-1101/MouManTAI/pull/55), base `backend-a/feat-v2-2-p1-order-context-mapper` at `fd7be2e2dae0b3275ea344f9f4d567b836c93cb1`; requested P1 `mavisbong41` and P5 `Gan0117`. The PR compare is 4 commits ahead / 0 behind and lists 11 A6-only files. No PR-triggered workflow runs were returned. This metadata update contains documentation only; tested Python code remains at `acefd0fa8c4f01d55943f1324aee6ef9c7a692c2`.
 ## 2026-10-24 — Prompt 2: PR #50/#52 consolidation validation
 
 Dependency evidence, read before editing:
@@ -155,4 +178,75 @@ Request-version regression checkpoint (PR #50 follow-up, 2026-10-24; local workt
 - Adjacent P1/Core contract suite → **21 passed, 22 skipped** because `P1_TEST_DATABASE_URL` was unset. **BLOCKED — REAL POSTGRESQL VALIDATION NOT PERFORMED.**
 - Ruff check and format, Python compileall, and `git diff --check` passed. These are local results; GitHub exact-head CI has not run for the follow-up yet.
 
+## PR #55 refresh validation — 2026-10-24
+
+- Focused P1 source reader: **22 passed, 5 warnings**.
+- Full v2.2 suite after merging #50 `f676da95c6d0e453327df4edfb1593c0c0d17144`: **290 passed, 5 warnings**.
+- `python -m pytest -p no:cacheprovider -o 'addopts=' backend/app/context/tests/test_order_context_source_snapshot.py backend/app/context/tests/test_postgres_repository.py -q -rA --tb=short` → **6 passed, 13 skipped**. Every skip says `P1_TEST_DATABASE_URL is unset; PostgreSQL validation NOT RUN`.
+- `python -m alembic -c backend/alembic.ini heads` → one head, `0017_p1_real_channel_provenance`. This verifies migration graph metadata only; it is not a PostgreSQL migration run.
+- **BLOCKED — REAL POSTGRESQL VALIDATION NOT PERFORMED.** A disposable local PostgreSQL DB and `P1_TEST_DATABASE_URL` are required. Reproduce from `backend` with `python -m pytest -p no:cacheprovider -o 'addopts=' app/context/tests/test_p1_alembic_migration.py app/context/tests/test_order_context_source_snapshot.py app/context/tests/test_postgres_repository.py -q -rA --tb=short` after setting that URL to the disposable DB.
+
+Latest #55 parent refresh to #50 `9dba996db2c066f7ea5997dbc8dbf7b5dd277540` (2026-10-24): reader **22 passed**; full v2.2 **290 passed / 5 warnings**; P1 migration/source-snapshot/PostgreSQL repository suite **6 passed / 14 skipped**. Every skip is due to unset `P1_TEST_DATABASE_URL`; no real PostgreSQL run occurred. `git diff --check` and focused Ruff check/format on the P1 reader test passed. Exact-head Actions will be checked after publication.
 PR #50 post-retarget validation against fetched `main` `eaa5097452f17f5c4f1c9ccc6c0a5b9f5678c86a` (2026-10-24): full v2.2 **268 passed / 5 warnings**; selected adjacent P1/Core suite **21 passed / 22 skipped**, all explicitly skipped because `P1_TEST_DATABASE_URL` is unset. These runs are local and do not substitute for exact-head Actions. The P1 database-backed cases remain NOT_RUN.
+
+## 2026-10-24 final real PostgreSQL validation (supersedes earlier NOT_RUN checkpoints)
+
+**PostgreSQL gate PASSED; BLOCKED_BY_OWNER_APPROVAL. Keep Draft.** Validated code/test HEAD: `79b46197c1f3735e08b533f79c5cdca6f0d608c9`. PR #50 merged at `4ffb6c2b1999362aa0e27cb3d834af58cc057267`; #55 now targets `main` and includes fetched main `585467d4389e5d8ada6e5e59a78c96306f3a0bc1` through normal merge commits `997c7a3fe63fc62f8787dff044ee1f8d222945e7` and `ab0e4b632dce04fab7cfbd3204511983fb94dbb1`. No published history was rewritten.
+
+Real PostgreSQL 16.15, task-owned disposable Docker container, actual Alembic head `0017_p1_real_channel_provenance`: required gate **22 passed / 0 failed / 0 skipped**, including all 14 previously skipped DB cases plus two new migrated-schema transaction regressions. Server reports READ ONLY and REPEATABLE READ; a deliberate DML probe is rejected with SQLSTATE 25006; a concurrent committed review cannot mix context/version/review states, and a subsequent stale-version read fails closed. Production code and migrations are unchanged.
+
+Full v2.2: **290 passed**. Combined v2.2/Backend B feasibility/Core/reservation/outbox: **642 passed**. Selected P1/Core: **43 passed / 0 skipped**. Full P1: **625 passed / 1 failed / 4 skipped / 0 setup errors**. The one OCR acceptance failure reproduces on unchanged pre-task #55 `f2300c5ef67750403c32dc4ddd191b2e77acf2eb`; optional OCR/PDF dependencies are unavailable. No claim that the whole P1 suite is green. Scoped Ruff, format, compileall and diff checks pass.
+
+Exact test-head CI [40072357617](https://github.com/jiahui-1101/MouManTAI/actions/runs/40072357617) passed all five jobs, including frontend typecheck/Vitest/build. The current CI does not set P1_TEST_DATABASE_URL or run app/context/tests, so it does not replace the separate real PostgreSQL evidence. The final documentation-only publication SHA and its exact-head CI are recorded in the [existing PR #55 description](https://github.com/jiahui-1101/MouManTAI/pull/55), avoiding a self-referential commit SHA.
+
+P1/P5 CHANGES_REQUESTED reviews remain effective until owners re-review. Fresh requests sent to mavisbong41, Gan0117 and jiahui-1101. No unresolved inline review threads were returned; no review was dismissed or discussion resolved by the author. Main's ruleset requires Backend Tests (PostgreSQL Authoritative), prohibits force updates and branch deletion; legacy protection endpoint returned 404.
+
+The durable P1 OrderRequest/version and approved commercial/disclosure sources remain unavailable. The reader still supplies commercial_terms=None, leaves request_version absent, and stays INCOMPLETE. No acceptance, reservation, approval or Core transition is activated. Backend B must independently reread current authoritative evidence. Full commands, provenance and limitations follow in BACKEND_V2_2_VALIDATION.md.
+
+### Disposable database provenance and migration evidence
+
+Created a new `postgres:16` container named `moumantai-pr55-validation` (container ID prefix `1a696f2c69f2`) for this task. It used a fresh generated credential, user `pr55_test`, database `pr55_validation_test`, loopback-only ephemeral port, and no shared data volume. No application/ordinary DATABASE_URL, team database or production database was selected. URLs were process-scoped and never committed or printed. PostgreSQL version: **16.15 (Debian 16.15-1.pgdg13+2), x86_64**; local Python **3.14.3**.
+
+`DATABASE_URL` was explicitly set only inside the migration process to this independently verified disposable target. `python -m alembic upgrade head` and `python -m alembic current` succeeded at `0017_p1_real_channel_provenance`. Inspector found eight P1 tables: attachments, context_reviews, document_extractions, extraction_attempts, message_associations, order_context_versions, order_contexts, inbound_messages.
+
+The existing migration fixture creates a fresh UUID-named child database, runs the real chain, verifies persistence/review/Core replay, downgrade to 0015 and re-upgrade, then drops only its own child DB. The two new regressions reuse that migration fixture; they do not use metadata.create_all. Existing pg_engine repository tests still use isolated ORM-created UUID schemas: those prove repository behavior, while the separate migration and new snapshot tests prove actual migrated-schema compatibility. ORM setup is not claimed as migration validation.
+
+### Exact commands and observed results
+
+All Python commands below ran from backend. P1_TEST_DATABASE_URL was set process-locally to the disposable PostgreSQL URL for P1/DB commands. Broader portable regressions retained their existing fixture configuration. Counts overlap across commands; do not add them as unique tests.
+
+```powershell
+python -m alembic upgrade head
+python -m alembic current
+python -m pytest -p no:cacheprovider -o 'addopts=' app/context/tests/test_p1_alembic_migration.py app/context/tests/test_order_context_source_snapshot.py app/context/tests/test_postgres_repository.py -q -rA --tb=short
+# 22 passed, 0 failed, 0 skipped, 6 existing Alembic warnings
+python -m pytest -p no:cacheprovider -o 'addopts=' tests/v2_2 -q --tb=short
+# 290 passed, 5 deprecation warnings
+python -m pytest -p no:cacheprovider -o 'addopts=' tests/v2_2/test_context_mapping.py tests/v2_2/test_terms.py tests/v2_2/test_p1_source_reader.py -q --tb=short
+# 155 passed (mapper 77 + terms 56 + reader 22), 5 warnings
+python -m pytest -p no:cacheprovider -o 'addopts=' tests/v2_2 app/feasibility/tests tests/test_core_api.py tests/test_core_assessment_writer_provenance.py tests/test_resource_reservations.py tests/test_outbox_events.py -q -rs --tb=short
+# 642 passed, 0 failed, 0 skipped, 5 warnings
+python -m pytest -p no:cacheprovider -o 'addopts=' app/context/tests/test_order_context_storage.py app/context/tests/test_association_models_and_storage.py app/context/tests/test_context_api.py app/context/tests/test_review_readiness.py app/context/tests/test_core_publisher.py app/context/tests/test_p2_consumer.py tests/test_core_api.py tests/test_core_assessment_writer_provenance.py -q -rs --tb=short
+# 43 passed, 0 failed, 0 skipped, 5 warnings
+$testTemp = Join-Path $env:TEMP ('pr55-p1-' + [guid]::NewGuid().ToString('N'))
+# Set P1_DATABASE_URL too, only to the verified disposable database.
+python -m pytest -p no:cacheprovider -o 'addopts=' app/context/tests --basetemp=$testTemp -q -rs --tb=short
+# 625 passed, 1 failed, 4 skipped, 0 setup errors, 7 warnings
+python -m ruff check --select E,F,I --ignore E501,F401,F841 app/context/repository.py app/context/postgres_repository.py app/context/tests/test_order_context_source_snapshot.py app/context/tests/test_postgres_repository.py app/orders/p1_source_reader.py tests/v2_2/test_p1_source_reader.py
+python -m ruff format --check app/orders/p1_source_reader.py tests/v2_2/test_p1_source_reader.py app/context/tests/test_order_context_source_snapshot.py
+python -m compileall -q app/orders app/context/repository.py app/context/postgres_repository.py app/context/tests/test_order_context_source_snapshot.py tests/v2_2
+ git diff --check
+# All static checks passed; formatting checks cover these three files only.
+```
+
+### Previously skipped cases actually exercised
+
+All 14 original DB-gated cases passed: migration clean-chain/persistence/review/Core replay/rollback (1); source snapshot tenant scoping (1); durable original across engine restart (1); duplicate receipt preservation (1); conflicting duplicate variants changes0..changes5 (6); database unique constraint (1); concurrent identical delivery (1); concurrent conflicting delivery (1); tenant-scoped literal search/pagination (1). Six portable cases also passed. Two added migrated-database tests bring the gate to 22: test_migrated_source_transaction_rejects_writes and test_migrated_source_snapshot_survives_concurrent_review.
+
+### Wider P1 baseline limitation
+
+Initial unrestricted-temp P1 run: 582 passed, 1 failed, 7 skipped, 40 setup errors. All 40 errors were WinError 5 on the existing pytest-of-User temp directory. Rerunning with a fresh task-owned --basetemp and P1_DATABASE_URL pointing to the owned test DB eliminated setup errors and three attachment DB skips: **625 passed, 1 failed, 4 skipped**.
+
+Remaining failure: `app/context/tests/test_batch8_acceptance.py::test_e2e_11_pdf_image_evidence_traceable_payment_unverified` expects OCR SUCCESS but returns FAILED. Exact same command against pre-task #55 f2300c5 reproduced **1 failed**; the production extractor and acceptance test are unchanged. Optional paddleocr/pymupdf packages are absent; no heavy models were installed for the read-only database scope. Remaining skips: image OCR module, PDF extraction module, and two explicitly opt-in live inference cases. They are not PostgreSQL gate skips. P1 owns OCR environment/test follow-up. No assertions or tests were weakened/deleted.
+
+Independent static review of the two new transaction tests found no actionable issue; it did not independently rerun tests. Scope remains test/evidence-only, plus normal main merges. Future live source integration still requires authenticated tenant provider, durable request/version, commercial/disclosure authority, P1/P5 design approval and Backend B decision-time reread.
