@@ -31,6 +31,10 @@ export function getReviewCatalog(headers?: Record<string, string>): Promise<{ sk
   return request('/v1/contexts/catalog', headers ? { headers } : undefined);
 }
 
+export function notifyReviewContextSaved(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('moumantai:review-context-saved'));
+}
+
 export interface OperationalApi {
   config(): Promise<DevelopmentContext>;
   list(query: MessageQuery): Promise<MessagePage>;
@@ -73,6 +77,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
         } else if (body.detail.message) {
           message = body.detail.message;
         }
+      } else if (body.details && typeof body.details === 'object') {
+        if (Array.isArray(body.details.reasons)) {
+          message = `${body.message || body.details.message || 'Validation failed'}: ${body.details.reasons.join('; ')}`;
+        } else if (body.details.message || body.message) {
+          message = body.details.message || body.message;
+        }
+      } else if (typeof body.message === 'string') {
+        message = body.message;
       }
     } catch { /* Keep the status-based diagnostic when the server does not return JSON. */ }
     throw new PreviewError(message, response.status);

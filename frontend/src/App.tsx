@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -86,6 +86,12 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
         },
       }),
   );
+
+  useEffect(() => {
+    const refreshLinkedViews = () => { void defaultClient.invalidateQueries(); };
+    window.addEventListener('moumantai:review-context-saved', refreshLinkedViews);
+    return () => window.removeEventListener('moumantai:review-context-saved', refreshLinkedViews);
+  }, [defaultClient]);
 
   return (
     <QueryClientProvider client={defaultClient}>
