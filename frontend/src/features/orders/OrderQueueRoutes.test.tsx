@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { App } from '../../App';
 import { operationalApi } from '../context/operationalApi';
 import type { OrderContextRecord } from '../context/types';
+import { orderPlanningRoutes } from './portfolioRoutes';
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.history.replaceState({}, '', '/'); });
 
@@ -49,12 +50,53 @@ describe('Orders integration through the real application router and Sidebar', (
     vi.spyOn(operationalApi, 'listContextVersions').mockResolvedValue([]);
     vi.spyOn(operationalApi, 'listContextReviews').mockResolvedValue([]);
     window.history.replaceState({}, '', '/orders/legacy-order');
-    render(<App />);
+    render(<App routeExtensions={orderPlanningRoutes} />);
     expect(await screen.findByRole('heading', { name: 'Order Context: legacy-order' })).toBeInTheDocument();
     expect(getContext).toHaveBeenCalledWith('legacy-order', expect.objectContaining({ 'X-Tenant-ID': 'tenant_demo_01', 'X-Actor-ID': 'user_owner_01' }));
     expect(screen.getByRole('heading', { name: 'Order detail & feasibility' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Order Decision Queue' })).not.toBeInTheDocument();
-    const crumbs = screen.queryByRole('navigation', { name: 'Breadcrumb' });
+        // AZ-08: Order Detail -> Portfolio Comparison
+        fireEvent.click(
+          screen.getByRole('link', { name: 'Portfolio Comparison' })
+        );
+    
+        expect(window.location.pathname).toBe('/orders/portfolio');
+        expect(
+          await screen.findByRole('heading', { name: 'Portfolio Comparison' })
+        ).toBeInTheDocument();
+    
+        expect(
+          screen.queryByRole('heading', { name: 'Page not found' })
+        ).not.toBeInTheDocument();
+    
+        // Return to the original Order Detail
+        window.history.back();
+        await screen.findByRole('heading', {
+          name: 'Order detail & feasibility',
+        });
+    
+        // AZ-08: Order Detail -> Calendar & Scheduling
+        fireEvent.click(
+          screen.getByRole('link', { name: 'Calendar & Scheduling' })
+        );
+    
+        expect(window.location.pathname).toBe('/orders/calendar');
+        expect(
+          await screen.findByRole('heading', {
+            name: 'Production & Delivery Calendar',
+          })
+        ).toBeInTheDocument();
+    
+        expect(
+          screen.queryByRole('heading', { name: 'Page not found' })
+        ).not.toBeInTheDocument();
+    
+        // Return to Order Detail
+        window.history.back();
+        await screen.findByRole('heading', {
+          name: 'Order detail & feasibility',
+        });
+        const crumbs = screen.queryByRole('navigation', { name: 'Breadcrumb' });
     fireEvent.click(crumbs ? within(crumbs).getByRole('link', { name: 'Orders' }) : screen.getByRole('link', { name: 'Back to Order Queue' }));
     expect(await screen.findByRole('heading', { name: 'Order Decision Queue' })).toBeInTheDocument();
   });

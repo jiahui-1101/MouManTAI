@@ -44,8 +44,17 @@ export function OrderDetailPage({ orderId, source, decisionSource }: OrderDetail
   const denied = query.error instanceof ApiError && [401, 403].includes(query.error.status);
   const d = !contextMismatch && !query.isFetching && !query.isError ? query.data : undefined;
   return <div className="order-detail">
-    <header className="od-heading"><div><Link to="/orders">Back to Order Queue</Link><h1>Order detail & feasibility</h1>
-      <p>Order {id || 'Not available'} · Read-only decision support</p></div>
+    <header className="od-heading">
+  <div>
+    <nav aria-label="Order detail navigation" className="od-navigation">
+      <Link to="/orders">Back to Order Queue</Link>
+      <Link to="/orders/portfolio">Portfolio Comparison</Link>
+      <Link to="/orders/calendar">Calendar & Scheduling</Link>
+    </nav>
+
+    <h1>Order detail & feasibility</h1>
+    <p>Order {id || 'Not available'} · Read-only decision support</p>
+  </div>
       <button type="button" disabled={!id || query.isFetching} onClick={() => {
         if (!source || contextMismatch) { setContextState(null); setReload(value => value + 1); }
         if (source) void query.refetch();
