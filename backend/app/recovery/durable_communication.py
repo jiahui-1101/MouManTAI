@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from pydantic import Field
+from pydantic import Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -119,11 +119,19 @@ class DurableCommunicationHandoff:
             raise DomainError("APPROVAL_SCOPE_CONFLICT", "Manager approval binds another proposal", status_code=409)
         if "CREATE_DELIVERY_CHANGE_PROPOSAL" not in approval.action_scope:
             raise DomainError("APPROVAL_SCOPE_CONFLICT", "Manager did not approve revised terms", status_code=409)
-        revised = CommitmentTerms.model_validate({
-            **commitment.terms,
-            "quantity": action.parameters["partial_quantity"],
-            "deadline": action.parameters["new_deadline"],
-        })
+        current_terms = dict(commitment.terms)
+        # Core retains Mock acceptance provenance on the accepted record;
+        # it cannot become part of a customer-facing revised-terms proposal.
+        current_terms.pop("mock_order_request_version", None)
+        current_terms.pop("mock_terms_hash", None)
+        try:
+            revised = CommitmentTerms.model_validate({
+                **current_terms,
+                "quantity": action.parameters["partial_quantity"],
+                "deadline": action.parameters["new_deadline"],
+            })
+        except ValidationError as exc:
+            raise DomainError("PROPOSAL_TERMS_INVALID", "Revised terms are invalid", status_code=409) from exc
         if revised.model_dump(mode="json") != approval.approved_terms:
             raise DomainError("APPROVED_TERMS_MISMATCH", "Manager approval does not bind exact terms", status_code=409)
         source = next((row for row in snapshot.operational.confirmed_commitments

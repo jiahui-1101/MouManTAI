@@ -15,6 +15,7 @@ from app.core.manager_approval import trusted_isolated_manager
 from app.core.models import AuditEventRecord
 from app.core.schemas import Commitment
 from app.core.service import CommitmentService
+from app.feasibility.accepted_order_projection import AcceptedOrderProjection, project_accepted_order
 from app.feasibility.production import EvaluationSnapshot
 from app.feasibility.service import EvaluationResult
 from app.integrations.business_ports import ReservationReceipt
@@ -207,6 +208,7 @@ class AcceptMockResponse(ImmutableContract):
     order_request: MockOrderRequestView
     reservation: ReservationReceipt
     commitment: Commitment | None = None
+    operational_projection: AcceptedOrderProjection | None = None
     integration_mode: Literal["MOCK"] = "MOCK"
     evidence_tier: Literal["DEMO-ONLY"] = "DEMO-ONLY"
 
@@ -274,8 +276,11 @@ def accept_mock_order_request(order_request_id: str, command: AcceptMockRequest,
     if receipt.status == "FAILED":
         raise DomainError("MOCK_RESERVATION_REJECTED", "Mock Orbyte rejected reservation",
                           status_code=409, details={"operation_id": receipt.operation_id})
+    projection = project_accepted_order(db, context, order_request_id)
+    db.commit()
     return AcceptMockResponse(order_request=_view(row), reservation=receipt,
-                              commitment=CommitmentService().get(db, context, row.commitment_id))
+                              commitment=CommitmentService().get(db, context, row.commitment_id),
+                              operational_projection=projection)
 
 
 class ReconcileMockRequest(ImmutableContract):

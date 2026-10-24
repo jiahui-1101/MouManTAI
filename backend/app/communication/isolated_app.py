@@ -12,11 +12,23 @@ from starlette.responses import JSONResponse
 private_inbound_surface = ContextVar("p4_private_inbound_surface", default=False)
 
 
+def _p1_path_patterns(router):
+    """Include P1's nested channel routes in the private processor boundary."""
+    for route in router.routes:
+        if hasattr(route, "path_regex"):
+            yield route.path_regex
+            continue
+        included = getattr(route, "original_router", None)
+        if included is None or route.include_context.prefix:
+            raise RuntimeError("Cannot enumerate every private P1 route")
+        yield from _p1_path_patterns(included)
+
+
 class PrivateInboundGateway:
     def __init__(self, application):
         self.application = application
         from app.context.router import router
-        self.p1_paths = [route.path_regex for route in router.routes]
+        self.p1_paths = list(_p1_path_patterns(router))
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":

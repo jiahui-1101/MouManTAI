@@ -32,6 +32,7 @@ from app.feasibility.router import (
 from app.forecasting.mock_router import router as mock_forecast_router
 from app.forecasting.router import router as forecasting_router
 from app.optimization.mock_router import router as mock_optimization_router
+from app.orchestration.router import router as orchestration_router
 from app.orders.api import router as orders_api_router
 from app.orders.demo_router import router as orders_demo_router
 from app.orders.router import router as orders_preview_router
@@ -83,6 +84,7 @@ app.add_middleware(
 app.include_router(core_router)
 app.include_router(recovery_router)
 app.include_router(communication_router)
+app.include_router(orchestration_router)
 app.include_router(feasibility_read_router)
 app.include_router(context_router)
 app.include_router(orders_preview_router)

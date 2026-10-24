@@ -15,6 +15,8 @@ from mock_order_fixtures import mock_snapshot, mock_terms
 from sqlalchemy import func, select
 
 from app.core.models import AuditEventRecord, CommitmentRecord, OutboxEventRecord
+from app.feasibility.persisted_sources import read_snapshot, stage_snapshot
+from app.feasibility.production import EvaluationSnapshot
 from app.orders.models import (
     MockOrbyteReservationRecord,
     MockOrbyteStateRecord,
@@ -79,6 +81,30 @@ def approve(client, terms, **changes):
                        } | changes)
 
 
+def seed_p2_operational_schedule(session, terms, *, schedule=True, stale=False):
+    snapshot = mock_snapshot(tenant_id=terms.tenant_id)
+    data = snapshot.model_dump(exclude_computed_fields=True)
+    data["operational"]["snapshot_id"] = f"p2-order-source-{terms.order_request_id}"
+    if schedule:
+        data["production"]["plans"] = (*data["production"]["plans"], {
+            "tenant_id": terms.tenant_id,
+            "commitment_id": f"com_{terms.order_request_id}",
+            "commitment_version": 1,
+            "line_id": f"com_{terms.order_request_id}-line-1",
+            "start_at": terms.window_start,
+            "dispatch_cutoff_at": terms.window_end,
+            "source_refs": ("production-plans",),
+        })
+    if stale:
+        plan_source = next(source for source in data["production"]["sources"]
+                           if source["source_id"] == "production-plans")
+        plan_source["valid_through"] = plan_source["observed_at"]
+    p2_snapshot = EvaluationSnapshot.model_validate(data)
+    stage_snapshot(session, p2_snapshot, current=True)
+    session.commit()
+    return p2_snapshot
+
+
 def test_http_order_review_p2_reservation_commitment_and_replay(client, session, isolated):
     terms = seed(session)
     import_review(client, terms)
@@ -96,6 +122,8 @@ def test_http_order_review_p2_reservation_commitment_and_replay(client, session,
     assert data["commitment"]["agreement_state"] == "CONFIRMED"
     assert data["commitment"]["feasibility_state"] == "FEASIBLE"
     assert data["reservation"]["status"] == "CONFIRMED"
+    assert data["operational_projection"]["status"] == "UNRESOLVED"
+    assert data["operational_projection"]["reason_codes"] == ["P2_OPERATIONAL_SNAPSHOT_UNAVAILABLE"]
     assert data["reservation"]["mode"] == "MOCK"
     status = client.get(BASE + "/commitments/com_order_test/status-preview", headers=HEADERS)
     assert status.status_code == 200, status.text
@@ -123,6 +151,57 @@ def test_http_order_review_p2_reservation_commitment_and_replay(client, session,
     assert session.scalar(select(func.count()).select_from(AuditEventRecord).where(
         AuditEventRecord.event_type == "commitment.mock_order_accepted")) == 1
     assert session.scalar(select(func.count()).select_from(OutboxEventRecord)) == 4
+
+
+def test_acceptance_projects_only_from_exact_current_p2_schedule(client, session, isolated):
+    terms = seed(session, request_id="order_projected")
+    p2_before = seed_p2_operational_schedule(session, terms)
+    import_review(client, terms)
+
+    accepted = approve(client, terms)
+    assert accepted.status_code == 200, accepted.text
+    projection = accepted.json()["operational_projection"]
+    assert projection["status"] == "PROJECTED"
+    assert projection["acceptance_event_id"]
+    assert projection["snapshot_version"] == 2
+
+    p2_current = read_snapshot(session, terms.tenant_id)
+    projected = next(row for row in p2_current.operational.confirmed_commitments
+                     if row.commitment_id == f"com_{terms.order_request_id}")
+    assert projected.commitment_version == accepted.json()["commitment"]["commitment_version"]
+    assert projected.delivery_deadline == terms.window_end
+    assert projected.lines[0].line_id == f"com_{terms.order_request_id}-line-1"
+    assert projected.lines[0].material_use_at == terms.window_start
+    assert p2_current.operational.snapshot_version == p2_before.operational.snapshot_version + 1
+
+    replay = approve(client, terms)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["operational_projection"]["status"] == "ALREADY_PROJECTED"
+    assert read_snapshot(session, terms.tenant_id).operational.snapshot_version == 2
+
+
+@pytest.mark.parametrize(
+    ("schedule", "stale", "reason"),
+    [(False, False, "P2_SCHEDULE_MISSING"), (True, True, "P2_SCHEDULE_STALE_OR_INVALID")],
+)
+def test_acceptance_stays_unresolved_without_fresh_p2_schedule(
+    client, session, isolated, schedule, stale, reason,
+):
+    terms = seed(session, request_id=f"order_unresolved_{reason.lower()}")
+    before = seed_p2_operational_schedule(session, terms, schedule=schedule, stale=stale)
+    import_review(client, terms)
+
+    accepted = approve(client, terms)
+    assert accepted.status_code == 200, accepted.text
+    projection = accepted.json()["operational_projection"]
+    assert projection["status"] == "UNRESOLVED"
+    assert reason in projection["reason_codes"]
+    assert projection["snapshot_version"] is None
+
+    current = read_snapshot(session, terms.tenant_id)
+    assert current.operational.snapshot_version == before.operational.snapshot_version
+    assert all(row.commitment_id != f"com_{terms.order_request_id}"
+               for row in current.operational.confirmed_commitments)
 
 
 def test_registered_mock_inquiry_to_accepted_commitment(client, session, isolated):

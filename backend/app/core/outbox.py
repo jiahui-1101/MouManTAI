@@ -69,6 +69,7 @@ MANDATORY_SUBSCRIBER_GROUPS: dict[str, tuple[str, ...]] = {
     "confirmation.accepted": ("p5.confirmation.required",),
     "confirmation.rejected": ("p5.confirmation.required", "p3.confirmation_response.v1"),
     "confirmation.counteroffer_received": ("p5.confirmation.required", "p3.confirmation_response.v1"),
+    "recovery.internal_task_created": ("p5.recovery_notification_intent.v1",),
 }
 
 

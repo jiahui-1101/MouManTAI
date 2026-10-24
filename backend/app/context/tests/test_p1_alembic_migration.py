@@ -185,7 +185,7 @@ def test_scoped_delivery_collision_blocks_downgrade_without_data_loss(migrated_d
     indexes = {
         index["name"] for index in inspect(engine).get_indexes("inbound_messages", schema="p1_dev")
     }
-    assert version == "0024_merge_c1_ah"
+    assert version == "0025_merge_c1_business_orch"
     assert {"uq_p1_delivery_legacy", "uq_p1_delivery_scoped"} <= indexes
     assert len(rows) == 2
     assert {row["provider_account_id"] for row in rows} == {"phone-a", "phone-b"}
@@ -227,7 +227,7 @@ def test_c1_ah_merge_upgrades_either_history_and_preserves_source_rows(
             "SELECT * FROM p1_dev.inbound_messages WHERE message_id = 'merge-source'"
         )).mappings().one()
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0024_merge_c1_ah"
+            "0025_merge_c1_business_orch"
         )
     # Replaying the join applies neither parent's DDL again.
     command.upgrade(config, "head")

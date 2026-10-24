@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import socket
 import subprocess
 import sys
 import time
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
@@ -18,12 +19,21 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.orm import Session
 
-from app.core.models import AuditEventRecord, CommitmentRecord, OutboxEventRecord, ProcessedEventRecord
+from app.core.models import (
+    AuditEventRecord,
+    CommitmentRecord,
+    OutboxEventRecord,
+    ProcessedEventRecord,
+)
 from app.feasibility.persisted_sources import stage_snapshot
 from app.feasibility.pipeline_fixtures import build_pipeline_example
 from app.feasibility.supplier_pipeline import SupplierDelayInputs
-from app.recovery.persistence import RecoveryCaseRecord, RecoveryCaseTriggerRecord
+from app.integrations.business_ports import ReservationReceipt
+from app.orchestration.models import BusinessImpactLinkRecord, BusinessNotificationIntentRecord
+from app.orders.models import MockOrbyteReservationRecord, MockOrderSourceRecord, OrderRequestRecord
+from app.orders.terms import OrderTerms
 from app.recovery.durable_actions import InternalRecoveryTaskRecord, RecoveryActionExecutionRecord
+from app.recovery.persistence import RecoveryCaseRecord, RecoveryCaseTriggerRecord
 
 
 def _approved_engine():
@@ -84,6 +94,105 @@ def _eventually(check, *, timeout: float = 25):
     raise AssertionError("Timed out waiting for real server/worker state")
 
 
+def _seed_verified_accepted_order(
+    db: Session, tenant: str, core: CommitmentRecord, source_commitment,
+) -> str:
+    """Persist one exact synthetic acceptance for the positive P2 link case."""
+    now = datetime.now(UTC)
+    source_line = source_commitment.lines[0]
+    order_request_id = f"order_{core.commitment_id}"
+    deadline = source_commitment.delivery_deadline
+    terms = OrderTerms.model_validate({
+        "tenant_id": tenant,
+        "order_request_id": order_request_id,
+        "customer_id": f"customer_{core.commitment_id}",
+        "terms_revision": 1,
+        "items": [{"sku": source_line.sku_id, "quantity": str(source_line.quantity),
+                   "unit": source_line.unit, "unit_price": "2"}],
+        "fulfilment_method": "DELIVERY",
+        "location_ref": "synthetic-address-ref",
+        "window_start": (deadline - timedelta(hours=3)).isoformat(),
+        "window_end": deadline.isoformat(),
+        "business_timezone": "Asia/Singapore",
+        "currency": "SGD",
+        "fees": "0", "tax": "0", "discount": "0",
+        "total": str(source_line.quantity * 2),
+        "price_source": {
+            "source_type": "APPROVED_CATALOG", "source_id": "synthetic-catalog",
+            "source_version": "1", "policy_ref": "synthetic-pricing-policy",
+            "disclosed_at": (now - timedelta(hours=1)).isoformat(),
+            "evidence_refs": ["synthetic-price-disclosure"],
+        },
+        "binding_policy_ref": "synthetic-pricing-policy",
+        "source_message_ids": ["synthetic-order-message"],
+        "evidence_refs": ["synthetic-order-request", "synthetic-price-disclosure"],
+    })
+    source_id = f"source_{order_request_id}"
+    source_refs = ["synthetic-order-request", "synthetic-price-disclosure"]
+    source_observed_at = now - timedelta(hours=1)
+    source_valid_through = now + timedelta(days=1)
+    request = OrderRequestRecord(
+        tenant_id=tenant, order_request_id=order_request_id,
+        customer_id=terms.customer_id, source_id=source_id, source_version=1,
+        source_observed_at=source_observed_at, source_valid_through=source_valid_through,
+        source_evidence_refs=source_refs, terms=terms.model_dump(mode="json"),
+        terms_hash=terms.terms_hash, request_version=3, decision_status="ACCEPTED",
+        review_actor_id="user_manager_01", review_reason="Synthetic exact acceptance",
+        commitment_id=core.commitment_id, created_at=now, updated_at=now,
+    )
+    source = MockOrderSourceRecord(
+        tenant_id=tenant, source_id=source_id, customer_id=terms.customer_id,
+        source_version=1, terms=terms.model_dump(mode="json"),
+        customer_request_ref=source_refs[0], price_disclosure_ref=source_refs[1],
+        observed_at=source_observed_at, valid_through=source_valid_through, status="CURRENT",
+    )
+    operation_id = f"mop_{uuid4().hex}"
+    receipt = ReservationReceipt(
+        tenant_id=tenant, order_request_id=order_request_id, operation_id=operation_id,
+        idempotency_key=f"accept_{order_request_id}", request_version=2,
+        terms_hash=terms.terms_hash, terms_revision=terms.terms_revision,
+        snapshot_id="synthetic-mock-snapshot", snapshot_version=1,
+        assessment_id=f"assessment_{core.commitment_id}", status="CONFIRMED", mode="MOCK",
+        checked_at=now, reservation_ids=(f"reservation_{core.commitment_id}",),
+        evidence_refs=(f"reservation_receipt_{core.commitment_id}",),
+    )
+    core.order_id = order_request_id
+    core.customer_id = terms.customer_id
+    core.terms = {
+        **core.terms,
+        "mock_order_request_version": receipt.request_version,
+        "mock_terms_hash": terms.terms_hash,
+    }
+    core.evidence_refs = sorted({*core.evidence_refs, *receipt.evidence_refs})
+    db.add_all([
+        source,
+        request,
+        MockOrbyteReservationRecord(
+            operation_id=operation_id, tenant_id=tenant, order_request_id=order_request_id,
+            idempotency_key=receipt.idempotency_key, request_version=receipt.request_version,
+            terms_hash=receipt.terms_hash, snapshot_version=receipt.snapshot_version,
+            assessment_id=receipt.assessment_id, actor_id="user_manager_01",
+            approval_reason="Synthetic exact acceptance", status="CONFIRMED",
+            receipt=receipt.model_dump(mode="json"), created_at=now,
+        ),
+        AuditEventRecord(
+            audit_id=f"aud_{uuid4().hex[:16]}", tenant_id=tenant,
+            commitment_id=core.commitment_id, event_type="commitment.mock_order_accepted",
+            actor_id="user_manager_01", actor_role="MANAGER", dimension="agreement",
+            previous_state=None,
+            new_state={
+                "order_request_id": order_request_id, "terms_hash": terms.terms_hash,
+                "request_version": receipt.request_version,
+                "reservation_operation_id": operation_id,
+            },
+            evidence_refs=list(receipt.evidence_refs), reason="Synthetic accepted order receipt",
+            correlation_id=f"corr_{order_request_id}", causation_id=operation_id,
+            occurred_at=now,
+        ),
+    ])
+    return order_request_id
+
+
 def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp_path: Path) -> None:
     engine = _approved_engine()
     tenant = f"tenant_p3_live_{uuid4().hex[:12]}"
@@ -96,14 +205,21 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
     ))
     with Session(engine) as db:
         for commitment in inputs.before_commitments:
-            db.add(CommitmentRecord(
+            core = CommitmentRecord(
                 tenant_id=tenant, commitment_id=commitment.commitment_id,
                 order_id=commitment.order_id, customer_id=commitment.customer_id,
                 terms=commitment.terms.model_dump(mode="json"), agreement_state="CONFIRMED",
                 feasibility_state="NOT_ASSESSED", risk_state="NORMAL", recovery_state="NONE",
                 fulfilment_state="NOT_STARTED", commitment_version=commitment.commitment_version,
                 evidence_refs=commitment.evidence_refs, updated_at=commitment.updated_at,
-            ))
+            )
+            db.add(core)
+            if commitment.commitment_id == "com-001":
+                source_commitment = next(
+                    row for row in inputs.before.operational.confirmed_commitments
+                    if row.commitment_id == core.commitment_id
+                )
+                _seed_verified_accepted_order(db, tenant, core, source_commitment)
         stage_snapshot(db, inputs.before, current=True)
         stage_snapshot(db, inputs.after)
         db.commit()
@@ -111,6 +227,7 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
     key = "isolated-e2e-" + uuid4().hex
     manager_id = "user_manager_01"  # Exact ID is registered in this isolated server environment.
     env = dict(os.environ, DATABASE_URL=os.environ["TEST_DATABASE_URL"],
+               MOUMANTAI_SYNTHETIC_MODE="1",
                MOUMANTAI_ISOLATED_E2E="1", MOUMANTAI_ISOLATED_E2E_KEY=key,
                MOUMANTAI_ISOLATED_E2E_MANAGER_ID=manager_id,
                MOUMANTAI_ISOLATED_E2E_TENANT_ID=tenant)
@@ -128,6 +245,31 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
             assert supplier.status_code == 200, server_log.read_text(errors="replace")[-3500:]
             assert any(row["commitment_id"] == "com-001" and row["classification"] == "CONFIRMED_IMPACT"
                        for row in supplier.json()["impacts"])
+            unaffected = next(row for row in supplier.json()["impacts"]
+                              if row["commitment_id"] == "com-002")
+            assert unaffected["classification"] == "VERIFIED_UNAFFECTED"
+            impact_id = supplier.json()["impact_id"]
+            linkage = http.post(f"/v1/orchestration/impacts/{impact_id}/resolve", headers=headers)
+            assert linkage.status_code == 200, linkage.text
+            assert linkage.json()["overall_status"] == "UNRESOLVED_HUMAN_REVIEW"
+            target_link = next(row for row in linkage.json()["links"]
+                               if row["commitment_id"] == "com-001")
+            assert target_link["link_status"] == "LINKED_ACCEPTED_ORDER"
+            assert target_link["order_request_id"] == "order_com-001"
+            assert target_link["order_request_version"] == 3
+            unaffected_link = next(row for row in linkage.json()["links"]
+                                   if row["commitment_id"] == "com-002")
+            assert unaffected_link["classification"] == "VERIFIED_UNAFFECTED"
+            assert unaffected_link["link_status"] == "UNRESOLVED_ORDER_ACCEPTANCE"
+            replayed_linkage = http.post(f"/v1/orchestration/impacts/{impact_id}/resolve", headers=headers)
+            assert replayed_linkage.status_code == 200
+            assert replayed_linkage.json() == linkage.json()
+            denied_linkage = http.post(f"/v1/orchestration/impacts/{impact_id}/resolve",
+                                       headers={**headers, "X-Actor-ID": "user_staff_01"})
+            assert denied_linkage.status_code == 403
+            foreign_impact = http.get(f"/v1/orchestration/impacts/{impact_id}",
+                                      headers={**headers, "X-Tenant-ID": "other_tenant"})
+            assert foreign_impact.status_code == 404
             worker = _start(["-m", "app.worker"], env)
 
             def case_ready():
@@ -217,6 +359,48 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
             assert executed.status_code == 200, executed.text
             task_id = executed.json()["task_id"]
             assert executed.json()["status"] == "SUCCEEDED" and task_id and executed.json()["receipt_ref"]
+
+            def intent_ready():
+                with Session(engine) as db:
+                    return db.scalar(select(BusinessNotificationIntentRecord).where(
+                        BusinessNotificationIntentRecord.tenant_id == tenant,
+                        BusinessNotificationIntentRecord.task_id == task_id,
+                        BusinessNotificationIntentRecord.receipt_ref == executed.json()["receipt_ref"],
+                    ))
+
+            intent = _eventually(intent_ready)
+            assert intent.status == "PENDING_P4_REVIEW"
+            assert intent.idempotency_key == intent.source_event_id
+            assert intent.customer_ref == "customer_com-001"
+            assert intent.contact_ref is None and intent.channel_ref is None and intent.consent_ref is None
+            assert intent.original_channel_ref is None
+            assert "HUMAN_REVIEW_BEFORE_ANY_DRAFT" in intent.review_requirements
+            assert intent.source_provenance["p3_event_id"] == intent.source_event_id
+            assert intent.integration_mode == "SYNTHETIC"
+            assert intent.evidence_tier == "DEMO-ONLY"
+            assert intent.verification_status == "INTERNALLY-VERIFIED"
+            assert intent.verified_change["change_type"] == "INTERNAL_REVIEW_TASK_CREATED"
+            assert intent.verified_change["fulfillment_changed"] is False
+            assert "INTERNAL_REVIEW_TASK_IS_NOT_A_CUSTOMER_VISIBLE_MILESTONE" in intent.blocker_codes
+            intent_view = http.get(f"/v1/orchestration/notification-intents/{intent.intent_id}", headers=headers)
+            assert intent_view.status_code == 200, intent_view.text
+            assert intent_view.json()["delivery_status"] == "NOT_SENT"
+            assert intent_view.json()["status"] == "PENDING_P4_REVIEW"
+            assert intent_view.json()["verification_status"] == "INTERNALLY-VERIFIED"
+            assert intent_view.json()["idempotency_key"] == intent_view.json()["source_event_id"]
+            assert intent_view.json()["original_channel_ref"] is None
+            assert intent_view.json()["evidence_refs"]
+            timeline = http.get("/v1/orchestration/commitments/com-001/timeline", headers=headers)
+            assert timeline.status_code == 200, timeline.text
+            timeline_types = {row["event_type"] for row in timeline.json()["entries"]}
+            assert "commitment.mock_order_accepted" in timeline_types
+            assert "supplier.delivery_changed" in timeline_types
+            assert "recovery.internal_task_created" in timeline_types
+            assert "communication.notification_intent" in timeline_types
+            assert timeline.json()["overall_readiness"] == "PARTIAL"
+            assert http.get(f"/v1/orchestration/notification-intents/{intent.intent_id}",
+                            headers={**headers, "X-Tenant-ID": "other_tenant"}).status_code == 404
+
             progress = http.get("/v1/backend-v2/commitments/com-001/operational-evidence",
                                 headers=headers)
             assert progress.status_code == 200, progress.text
@@ -308,6 +492,20 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
 
             _eventually(redelivered)
             with Session(engine) as db:
+                assert db.scalar(select(func.count()).select_from(BusinessImpactLinkRecord).where(
+                    BusinessImpactLinkRecord.tenant_id == tenant,
+                    BusinessImpactLinkRecord.impact_id == impact_id,
+                    BusinessImpactLinkRecord.commitment_id == "com-001",
+                )) == 1
+                assert db.scalar(select(func.count()).select_from(BusinessNotificationIntentRecord).where(
+                    BusinessNotificationIntentRecord.tenant_id == tenant,
+                    BusinessNotificationIntentRecord.source_event_id == intent.source_event_id,
+                )) == 1
+                assert db.scalar(select(func.count()).select_from(ProcessedEventRecord).where(
+                    ProcessedEventRecord.tenant_id == tenant,
+                    ProcessedEventRecord.event_id == intent.source_event_id,
+                    ProcessedEventRecord.consumer_name == "p5.recovery_notification_intent.v1",
+                )) == 1
                 assert db.scalar(select(func.count()).select_from(RecoveryCaseRecord).where(
                     RecoveryCaseRecord.tenant_id == tenant,
                     RecoveryCaseRecord.commitment_id == "com-001",
@@ -340,5 +538,120 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
             assert downgraded.json()["recovery"]["receipt_ref"] is None
     finally:
         _stop(worker)
+        _stop(server)
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("two_affected", "mode", "expected_classification", "accepted_order"),
+    [
+        (True, "complete", "CONFIRMED_IMPACT", False),
+        (True, "complete", "CONFIRMED_IMPACT", True),
+        (False, "missing_supplier", "UNKNOWN", False),
+    ],
+)
+def test_http_postgresql_impact_link_multi_commitment_and_missing_evidence(
+    tmp_path: Path, two_affected: bool, mode: str, expected_classification: str,
+    accepted_order: bool,
+) -> None:
+    """P2 multi-impact scope is preserved; incomplete evidence stays unresolved."""
+    engine = _approved_engine()
+    tenant = f"tenant_orchestration_{uuid4().hex[:12]}"
+    raw = build_pipeline_example(two_affected=two_affected, mode=mode)
+    source_tenant = raw.request.change.tenant_id
+    event_id = f"evt_orchestration_{uuid4().hex}"
+    inputs = SupplierDelayInputs.model_validate(json.loads(
+        json.dumps(raw.model_dump(mode="json", exclude_computed_fields=True))
+        .replace(source_tenant, tenant).replace(raw.request.change.event_id, event_id)
+    ))
+    with Session(engine) as db:
+        for commitment in inputs.before_commitments:
+            core = CommitmentRecord(
+                tenant_id=tenant, commitment_id=commitment.commitment_id,
+                order_id=commitment.order_id, customer_id=commitment.customer_id,
+                terms=commitment.terms.model_dump(mode="json"), agreement_state="CONFIRMED",
+                feasibility_state="NOT_ASSESSED", risk_state="NORMAL", recovery_state="NONE",
+                fulfilment_state="NOT_STARTED", commitment_version=commitment.commitment_version,
+                evidence_refs=commitment.evidence_refs, updated_at=commitment.updated_at,
+            )
+            db.add(core)
+            if accepted_order and commitment.commitment_id == "com-001":
+                source_commitment = next(
+                    row for row in inputs.before.operational.confirmed_commitments
+                    if row.commitment_id == commitment.commitment_id
+                )
+                _seed_verified_accepted_order(db, tenant, core, source_commitment)
+        stage_snapshot(db, inputs.before, current=True)
+        stage_snapshot(db, inputs.after)
+        db.commit()
+
+    key = "isolated-e2e-" + uuid4().hex
+    manager_id = "user_manager_01"
+    env = dict(os.environ, DATABASE_URL=os.environ["TEST_DATABASE_URL"],
+               MOUMANTAI_SYNTHETIC_MODE="1", MOUMANTAI_ISOLATED_E2E="1",
+               MOUMANTAI_ISOLATED_E2E_KEY=key, MOUMANTAI_ISOLATED_E2E_MANAGER_ID=manager_id,
+               MOUMANTAI_ISOLATED_E2E_TENANT_ID=tenant)
+    port = _free_port()
+    server = None
+    try:
+        server_log = tmp_path / f"{mode}-{two_affected}-server.log"
+        server = _start(["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port)],
+                        env, server_log)
+        with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=8) as http:
+            _eventually(lambda: server.poll() is None and http.get("/health").status_code == 200)
+            headers = {"X-Tenant-ID": tenant, "X-Actor-ID": manager_id, "X-Isolated-E2E-Key": key}
+            supplier = http.post("/v1/operations/events/supplier-delay", headers=headers,
+                                 json=inputs.request.model_dump(mode="json"))
+            assert supplier.status_code == 200, server_log.read_text(errors="replace")[-3500:]
+            observed = {row["commitment_id"]: row["classification"]
+                        for row in supplier.json()["impacts"]}
+            assert observed == {"com-001": expected_classification,
+                                "com-002": expected_classification}
+            if expected_classification == "UNKNOWN":
+                assert not any(
+                    intent["event"]["event_type"] == "commitment.at_risk"
+                    for intent in supplier.json()["event_intents"]
+                )
+
+            impact_id = supplier.json()["impact_id"]
+            links = http.post(f"/v1/orchestration/impacts/{impact_id}/resolve", headers=headers)
+            assert links.status_code == 200, links.text
+            assert links.json()["overall_status"] == "UNRESOLVED_HUMAN_REVIEW"
+            assert len(links.json()["links"]) == 2
+            accepted_link = next(row for row in links.json()["links"]
+                                 if row["commitment_id"] == "com-001")
+            if accepted_order:
+                assert accepted_link["link_status"] == "LINKED_ACCEPTED_ORDER"
+                assert accepted_link["order_request_id"] == "order_com-001"
+                assert accepted_link["order_request_version"] == 3
+                assert any(ref.startswith("reservation_receipt_")
+                           for ref in accepted_link["evidence_refs"])
+            else:
+                assert accepted_link["link_status"] == (
+                    "UNRESOLVED_IMPACT" if expected_classification == "UNKNOWN"
+                    else "UNRESOLVED_ORDER_ACCEPTANCE"
+                )
+            for link in links.json()["links"]:
+                assert link["commitment_id"] in {"com-001", "com-002"}
+                expected_link_status = (
+                    "LINKED_ACCEPTED_ORDER" if accepted_order and link["commitment_id"] == "com-001"
+                    else "UNRESOLVED_IMPACT" if expected_classification == "UNKNOWN"
+                    else "UNRESOLVED_ORDER_ACCEPTANCE"
+                )
+                assert link["link_status"] == expected_link_status
+                assert link["evidence_refs"]
+            foreign = http.get(f"/v1/orchestration/impacts/{impact_id}",
+                               headers={**headers, "X-Tenant-ID": f"foreign_{tenant}"})
+            assert foreign.status_code == 404
+            with Session(engine) as db:
+                assert db.scalar(select(func.count()).select_from(BusinessImpactLinkRecord).where(
+                    BusinessImpactLinkRecord.tenant_id == tenant,
+                    BusinessImpactLinkRecord.impact_id == impact_id,
+                )) == 2
+                assert db.scalar(select(func.count()).select_from(AuditEventRecord).where(
+                    AuditEventRecord.tenant_id == tenant,
+                    AuditEventRecord.event_type == "orchestration.impact_link_unresolved",
+                )) == (1 if accepted_order else 2)
+    finally:
         _stop(server)
         engine.dispose()
