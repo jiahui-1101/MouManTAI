@@ -98,6 +98,9 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/inbox/customer-messages" element={<DurableInbox />} />
               <Route path="/inbox/customer-messages/:messageId" element={<DurableInbox />} />
               <Route path="/human-review" element={<HumanReviewPage />} />
+              <Route path="/human-review/:taskId" element={<HumanReviewPage />} />
+              <Route path="/inbox/human-review" element={<HumanReviewPage />} />
+              <Route path="/inbox/human-review/:taskId" element={<HumanReviewPage />} />
               <Route path="/orders" element={<FeaturePlaceholder owner="Orders" title="All Orders" />} />
               <Route path="/orders/pending" element={<FeaturePlaceholder owner="Orders" title="Pending Acceptance" />} />
               <Route path="/orders/:id" element={<OrderContextDetail />} />
