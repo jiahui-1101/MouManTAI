@@ -13,3 +13,5 @@ Execution: inline, per current user authorization; no routine approval gate. Rev
 - [ ] Review cumulative diff, targeted/backend/PG regression, compile/lint, handoff and TEAM_LOG; logical commits, push dedicated branch, reviewable draft PR, attach PR, record current CI. No merge.
 
 Remaining dependent slices: reviewed durable OrderRequest/P1 context extension and reservation saga (S1/S5); shared P2 ConstraintSpec and joint validator before CP-SAT; supplier evidence/category approval; exact single-use CTA review using existing P3/Core; permitted milestone/feedback policy; evidence-gated Forecast/Memory/RFQ and measured human task study. Preserve these as target; do not invent implementation or business metrics.
+
+- [x] Independent safe E preparation while C/D activation is blocked: app/suppliers/comparison.py with immutable configurable CategorySpec/offer/requirement contracts; unknown authority/spec fails closed; no purchase/selection API or schema. Tests/independent review; actual validation in living handoff.

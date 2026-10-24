@@ -98,12 +98,18 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/calendar" element={<CalendarSchedulingPage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/inbox" element={<DurableInbox />} />
+              <Route path="/inbox/customer-messages" element={<DurableInbox />} />
+              <Route path="/inbox/customer-messages/:messageId" element={<DurableInbox />} />
               <Route path="/human-review" element={<HumanReviewPage />} />
-              <Route path="/orders" element={<OrderQueuePage />} />
-              <Route path="/orders/pending" element={<OrderQueuePage />} />
-              <Route path="/orders/portfolio" element={<PortfolioComparisonPage />} />
-              <Route path="/orders/calendar" element={<CalendarSchedulingPage />} />
-              <Route path="/orders/:id" element={<OrderDetailPage />} />
+<Route path="/human-review/:taskId" element={<HumanReviewPage />} />
+<Route path="/inbox/human-review" element={<HumanReviewPage />} />
+<Route path="/inbox/human-review/:taskId" element={<HumanReviewPage />} />
+
+<Route path="/orders" element={<OrderQueuePage />} />
+<Route path="/orders/pending" element={<OrderQueuePage />} />
+<Route path="/orders/portfolio" element={<PortfolioComparisonPage />} />
+<Route path="/orders/calendar" element={<CalendarSchedulingPage />} />
+<Route path="/orders/:id" element={<OrderDetailPage />} />
               <Route path="/planning" element={<FeaturePlaceholder owner="Planning" title="Planning" />} />
               <Route path="/planning/feasibility" element={<Navigate to="/orders" replace />} />
               <Route path="/planning/portfolio" element={<PortfolioComparisonPage />} />
