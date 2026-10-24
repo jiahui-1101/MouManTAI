@@ -25,6 +25,7 @@ import {
 import { getSuggestedClarification } from './ReviewDrawer';
 import { ExtractionProvenance } from './ExtractionProvenance';
 import { RequestedDeliveryField } from './RequestedDeliveryField';
+import { C3ReviewPanel } from './C3ReviewPanel';
 import {
   getConversationIssues,
   sendClarification,
@@ -311,6 +312,8 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
           {loading ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
+
+      {import.meta.env.VITE_C3_REVIEW_READS === '1' && <C3ReviewPanel />}
 
       {/* 2. 4 KPI Cards */}
       <div className="hr-kpi-grid">

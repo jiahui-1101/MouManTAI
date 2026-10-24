@@ -13,7 +13,7 @@ from typing import Literal, Protocol
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import RequestContext
@@ -59,9 +59,37 @@ class C3ReviewService:
     def enqueue(self, message_id: str, classifier: MessageIntelligenceService,
                 *, now: datetime) -> C3ReviewRecord | None:
         """Recompute from current P1 records; callers cannot submit model provenance."""
+        tenant_id = self.reader.scope.current_verified_tenant_id()
+        if not tenant_id or not message_id:
+            raise SourceContractError("verified tenant and message are required")
+        # Serialize duplicate workers before any potentially costly semantic call.
+        # The lock is transaction scoped and uses the tenant plus canonical ID.
+        if self.db.bind is not None and self.db.bind.dialect.name == "postgresql":
+            lock_bytes = sha256(f"{tenant_id}\0{message_id}".encode()).digest()[:8]
+            lock_id = int.from_bytes(lock_bytes, "big", signed=True)
+            self.db.execute(text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id})
+        existing_rows = self.db.scalars(select(C3ReviewRecord).where(
+            C3ReviewRecord.tenant_id == tenant_id,
+            C3ReviewRecord.message_id == message_id,
+        ).order_by(C3ReviewRecord.created_at.desc())).all()
+        for existing in existing_rows:
+            digest = sha256(json.dumps(existing.candidate_snapshot, sort_keys=True,
+                                       separators=(",", ":")).encode()).hexdigest()
+            if digest != existing.candidate_hash:
+                raise SourceContractError("stored review candidate integrity is invalid")
+            candidate = HumanReviewCandidate.model_validate_json(json.dumps(existing.candidate_snapshot))
+            if candidate.source != SourceMessageReference.model_validate_json(json.dumps(existing.source_snapshot)):
+                raise SourceContractError("stored review source binding is invalid")
+            try:
+                self.reader.assert_current(candidate.source, evidence=tuple(candidate.evidence))
+            except SourceContractError:
+                continue  # A changed source needs a new analysis and review version.
+            self.db.commit()  # Release the transaction-scoped duplicate-worker lock.
+            return existing
         outcome = self.reader.analyze(message_id, classifier, now=now)
         candidate = outcome.human_review_candidate
         if candidate is None:
+            self.db.commit()
             return None
         self.reader.assert_current(candidate.source, evidence=tuple(candidate.evidence))
         if candidate.tenant_id != self.reader.scope.current_verified_tenant_id():

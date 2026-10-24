@@ -36,6 +36,7 @@ from app.orchestration.router import router as orchestration_router
 from app.orders.api import router as orders_api_router
 from app.orders.demo_router import router as orders_demo_router
 from app.orders.router import router as orders_preview_router
+from app.message_intelligence.router import router as c3_review_router
 from app.recovery.router import router as recovery_router
 from app.suppliers.router import router as suppliers_router
 
@@ -88,6 +89,7 @@ app.include_router(orchestration_router)
 app.include_router(feasibility_read_router)
 app.include_router(context_router)
 app.include_router(orders_preview_router)
+app.include_router(c3_review_router)
 app.include_router(orders_demo_router)
 app.include_router(suppliers_router)
 app.include_router(forecasting_router)
