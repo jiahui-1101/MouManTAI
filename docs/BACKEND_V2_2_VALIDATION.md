@@ -1,10 +1,8 @@
-> Latest checkpoint: real PostgreSQL gate PASSED on 2026-10-24; owner approval pending. Earlier NOT_RUN entries below are historical. See the final validation section.
+> PR #49 supplier-comparison evidence is recorded in the final section. The separate PostgreSQL checkpoint below belongs to PR #55 and does not validate PR #49.
 
 # v2.2 backend validation evidence — 24 October 2026 MYT
 
-Code snapshot: `7e14477` (foundation plus supplier contracts). Later commits are documentation only.
-Initial fetched main: `ec3ffbc970ab38abca8468abfe0466ff0464b998`.
-Integrated upstream: `3efa7f23fc2842664f1164cc1dce363f7371bdd3`, merged **into feature**, never into main.
+Historical original PR #49 checkpoint: code snapshot `7e14477`; fetched main `ec3ffbc970ab38abca8468abfe0466ff0464b998`; integrated upstream `3efa7f23fc2842664f1164cc1dce363f7371bdd3` was merged **into the feature**, never into main. Current PR #49 evidence follows in the final section.
 
 | Run | Observed result | Scope / limits |
 |---|---|---|
@@ -202,6 +200,36 @@ Exact test-head CI [40072357617](https://github.com/jiahui-1101/MouManTAI/action
 P1/P5 CHANGES_REQUESTED reviews remain effective until owners re-review. Fresh requests sent to mavisbong41, Gan0117 and jiahui-1101. No unresolved inline review threads were returned; no review was dismissed or discussion resolved by the author. Main's ruleset requires Backend Tests (PostgreSQL Authoritative), prohibits force updates and branch deletion; legacy protection endpoint returned 404.
 
 The durable P1 OrderRequest/version and approved commercial/disclosure sources remain unavailable. The reader still supplies commercial_terms=None, leaves request_version absent, and stays INCOMPLETE. No acceptance, reservation, approval or Core transition is activated. Backend B must independently reread current authoritative evidence. Full commands, provenance and limitations follow in BACKEND_V2_2_VALIDATION.md.
+
+## PR #49 supplier comparison — refreshed against current main (2026-10-24)
+
+This section is specific to PR #49 and supersedes earlier supplier test counts in this file. Validation was run from `backend/` against code snapshot `60b741635f0ad9823573b1aa97643a96ece12ce5`, which includes latest `origin/main` `57636642750d366a85045c3655afa0c51581e3be`. The final publication commit adds this task's documentation only; the exact remote head and current check conclusions are exposed by [PR #49 checks](https://github.com/jiahui-1101/MouManTAI/pull/49/checks) and the linked task report.
+
+### Local validation
+
+| Check | Result | Observed result |
+|---|---|---|
+| Supplier comparator | **PASS** | `python -m pytest -p no:cacheprovider -o "addopts=" tests/v2_2/test_supplier_comparison.py -q -rA --tb=short` — 22 passed, 5 warnings, 0 failures/skips |
+| Full v2.2 | **PASS** | `python -m pytest -p no:cacheprovider -o "addopts=" tests/v2_2 -q -rA --tb=short` — 312 passed, 5 warnings, 0 failures/skips |
+| P1 / OrderTerms / P2 / P3 / P5 regressions | **PASS** | Selected source reader, context mapper, terms, assessment provenance/identity, supplier pipeline, Recovery and Core tests — 254 passed, 5 warnings, 0 failures/skips |
+| PR #59 sourcing handoff compatibility | **PASS** | 28 passed, 5 warnings in a temporary copy of the refreshed #49 tree with sourcing source/tests taken from #59 head `6dcebe5d7baf46f0136160abe153ee30885331c6`; no #59 branch, commit or file changed |
+| Ruff | **PASS** | `python -m ruff check app/suppliers tests/v2_2/test_supplier_comparison.py` — all checks passed |
+| Ruff format | **PASS** | `python -m ruff format --check app/suppliers tests/v2_2/test_supplier_comparison.py` — 3 files already formatted |
+| Compile | **PASS** | `python -m compileall -q app/suppliers` — exit 0 |
+| Diff whitespace | **PASS** | `git diff --check` on the final task diff — exit 0 |
+| Local PostgreSQL | **NOT RUN** | Comparator is pure/in-memory; PR #49 adds no migration or database-backed supplier test. No database URL was used. The PR #55 PostgreSQL results above are separate. |
+
+### Synchronization and scope
+
+- Original remote #49 head: `63fb44de2e85917562602076d997b50b29ac79a8`; original merge base: `eaa5097452f17f5c4f1c9ccc6c0a5b9f5678c86a`. At latest main before publication, #49's old head was 9 commits ahead and 45 behind.
+- First synchronization with `dc4b1a1d928fbba2bc98d1f9e3731a6a879065c3` had documentation conflicts in `BACKEND_V2_2_HANDOFF.md`, `BACKEND_V2_2_VALIDATION.md` and `TEAM_LOG.md`. Latest-main copies were retained; this #49 checkpoint was added without losing Main's history. No supplier or shared contract code conflicted. A subsequent merge of current `main` `57636642750d366a85045c3655afa0c51581e3be` was clean and carried only `backend/tests/test_migration_0007.py`.
+- PR scope remains the pure supplier hard-spec comparison and tests, its existing plan entry, and this review/validation handoff. Outcomes remain `MATCHES`, `CONDITIONAL`, `INCOMPATIBLE`, `UNKNOWN`; the comparator remains advisory, fail-closed, and grants no purchasing, reservation, dispatch, Core acceptance or Recovery execution authority. S1–S5 remain unratified.
+- Exact publication SHA and all five GitHub Actions job results (Backend Tests, Backend Tests (PostgreSQL Authoritative), Feature Suites, Frontend Checks, Hygiene & Secret Checks) are tracked on the live PR checks page linked above. Branch-protection required-check API was not accessible to this connection (HTTP 403); no protection settings were changed.
+
+### Review and downstream gates
+
+- P1's `COMMENTED` review is not approval. P3 and P5 approvals cite old head `62040da02b4ec3532ea02d734567e0913996ec2b`; fresh P1/P3/P5 review is required on the refreshed publication head. No unresolved inline threads were returned during this audit.
+- PR #59 remains stacked at base `62040da02b4ec3532ea02d734567e0913996ec2b`, head `6dcebe5d7baf46f0136160abe153ee30885331c6`. Its old-head five-job CI passed, and its 28 sourcing tests pass against the refreshed #49 comparator in the temporary compatibility snapshot. Its owner still needs to refresh the base to the new #49 head and rerun checks. This result does not make #59 merge-ready.
 
 ### Disposable database provenance and migration evidence
 
