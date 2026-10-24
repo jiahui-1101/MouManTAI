@@ -175,6 +175,73 @@ def _to_event(record: OutboxEventRecord) -> DomainEvent:
 
 
 class CommitmentService:
+    def create_accepted_mock_order(
+        self, db: Session, context: RequestContext, *, commitment_id: str,
+        terms, request_version: int, receipt, reservation_command, assessment,
+        source_evidence_refs: list[str], reason: str,
+    ) -> Commitment:
+        """Core-owned accepted transition inside the Mock adapter transaction.
+
+        The caller must hold the tenant Mock resource lock. This method stages
+        Core state, audit and outbox without committing; the order workflow
+        commits all records atomically with its local Mock reservation.
+        """
+        from app.integrations.business_ports import require_receipt_binding
+
+        if context.actor_role not in {"OWNER", "MANAGER"}:
+            raise DomainError("APPROVAL_REQUIRED", "Manager or owner approval is required", status_code=403)
+        if (receipt.mode != "MOCK" or not receipt.reservation_confirmed
+                or assessment.status != FeasibilityState.FEASIBLE
+                or assessment.assessment_id != reservation_command.assessment_id
+                or reservation_command.request_version != request_version):
+            raise DomainError("MOCK_ACCEPTANCE_EVIDENCE_INVALID", "Acceptance evidence is incomplete", status_code=409)
+        require_receipt_binding(receipt, expected=reservation_command, operation_id=receipt.operation_id)
+        if db.get(CommitmentRecord, (context.tenant_id, commitment_id)) is not None:
+            raise DomainError("COMMITMENT_CONFLICT", "Commitment already exists", status_code=409)
+        line = terms.items[0]
+        now = _now()
+        refs = list(dict.fromkeys([*source_evidence_refs, *assessment.evidence_refs,
+                                   *receipt.evidence_refs]))
+        record = CommitmentRecord(
+            tenant_id=context.tenant_id, commitment_id=commitment_id,
+            order_id=terms.order_request_id, customer_id=terms.customer_id,
+            terms={"sku": line.sku, "quantity": str(line.quantity), "unit": line.unit,
+                   "deadline": terms.window_end.isoformat(),
+                   "items": [{"sku": line.sku, "quantity": str(line.quantity), "unit": line.unit}],
+                   "mock_order_request_version": request_version,
+                   "mock_terms_hash": terms.terms_hash},
+            agreement_state=AgreementState.CONFIRMED.value,
+            feasibility_state=FeasibilityState.FEASIBLE.value,
+            risk_state=RiskState.NORMAL.value, recovery_state=RecoveryState.NONE.value,
+            fulfilment_state=FulfilmentState.NOT_STARTED.value,
+            commitment_version=1, evidence_refs=refs, updated_at=now,
+        )
+        audit = self._audit(
+            context=context, commitment_id=commitment_id,
+            event_type="commitment.mock_order_accepted", dimension="agreement",
+            previous_state=None, new_state={**_commitment_snapshot(record),
+                                            "order_request_id": terms.order_request_id,
+                                            "terms_hash": terms.terms_hash,
+                                            "request_version": request_version,
+                                            "reservation_operation_id": receipt.operation_id,
+                                            "assessment_id": assessment.assessment_id,
+                                            "integration_mode": "MOCK"},
+            evidence_refs=refs, reason=reason, occurred_at=now,
+            causation_id=receipt.operation_id,
+        )
+        outbox = self._outbox(
+            context=context, event_id=_id("evt"),
+            event_type="commitment.mock_order_accepted", commitment_id=commitment_id,
+            commitment_version=1,
+            payload={"commitment_id": commitment_id, "order_request_id": terms.order_request_id,
+                     "reservation_operation_id": receipt.operation_id,
+                     "audit_id": audit.audit_id, "integration_mode": "MOCK"},
+            occurred_at=now, causation_id=receipt.operation_id,
+        )
+        db.add_all([record, audit, outbox])
+        db.flush()
+        return _to_commitment(record)
+
     def create_request(
         self,
         db: Session,
