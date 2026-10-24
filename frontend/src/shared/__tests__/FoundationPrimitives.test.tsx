@@ -177,6 +177,29 @@ describe("shared frontend foundation", () => {
     expect(onConfirm).toHaveBeenCalledOnce();
   });
 
+  it("disables confirm button when confirmDisabled is true and renders children", () => {
+    const onConfirm = vi.fn();
+    const { rerender } = render(
+      <ConfirmationDialog open title="Input Dialog" description="Provide reason" confirmDisabled={true} onConfirm={onConfirm} onOpenChange={vi.fn()}>
+        <textarea data-testid="custom-input" placeholder="Type reason" />
+      </ConfirmationDialog>,
+    );
+    expect(screen.getByTestId("custom-input")).toBeInTheDocument();
+    const confirmBtn = screen.getByRole("button", { name: "Confirm" });
+    expect(confirmBtn).toBeDisabled();
+    fireEvent.click(confirmBtn);
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    rerender(
+      <ConfirmationDialog open title="Input Dialog" description="Provide reason" confirmDisabled={false} onConfirm={onConfirm} onOpenChange={vi.fn()}>
+        <textarea data-testid="custom-input" placeholder="Type reason" />
+      </ConfirmationDialog>,
+    );
+    expect(confirmBtn).toBeEnabled();
+    fireEvent.click(confirmBtn);
+    expect(onConfirm).toHaveBeenCalledOnce();
+  });
+
   it("keeps queued, confirmed and unknown-outcome mutations semantically distinct", () => {
     const { rerender } = render(<MutationStateView state={{ status: "queued" }} />);
     expect(screen.getByRole("status")).toHaveTextContent("Completion is not yet confirmed");

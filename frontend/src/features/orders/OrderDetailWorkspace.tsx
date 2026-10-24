@@ -22,7 +22,7 @@ export function OrderDetailWorkspace({ id, detail: d, now, busy, onRefresh, stat
   const choose = (next: typeof tabs[number]) => { setTab(next); document.getElementById(`${uid}-${next}`)?.focus(); };
   return <div className="order-detail">
     <nav aria-label="Order breadcrumb" className="od-breadcrumb"><Link to="/orders">Orders</Link><span aria-hidden="true">/</span><span aria-current="page">{id || 'Unavailable'}</span></nav>
-    <header className="od-heading"><div><p className="od-eyebrow">Order review &amp; decision workspace</p><h1>Order detail &amp; feasibility</h1>
+    <header className="od-heading"><div><p className="od-eyebrow">Order review &amp; decision workspace</p><h1 aria-label="Order detail &amp; feasibility">Order detail &amp; feasibility</h1>
       <p className="od-current-order">Order <strong>{id || 'Not available'}</strong></p>
       <p>Customer: {shown(d?.customer)} · Products: {d?.lines?.map(line => line.product || line.sku).filter(Boolean).join(', ') || 'Unavailable'}</p>
       <p>Created date: Unavailable · Priority: Unavailable · Lifecycle: {d?.status?.trim() || 'UNKNOWN'}</p>
