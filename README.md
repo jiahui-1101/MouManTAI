@@ -351,7 +351,7 @@ Complete, valid requests go to **Pending Acceptance**; unresolved or risky ones 
 
 Identity is handled conservatively (`association_service.py`): an extracted order reference alone never authorises a link, and identity is never inferred from name similarity or model output.
 
-The final **Contact Registry** starts each new person as `UNVERIFIED`. An authorized human confirms Customer or Supplier role, tenant and immutable channel identifiers. Subsequent routing requires the exact verified identity and trustworthy Order ID/context; cross-channel merges require verified identity evidence. Spoofing, mismatches, revocation or ambiguous links fail closed or enter Human Review. Verification actor, time, method, evidence and revocation history are auditable.
+The target **Contact Registry** starts each new person as `UNVERIFIED`. An authorized human confirms Customer or Supplier role, tenant and immutable channel identifiers. Subsequent routing requires the exact verified identity and trustworthy Order ID/context; cross-channel merges require verified identity evidence. Spoofing, mismatches, revocation or ambiguous links fail closed or enter Human Review. Verification actor, time, method, evidence and revocation history are auditable.
 
 ### 6. Deterministic Feasibility Engine
 
