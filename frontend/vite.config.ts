@@ -1,11 +1,15 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig({
+export default defineConfig(({ command, mode }) => ({
   plugins: [react()],
   server: {
     host: "127.0.0.1",
     proxy: {
+      // Only the explicit local demo reads use the isolated read-only runtime.
+      // All shared APIs retain their existing 8000 backend and identity headers.
+      ...(command === "serve" && mode === "demo" && process.env.VITE_ORDERS_DEMO === "1"
+        ? { "/v1/demo/orders": "http://127.0.0.1:8001" } : {}),
       "/dev/p1": "http://127.0.0.1:8000",
       "/v1/messages": "http://127.0.0.1:8000",
       "/v1/contexts": "http://127.0.0.1:8000",
@@ -50,4 +54,4 @@ export default defineConfig({
     setupFiles: "./src/test/setup.ts",
     testTimeout: 15000,
   },
-});
+}));
