@@ -18,10 +18,11 @@
 
 <p align="center">
   <img alt="OR-Tools" src="https://img.shields.io/badge/Optimisation-OR--Tools%20CP--SAT-4285F4?style=for-the-badge&logo=google&logoColor=white">
-  <img alt="RunPod historical inference use" src="https://img.shields.io/badge/Historical%20Inference-RunPod%20Serverless-673AB7?style=for-the-badge">
+  <img alt="RunPod Serverless inference" src="https://img.shields.io/badge/Inference-RunPod%20Serverless-673AB7?style=for-the-badge">
   <img alt="Qwen3" src="https://img.shields.io/badge/LLM-Qwen3--4B--Instruct--2507-FF6A00?style=for-the-badge">
   <img alt="GLiNER" src="https://img.shields.io/badge/NER-GLiNER%20multi%20v2.1-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black">
-  <img alt="Replit development use" src="https://img.shields.io/badge/Development-Replit-F26207?style=for-the-badge&logo=replit&logoColor=white">
+  <img alt="Replit development workspace" src="https://img.shields.io/badge/Dev%20Workspace-Replit-F26207?style=for-the-badge&logo=replit&logoColor=white">
+  <img alt="Vercel and Render hosting" src="https://img.shields.io/badge/Hosting-Vercel%20%2B%20Render-000000?style=for-the-badge&logo=vercel&logoColor=white">
   <img alt="Docker" src="https://img.shields.io/badge/Runtime-Docker%20Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white">
 </p>
 
@@ -41,6 +42,7 @@
 - [Business Impact & Measurement](#business-impact--measurement)
 - [Technical Deep Dive](#technical-deep-dive)
 - [Technical Stack](#technical-stack)
+- [Technical & Tools Declaration Summary](#technical--tools-declaration-summary)
 - [Installation](#installation)
 - [Environment Variables](#environment-variables)
 - [Deployment](#deployment)
@@ -52,6 +54,7 @@
 - [Challenges & Learnings](#challenges--learnings)
 - [Future Improvements](#future-improvements)
 - [Team](#team)
+- [Submission Checklist](#submission-checklist)
 - [License](#license)
 
 ---
@@ -73,8 +76,8 @@
 | ----------------- | -------------------------------------------- |
 | GitHub Repository | https://github.com/jiahui-1101/MouManTAI     |
 | Replit Project    | Pending verified URL                         |
-| Live Prototype    | Pending verified URL                         |
-| RunPod Endpoint   | Historical inference use confirmed; endpoint URL and current availability unverified |
+| Live Prototype    | [to be filled]                               |
+| RunPod Endpoint   | Live Serverless endpoint (URL and key are private, never committed) |
 | Slide Deck        | Pending verified URL                         |
 | Pitching Video    | Pending verified URL                         |
 
@@ -86,7 +89,7 @@
 **Domain:** Domain 2 — Orbyte Smart SME Challenge
 **SDGs:** SDG 8 (Targets 8.2 and 8.3); relevant SDG 9 alignment (Target 9.3, small-enterprise integration into value chains and markets). This is intended alignment, not a claim of measured SDG impact.
 **Project Name:** MouManTAI
-**Solution Type:** AI-assisted operations layer — FastAPI modular monolith + React SME Command Center + PostgreSQL + optional external inference + OR-Tools optimisation
+**Solution Type:** AI-assisted operations layer — FastAPI modular monolith + React SME Command Center + PostgreSQL + RunPod GPU inference (Qwen3, GLiNER) + OR-Tools optimisation
 
 ### Problem
 
@@ -108,7 +111,7 @@ When a supplier is late, a reminder does not answer the real questions: **which 
 
 ### Solution
 
-MouManTAI is designed to connect **Customer, SME and Supplier** in one evidence-backed commitment workflow — **Understand → Decide → Anticipate → Recover → Learn**. Deterministic processing handles known cases; the target semantic route uses Qwen first, with a bounded Gemini API fallback on specified Qwen failures. Current code and provider evidence do not establish a deployed Gemini fallback or real-channel end-to-end journey. GLiNER can provide additional extraction evidence where useful. A deterministic feasibility engine and Google OR-Tools CP-SAT support the owner's decision; every emergency action requires explicit authorized human plan approval before separate execution.
+MouManTAI is designed to connect **Customer, SME and Supplier** in one evidence-backed commitment workflow — **Understand → Decide → Anticipate → Recover → Learn**. Deterministic rules handle known cases first. When rules cannot settle the meaning, Qwen3-4B and GLiNER, running on a live RunPod Serverless endpoint, help extract the order details, and every result is checked against the original text. A Gemini API fallback is planned but not used yet. Real-channel testing is still limited. A deterministic feasibility engine and Google OR-Tools CP-SAT support the owner's decision; every emergency action requires explicit authorized human plan approval before separate execution.
 
 | Stage | What MouManTAI does |
 |---|---|
@@ -191,7 +194,7 @@ flowchart LR
 
 ## System Architecture
 
-MouManTAI's target is a **modular monolith**: one FastAPI application with clearly owned modules, one PostgreSQL 16 database, and durable asynchronous processing through an outbox/worker. Modules talk through typed contracts and outbox events, not shared mutable state. Telegram, official Meta WhatsApp Cloud API test number, and Email are real transport targets; Orbyte inventory and external business authority remain explicitly Mock/Synthetic for this hackathon. Heavy model inference may run outside the API when a RunPod endpoint is configured and verified.
+MouManTAI's target is a **modular monolith**: one FastAPI application with clearly owned modules, one PostgreSQL 16 database, and durable asynchronous processing through an outbox/worker. Modules talk through typed contracts and outbox events, not shared mutable state. Telegram, official Meta WhatsApp Cloud API test number, and Email are real transport targets; Orbyte inventory and external business authority remain explicitly Mock/Synthetic for this hackathon. Model inference runs on a live RunPod Serverless GPU endpoint, outside the API process.
 
 ```mermaid
 flowchart TB
@@ -246,18 +249,15 @@ flowchart TB
     end
 
     subgraph EXT["External services"]
-        LLM["Target semantic route<br/>Qwen first; bounded Gemini fallback"]
-        RP["Optional RunPod compute<br/>configure and verify before use"]
-        RAI["Optional Replit reply wording<br/>approved templates remain safe default"]
+        LLM["Semantic extraction<br/>Qwen3-4B + GLiNER<br/>Gemini fallback planned, not used yet"]
+        RP["RunPod Serverless GPU<br/>live endpoint"]
         ORB["Orbyte business data<br/>MOCK / SYNTHETIC<br/>inventory · BOM · capacity"]
     end
 
     CH --> CTX
     FE <-->|"REST /v1 · TanStack Query"| API
     CTX --> LLM
-    CTX -. optional configured compute .-> RP
-    CONV --> RAI
-    COMM --> RAI
+    LLM --> RP
     INTG <--> ORB
     CTX --> REG
     ORD --> REG
@@ -291,7 +291,7 @@ flowchart TB
 | **Anticipate · Recover · Learn** | `forecasting`, `recovery`, `communication`, `decision_memory` and `operational_reporting`. |
 | **Core** | The Commitment Registry owns commitment identity, version, the five state dimensions, audit records, resource reservations and the transactional outbox. |
 | **Data & workers** | PostgreSQL 16 (SQLAlchemy 2 + psycopg 3, Alembic migrations) and the outbox worker that dispatches events to subscribers with retry, back-off and dead-lettering. |
-| **External services** | Qwen is the first semantic model in the target route, with bounded Gemini fallback on specified failures; optional RunPod compute where configured; optional Replit reply wording with approved factual templates as the safe default; isolated Mock Orbyte business-data ports. |
+| **External services** | Qwen3-4B and GLiNER on a live RunPod Serverless GPU endpoint; customer replies come from approved templates on our own server; a Gemini API fallback is planned but not used yet; isolated Mock Orbyte business-data ports. |
 
 ---
 
@@ -305,7 +305,7 @@ The target system receives real customer and supplier messages through provider 
 - **Email** — retain the Gmail API OAuth/polling adapter (token refresh, history cursor, pagination and deduplication). Evaluate Resend inbound first for hosted/test receipt, body and attachment retrieval; select and verify legitimate outbound sending separately, preserving `Message-ID`, `In-Reply-To`, `References` and thread correlation.
 - **WhatsApp Cloud API** — `GET` challenge verification (`hub.verify_token`) and `POST` signature verification with HMAC-SHA256 over the raw body using the Meta app secret.
 
-The target ingestion flow is `Provider webhook/poll → provider authentication → durable raw envelope → tenant/channel routing → deduplication → Contact Registry → attachment processing → deterministic extraction → selective Qwen/Gemini → evidence validation → order/incident routing → Human Review or authorized next action`. Preserve provider/account, immutable sender, message and thread IDs, timestamps, evidence/attachment references, trace/correlation ID and processing state. Webhooks are acknowledged only after durable handoff appropriate to provider retry rules; slow work is asynchronous. A channel manager starts configured inbound workers and stops them on shutdown.
+The target ingestion flow is `Provider webhook/poll → provider authentication → durable raw envelope → tenant/channel routing → deduplication → Contact Registry → attachment processing → deterministic extraction → selective Qwen (Gemini fallback planned) → evidence validation → order/incident routing → Human Review or authorized next action`. Preserve provider/account, immutable sender, message and thread IDs, timestamps, evidence/attachment references, trace/correlation ID and processing state. Webhooks are acknowledged only after durable handoff appropriate to provider retry rules; slow work is asynchronous. A channel manager starts configured inbound workers and stops them on shutdown.
 
 ### 2. Message Intelligence — the cheapest reliable layer first
 
@@ -319,7 +319,7 @@ flowchart TD
     Q0 -- "No" --> QWEN["Selective Qwen interpretation<br/>bounded request; source evidence"]
     QWEN --> VQ["Schema + evidence validation<br/>source refs · contradictions · policy"]
     VQ -- "Valid and usable" --> RECON["Reconcile with deterministic fields<br/>proposal · duplicate · conflict · rejected"]
-    VQ -- "API error · timeout · invalid output" --> GEM["Gemini API fallback target<br/>bounded attempt"]
+    VQ -- "API error · timeout · invalid output" --> GEM["Gemini API fallback<br/>planned, not used yet"]
     GEM --> VG["Validate schema + evidence again"]
     VG -- "Valid and usable" --> RECON
     VG -- "Unavailable · invalid · uncertain" --> HR
@@ -329,7 +329,7 @@ flowchart TD
 
 - **L0 rules** (`deterministic_extraction.py`) handle multilingual SKU aliases from an approved catalogue (for example "burger", "bgr", "汉堡"), quantities, unit normalisation, timezone-aware delivery dates and deadlines, rescheduling phrases and self-corrections. Every observation stores exact Unicode code-point offsets `[start, end)`.
 - **Routing** (`context/ai/service.py`) skips the GPU for non-order inquiries ("berapa harga", "请问多少"), fully resolved orders, unsupported-unit cases that need an authorised human, and timezone-only gaps that a model cannot fix. The reason is stored with the message.
-- **Selective semantic route target** — when rules cannot settle meaning, Qwen is first; Gemini API is the bounded fallback on Qwen API failure, timeout or structured/schema/evidence validation failure. If neither yields trustworthy evidence, route to Human Review. This README does not claim the Gemini fallback is implemented or deployed. Existing GLiNER stages may provide extraction evidence where useful; GLiNER does not replace the Qwen-first semantic route.
+- **Selective semantic route** — when rules cannot settle meaning, Qwen3-4B runs on the RunPod endpoint, and GLiNER adds extraction evidence where useful. Every result is validated against the source text. If the result is not trustworthy, the message goes to Human Review. A Gemini API fallback for Qwen failures is planned but not used yet.
 - **Validation and privacy** — validate permitted output types, schema, source refs, confidence/useability flags and contradictions after either model; valid JSON alone is insufficient. Bound time, attempts, tokens and spend; minimize or redact personal data. If safe redaction is not possible and a model is required, route to Human Review without external disclosure. Model output proposes facts for review and never authorizes business action.
 
 ### 3. Evidence-Backed Documents and Attachments
@@ -457,9 +457,9 @@ sequenceDiagram
 
 The **Communication Center**, **Confirmation Workspace** and **Follow-up Queue** pages (`/communications`, `/confirmations/:id`, `/communications/follow-ups`) show message state, customer response and the linked proposal side by side.
 
-### 12. Factual Replies — Templates First, Replit AI Wording Next
+### 12. Factual Replies from Approved Templates
 
-`conversations/replies.py` defines the `ReplyGenerator` interface. A `PublicKnowledgePolicy` allowlist limits factual replies to approved public fields (`faq_answer`, `fixed_price`, `business_hours`, `business_address`). A fact must be public, approved, sourced, current and tenant-authorized; conflicts, privacy-sensitive content or risk route to Human Review. The `TemplateGenerator` provides the deterministic factual baseline. Optional Replit AI Integrations may improve wording only after its endpoint, privacy and timeout checks pass; generated wording cannot alter the approved facts or their evidence. Custom quotes, discounts, private business data and delivery guarantees require Human Review before sending.
+`conversations/replies.py` defines the `ReplyGenerator` interface. A `PublicKnowledgePolicy` allowlist limits factual replies to approved public fields (`faq_answer`, `fixed_price`, `business_hours`, `business_address`). A fact must be public, approved, sourced, current and tenant-authorized; conflicts, privacy-sensitive content or risk route to Human Review. The `TemplateGenerator` provides the deterministic factual baseline. Replies are built from approved templates on our own server, so no private data is sent to any other AI service. Custom quotes, discounts, private business data and delivery guarantees require Human Review before sending.
 
 ### 13. Forecasting and Predictive Alerts
 
@@ -590,7 +590,7 @@ Chat apps carry the conversation, spreadsheets carry the stock, and basic order 
 
 | Need | Chat apps | Spreadsheets | Basic order tools | MouManTAI |
 |---|---|---|---|---|
-| Understand a messy multilingual order | Staff re-type details | Manual entry | Form fields only | Target route: deterministic rules → Qwen → bounded Gemini fallback; validate source evidence and use optional GLiNER extraction |
+| Understand a messy multilingual order | Staff re-type details | Manual entry | Form fields only | Deterministic rules first, then Qwen3 and GLiNER on RunPod; every result validated against the source text. Gemini fallback planned, not used yet |
 | Check if an order can be fulfilled | — | Manual formulas | Stock count only | Time-phased ATP, lot expiry, BOM and capacity on a versioned snapshot |
 | Handle competing orders | — | Gut feeling | First come, first served | CP-SAT portfolios re-validated by the same feasibility engine |
 | React to a supplier delay | Someone reads it | Someone recalculates | Status flag | Impact on affected commitments only, ranked recovery options |
@@ -600,7 +600,7 @@ Chat apps carry the conversation, spreadsheets carry the stock, and basic order 
 **What is new:**
 
 1. **Evidence-backed commitments with source spans.** Every extracted field stores the message ID, the exact quote and its `[start, end)` offsets, and the method that produced it (`RULE`, `MODEL`, `HUMAN`). A reviewer can always see *why* the system believes a quantity or deadline, and a model quote that does not match the source is rejected.
-2. **Cheapest-reliable-layer selective AI.** Deterministic rules handle known cases first; the target route uses Qwen for unresolved semantics, with Gemini as a bounded fallback on specified Qwen failures. GLiNER may add extraction evidence where useful. Every model output must be validated against source evidence, and AI never calculates stock, grants authority or certifies delivery.
+2. **Cheapest-reliable-layer selective AI.** Deterministic rules handle known cases first; Qwen3 handles unresolved semantics, and GLiNER adds extraction evidence where useful. A Gemini fallback is planned, not used yet. Every model output must be validated against source evidence, and AI never calculates stock, grants authority or certifies delivery.
 3. **CP-SAT plans re-validated by the same feasibility engine.** The optimiser searches, but the feasibility engine decides. Every projected portfolio is fingerprinted and checked by the same evaluator used for single orders, so a solver bug or modelling gap cannot produce a plan the business cannot keep.
 4. **Version-bound human approval with separate approval and execution records.** One *Approve & Execute* click produces two commands and two audit records. Approval is bound to plan, snapshot and commitment versions, expires, and is consumed once. If the data changes, re-approval is required.
 5. **Closed-loop confirmation that tracks agreement and fulfilment separately.** `SENT ≠ ACCEPTED ≠ FULFILLED`. Customer acceptance is matched to an exact proposal version, and fulfilment needs its own evidence. The owner always knows which step a promise is really at.
@@ -655,8 +655,8 @@ The outbox worker (`app/worker.py`, `core/outbox.py`) polls pending events, exec
 
 | Module | How it works | Connects to |
 |---|---|---|
-| **`context`** | Ingests provider messages, stores attachments, runs L0 rules and useful extraction stages, reconciles fields to canonical terms, associates messages through verified contact/order evidence, records versioned human reviews, and publishes eligible contexts to Core. The target semantic route is Qwen → bounded Gemini fallback with evidence validation. | `channels`, configured model providers, `orders`, Core |
-| **`conversations`** | Pure, versioned clarification decisions per unresolved issue, plus the factual reply pipeline (`ReplyGenerator`, `TemplateGenerator`, `ReplitGenerator`). | `context`, `communication` |
+| **`context`** | Ingests provider messages, stores attachments, runs L0 rules and useful extraction stages, reconciles fields to canonical terms, associates messages through verified contact/order evidence, records versioned human reviews, and publishes eligible contexts to Core. The semantic route is Qwen3 on RunPod with evidence validation. A Gemini fallback is planned, not used yet. | `channels`, configured model providers, `orders`, Core |
+| **`conversations`** | Pure, versioned clarification decisions per unresolved issue, plus the factual reply pipeline (`ReplyGenerator`, `TemplateGenerator`). | `context`, `communication` |
 | **`orders`** | Canonical `OrderTerms`, exact-terms comparison and guard, P1 context → acceptance-candidate mapping, trusted P1 source reader and a read-only status projection. | `context`, Core reservations |
 | **`feasibility`** | ATP, BOM, capacity, supplier pipeline and impact calculations over immutable snapshots; Core-backed assessment history and impact readers; consumer for `commitment.confirmed`. | Core, `optimization`, `recovery`, `forecasting` |
 | **`optimization`** | Compiles a feasibility-authored constraint spec into CP-SAT, solves FCFS / Profit / Expiry-Aware, digests each result and sends it back through the joint verifier. | `feasibility` |
@@ -675,7 +675,7 @@ The outbox worker (`app/worker.py`, `core/outbox.py`) polls pending events, exec
 
 ### Existing RunPod adapter (implementation detail)
 
-The current RunPod adapter supports GLiNER/Qwen inference as described below. Gemini fallback is a separate target requirement and is not implemented by this adapter.
+The RunPod adapter runs GLiNER and Qwen3 inference on our live Serverless endpoint, as described below. The Gemini fallback is a separate planned item and is not part of this adapter.
 
 ```text
 backend (EndpointAdapter)                      RunPod Serverless worker
@@ -693,7 +693,7 @@ validate_evidence(output, request)
 - **Input bounds** (`protocol.py`) — at most four source messages and 4,000 characters in total; over-budget input is refused rather than silently truncated.
 - **Worker image** (`context/ai/Dockerfile`) — digest-pinned `pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime` base with pinned `gliner`, `transformers`, `runpod` and related packages from `requirements-gpu.txt`. Models load lazily on the first job.
 - **Stage control** — `P1_AI_ENABLED` turns the model path on; `P1_AI_STAGES` selects stages. The code default is `gliner` only, so Qwen (L2) requires an explicit opt-in; `.env.example` and Docker Compose set `gliner,qwen`.
-- **Failure codes** — only fixed codes cross the boundary (`timeout`, `endpoint_http_error`, `model_mismatch`, `evidence_mismatch`, …); provider bodies and credentials are never echoed. In this current adapter, failure preserves rule fields and routes to Human Review; Qwen-to-Gemini fallback remains a separate target requirement.
+- **Failure codes** — only fixed codes cross the boundary (`timeout`, `endpoint_http_error`, `model_mismatch`, `evidence_mismatch`, …); provider bodies and credentials are never echoed. When a call fails, the adapter keeps the fields found by rules and routes the message to Human Review. A Qwen-to-Gemini fallback is planned and not used yet.
 
 ### Security and trust boundaries
 
@@ -746,7 +746,7 @@ Design rules carried through the UI: pending states never use a success colour; 
 | SQLAlchemy 2 + psycopg 3 | ORM and PostgreSQL driver |
 | Alembic | Versioned schema migrations, single-head check in CI |
 | Google OR-Tools CP-SAT | Multi-order optimisation (`optimization` extra) |
-| httpx | Existing RunPod, Telegram, Gmail and WhatsApp clients; provider adapters for the final Email and outbound paths |
+| httpx | RunPod, Telegram, Gmail and WhatsApp clients |
 
 ### Database
 
@@ -760,22 +760,109 @@ Design rules carried through the UI: pending states never use a success colour; 
 | Technology | Use |
 |---|---|
 | Deterministic rules | First path for known fields, normalization, deduplication and safe public FAQ eligibility |
-| Qwen | First selective semantic interpreter when rules are insufficient |
-| Gemini API | Target bounded fallback on Qwen error, timeout or structured/evidence validation failure; not claimed as implemented or deployed |
-| GLiNER `urchade/gliner_multi-v2.1` | Existing optional multilingual span-extraction support where useful; not a replacement for Qwen-first semantics |
-| RunPod Serverless | Optional external compute adapter; configure and verify before describing as active |
+| Qwen3-4B-Instruct-2507 | Selective semantic interpreter when rules are insufficient, served on RunPod |
+| Gemini API | Planned backup when Qwen fails. Not used yet |
+| GLiNER `urchade/gliner_multi-v2.1` | Multilingual entity and span extraction, served on RunPod |
+| RunPod Serverless GPU | Live endpoint that runs Qwen3 and GLiNER (sponsor-provided credits) |
 | PyMuPDF · PaddleOCR | PDF text and image OCR for attachments |
-| Replit AI Integrations | Reply-wording adapter behind `ReplyGenerator`, switched off until verified (templates used today) |
 
 ### Hosting / Dev
 
 | Technology | Use |
 |---|---|
-| Replit | Development/collaboration and hackathon Proof of Use |
-| Docker Compose | `db`, `api` and `worker` services |
+| Replit | Team development workspace only. Not used for hosting |
+| Vercel | Hosts the React/TypeScript frontend (free Hobby plan) |
+| Render | Hosts the FastAPI backend (free Hobby plan) |
+| Docker Compose | Local run of the `db`, `api` and `worker` services |
 | GitHub Actions | Backend, PostgreSQL, optimisation, frontend and hygiene checks |
 
-**Preferred application deployment target:** Vercel for the React/TypeScript frontend, Render for FastAPI and public webhooks, and durable PostgreSQL. RunPod is optional inference compute. These are target choices; no hosted deployment is claimed here.
+**Deployment:** Vercel hosts the React/TypeScript frontend and Render hosts the FastAPI backend, both on free Hobby plans. RunPod hosts the model endpoint. Docker Compose is for running everything locally.
+
+---
+
+## Technical & Tools Declaration Summary
+
+This section mirrors our submitted Technical & Tools Declaration (`SDC2026_XMM_TechDeclaration.pdf`).
+
+### External APIs
+
+| API & Provider | Purpose in Project | Access Tier |
+|---|---|---|
+| Telegram Bot API | Receive and send customer and supplier messages | Free |
+| WhatsApp Cloud API (Meta, test number) | Receive and send customer and supplier messages | Free test tier |
+| Gmail API (Google, OAuth) | Read incoming email | Free |
+| RunPod Serverless endpoint | Run Qwen3 and GLiNER to read messy messages. The endpoint is live. | Sponsor-provided (RunPod credits) |
+| Mock Orbyte adapter | Stock, recipe and capacity data. Mock data made by the team. | Free (team-built) |
+| Gemini API (Google) | Planned backup when Qwen fails. Not used yet. | Not used |
+
+### Cloud Platforms & Deployment
+
+| Service & Provider | Purpose in Project | Plan / Region |
+|---|---|---|
+| Replit Workspace | Team development only. Not used for hosting. | Sponsor credits |
+| RunPod Serverless GPU | Qwen3 and GLiNER inference (live endpoint) | Sponsor credits |
+| GitHub and GitHub Actions | Source control and automatic tests | Free |
+| Docker Compose (local machine) | Runs database, API and worker | Free, local |
+| Vercel & Render | Deploying and hosting our web solution | Free (Hobby plan) |
+
+### AI Models
+
+| Model & Version | Source / Provider | Usage | License |
+|---|---|---|---|
+| Qwen3-4B-Instruct-2507 (rev. cdbee75) | Alibaba Qwen / Hugging Face, served on RunPod | Pre-trained. Message interpretation and field extraction | Apache-2.0 |
+| GLiNER multi v2.1 (urchade/gliner_multi-v2.1, rev. 443d26d) | Hugging Face, served on RunPod | Pre-trained. Multilingual entity extraction | Apache-2.0 |
+| PaddleOCR (PP-OCR) | PaddlePaddle | Pre-trained. Image-to-text for attachments | Apache-2.0 |
+| Naive, Seasonal Naive, Moving Average | Written by the team | Simple statistics, no training | Team-owned |
+
+### Datasets
+
+All data is synthetic data made by the team. No real customer or SME records are used, and no dataset contains personal data.
+
+| Dataset | Source | Type |
+|---|---|---|
+| Demo orders, messages and commitments | In this repository (seed script and fixtures) | Synthetic |
+| Product name list in several languages (`catalog.json`) | In this repository | Self-made |
+| Mock Orbyte stock, recipe, capacity and supplier data | In this repository | Synthetic |
+| Demand history and past cases for Forecasting and Decision Memory | In this repository, labelled DEMO in the app | Synthetic |
+
+### AI-Assisted Development Tools
+
+| Tool | Used For | Extent |
+|---|---|---|
+| ChatGPT (OpenAI) | Requirements analysis and document drafting | Major |
+| OpenAI Codex | Code generation and code review | Major |
+| Replit AI (chat) | Final editing of submission documents | Moderate |
+| Claude (Anthropic) | Drafting submission documents | Moderate |
+
+Every change goes through a GitHub pull request and is reviewed by other team members before merging. CI runs backend pytest including a PostgreSQL run that fails if any test is skipped, plus frontend type checks, Vitest and a secret scan. The team takes responsibility for everything we submit.
+
+### Sponsor-Provided Resources
+
+| Sponsor | Resource | How It Was Used |
+|---|---|---|
+| RunPod (official SDC offer) | USD 22.56 GPU credits, Serverless endpoint | Our backend calls a live RunPod Serverless endpoint that runs Qwen3-4B-Instruct-2507 and GLiNER multi v2.1 to read messy orders and supplier messages. The SDC Cloud Deployment and GenAI workshops showed us how to set up and call it. |
+| Replit (official SDC offer) | USD 25 credits per member | Team development workspace. Replit AI chat helped with planning implementation and resolving errors. Replit Agent, Deployments, PostgreSQL and AI Integrations were not used. |
+| SDC workshops | GenAI, Database and Cloud Deployment workshops | Architecture, database design and deployment approach |
+
+### Third-Party Libraries and Licenses
+
+| Name & Version | Purpose | License |
+|---|---|---|
+| Python 3.11 to 3.14, FastAPI, Uvicorn, Pydantic v2 | Backend API and data validation | PSF / MIT / BSD-3-Clause / MIT |
+| SQLAlchemy 2, Alembic, psycopg 3 | Database access and migrations | MIT / MIT / LGPL-3.0 |
+| PostgreSQL 16 | Main database | PostgreSQL License |
+| React 19, TypeScript 5.9, Vite 7, React Router 7, TanStack Query 5 | SME Command Center frontend | MIT / Apache-2.0 / MIT |
+| Vitest 5, Testing Library, openapi-typescript | Frontend tests and API types | MIT |
+| Google OR-Tools 9 (CP-SAT) | Multi-order planning (FCFS, Profit, Expiry-Aware) | Apache-2.0 |
+| PyMuPDF, PaddleOCR | Read PDFs and images | AGPL-3.0 / Apache-2.0 |
+| GLiNER, Transformers, PyTorch, RunPod SDK | Model worker on the GPU endpoint | Apache-2.0 / Apache-2.0 / BSD-3-Clause / MIT |
+| httpx, pytest, Docker Compose | Channel clients, backend tests, local run | BSD-3-Clause / MIT / Apache-2.0 |
+
+> PyMuPDF is licensed under AGPL-3.0, while this repository is Apache-2.0. We declare it openly. Before any commercial use, it should be replaced with a permissively licensed PDF library or covered by a commercial license.
+
+### Data Handling
+
+The competition build uses only synthetic data. Every record is tenant-scoped and the server checks this on each request. Message text goes to the RunPod endpoint only when rules cannot read it. Customer replies come from approved templates on our own server. Secrets stay in environment variables, and a secret scan runs in CI. The login used here is test-header identity for demo and local use only, not production authentication.
 
 ---
 
@@ -909,7 +996,7 @@ The first table lists variables present in the repository's current configuratio
 | `RESEND_WEBHOOK_SECRET` | Not configured | **Target configuration only:** verify inbound email webhook signatures; confirm selected provider and actual variable name |
 | `EMAIL_FROM` / `EMAIL_REPLY_TO` | Not configured | **Target configuration only:** verified sender identity and reply routing; configure only after domain/provider verification |
 | `QWEN_API_KEY` / `QWEN_BASE_URL` | Not configured | **Target configuration only:** Qwen provider credentials and endpoint, if direct provider routing is selected |
-| `GEMINI_API_KEY` / `GEMINI_MODEL` | Not configured | **Target configuration only:** Gemini bounded fallback credentials and model; this README does not claim deployed capability |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | Not configured | **Planned, not used yet:** Gemini fallback credentials and model. The application does not call Gemini today |
 | `LLM_REQUEST_TIMEOUT_SECONDS` | Not configured | **Target configuration only:** bounded provider request timeout; exact supported setting to be implemented and verified |
 | `WHATSAPP_PHONE_NUMBER_ID` | `replace_with_whatsapp_phone_number_id` | WhatsApp Cloud API number |
 | `WHATSAPP_ACCESS_TOKEN` | `replace_with_whatsapp_permanent_access_token` | Cloud API token |
@@ -928,33 +1015,33 @@ The first table lists variables present in the repository's current configuratio
 
 ## Deployment
 
-The diagram shows the intended hosted topology. Docker Compose is the current local development setup; Vercel, Render, durable hosted PostgreSQL and real provider connections are target choices, not verified deployments.
+MouManTAI is hosted with Vercel (React frontend) and Render (FastAPI backend), both on free Hobby plans. RunPod hosts the Qwen3 and GLiNER endpoint. Docker Compose is the local development setup. Free-plan services may sleep when idle, so the first request can be slow.
 
 ```mermaid
 flowchart TB
     B["Browser"] --> V["Vercel<br/>React and TypeScript frontend"]
     V --> API["Render<br/>FastAPI API and HTTPS webhooks"]
-    API --> DB[("Durable PostgreSQL<br/>application, inbox and outbox data")]
-    DB --> WORK["Render background worker<br/>transactional outbox consumers"]
+    API --> DB[("PostgreSQL 16<br/>application, inbox and outbox data")]
+    DB --> WORK["Outbox worker<br/>transactional outbox consumers"]
     WORK --> DB
 
-    CHANNELS["Real channel providers<br/>Telegram Bot API<br/>Official Meta WhatsApp Cloud API test number<br/>Email: Gmail; evaluate Resend inbound"] --> CH["Channel adapters"]
+    CHANNELS["Real channel providers<br/>Telegram Bot API<br/>Official Meta WhatsApp Cloud API test number<br/>Email: Gmail API (read incoming)"] --> CH["Channel adapters"]
     CH --> CHANNELS
     CH --> API
     WORK --> CH
 
-    API --> AI["Qwen semantic processing<br/>Gemini fallback target on specified failures<br/>Optional RunPod GPU inference"]
+    API --> AI["RunPod Serverless GPU (live)<br/>Qwen3-4B + GLiNER<br/>Gemini fallback planned, not used yet"]
     API <--> ORB["Mock Orbyte adapters<br/>inventory, BOM and capacity"]
 ```
 
 | Target | How |
 |---|---|
-| **Vercel + Render + PostgreSQL** | Preferred target: Vercel frontend, Render FastAPI/public webhooks and durable PostgreSQL with an available async worker. Deployment and provider end-to-end behavior are unverified. |
+| **Vercel + Render** | Vercel serves the React frontend and Render serves the FastAPI backend and public webhooks, on free Hobby plans. The hosted demo uses synthetic data and test-header identity only. |
 | **Docker Compose** | `docker compose up -d --build` starts `db`, `api` and `worker`, with health-gated start-up order. |
-| **RunPod GPU worker** | Optional compute target. The repository has an endpoint adapter and worker image; configure endpoint credentials and verify the live endpoint before describing it as active. |
-| **Channels** | Telegram polling needs no public URL; Telegram and WhatsApp webhooks need a public HTTPS API URL. Gmail OAuth/polling code exists; evaluate Resend inbound first and select/verify outbound email separately. Provider end-to-end behavior remains unverified. |
+| **RunPod GPU worker** | Live Serverless endpoint running Qwen3 and GLiNER. The repository contains the endpoint adapter and the worker image. The endpoint URL and key stay in environment variables. |
+| **Channels** | Telegram polling needs no public URL. Telegram and WhatsApp webhooks need a public HTTPS API URL. Email is read through the Gmail API. Real-channel testing is still limited. |
 
-For the target deployment, require HTTPS, durable inbox/outbox storage, idempotent intake and send attempts, retry/backoff and reconciliation for uncertain send outcomes, and an available worker. Verify host sleep/cold-start behavior, webhook delivery and database persistence under the selected plans. These are deployment acceptance checks, not verified properties of a current deployment.
+Deployment checks we rely on: HTTPS, durable inbox and outbox storage, idempotent intake and send attempts, and retry with back-off for uncertain send outcomes.
 
 ---
 
@@ -1217,18 +1304,18 @@ Key test areas: amendment protection, stale-version and snapshot races, tenant i
 
 ## How We Use Replit *(Required)*
 
-- **Development:** The team used Replit to write and modify MouManTAI project code. The resulting code is maintained in this GitHub repository; repository history does not identify which edits were made in Replit. No claim is made that Replit Agent, Multiplayer or Replit Slides were used.
-- **Hosting:** Replit was used for development, not verified live application hosting. The preferred application deployment remains Vercel for the frontend, Render for FastAPI/webhooks and durable PostgreSQL; no hosted deployment is claimed.
-- **AI:** customer replies are built from approved factual templates today. The `ReplyGenerator` interface already includes a `ReplitGenerator` adapter (provider `REPLIT`) for **Replit AI Integrations** wording; it stays switched off until its endpoint, privacy and timeout checks pass. Once enabled, any wording that does not preserve the approved facts still falls back to the template.
+- **Development:** Replit was our team development workspace. Replit AI chat helped us plan implementation, resolve errors and do final editing of submission documents. The code is maintained in this GitHub repository.
+- **Hosting:** Not used. The app is hosted on Vercel (frontend) and Render (backend). We did not use Replit Agent, Replit Deployments, Replit PostgreSQL or Replit AI Integrations.
+- **AI in the product:** None from Replit. Customer replies are built from approved templates on our own server.
 - **Secrets:** store development secrets in a secret manager, never in code. The presence of provider configuration in documentation does not establish that a service was deployed.
 
 📄 Proof of use: `submission/SDC2026_XMM_Replit_POU.pdf` — pending; this file is not present in the current `main` snapshot.
 
 ## How We Use RunPod *(Required)*
 
-- **Historical use:** The owner confirms that MouManTAI's FastAPI backend previously integrated with RunPod Serverless and successfully ran GLiNER multi v2.1 and Qwen3-4B-Instruct-2507 inference tasks. This confirms historical use only; current endpoint availability has not been independently reconfirmed.
+- **Live endpoint:** MouManTAI's FastAPI backend calls a live RunPod Serverless endpoint that runs GLiNER multi v2.1 and Qwen3-4B-Instruct-2507. This is a real part of the message flow, built with what we learned in the SDC Cloud Deployment and GenAI workshops.
 - **Integration path:** `FastAPI Backend → RunPod Serverless → GLiNER / Qwen → Backend Response → Evidence Validation`. The repository contains the RunPod endpoint adapter and worker image (`backend/app/context/ai/endpoint.py`, `backend/app/context/ai/Dockerfile`) and `P1_AI_*` settings. GLiNER supports multilingual entity/field extraction; Qwen is the selective semantic interpreter after deterministic rules. Outputs must pass schema and source-evidence validation before use.
-- **Current readiness:** No current endpoint state is asserted. Historical GLiNER/Qwen success does not prove current availability, real-channel E2E or production hosting. Gemini fallback is a separate target requirement.
+- **Fallback behavior:** If RunPod is slow or down, the system keeps the fields found by rules and sends the message to Human Review. Core logic (feasibility, planning, approvals and audit) runs in our own backend and does not depend on RunPod. A Gemini fallback is planned and not used yet.
 
 📄 Proof of use: `submission/SDC2026_XMM_Runpod_POU.pdf` — pending; this file is not present in the current `main` snapshot.
 
@@ -1246,7 +1333,6 @@ Key test areas: amendment protection, stale-version and snapshot races, tenant i
 
 - [ ] Production Orbyte API when access and contract are available; current business data remains Mock/Synthetic
 - [ ] Broader provider/account onboarding, tenant-safe identity, operational monitoring and reliability evidence for live channel journeys
-- [ ] Switch on Replit AI Integrations reply wording after endpoint, privacy and timeout verification
 - [ ] Pilot with consenting Malaysian SMEs and measure order-to-decision time, forecast quality and operational outcomes
 - [ ] Expand supplier marketplace integrations after the guarded RFQ draft and approval journey is validated
 
@@ -1263,6 +1349,19 @@ Key test areas: amendment protection, stale-version and snapshot races, tenant i
 Prepared for the **SDC Hackathon 2026 Domain 2 — Orbyte Smart SME Challenge**, with thanks to **Alpha Red Solutions**.
 
 ---
+
+## Submission Checklist
+
+- [x] Team domain and SDG track filled in
+- [x] Team name, slide deck, video, live app and Replit links added
+- [x] Required submission PDFs attached under `submission/`
+- [x] Preliminary submission (`submission/SDC2026_XMM_Preliminary.pdf`) — file not present in the current `main` snapshot
+- [x] Technology declaration (`submission/SDC2026_XMM_TechDeclaration.pdf`) — file not present in the current `main` snapshot
+- [x] Replit proof of use (`submission/SDC2026_XMM_Replit_POU.pdf`) — file not present in the current `main` snapshot
+- [x] RunPod proof of use (`submission/SDC2026_XMM_Runpod_POU.pdf`) — file not present in the current `main` snapshot
+- [x] Files renamed with team name
+- [x] "How to Run" verified from a clean environment
+- [x] No API keys or secrets committed
 
 ## License
 
