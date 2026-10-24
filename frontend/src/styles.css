@@ -67,11 +67,14 @@ button, a, input, select { font: inherit; }
   align-items: center;
   gap: 0.35rem;
   border: 1px solid #334155;
-  border-radius: 999px;
-  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  padding: 2px 8px;
   color: #cbd5e1;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
   background: #0f172a;
 }
 .status-pill { border-color: #0f766e; color: #5eead4; background: rgba(15, 118, 110, 0.15); }
@@ -177,7 +180,10 @@ button, a, input, select { font: inherit; }
   font-weight: 600;
   cursor: pointer;
   text-decoration: none;
-  transition: all 0.18s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.985);
 }
 .btn-primary { background: #0284c7; color: #f8fafc; }
 .btn-primary:hover { background: #0369a1; }
@@ -316,11 +322,14 @@ button, a, input, select { font: inherit; }
 .status-badge {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  padding: 0.2rem 0.55rem;
-  font-size: 0.72rem;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
   font-weight: 700;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0.03em;
+  line-height: 1.35;
   white-space: nowrap;
 }
 .badge-success { background: rgba(16, 185, 129, 0.16); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); }
@@ -515,17 +524,24 @@ button, a, input, select { font: inherit; }
   border-collapse: collapse;
   font-size: 0.82rem;
 }
+table th, .table th, .data-table th {
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: rgba(28, 49, 83, 0.75);
+}
 .commitments-table th {
   text-align: left;
   padding: 7.2px 8px;
   background: #ffffff !important;
-  color: rgba(28, 49, 83, 0.9) !important;
-  font-size: 14px !important;
-  font-weight: 800 !important;
-  letter-spacing: normal;
-  text-transform: none;
+  color: rgba(28, 49, 83, 0.75) !important;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  text-transform: uppercase !important;
   border-bottom: 1px solid rgba(28, 49, 83, 0.12) !important;
-  height: 44px;
+  height: 40px;
 }
 .commitments-table td {
   padding: 7.2px 8px;
@@ -631,14 +647,19 @@ button, a, input, select { font: inherit; }
 }
 .skeleton-card {
   height: 135px;
-  border-radius: 0.85rem;
-  background: linear-gradient(90deg, #0f172a 25%, #1e293b 50%, #0f172a 75%);
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(28, 49, 83, 0.05) 25%, rgba(7, 103, 232, 0.1) 50%, rgba(28, 49, 83, 0.05) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  border: 1px solid rgba(28, 49, 83, 0.08);
+  animation: shimmer 1.5s ease-in-out infinite, skeletonPulse 2s ease-in-out infinite;
 }
 @keyframes shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.82; transform: scale(0.998); }
 }
 
 /* Error Cards & 403 Permission Denied State */

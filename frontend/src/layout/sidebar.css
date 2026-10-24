@@ -68,7 +68,7 @@
   background: transparent;
   color: rgba(28, 49, 83, 0.7);
   cursor: pointer;
-  transition: background-color .15s ease, color .15s ease, transform .1s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 .sidebar-toggle:hover { background: #f1f5f9; color: rgba(28, 49, 83, 0.9); }
 .sidebar-toggle:active { transform: scale(0.92); }
@@ -93,7 +93,7 @@
   text-align: left;
   cursor: pointer;
   box-sizing: border-box;
-  transition: background-color .15s ease, border-color .15s ease, transform .1s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 .sidebar-org-trigger:hover { border-color: rgba(28, 49, 83, 0.22); background: #f8fbff; }
 .sidebar-org-trigger:active { transform: scale(0.985); }
@@ -163,7 +163,7 @@
   text-decoration: none;
   cursor: pointer;
   box-sizing: border-box;
-  transition: background-color .15s ease, color .15s ease, transform .1s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 .sidebar-item:hover:not(.is-active):not(.is-unavailable) {
   background: rgba(7, 103, 232, 0.05);
@@ -268,7 +268,7 @@
   text-align: left;
   cursor: pointer;
   box-sizing: border-box;
-  transition: background-color .15s ease, border-color .15s ease, transform .1s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 .sidebar-account-btn:hover {
   background: #f8fbff;
@@ -371,7 +371,7 @@
   color: rgba(28, 49, 83, 0.9);
   text-align: left;
   cursor: pointer;
-  transition: background-color .15s ease, transform .1s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 .sidebar-account-option:hover, .sidebar-account-option:focus-visible { background: #f8fbff; outline: none; }
 .sidebar-account-option:active { transform: scale(0.98); }

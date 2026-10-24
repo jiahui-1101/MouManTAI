@@ -709,7 +709,7 @@ function LiveRecoveryPage({ commitmentId }: { commitmentId: string }) {
                 color: "var(--orbyte-text)",
                 boxSizing: "border-box",
               }}
-              placeholder={`Provide rationale for ${pendingDecision.decision.replaceAll("-", " ")}...`}
+              placeholder={`Provide rationale for ${pendingDecision.decision.replaceAll("-", " ")} (min. 5 characters)...`}
               value={decisionReason}
               onChange={(e) => setDecisionReason(e.target.value)}
               aria-describedby="decision-reason-hint"
