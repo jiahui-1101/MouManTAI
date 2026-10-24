@@ -356,7 +356,7 @@ export function OverviewPage() {
                 </div>
 
                 <div className="attention-body">
-                  <p className="attention-summary">{item.summary}</p>
+                  <p className="attention-summary" style={{ color: "#1e293b" }}>{item.summary}</p>
                   <div className="attention-meta">
                     <span>
                       Commitment: <code>{item.commitment_id}</code>

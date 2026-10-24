@@ -52,7 +52,7 @@ export function OrderDetailPage({ orderId, source, decisionSource }: OrderDetail
       <Link to="/orders/calendar">Calendar & Scheduling</Link>
     </nav>
 
-    <h1>Order detail & feasibility</h1>
+    <h1 aria-label="Order detail & feasibility">Order detail & feasibility</h1>
     <p>Order {id || 'Not available'} · Read-only decision support</p>
   </div>
       <button type="button" disabled={!id || query.isFetching} onClick={() => {
