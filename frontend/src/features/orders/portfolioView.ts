@@ -2,11 +2,12 @@ import { instant } from './queue';
 import { portfolioFresh } from './portfolioSource';
 import type { PortfolioDimension, PortfolioScenario, PortfolioSnapshot } from './portfolioTypes';
 
+export const scenarioUsable = (s: PortfolioScenario) => s.validation === 'VALIDATED' && ['OPTIMAL', 'FEASIBLE_NOT_PROVEN_OPTIMAL', 'NOT_APPLICABLE'].includes(s.solverStatus);
 export const financialDimensions = new Set<PortfolioDimension>(['revenue', 'cost', 'profit', 'margin']);
 export function metricText(data: PortfolioSnapshot, scenario: PortfolioScenario, key: PortfolioDimension, now: number): string {
   const metric = scenario.metrics[key];
   if (metric?.state === 'REDACTED' || (financialDimensions.has(key) && data.financialAccess === 'REDACTED')) return 'Redacted';
-  if (!portfolioFresh(data, now) || scenario.validation !== 'VALIDATED' || !metric || metric.state !== 'KNOWN' ||
+  if (!portfolioFresh(data, now) || !scenarioUsable(scenario) || !metric || metric.state !== 'KNOWN' ||
     !metric.evidence.length || (financialDimensions.has(key) &&
       (data.financialAccess !== 'AUTHORIZED' || metric.financialModelComplete !== true || !metric.unit?.trim() ||
         !/^-?\d+(\.\d+)?$/.test(metric.value ?? '')))) return 'Unknown';

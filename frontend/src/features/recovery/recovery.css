@@ -28,8 +28,8 @@
 .recovery-metric-grid strong { display: block; margin-top: 0.25rem; color: #f8fafc; font-size: 0.88rem; }
 .recovery-option-meta { display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; color: #94a3b8; font-size: 0.72rem; }
 .recovery-stale { color: #fbbf24; font-weight: 800; }
-.recovery-evidence-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.recovery-evidence-chip { border: 1px solid #334155; border-radius: 0.3rem; padding: 0.15rem 0.35rem; color: #cbd5e1; font-family: monospace; font-size: 0.7rem; }
+.recovery-evidence-chip { border: 1px solid #cbd5e1; border-radius: 0.3rem; padding: 0.15rem 0.35rem; color: #1e293b; background: #ffffff; font-family: monospace; font-size: 0.72rem; font-weight: 600; transition: all 0.15s ease; }
+.recovery-evidence-chip:hover { background: #f8fafc; border-color: #94a3b8; color: #0767e8; }
 .recovery-detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .recovery-detail-grid h3 { margin: 0; color: #cbd5e1; font-size: 0.82rem; }
 .recovery-execution-gate, .recovery-audit-note { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.8rem 1rem; border-left: 3px solid #f59e0b; border-radius: 0 0.55rem 0.55rem 0; background: rgba(245, 158, 11, 0.08); color: #fde68a; font-size: 0.8rem; line-height: 1.5; }

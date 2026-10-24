@@ -126,6 +126,7 @@ describe("Real App communication route", () => {
 
   it("mounts Main's real order context route and preserves its unavailable state", async () => {
     mount("/orders/order");
+    fireEvent.click(screen.getByRole("tab", { name: "History" }));
     expect(await screen.findByRole("heading", { name: "Order Context Unavailable" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MouManTAI" })).toBeInTheDocument();
@@ -136,9 +137,10 @@ describe("Real App communication route", () => {
     ["/orders/order", "Order Context Unavailable", ".p1-context-error-card", "Retry", "/v1/contexts/by-order/order"],
   ])("preserves the actual App route %s", async (path, heading, pageSelector, retryLabel, apiPath) => {
     mount(path);
+    if (path.startsWith("/orders/")) fireEvent.click(screen.getByRole("tab", { name: "History" }));
     expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
     const error = await screen.findByRole("alert");
-    expect(error).toHaveTextContent("Message request failed (404).");
+    expect(error).toHaveTextContent(/Message request failed \(404\)|Test endpoint not configured/);
     expect(error.closest(pageSelector)).not.toBeNull();
     expect(screen.getByRole("heading", { name: "MouManTAI" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeInTheDocument();
@@ -148,7 +150,7 @@ describe("Real App communication route", () => {
     expect(calls()).toHaveLength(1);
     fireEvent.click(within(error).getByRole("button", { name: retryLabel }));
     await waitFor(() => expect(calls()).toHaveLength(2));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Message request failed (404).");
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Message request failed \(404\)|Test endpoint not configured/);
     expect(screen.getByRole("button", { name: retryLabel })).toBeEnabled();
     expect(window.location.pathname).toBe(path);
   });

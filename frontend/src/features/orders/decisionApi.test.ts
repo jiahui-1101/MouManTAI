@@ -8,6 +8,12 @@ const auth = { tenantId: 'synthetic-decision-tenant', actorId: 'user_manager_01'
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 afterEach(() => vi.unstubAllGlobals());
 describe('Verified Core decision read adapter', () => {
+  it('binds customer identity independently of a synthetic display label', () => {
+    const displayed = { ...order(), customer: 'Friendly synthetic customer label', customerId: 'synthetic-customer' };
+    expect(mapCoreDecision(coreFixture.commitment, displayed, auth.tenantId).currentAgreement).not.toBeNull();
+    expect(() => mapCoreDecision({ ...coreFixture.commitment, customer_id: 'different' }, displayed, auth.tenantId)).toThrow(/binding/);
+    expect(() => mapCoreDecision(coreFixture.commitment, { ...displayed, customerId: '' }, auth.tenantId)).toThrow(/binding/);
+  });
   it('maps actual FastAPI-serialized legacy confirmation without inventing request identity, price, assent or reservation', () => {
     const mapped = mapCoreDecision(coreFixture.commitment, order(), auth.tenantId);
     expect(mapped.currentAgreement?.version).toBe('3'); expect(mapped.currentAgreement?.terms.basis).toBe('LEGACY_CORE_TERMS');
@@ -60,4 +66,14 @@ describe('Verified Core decision read adapter', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(coreFixture.commitment)).mockResolvedValueOnce(response({}, 503)));
     await expect(coreOrderDecisionSource.load(order(), auth, new AbortController().signal)).rejects.toMatchObject({ status: 503 });
   });
+});
+
+it('projects actual Core fulfilment separately without inventing order acceptance or delivery verification', () => {
+  const mapped = mapCoreDecision({ ...coreFixture.commitment, fulfilment_state: 'FULFILLED' }, order(), auth.tenantId);
+  expect(mapped.legacyFulfilment).toMatchObject({ state: 'FULFILLED', commitmentId: 'synthetic-commitment', commitmentVersion: '3', evidence: ['synthetic-core-evidence'] });
+  expect(mapped.requestVersion).toBeUndefined(); expect(mapped.receipts).toBeUndefined();
+});
+
+it.each(['INVENTED', null])('rejects malformed Core fulfilment state %s', fulfilment => {
+  expect(() => mapCoreDecision({ ...coreFixture.commitment, fulfilment_state: fulfilment }, order(), auth.tenantId)).toThrow();
 });

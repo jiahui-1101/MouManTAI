@@ -243,3 +243,32 @@ describe('Source-supplied strategy availability', () => {
     expect(within(screen.getByRole('region', { name: 'Strategy availability' })).getAllByText(/Not verified/)).toHaveLength(3);
   });
 });
+
+
+describe('Smart portfolio dashboard selection', () => {
+ it('changes the selected strategy, allocation and explanation without fetching or mutating the source', async () => {
+  const data=portfolioWithExpiryFixture();const before=structuredClone(data);const source=sourceFor(data);setup(source);
+  await screen.findByRole('table',{name:'Selected strategy proposed allocations'});const button=screen.getByRole('button',{name:'Select Profit strategy'});button.focus();expect(button).toHaveFocus();fireEvent.click(button);
+  expect(screen.getByRole('heading',{name:'Selected Strategy: Profit candidate'})).toBeInTheDocument();expect(button).toHaveAttribute('aria-pressed','true');
+  let table=screen.getByRole('table',{name:'Selected strategy proposed allocations'});
+  expect(within(within(table).getByRole('rowheader',{name:/one/}).closest('tr')!).getByText('Exclude')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Select Expiry-aware strategy'}));
+  table=screen.getByRole('table',{name:'Selected strategy proposed allocations'});expect(within(table).getAllByText('Defer')).toHaveLength(3);
+  expect(screen.getByRole('heading',{name:'Selected Strategy: Expiry-aware candidate'})).toBeInTheDocument();
+  expect(source.load).toHaveBeenCalledTimes(1);expect(data).toEqual(before);
+ });
+ it('keeps selected strategy detail independent when every comparison checkbox is cleared', async () => {
+  setup(sourceFor());await screen.findByRole('table',{name:'Selected strategy proposed allocations'});
+  for(const checkbox of screen.getAllByRole('checkbox')) fireEvent.click(checkbox);
+  expect(screen.queryByRole('table',{name:'Scenario metrics and comparability'})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Select Profit strategy'}));
+  expect(screen.getByRole('heading',{name:'Selected Strategy: Profit candidate'})).toBeInTheDocument();
+  expect(screen.getByRole('table',{name:'Selected strategy proposed allocations'})).toBeInTheDocument();
+ });
+ it.each(['INFEASIBLE','MODEL_INVALID','SOLVER_UNAVAILABLE'])('withholds positive allocation and profit for a %s solver',async status=>{
+  const data=portfolioFixture();data.scenarios[0].solverStatus=status;data.scenarios[0].metrics.profit!.value='7654321';setup(sourceFor(data));
+  await screen.findByRole('table',{name:'Scenario metrics and comparability'});
+  expect(screen.queryByRole('table',{name:'Selected strategy proposed allocations'})).not.toBeInTheDocument();
+  expect(document.body).not.toHaveTextContent('7654321');expect(screen.getByText(/Allocation withheld/)).toBeInTheDocument();
+ });
+});
