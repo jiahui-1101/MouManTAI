@@ -203,7 +203,7 @@ The durable P1 OrderRequest/version and approved commercial/disclosure sources r
 
 ## PR #49 supplier comparison — refreshed against current main (2026-10-24)
 
-This section is specific to PR #49 and supersedes earlier supplier test counts in this file. Validation was run from `backend/` against code snapshot `60b741635f0ad9823573b1aa97643a96ece12ce5`, which includes latest `origin/main` `57636642750d366a85045c3655afa0c51581e3be`. The final publication commit adds this task's documentation only; the exact remote head and current check conclusions are exposed by [PR #49 checks](https://github.com/jiahui-1101/MouManTAI/pull/49/checks) and the linked task report.
+This section is specific to PR #49 and supersedes earlier supplier test counts in this file. Local tests were run from `backend/` against source/test snapshot `60b741635f0ad9823573b1aa97643a96ece12ce5`, which includes latest `origin/main` `57636642750d366a85045c3655afa0c51581e3be`. The first posted head `470fae5fba9eeea591c401bb46f01b045f58ee26` adds the documentation-only checkpoint and passed exact-head CI. The subsequent validation-document amendment is also documentation-only; its current exact-head run is linked from [PR #49 checks](https://github.com/jiahui-1101/MouManTAI/pull/49/checks).
 
 ### Local validation
 
@@ -217,7 +217,14 @@ This section is specific to PR #49 and supersedes earlier supplier test counts i
 | Ruff format | **PASS** | `python -m ruff format --check app/suppliers tests/v2_2/test_supplier_comparison.py` — 3 files already formatted |
 | Compile | **PASS** | `python -m compileall -q app/suppliers` — exit 0 |
 | Diff whitespace | **PASS** | `git diff --check` on the final task diff — exit 0 |
-| Local PostgreSQL | **NOT RUN** | Comparator is pure/in-memory; PR #49 adds no migration or database-backed supplier test. No database URL was used. The PR #55 PostgreSQL results above are separate. |
+| Local PostgreSQL | **NOT RUN** | Comparator is pure/in-memory; PR #49 adds no migration or database-backed supplier test. No local database URL was used. The exact-head CI PostgreSQL evidence is recorded below; PR #55's historical PostgreSQL results above are separate. |
+
+### Exact-head GitHub Actions — code/test publication head
+
+- GitHub Actions run [40080165292](https://github.com/jiahui-1101/MouManTAI/actions/runs/40080165292), exact commit `470fae5fba9eeea591c401bb46f01b045f58ee26`, completed **5/5 success**: Backend Tests (pytest & syntax), Backend Tests (PostgreSQL Authoritative), Feature Suites (Feasibility & Communication), Frontend Checks (Typecheck, Vitest, Build), and Hygiene & Secret Checks.
+- The authoritative job used a GitHub-hosted Ubuntu 24.04.5 runner, Python 3.12.15 and a fresh `postgres:16` service; job logs report PostgreSQL **16.15** (Debian 16.15-1.pgdg13+2). The job created separate `p4_test_moumantai_suite` and `moumantai_migration` databases and set `REQUIRE_POSTGRES=1` and `TEST_DATABASE_APPROVED=1`.
+- Alembic head check: `0017_p1_real_channel_provenance (head)`. `backend/tests/conftest.py::pg_suite_engine` applies actual `command.upgrade(..., "head")` to the suite database. The migration test separately executed the real `0006_recovery_cases -> 0007_recovery_case_constraints_alignment -> downgrade 0006 -> upgrade head` sequence on the disposable migration database. Full job command: `pytest backend/tests -v -rs --junitxml=pg-report.xml`; result **743 passed, 0 failed, 0 skipped, 40 warnings**. The workflow also verified zero skipped cases.
+- ORM-schema coverage remains distinguishable: ordinary `test_engine` fixtures use the Alembic-migrated PostgreSQL schema under `REQUIRE_POSTGRES=1`; `tests/integration/test_p1_core_p2_e2e.py` and `tests/integration/test_p1_review_drawer_e2e.py` initialize their P1 PostgreSQL schema and create Core tables through `Base.metadata.create_all`. `tests/test_amendment_protection.py`, `tests/test_outbox_events.py` and `tests/test_registry.py` use SQLite with ORM `Base.metadata.create_all`, so they are not PostgreSQL migration evidence. No production/shared database was touched.
 
 ### Synchronization and scope
 
