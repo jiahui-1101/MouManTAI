@@ -61,3 +61,13 @@ describe('Verified Core decision read adapter', () => {
     await expect(coreOrderDecisionSource.load(order(), auth, new AbortController().signal)).rejects.toMatchObject({ status: 503 });
   });
 });
+
+it('projects actual Core fulfilment separately without inventing order acceptance or delivery verification', () => {
+  const mapped = mapCoreDecision({ ...coreFixture.commitment, fulfilment_state: 'FULFILLED' }, order(), auth.tenantId);
+  expect(mapped.legacyFulfilment).toMatchObject({ state: 'FULFILLED', commitmentId: 'synthetic-commitment', commitmentVersion: '3', evidence: ['synthetic-core-evidence'] });
+  expect(mapped.requestVersion).toBeUndefined(); expect(mapped.receipts).toBeUndefined();
+});
+
+it.each(['INVENTED', null])('rejects malformed Core fulfilment state %s', fulfilment => {
+  expect(() => mapCoreDecision({ ...coreFixture.commitment, fulfilment_state: fulfilment }, order(), auth.tenantId)).toThrow();
+});

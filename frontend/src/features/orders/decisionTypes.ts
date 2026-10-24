@@ -1,3 +1,4 @@
+import type { FulfilmentState } from '../../shared/types';
 import type { OrderDetail } from './detailTypes';
 import type { RequestAuthHeaders } from '../../shared/api';
 
@@ -43,6 +44,7 @@ export interface OrderDecisionSnapshot {
     proposed: DecisionTerms; consentRequired?: string | null; consequences?: string[]; evidence?: string[] } | null;
   backendBlockers?: string[]; events: DecisionEvent[]; receipts?: DecisionReceipt[];
   legacyCommitmentState?: string | null; warnings?: string[];
+  legacyFulfilment?: { state: FulfilmentState; commitmentId: string; commitmentVersion: string; sourceAt?: string | null; evidence: string[] };
 }
 export interface OrderDecisionSource {
   cacheKey: string;

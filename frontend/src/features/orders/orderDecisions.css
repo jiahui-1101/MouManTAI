@@ -26,3 +26,8 @@
 .order-decisions .decision-action-buttons { display: flex; gap: .6rem; flex-wrap: wrap; }
 .order-decisions .decision-action-buttons button { max-width: 100%; white-space: normal; }
 .order-decisions button:disabled { cursor: not-allowed; opacity: .65; }
+
+.order-detail .decision-progress dl { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,220px),1fr)); gap: 1rem; }
+.order-detail .decision-progress dt { font-weight: 600; font-size: .8rem; }
+.order-detail .decision-progress dd { margin: .5rem 0; font-size: .78rem; line-height: 1.7; overflow-wrap: anywhere; }
+.order-detail .decision-progress small { display: block; color: var(--ui-muted); margin-top: .4rem; }

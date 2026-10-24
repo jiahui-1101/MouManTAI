@@ -4,6 +4,7 @@ import { Button, ContentCard, StatusBadge } from '../../shared/ui';
 import type { OrderDetail } from './detailTypes';
 import type { OrderDecisionSource } from './decisionTypes';
 import { OrderDecisionWorkspace } from './OrderDecisionWorkspace';
+import { OrderProgressPanel } from './OrderProgressPanel';
 import { assessmentState, quantityText } from './detailView';
 import { shown, timestamp } from './queue';
 import { OrderQueueIcon } from './OrderQueueIcon';
@@ -45,11 +46,11 @@ export function OrderDetailWorkspace({ id, detail: d, now, busy, onRefresh, stat
           setTab('History'); requestAnimationFrame(() => document.getElementById('legacy-order-context')?.scrollIntoView?.());
         }
       }}>{d && <><OrderSummaryPanel detail={d} /><CustomerRequestPanel detail={d} /><PricingProvenancePanel detail={d} />
-        <OrderDecisionWorkspace order={d} now={now} source={decisionSource} /></>}
+        <OrderDecisionWorkspace order={d} now={now} source={decisionSource} view="decisions" /></>}
         {!d && <ContentCard title="Order overview unavailable"><p>The order identifier alone does not establish customer terms, value, lifecycle or feasibility. Read the existing source state in History.</p></ContentCard>}
       </div>
       <div role="tabpanel" id={`${uid}-panel-Feasibility`} aria-labelledby={`${uid}-Feasibility`} hidden={tab !== 'Feasibility'}>{d ? <><FeasibilitySummary detail={d} now={now} /><InventoryAssessmentPanel detail={d} /><CapacityAssessmentPanel detail={d} /><DecisionReadinessPanel detail={d} now={now} /></> : <ContentCard title="Feasibility unavailable"><p>No verified order detail or matching assessment is available. No material, capacity or scheduling result has been calculated locally.</p></ContentCard>}</div>
-      <div role="tabpanel" id={`${uid}-panel-History`} aria-labelledby={`${uid}-History`} hidden={tab !== 'History'}>{legacy}</div>
+      <div role="tabpanel" id={`${uid}-panel-History`} aria-labelledby={`${uid}-History`} hidden={tab !== 'History'}>{d ? <OrderDecisionWorkspace order={d} now={now} source={decisionSource} view="history" /> : <OrderProgressPanel />}{legacy}</div>
     </div>
     <aside className="od-decision-sidebar" aria-label="Decision panel"><ContentCard title="Decision overview"><StatusBadge dimension="feasibility" state={feasibility} />
       <h3>What should we do next?</h3><p>{feasibility === 'UNKNOWN' ? 'Verify the order evidence and obtain a current matching assessment before deciding.' : 'Review the source assessment, exact customer terms and outstanding conditions. Feasibility is not permission to accept.'}</p>
