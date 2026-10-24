@@ -146,3 +146,11 @@ PR #50's own exact-head CI will be checked after the normal push. No CI result i
 Independent read-only review of the consolidated implementation found no actionable code issues. It confirmed the corrected #48 contract is an ancestor, all 17 #52 test function definitions remain (nine transferred because absent from original #50), PR #50 mapper files are unchanged, and hash semantics remain stable. Latest fetched Main is `b1255f5a428e8cd87a0ecb48576bc373b6286c50` (#58); it is separate UI/design/spec changes and was not pulled into this stacked PR. This review does not constitute owner signoff.
 
 Publication follow-up: final code/docs checkpoint `ba2d5ad9956ad0cba82e417f7a14b336cfb56025` was pushed normally and verified at the existing PR #50 branch. PR #50 remains open Draft and unmerged, based on corrected #48 HEAD `568e5deff97a29244944ae31b5d138fa910a4042`. Exact-head GitHub workflow lookup found no PR-triggered run. Fresh P1/P5/Backend B review requests were sent; no new review submission was available at this checkpoint. PR #55 remains based at its old #50 SHA `fd7be2e2dae0b3275ea344f9f4d567b836c93cb1`; refresh it only through a reviewed update. Its PostgreSQL-gated P1 tests remain NOT_RUN without an approved disposable database.
+
+Request-version regression checkpoint (PR #50 follow-up, 2026-10-24; local worktree based on `ed2ed58baf74784fa94625013106363f68a739be`):
+
+- `python -m pytest -p no:cacheprovider -o 'addopts=' tests/v2_2/test_context_mapping.py --tb=short` → **77 passed, 5 warnings**.
+- `python -m pytest -p no:cacheprovider -o 'addopts=' tests/v2_2/test_terms.py tests/v2_2/test_business_ports.py --tb=short` → **124 passed, 5 warnings**.
+- Full v2.2 suite → **268 passed, 5 warnings**.
+- Adjacent P1/Core contract suite → **21 passed, 22 skipped** because `P1_TEST_DATABASE_URL` was unset. **BLOCKED — REAL POSTGRESQL VALIDATION NOT PERFORMED.**
+- Ruff check and format, Python compileall, and `git diff --check` passed. These are local results; GitHub exact-head CI has not run for the follow-up yet.
