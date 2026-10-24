@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from .models import ForecastAlert, ForecastRun, ForecastStatus, RiskFamily
 from .ports import CurrentSnapshot, P2ScenarioAttestation, SupplierHistorySummary
@@ -69,31 +69,75 @@ def p2_alert(
     family: RiskFamily,
     snapshot: CurrentSnapshot | None,
     attestation: P2ScenarioAttestation | None,
+    *,
+    as_of: datetime | None,
 ) -> ForecastAlert:
     period = run.points[0].period if run.points else run.training_cutoff
+    reasons: list[str] = []
+    if run.status != ForecastStatus.AVAILABLE:
+        reasons.append("FORECAST_UNAVAILABLE")
+    if snapshot is None:
+        reasons.append("CURRENT_SNAPSHOT_UNAVAILABLE")
+    elif snapshot.tenant_id != run.tenant_id or snapshot.sku_id != run.sku_id:
+        reasons.append("SNAPSHOT_SCOPE_MISMATCH")
+    elif not snapshot.evidence_refs:
+        reasons.append("SNAPSHOT_EVIDENCE_MISSING")
+    if attestation is None:
+        reasons.append("P2_EVALUATION_UNAVAILABLE")
+    else:
+        if attestation.tenant_id != run.tenant_id or attestation.sku_id != run.sku_id:
+            reasons.append("P2_TENANT_OR_SKU_MISMATCH")
+        if attestation.forecast_run_id != run.run_id:
+            reasons.append("P2_FORECAST_RUN_MISMATCH")
+        if attestation.risk_family != family:
+            reasons.append("P2_RISK_FAMILY_MISMATCH")
+        if attestation.target_period != period or not (
+            attestation.coverage_start <= period <= attestation.coverage_end
+        ):
+            reasons.append("P2_COVERAGE_MISMATCH")
+        if not attestation.evidence_refs:
+            reasons.append("P2_EVIDENCE_MISSING")
+        if attestation.assessment_status != "SUPPORTED":
+            reasons.append("P2_ASSESSMENT_NOT_SUPPORTED")
+    if snapshot is not None and attestation is not None:
+        if (
+            attestation.snapshot_id != snapshot.snapshot_id
+            or attestation.snapshot_version != snapshot.snapshot_version
+        ):
+            reasons.append("P2_SNAPSHOT_VERSION_MISMATCH")
+        if attestation.source_watermark != snapshot.captured_at:
+            reasons.append("P2_SOURCE_WATERMARK_MISMATCH")
+    if as_of is None or as_of.tzinfo is None or as_of.utcoffset() is None:
+        reasons.append("TRUSTED_AS_OF_REQUIRED")
+    elif snapshot is not None:
+        if snapshot.captured_at > as_of:
+            reasons.append("SNAPSHOT_CAPTURED_IN_FUTURE")
+        if snapshot.valid_through < as_of:
+            reasons.append("SNAPSHOT_STALE_AT_AS_OF")
     if (
-        run.status != ForecastStatus.AVAILABLE
-        or snapshot is None
-        or attestation is None
-        or snapshot.tenant_id != run.tenant_id
-        or snapshot.sku_id != run.sku_id
-        or not snapshot.evidence_refs
-        or attestation.tenant_id != run.tenant_id
-        or attestation.sku_id != run.sku_id
-        or attestation.forecast_run_id != run.run_id
-        or attestation.target_period != period
-        or attestation.snapshot_id != snapshot.snapshot_id
-        or attestation.snapshot_version != snapshot.snapshot_version
-        or not attestation.evidence_refs
+        as_of is not None
+        and as_of.tzinfo is not None
+        and as_of.utcoffset() is not None
+        and attestation is not None
     ):
+        if attestation.evaluated_at < attestation.source_watermark:
+            reasons.append("P2_EVALUATION_PRECEDES_SOURCE")
+        if attestation.evaluated_at > as_of:
+            reasons.append("P2_EVALUATION_IN_FUTURE")
+        if attestation.valid_through < as_of:
+            reasons.append("P2_ATTESTATION_STALE_AT_AS_OF")
+    if run.integration_mode.value == "LIVE":
+        # The typed forward-scenario contract is provisional until P2 ratifies it.
+        reasons.append("P2_FORWARD_CONTRACT_NOT_RATIFIED")
+    if reasons:
         return alert(
             run,
             family,
             period,
             status="UNKNOWN",
             exposure="P2 forward evaluation unavailable or stale",
-            codes=("P2_EVALUATION_UNAVAILABLE",),
-            missing=("current matching P2 scenario attestation",),
+            codes=tuple(dict.fromkeys(reasons)),
+            missing=tuple(dict.fromkeys(reasons)),
             options=("Open the existing P2 assessment",),
         )
     return alert(
@@ -102,7 +146,7 @@ def p2_alert(
         period,
         status="FUTURE_RISK_ADVISORY",
         exposure=f"Conditional P2 scenario: {attestation.exposure}",
-        codes=("P2_SCENARIO_ATTESTED",),
+        codes=("P2_SCENARIO_ATTESTED", *attestation.reason_codes),
         evidence=attestation.evidence_refs,
         versions=(snapshot.snapshot_version, attestation.evaluator_version),
         options=("Review P2 scenario with an authorized SME",),

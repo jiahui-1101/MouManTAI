@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from .backtesting import compare_on_same_holdout
 from .baselines import ForecastModel, MovingAverage, Naive, SeasonalNaive, forecast
-from .models import BacktestReport, ForecastAlert, ForecastRun, ForecastStatus, SourceUnavailable
+from .models import (
+    BacktestReport,
+    ForecastAlert,
+    ForecastRun,
+    ForecastStatus,
+    RiskFamily,
+    SourceUnavailable,
+)
 from .ports import (
     CurrentSnapshotReader,
     DemandReader,
@@ -89,15 +96,43 @@ class ForecastService:
         )
 
     def advisories(
-        self, run: ForecastRun, *, supplier_id: str | None = None
+        self,
+        run: ForecastRun,
+        *,
+        supplier_id: str | None = None,
+        as_of: datetime | None = None,
     ) -> tuple[ForecastAlert, ...]:
+        evaluation_time = as_of or datetime.now(UTC)
         snapshot = (
             self.snapshot_reader.read(run.tenant_id, run.sku_id) if self.snapshot_reader else None
         )
         period = run.points[0].period if run.points else run.training_cutoff
-        attestation = None
-        if self.p2_reader and snapshot and run.status == ForecastStatus.AVAILABLE:
-            attestation = self.p2_reader.evaluate(run.tenant_id, run.sku_id, run.run_id, period)
+
+        def read_attestation(family: RiskFamily):
+            if (
+                self.p2_reader is None
+                or snapshot is None
+                or run.status != ForecastStatus.AVAILABLE
+                or evaluation_time.tzinfo is None
+                or evaluation_time.utcoffset() is None
+            ):
+                return None
+            try:
+                return self.p2_reader.evaluate(
+                    run.tenant_id,
+                    run.sku_id,
+                    snapshot.snapshot_id,
+                    snapshot.snapshot_version,
+                    run.run_id,
+                    family,
+                    period,
+                    evaluation_time,
+                )
+            except (LookupError, TimeoutError, ConnectionError, NotImplementedError):
+                return None
+
+        stock_attestation = read_attestation(RiskFamily.STOCKOUT_OR_EXPIRY)
+        capacity_attestation = read_attestation(RiskFamily.CAPACITY_OR_DEADLINE)
         summary = (
             self.supplier_reader.read(run.tenant_id, supplier_id)
             if self.supplier_reader and supplier_id
@@ -105,7 +140,7 @@ class ForecastService:
         )
         return (
             demand_alert(run),
-            stockout_or_expiry(run, snapshot, attestation),
+            stockout_or_expiry(run, snapshot, stock_attestation, as_of=evaluation_time),
             supplier_alert(run, summary),
-            capacity_or_deadline(run, snapshot, attestation),
+            capacity_or_deadline(run, snapshot, capacity_attestation, as_of=evaluation_time),
         )

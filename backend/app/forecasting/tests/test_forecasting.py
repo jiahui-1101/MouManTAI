@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -15,6 +16,7 @@ from app.forecasting.models import (
     Tier,
 )
 from app.forecasting.ports import CurrentSnapshot, P2ScenarioAttestation
+from app.forecasting.scenarios import capacity_or_deadline, stockout_or_expiry
 from app.forecasting.service import ForecastService
 from app.forecasting.source_validation import validate_series
 
@@ -270,6 +272,7 @@ def test_four_family_advisories_fail_closed_and_matching_p2():
         snapshot_id="op-1",
         snapshot_version="3",
         captured_at=NOW,
+        valid_through=NOW + timedelta(days=1),
         business_timezone="Asia/Singapore",
         evidence_refs=("op",),
     )
@@ -278,22 +281,365 @@ def test_four_family_advisories_fail_closed_and_matching_p2():
         sku_id="A",
         snapshot_id="op-1",
         snapshot_version="3",
+        source_watermark=NOW,
         evaluator_version="p2-1",
         forecast_run_id=run.run_id,
+        risk_family=RiskFamily.STOCKOUT_OR_EXPIRY,
         target_period=run.points[0].period,
+        coverage_start=run.points[0].period,
+        coverage_end=run.points[0].period,
+        assessment_status="SUPPORTED",
         exposure="conditional exposure",
+        reason_codes=("CONDITIONAL",),
         evidence_refs=("p2",),
         evaluated_at=NOW,
+        valid_through=NOW + timedelta(days=1),
     )
     from app.forecasting.scenarios import stockout_or_expiry
 
-    assert stockout_or_expiry(run, snapshot, attestation).status == "FUTURE_RISK_ADVISORY"
+    assert (
+        stockout_or_expiry(run, snapshot, attestation, as_of=NOW).status == "FUTURE_RISK_ADVISORY"
+    )
     assert (
         stockout_or_expiry(
-            run, snapshot, attestation.model_copy(update={"snapshot_version": "old"})
+            run,
+            snapshot,
+            attestation.model_copy(update={"snapshot_version": "old"}),
+            as_of=NOW,
         ).status
         == "UNKNOWN"
     )
+    assert stockout_or_expiry(
+        run,
+        snapshot,
+        attestation.model_copy(update={"risk_family": RiskFamily.CAPACITY_OR_DEADLINE}),
+        as_of=NOW,
+    ).explanation_codes == ("P2_RISK_FAMILY_MISMATCH",)
+    stock_alert_as_capacity = capacity_or_deadline(run, snapshot, attestation, as_of=NOW)
+    assert stock_alert_as_capacity.status == "UNKNOWN"
+    assert "P2_RISK_FAMILY_MISMATCH" in stock_alert_as_capacity.explanation_codes
+    capacity_attestation = attestation.model_copy(
+        update={"risk_family": RiskFamily.CAPACITY_OR_DEADLINE}
+    )
+    assert capacity_or_deadline(run, snapshot, capacity_attestation, as_of=NOW).status == (
+        "FUTURE_RISK_ADVISORY"
+    )
+    capacity_alert_as_stock = stockout_or_expiry(run, snapshot, capacity_attestation, as_of=NOW)
+    assert capacity_alert_as_stock.status == "UNKNOWN"
+    assert "P2_RISK_FAMILY_MISMATCH" in capacity_alert_as_stock.explanation_codes
+
+
+@pytest.mark.parametrize(
+    ("updates", "expected"),
+    [
+        ({"evaluated_at": NOW + timedelta(minutes=1)}, "P2_EVALUATION_IN_FUTURE"),
+        ({"valid_through": NOW - timedelta(seconds=1)}, "P2_ATTESTATION_STALE_AT_AS_OF"),
+        ({"assessment_status": "INCOMPLETE"}, "P2_ASSESSMENT_NOT_SUPPORTED"),
+        ({"evidence_refs": ()}, "P2_EVIDENCE_MISSING"),
+        ({"coverage_end": START}, "P2_COVERAGE_MISMATCH"),
+        ({"source_watermark": NOW - timedelta(seconds=1)}, "P2_SOURCE_WATERMARK_MISMATCH"),
+        ({"tenant_id": "other"}, "P2_TENANT_OR_SKU_MISMATCH"),
+        ({"sku_id": "other"}, "P2_TENANT_OR_SKU_MISMATCH"),
+        ({"snapshot_id": "other"}, "P2_SNAPSHOT_VERSION_MISMATCH"),
+        ({"forecast_run_id": "old-run"}, "P2_FORECAST_RUN_MISMATCH"),
+        ({"target_period": START}, "P2_COVERAGE_MISMATCH"),
+        ({"risk_family": RiskFamily.CAPACITY_OR_DEADLINE}, "P2_RISK_FAMILY_MISMATCH"),
+    ],
+)
+def test_invalid_p2_attestation_returns_unknown_with_diagnostic(updates, expected):
+    run = forecast(
+        series(), MovingAverage(), cutoff=START + timedelta(days=20), horizon=1, generated_at=NOW
+    )
+    snapshot = CurrentSnapshot(
+        tenant_id="demo",
+        sku_id="A",
+        snapshot_id="op-1",
+        snapshot_version="3",
+        captured_at=NOW,
+        valid_through=NOW + timedelta(days=1),
+        business_timezone="Asia/Singapore",
+        evidence_refs=("op",),
+    )
+    attestation = P2ScenarioAttestation(
+        tenant_id="demo",
+        sku_id="A",
+        snapshot_id="op-1",
+        snapshot_version="3",
+        source_watermark=NOW,
+        evaluator_version="p2-1",
+        forecast_run_id=run.run_id,
+        risk_family=RiskFamily.STOCKOUT_OR_EXPIRY,
+        target_period=run.points[0].period,
+        coverage_start=run.points[0].period,
+        coverage_end=run.points[0].period,
+        assessment_status="SUPPORTED",
+        exposure="conditional exposure",
+        reason_codes=(),
+        evidence_refs=("p2",),
+        evaluated_at=NOW,
+        valid_through=NOW + timedelta(days=1),
+    ).model_copy(update=updates)
+    result = stockout_or_expiry(run, snapshot, attestation, as_of=NOW)
+    assert result.status == "UNKNOWN"
+    assert expected in result.explanation_codes
+
+
+def test_future_or_stale_current_snapshot_returns_unknown():
+    run = forecast(
+        series(), MovingAverage(), cutoff=START + timedelta(days=20), horizon=1, generated_at=NOW
+    )
+    attestation = P2ScenarioAttestation(
+        tenant_id="demo",
+        sku_id="A",
+        snapshot_id="op-1",
+        snapshot_version="3",
+        source_watermark=NOW,
+        evaluator_version="p2-1",
+        forecast_run_id=run.run_id,
+        risk_family=RiskFamily.STOCKOUT_OR_EXPIRY,
+        target_period=run.points[0].period,
+        coverage_start=run.points[0].period,
+        coverage_end=run.points[0].period,
+        assessment_status="SUPPORTED",
+        exposure="conditional exposure",
+        reason_codes=(),
+        evidence_refs=("p2",),
+        evaluated_at=NOW,
+        valid_through=NOW + timedelta(days=1),
+    )
+    stale = CurrentSnapshot(
+        tenant_id="demo",
+        sku_id="A",
+        snapshot_id="op-1",
+        snapshot_version="3",
+        captured_at=NOW - timedelta(days=1),
+        valid_through=NOW - timedelta(seconds=1),
+        business_timezone="Asia/Singapore",
+        evidence_refs=("op",),
+    )
+    stale_alert = stockout_or_expiry(run, stale, attestation, as_of=NOW)
+    assert stale_alert.status == "UNKNOWN"
+    assert "SNAPSHOT_STALE_AT_AS_OF" in stale_alert.explanation_codes
+
+    future = stale.model_copy(update={"captured_at": NOW + timedelta(minutes=1)})
+    future_alert = stockout_or_expiry(run, future, attestation, as_of=NOW)
+    assert future_alert.status == "UNKNOWN"
+    assert "SNAPSHOT_CAPTURED_IN_FUTURE" in future_alert.explanation_codes
+
+    naive_as_of = stockout_or_expiry(run, stale, attestation, as_of=datetime(2026, 10, 24, 12))
+    assert naive_as_of.status == "UNKNOWN"
+    assert "TRUSTED_AS_OF_REQUIRED" in naive_as_of.explanation_codes
+
+
+def test_live_forward_attestation_fails_closed_until_p2_ratifies_contract():
+    run = forecast(
+        series(), MovingAverage(), cutoff=START + timedelta(days=20), horizon=1, generated_at=NOW
+    ).model_copy(update={"integration_mode": Mode.LIVE, "evidence_tier": Tier.LIVE})
+    snapshot = CurrentSnapshot(
+        tenant_id="demo",
+        sku_id="A",
+        snapshot_id="op-1",
+        snapshot_version="3",
+        captured_at=NOW,
+        valid_through=NOW + timedelta(days=1),
+        business_timezone="Asia/Singapore",
+        evidence_refs=("op",),
+    )
+    attestation = P2ScenarioAttestation(
+        tenant_id="demo",
+        sku_id="A",
+        snapshot_id="op-1",
+        snapshot_version="3",
+        source_watermark=NOW,
+        evaluator_version="p2-1",
+        forecast_run_id=run.run_id,
+        risk_family=RiskFamily.STOCKOUT_OR_EXPIRY,
+        target_period=run.points[0].period,
+        coverage_start=run.points[0].period,
+        coverage_end=run.points[0].period,
+        assessment_status="SUPPORTED",
+        exposure="conditional exposure",
+        reason_codes=(),
+        evidence_refs=("p2",),
+        evaluated_at=NOW,
+        valid_through=NOW + timedelta(days=1),
+    )
+    result = stockout_or_expiry(run, snapshot, attestation, as_of=NOW)
+    assert result.status == "UNKNOWN"
+    assert "P2_FORWARD_CONTRACT_NOT_RATIFIED" in result.explanation_codes
+
+
+def test_service_requests_separate_snapshot_bound_p2_attestations_per_family():
+    run = forecast(
+        series(), MovingAverage(), cutoff=START + timedelta(days=20), horizon=1, generated_at=NOW
+    )
+    snapshot = CurrentSnapshot(
+        tenant_id="demo",
+        sku_id="A",
+        snapshot_id="op-1",
+        snapshot_version="3",
+        captured_at=NOW,
+        valid_through=NOW + timedelta(days=1),
+        business_timezone="Asia/Singapore",
+        evidence_refs=("op",),
+    )
+
+    class SnapshotReader:
+        def read(self, tenant_id, sku_id):
+            assert (tenant_id, sku_id) == ("demo", "A")
+            return snapshot
+
+    class P2Reader:
+        def __init__(self):
+            self.calls = []
+
+        def evaluate(
+            self,
+            tenant_id,
+            sku_id,
+            snapshot_id,
+            snapshot_version,
+            forecast_run_id,
+            risk_family,
+            target_period,
+            as_of,
+        ):
+            self.calls.append((snapshot_id, snapshot_version, forecast_run_id, risk_family, as_of))
+            return P2ScenarioAttestation(
+                tenant_id=tenant_id,
+                sku_id=sku_id,
+                snapshot_id=snapshot_id,
+                snapshot_version=snapshot_version,
+                source_watermark=snapshot.captured_at,
+                evaluator_version="p2-1",
+                forecast_run_id=forecast_run_id,
+                risk_family=risk_family,
+                target_period=target_period,
+                coverage_start=target_period,
+                coverage_end=target_period,
+                assessment_status="SUPPORTED",
+                exposure=f"conditional {risk_family.value.lower()} exposure",
+                reason_codes=("CONDITIONAL",),
+                evidence_refs=(f"p2-{risk_family.value.lower()}",),
+                evaluated_at=as_of,
+                valid_through=as_of + timedelta(hours=1),
+            )
+
+    reader = P2Reader()
+    alerts = ForecastService(snapshot_reader=SnapshotReader(), p2_reader=reader).advisories(
+        run, as_of=NOW
+    )
+    assert [call[3] for call in reader.calls] == [
+        RiskFamily.STOCKOUT_OR_EXPIRY,
+        RiskFamily.CAPACITY_OR_DEADLINE,
+    ]
+    assert all(call[:3] == ("op-1", "3", run.run_id) for call in reader.calls)
+    assert all(call[4] == NOW for call in reader.calls)
+    assert alerts[1].status == alerts[3].status == "FUTURE_RISK_ADVISORY"
+    assert alerts[1].explanation_codes[-1] == alerts[3].explanation_codes[-1] == "CONDITIONAL"
+
+
+def test_forecast_run_id_binds_all_material_source_and_model_inputs():
+    s = series()
+    cutoff = START + timedelta(days=20)
+
+    def run(data=s, model=None, horizon=1):
+        return forecast(
+            data,
+            model or MovingAverage(7),
+            cutoff=cutoff,
+            horizon=horizon,
+            generated_at=NOW,
+        )
+
+    original = run()
+    assert original.run_id == run().run_id
+    assert (
+        original.run_id
+        != run(
+            data=replace(s, manifest=s.manifest.model_copy(update={"tenant_id": "other"}))
+        ).run_id
+    )
+    assert (
+        original.run_id
+        != run(
+            data=replace(
+                s, manifest=s.manifest.model_copy(update={"source_snapshot_version": "v2"})
+            )
+        ).run_id
+    )
+    assert (
+        original.run_id
+        != run(
+            data=replace(s, manifest=s.manifest.model_copy(update={"input_version": "fixture-2"}))
+        ).run_id
+    )
+    assert (
+        original.run_id
+        != run(
+            data=replace(
+                s,
+                manifest=s.manifest.model_copy(
+                    update={"source_watermark": NOW + timedelta(seconds=1)}
+                ),
+            )
+        ).run_id
+    )
+    assert original.run_id != run(model=MovingAverage(14)).run_id
+    assert original.run_id != run(model=SeasonalNaive(7)).run_id
+    assert original.run_id != run(horizon=2).run_id
+
+    class ScaledNaive:
+        name = "SCALED_NAIVE"
+        version = "1"
+
+        def __init__(self, scale):
+            self.scale = scale
+
+        def predict(self, values, cutoff, horizon):
+            value = values.get(cutoff)
+            return None if value is None else (value * Decimal(str(self.scale)),) * horizon
+
+    assert run(model=ScaledNaive(0.25)).run_id != run(model=ScaledNaive(0.5)).run_id
+
+
+def test_old_p2_attestation_run_id_cannot_match_changed_forecast():
+    s = series()
+    cutoff = START + timedelta(days=20)
+    old_run = forecast(s, MovingAverage(7), cutoff=cutoff, horizon=1, generated_at=NOW)
+    new_run = forecast(s, MovingAverage(14), cutoff=cutoff, horizon=1, generated_at=NOW)
+    snapshot = CurrentSnapshot(
+        tenant_id="demo",
+        sku_id="A",
+        snapshot_id="op-1",
+        snapshot_version="3",
+        captured_at=NOW,
+        valid_through=NOW + timedelta(days=1),
+        business_timezone="Asia/Singapore",
+        evidence_refs=("op",),
+    )
+    stale = P2ScenarioAttestation(
+        tenant_id="demo",
+        sku_id="A",
+        snapshot_id="op-1",
+        snapshot_version="3",
+        source_watermark=NOW,
+        evaluator_version="p2-1",
+        forecast_run_id=old_run.run_id,
+        risk_family=RiskFamily.STOCKOUT_OR_EXPIRY,
+        target_period=new_run.points[0].period,
+        coverage_start=new_run.points[0].period,
+        coverage_end=new_run.points[0].period,
+        assessment_status="SUPPORTED",
+        exposure="conditional exposure",
+        reason_codes=(),
+        evidence_refs=("p2",),
+        evaluated_at=NOW,
+        valid_through=NOW + timedelta(days=1),
+    )
+    result = stockout_or_expiry(new_run, snapshot, stale, as_of=NOW)
+    assert result.status == "UNKNOWN"
+    assert "P2_FORECAST_RUN_MISMATCH" in result.explanation_codes
 
 
 def test_large_fixture_linear_mechanics():

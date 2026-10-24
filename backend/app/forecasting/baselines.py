@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from enum import Enum
 from typing import Protocol
 
 from .models import TARGET, ForecastPoint, ForecastRun, ForecastStatus
@@ -71,6 +75,59 @@ class Naive:
         return None if last is None else (last,) * horizon
 
 
+def _identity_value(value):
+    """Convert supported model settings to stable JSON values; reject opaque state."""
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("forecast model configuration must be finite")
+        return {"float_hex": value.hex()}
+    if isinstance(value, Decimal):
+        return {"decimal": str(value)}
+    if isinstance(value, datetime):
+        return {"datetime": value.isoformat()}
+    if isinstance(value, date):
+        return {"date": value.isoformat()}
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        if any(not isinstance(key, str) for key in value):
+            raise TypeError("forecast model configuration keys must be strings")
+        return {key: _identity_value(value[key]) for key in sorted(value)}
+    if isinstance(value, (tuple, list)):
+        return [_identity_value(item) for item in value]
+    raise TypeError(f"unsupported forecast model setting: {type(value).__qualname__}")
+
+
+def _run_identity(series: ValidatedSeries, model: ForecastModel, cutoff: date, horizon: int) -> str:
+    manifest = series.manifest
+    parameters = _identity_value(vars(model) if hasattr(model, "__dict__") else {})
+    identity = {
+        "identity_version": 2,
+        "tenant_id": manifest.tenant_id,
+        "sku_id": series.sku_id,
+        "unit": series.unit,
+        "source_dataset_id": manifest.source_dataset_id,
+        "source_snapshot_id": manifest.source_snapshot_id,
+        "source_snapshot_version": manifest.source_snapshot_version,
+        "source_input_version": manifest.input_version,
+        "source_watermark": manifest.source_watermark.isoformat(),
+        "target_definition": TARGET,
+        "model_type": f"{type(model).__module__}.{type(model).__qualname__}",
+        "model_name": model.name,
+        "model_version": model.version,
+        "model_parameters": parameters,
+        "training_cutoff": cutoff.isoformat(),
+        "forecast_horizon": horizon,
+    }
+    payload = json.dumps(
+        identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()
+    return f"forecast-v2:{digest}"
+
+
 def forecast(
     series: ValidatedSeries,
     model: ForecastModel,
@@ -97,7 +154,7 @@ def forecast(
         for i, value in enumerate(predictions or ())
     )
     return ForecastRun(
-        run_id=f"{series.manifest.source_snapshot_id}:{series.sku_id}:{model.name}:{cutoff}:{horizon}",
+        run_id=_run_identity(series, model, cutoff, horizon),
         tenant_id=series.manifest.tenant_id,
         sku_id=series.sku_id,
         target_definition=TARGET,

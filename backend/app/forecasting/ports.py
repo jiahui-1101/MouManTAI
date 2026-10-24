@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Protocol
+from typing import Literal, Protocol
 
-from .models import Aware, DemandObservation, ForecastSourceManifest, Frozen, Mode, Tier
+from pydantic import Field, model_validator
+
+from .models import (
+    Aware,
+    DemandObservation,
+    ForecastSourceManifest,
+    Frozen,
+    Mode,
+    RiskFamily,
+    Tier,
+)
 
 
 class DemandReader(Protocol):
@@ -17,21 +27,48 @@ class DemandReader(Protocol):
 
 
 class P2ScenarioAttestation(Frozen):
-    tenant_id: str
-    sku_id: str
-    snapshot_id: str
-    snapshot_version: str
-    evaluator_version: str
-    forecast_run_id: str
+    """Provisional, family-scoped result. It is not a live P2 authority contract."""
+
+    tenant_id: str = Field(min_length=1)
+    sku_id: str = Field(min_length=1)
+    snapshot_id: str = Field(min_length=1)
+    snapshot_version: str = Field(min_length=1)
+    source_watermark: Aware
+    evaluator_version: str = Field(min_length=1)
+    forecast_run_id: str = Field(min_length=1)
+    risk_family: RiskFamily
     target_period: date
-    exposure: str  # P2 owner-defined result, never recalculated here
+    coverage_start: date
+    coverage_end: date
+    assessment_status: Literal["SUPPORTED", "UNSUPPORTED", "INCOMPLETE", "UNKNOWN"]
+    exposure: str = Field(min_length=1)  # P2 owner-defined result, never recalculated here
+    reason_codes: tuple[str, ...]
     evidence_refs: tuple[str, ...]
     evaluated_at: Aware
+    valid_through: Aware
+
+    @model_validator(mode="after")
+    def valid_window(self) -> P2ScenarioAttestation:
+        if self.coverage_end < self.coverage_start:
+            raise ValueError("P2 coverage window is inverted")
+        if self.evaluated_at < self.source_watermark:
+            raise ValueError("P2 evaluation predates its source watermark")
+        if self.valid_through < self.evaluated_at:
+            raise ValueError("P2 attestation expires before evaluation")
+        return self
 
 
 class P2ForwardScenarioReader(Protocol):
     def evaluate(
-        self, tenant_id: str, sku_id: str, forecast_run_id: str, target_period: date
+        self,
+        tenant_id: str,
+        sku_id: str,
+        snapshot_id: str,
+        snapshot_version: str,
+        forecast_run_id: str,
+        risk_family: RiskFamily,
+        target_period: date,
+        as_of: Aware,
     ) -> P2ScenarioAttestation: ...
 
 
@@ -60,8 +97,15 @@ class CurrentSnapshot(Frozen):
     snapshot_id: str
     snapshot_version: str
     captured_at: Aware
+    valid_through: Aware
     business_timezone: str
     evidence_refs: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def valid_window(self) -> CurrentSnapshot:
+        if self.valid_through < self.captured_at:
+            raise ValueError("snapshot expires before capture")
+        return self
 
 
 class CurrentSnapshotReader(Protocol):
