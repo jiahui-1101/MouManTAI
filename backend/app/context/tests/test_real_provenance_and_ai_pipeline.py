@@ -15,6 +15,8 @@ Mandatory verification covering:
 12. Existing synthetic regression tests and shared contract compatibility.
 """
 from datetime import datetime, timezone
+import hashlib
+import hmac
 import json
 from unittest.mock import MagicMock
 from uuid import uuid4
@@ -76,6 +78,7 @@ def test_synthetic_fixtures_remain_synthetic(repo):
 def test_real_telegram_messages_not_marked_synthetic(repo, state_manager):
     config = TelegramChannelConfig(
         bot_token="test_token",
+        bot_account_id="test-telegram-account",
         tenant_id="tenant_default",
         polling_enabled=False,
     )
@@ -91,7 +94,7 @@ def test_real_telegram_messages_not_marked_synthetic(repo, state_manager):
             "text": "Please prepare 50 burgers tomorrow before 2pm",
         },
     }
-    res = adapter.process_update(update)
+    res = adapter.process_update(update, source_verified=True)
     assert res is not None
     stored = res.message
 
@@ -106,10 +109,12 @@ def test_real_gmail_messages_not_marked_synthetic(repo, state_manager):
     config = GmailChannelConfig(
         client_id="test_client_id",
         client_secret="test_client_secret",
+        mailbox_account_id="owner@example.com",
         tenant_id="tenant_default",
         polling_enabled=False,
     )
     adapter = GmailAdapter(config=config, repository=repo, state_manager=state_manager)
+    state_manager.set_verified_account_id("EMAIL", config.tenant_id, "owner@example.com")
 
     message_payload = {
         "id": "gmail_msg_101",
@@ -128,7 +133,7 @@ def test_real_gmail_messages_not_marked_synthetic(repo, state_manager):
             },
         },
     }
-    envelope = adapter.parse_message(message_payload)
+    envelope = adapter.parse_message(message_payload, source_verified=True)
     assert envelope is not None
     res = adapter.ingestion_service.ingest(envelope, adapter.config.tenant_id)
     stored = res.message
@@ -176,9 +181,11 @@ def test_real_whatsapp_messages_not_marked_synthetic(repo, state_manager):
             }
         ],
     }
-    envelopes = adapter.parse_webhook_payload(payload)
-    assert len(envelopes) == 1
-    res = adapter.ingestion_service.ingest(envelopes[0], adapter.config.tenant_id)
+    raw_body = json.dumps(payload).encode("utf-8")
+    signature = "sha256=" + hmac.new(config.app_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    results = adapter.handle_webhook_event(raw_body, signature, payload)
+    assert len(results) == 1
+    res = results[0]
     stored = res.message
 
     assert stored.raw.adapter_mode == "REAL"
@@ -253,6 +260,7 @@ def test_anti_spoofing_guard_demotes_fake_real_payloads():
         received_at=now,
         text="Need 10 burgers tomorrow",
         adapter_mode="REAL",
+        source_authenticity="VERIFIED",
     )
     response = Response()
     tenant = DevelopmentContext(tenant_id="tenant_default")
@@ -262,6 +270,7 @@ def test_anti_spoofing_guard_demotes_fake_real_payloads():
 
     # Anti-spoofing guard forces adapter_mode="SYNTHETIC"
     assert stored.raw.adapter_mode == "SYNTHETIC"
+    assert stored.raw.source_authenticity == "SYNTHETIC"
     assert stored.synthetic_provider == "SYNTHETIC_WHATSAPP"
     assert stored.source_label == "Synthetic"
 
@@ -271,7 +280,7 @@ def test_anti_spoofing_guard_demotes_fake_real_payloads():
 # -------------------------------------------------------------------------
 
 def test_duplicate_prevention_on_real_channels(repo, state_manager):
-    config = TelegramChannelConfig(bot_token="test_token", tenant_id="tenant_default", polling_enabled=False)
+    config = TelegramChannelConfig(bot_token="test_token", bot_account_id="test-bot-account", tenant_id="tenant_default", polling_enabled=False)
     adapter = TelegramAdapter(config=config, repository=repo, state_manager=state_manager)
 
     update = {
@@ -286,13 +295,13 @@ def test_duplicate_prevention_on_real_channels(repo, state_manager):
     }
 
     # First delivery
-    res1 = adapter.process_update(update)
+    res1 = adapter.process_update(update, source_verified=True)
     assert res1 is not None
     assert res1.duplicate is False
     assert state_manager.get_telegram_offset("tenant_default") == 5001
 
     # Second delivery with same update_id
-    res2 = adapter.process_update(update)
+    res2 = adapter.process_update(update, source_verified=True)
     # Deduplication in state_manager skips re-ingestion
     assert res2 is not None
     assert res2.duplicate is True

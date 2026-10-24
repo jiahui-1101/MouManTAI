@@ -31,6 +31,7 @@ from app.context.repository import MessageRepository
 from app.context.schemas import Attachment, RawMessageEnvelope
 
 from .config import TelegramChannelConfig
+from .reply_framing import FramingError, telegram_frame
 from .state import ChannelStateManager, get_state_manager
 
 logger = logging.getLogger(__name__)
@@ -230,7 +231,22 @@ class TelegramAdapter:
         chat = message.get("chat") or {}
         chat_id = str(chat.get("id") or sender_id)
         msg_id = message.get("message_id")
+        if msg_id is None:
+            return None
         provider_message_id = f"tg_{chat_id}_{msg_id}"
+
+        frame = None
+        framing_error = None
+        try:
+            if not self.config.provider_account_id:
+                raise FramingError("Telegram bot account ID is not configured or derivable")
+            frame = telegram_frame(
+                {"message": message},
+                tenant_id=self.config.tenant_id,
+                account_id=self.config.provider_account_id,
+            )
+        except FramingError as exc:
+            framing_error = str(exc)
 
         # Timestamps
         raw_date = message.get("date")
@@ -329,23 +345,35 @@ class TelegramAdapter:
             tenant_id=self.config.tenant_id,
             channel="TELEGRAM",
             provider_message_id=provider_message_id,
+            provider_account_id=frame.account_id if frame else None,
+            provider_native_message_id=frame.native_message_id if frame else None,
             sender_identity_id=sender_id,
             sender_alias=sender_alias,
             received_at=received_at,
             message_at=message_at,
             text=text,
             attachments=attachments,
+            native_attachment_source_ids=list(frame.attachment_source_ids) if frame else [],
             thread_ref=chat_id,
+            conversation_id=frame.conversation_id if frame else chat_id,
+            reply_to_provider_message_id=frame.exact_parent_id if frame else None,
+            relationship_source=frame.relationship_source if frame else "UNKNOWN",
+            source_authenticity="UNVERIFIED",
+            correlation_id=f"telegram-update:{update['update_id']}" if update.get("update_id") is not None else None,
+            framing_error=framing_error,
             adapter_mode="REAL",
         )
 
-    def process_update(self, update: dict[str, Any]) -> IngestResponse | None:
+    def process_update(self, update: dict[str, Any], *, source_verified: bool = False) -> IngestResponse | None:
         """Process a single Telegram update: normalize, ingest, and advance cursor."""
+        if not source_verified:
+            raise TelegramApiError("Inbound Telegram update was not authenticated")
         update_id = update.get("update_id")
         envelope = self.parse_update(update)
 
         result: IngestResponse | None = None
         if envelope is not None:
+            envelope = envelope.model_copy(update={"source_authenticity": "VERIFIED"})
             # Route into existing P1 ingestion service
             result = self.ingestion_service.ingest(envelope, self.config.tenant_id)
             # If newly received (not duplicate), run extraction pipeline automatically
@@ -388,7 +416,7 @@ class TelegramAdapter:
                 # Skip duplicate updates if already seen
                 if last_offset is not None and up_id is not None and up_id <= last_offset:
                     continue
-                self.process_update(update)
+                self.process_update(update, source_verified=True)
                 processed_count += 1
                 if up_id is not None:
                     last_offset = up_id

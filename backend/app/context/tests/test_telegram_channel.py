@@ -175,6 +175,7 @@ def test_telegram_parse_document_attachment(repo, state_mgr, tg_config):
     assert att.filename == "po_2026.pdf"
     assert att.media_type == "application/pdf"
     assert att.size_bytes == len(VALID_PDF_BYTES)
+    assert envelope.native_attachment_source_ids == ["doc_123"]
 
     # Verify attachment is persisted in repository
     retrieved = repo.get_attachment(tg_config.tenant_id, att.evidence_ref)
@@ -239,13 +240,13 @@ def test_telegram_offset_advancement_and_duplicate_prevention(repo, state_mgr, t
     }
 
     # Process first update
-    res1 = adapter.process_update(update1)
+    res1 = adapter.process_update(update1, source_verified=True)
     assert res1 is not None
     assert res1.duplicate is False
     assert state_mgr.get_telegram_offset(tg_config.tenant_id) == 5001
 
     # Ingest same update again -> duplicate detected
-    res2 = adapter.process_update(update1)
+    res2 = adapter.process_update(update1, source_verified=True)
     assert res2 is not None
     assert res2.duplicate is True
 

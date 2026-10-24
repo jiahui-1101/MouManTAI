@@ -17,7 +17,6 @@ Supports:
 from __future__ import annotations
 
 import hashlib
-import hmac
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -33,6 +32,7 @@ from app.context.repository import MessageRepository
 from app.context.schemas import Attachment, RawMessageEnvelope
 
 from .config import WhatsAppChannelConfig
+from .reply_framing import FramingError, verify_whatsapp_signature, whatsapp_frame
 from .state import ChannelStateManager, get_state_manager
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,10 @@ class WhatsAppWebhookError(Exception):
 
 class InvalidSignatureError(WhatsAppWebhookError):
     """Raised when X-Hub-Signature-256 is missing or invalid."""
+
+
+class InvalidWhatsAppAccountError(WhatsAppWebhookError):
+    """A signed callback belongs to a different business phone account."""
 
 
 class WebhookVerificationError(WhatsAppWebhookError):
@@ -99,24 +103,15 @@ class WhatsAppAdapter:
         """Validate that incoming webhook payload was signed by Meta using app_secret."""
         if not self.config.app_secret:
             raise InvalidSignatureError("WHATSAPP_APP_SECRET is not configured; cannot validate signature")
-
         if not signature_header:
             raise InvalidSignatureError("Missing X-Hub-Signature-256 header")
-
         if not signature_header.startswith("sha256="):
             raise InvalidSignatureError("Invalid signature format; expected 'sha256=...'")
-
-        actual_sig = signature_header[7:].strip()
-        expected_sig = hmac.new(
-            self.config.app_secret.encode("utf-8"),
-            raw_body,
-            hashlib.sha256,
-        ).hexdigest()
-
-        if not hmac.compare_digest(expected_sig, actual_sig):
-            raise InvalidSignatureError("HMAC-SHA256 signature mismatch; request untrusted")
-
-        return True
+        try:
+            verify_whatsapp_signature(raw_body, signature_header, self.config.app_secret)
+            return True
+        except FramingError:
+            raise InvalidSignatureError("HMAC-SHA256 signature mismatch; request untrusted") from None
 
     # --- Media Retrieval via Graph API ---
 
@@ -151,7 +146,9 @@ class WhatsAppAdapter:
 
     # --- Webhook Notification Processing ---
 
-    def parse_webhook_payload(self, payload: dict[str, Any]) -> list[RawMessageEnvelope]:
+    def parse_webhook_payload(
+        self, payload: dict[str, Any], *, correlation_id: str | None = None
+    ) -> list[RawMessageEnvelope]:
         """Traverse WhatsApp Cloud API payload and extract canonical RawMessageEnvelopes.
 
         Safely handles non-message callbacks (status receipts: sent, delivered, read)
@@ -176,6 +173,10 @@ class WhatsAppAdapter:
                 value = change.get("value", {})
                 if not isinstance(value, dict):
                     continue
+                metadata = value.get("metadata") if isinstance(value.get("metadata"), dict) else {}
+                callback_account_id = metadata.get("phone_number_id")
+                if not self.config.phone_number_id or callback_account_id != self.config.phone_number_id:
+                    raise InvalidWhatsAppAccountError("WhatsApp callback phone account does not match server configuration")
 
                 # Delivery statuses (sent, delivered, read) - do not ingest as inbound messages
                 if "statuses" in value and not value.get("messages"):
@@ -198,6 +199,18 @@ class WhatsAppAdapter:
                     msg_id = msg.get("id")
                     if not msg_id:
                         continue
+
+                    frame = None
+                    framing_error = None
+                    try:
+                        frame = whatsapp_frame(
+                            msg,
+                            tenant_id=self.config.tenant_id,
+                            account_id=self.config.phone_number_id or "",
+                            callback_account_id=callback_account_id,
+                        )
+                    except FramingError as exc:
+                        framing_error = str(exc)
 
                     sender_id = str(msg.get("from", "unknown_wa_sender"))
                     sender_alias = contacts_map.get(sender_id, f"WhatsApp +{sender_id}")
@@ -284,12 +297,24 @@ class WhatsAppAdapter:
                         tenant_id=self.config.tenant_id,
                         channel="WHATSAPP",
                         provider_message_id=msg_id,
-                        sender_identity_id=sender_id,
+                        provider_account_id=self.config.phone_number_id,
+                        provider_native_message_id=str(msg_id) if self.config.phone_number_id else None,
+                        sender_identity_id=frame.sender_id if frame else sender_id,
                         sender_alias=sender_alias,
                         received_at=received_at,
                         message_at=message_at,
                         text=text,
                         attachments=attachments,
+                        thread_ref=frame.conversation_id if frame else sender_id,
+                        conversation_id=frame.conversation_id if frame else sender_id,
+                        reply_to_provider_message_id=(frame.exact_parent_id if frame else (
+                            msg.get("context", {}).get("id") if isinstance(msg.get("context"), dict) else None
+                        )),
+                        native_attachment_source_ids=list(frame.attachment_source_ids) if frame else [],
+                        relationship_source=frame.relationship_source if frame else "UNKNOWN",
+                        source_authenticity="UNVERIFIED",
+                        correlation_id=correlation_id,
+                        framing_error=framing_error,
                         adapter_mode="REAL",
                     )
                     envelopes.append(envelope)
@@ -307,11 +332,13 @@ class WhatsAppAdapter:
         self.validate_signature(raw_body, signature_header)
 
         # 2. Parse envelopes
-        envelopes = self.parse_webhook_payload(payload)
+        callback_id = "whatsapp-callback:" + hashlib.sha256(raw_body).hexdigest()
+        envelopes = self.parse_webhook_payload(payload, correlation_id=callback_id)
         responses: list[IngestResponse] = []
 
         # 3. Ingest each message
         for envelope in envelopes:
+            envelope = envelope.model_copy(update={"source_authenticity": "VERIFIED"})
             result = self.ingestion_service.ingest(envelope, self.config.tenant_id)
             responses.append(result)
 

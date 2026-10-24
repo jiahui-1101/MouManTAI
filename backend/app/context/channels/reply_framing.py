@@ -1,9 +1,10 @@
-"""Internal C1 framing helpers, deliberately not wired to canonical ingestion.
+"""Internal C1 framing helpers used by authenticated channel adapters and P1 storage.
 
 Inputs must come from an authenticated transport with server-owned tenant/account
 configuration. Shape validation does not establish contact identity or consent.
-REFERENCE_MATCH means a scoped source reference, never business authorization.
-No persistence, network, events, domain transitions or inferred role decisions.
+REFERENCE_MATCH means a scoped source reference, never business authorization. The
+helpers do not perform persistence, network calls, events, domain transitions or
+inferred role decisions.
 """
 
 from __future__ import annotations
@@ -80,7 +81,14 @@ class ReplyFrame:
 
 @dataclass(frozen=True)
 class ParentResolution:
-    state: Literal["NO_EXACT_PARENT", "UNRESOLVED", "AMBIGUOUS", "REFERENCE_MATCH"]
+    state: Literal[
+        "NO_EXACT_PARENT",
+        "UNRESOLVED",
+        "AMBIGUOUS",
+        "REFERENCE_MATCH",
+        "LEGACY_UNKNOWN",
+        "INVALID",
+    ]
     parent_native_id: str | None = None
 
 

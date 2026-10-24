@@ -67,8 +67,10 @@ def _check_review_items(tenant_id, items, repository):
 def ingest_message(envelope: RawMessageEnvelope, response: Response, tenant: Tenant, repository: Repository) -> IngestResponse:
     # Anti-spoofing guard: External HTTP ingest endpoint is strictly for synthetic/test messages.
     # Real channel provenance is exclusively asserted by authorized internal channel adapters.
-    if envelope.adapter_mode != "SYNTHETIC":
-        envelope = envelope.model_copy(update={"adapter_mode": "SYNTHETIC"})
+    envelope = envelope.model_copy(update={
+        "adapter_mode": "SYNTHETIC",
+        "source_authenticity": "SYNTHETIC",
+    })
     result = IngestionService(repository).ingest(envelope, tenant.tenant_id)
     response.status_code = 200 if result.duplicate else 201
     return result
