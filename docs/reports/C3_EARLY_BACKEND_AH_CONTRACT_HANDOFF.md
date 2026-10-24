@@ -114,6 +114,28 @@ An inquiry answer/draft is a separate non-authoritative output and must cite the
 
 “Verified” is allowed only when an existing trusted identity/source reader resolves this message identity to a tenant-scoped supplier and supplies its evidence refs. Even then the ETA is a reported candidate, not a confirmed delivery change. The P2 API additionally requires authoritative before/after snapshots, snapshot versions, exact delivery identity/supply binding, ETA-change evidence linked to P2 sources, freshness and transactional deduplication/outbox. C3 cannot supply those facts from language-model output.
 
+### `HumanReviewCandidate` (proposed v1)
+
+The internal C3 result now includes a typed `HumanReviewCandidate` whenever analysis is unknown, failed, conflicting, or otherwise review-required. An approved Backend adapter should map it into the owning review queue with the exact tenant/source snapshot, evidence links, reason codes, and provider/rule provenance:
+
+```json
+{
+  "contract": "message_intelligence_review_candidate.v1",
+  "tenant_id": "tenant from authenticated P1 source read",
+  "source": {"message_id": "existing P1 ID", "content_sha256": "stored digest",
+    "channel": "source channel", "provider_message_id": "source provider ID",
+    "thread_ref": "source thread or null", "reply_to_provider_message_id": "exact parent or null"},
+  "intent": "UNKNOWN",
+  "review_reasons": ["AI_OUTPUT_INVALID"],
+  "evidence": [],
+  "provenance": {"provider": "NONE", "version": "unavailable"},
+  "analyzed_at": "offset-aware timestamp",
+  "candidate_only": true
+}
+```
+
+The candidate is not a persisted review task and C3 does not write it to a queue. Backend ownership must decide the durable review record, idempotency key, freshness/version check, and permissioned assignment flow.
+
 ### P4 reply handoff (proposed, no new API)
 
 C3 may provide an internal `ReplyDraftCandidate` containing tenant, exact source message ID/channel/provider ID/thread/reply parent, verified recipient identity/evidence, source content hash, draft text/subject, fact evidence refs, generator/provenance, expiry/currentness, and `review_required`. It remains unsent. The current P4 `MessageDraftView` requires a P4 `RecoveryCommunicationReference`, approved terms, authorization evidence, verified recipient and channel evidence; current intake is recovery-event scoped. There is no implemented P4 request contract for inquiry replies. Jiahui/P4 must decide whether to extend the existing request authority for inquiries and how inbound sender consent, same-channel routing, source version, and draft review should be bound. No direct call to `OutboundService.send` is allowed from C3.
@@ -123,7 +145,7 @@ C3 may provide an internal `ReplyDraftCandidate` containing tenant, exact source
 - Tenant is supplied by the authenticated server-side source reader, never inferred from the model or accepted from untrusted message text. Every referenced message, attachment, association, identity and evidence record must match that tenant.
 - Preserve provider/channel message IDs, original content digest, source timestamp, thread/reply parent IDs, attachment evidence refs, and exact spans. Text spans use Unicode code-point offsets into the immutable original text. Document citations use existing `DocumentEvidence` page/quote/evidence IDs; do not fabricate document offsets.
 - An association must be unambiguous and bound to the same source message and tenant. Preserve its existing association ID, version and update timestamp. The current P1 `MessageAssociationRecord` does not expose separate association evidence refs. Sender alias or model-extracted name is not identity evidence. Identity failure, missing currentness, or cross-tenant references fail closed to Human Review.
-- Deterministic rules run first. Qwen may return only a strict typed proposal. Invalid schema, unsupported fields, ungrounded spans, contradictions with deterministic evidence, timeout, provider error, or exhausted budget can invoke one bounded Gemini fallback. If validated providers disagree, retain both evidence/provenance and require review. Neither output becomes a business fact without the owner’s existing authority.
+- Deterministic rules run first. Qwen may return only a strict typed proposal. Invalid schema, incompatible claim kinds, unsupported fields, ungrounded spans, contradictions with deterministic evidence, timeout, provider error, or exhausted budget can invoke one bounded Gemini fallback. A valid Qwen result ends provider evaluation; C3 does not run both providers for consensus. If both attempts fail or validate as conflicting output, the result is an explicit Human Review candidate. Neither output becomes a business fact without the owner’s existing authority.
 - Candidate freshness binds source message digest, attachment extraction IDs/versions and extracted timestamps, association version/evidence, rule version, provider/model version, and `analyzed_at`. A changed digest, association, or attachment extraction makes the result stale and requires reevaluation. No freshness TTL is invented by this handoff.
 - Provider status should distinguish `AVAILABLE`, `INVALID_OUTPUT`, `TIMEOUT`, `RATE_LIMITED`, `PROVIDER_ERROR`, `BUDGET_EXCEEDED`, and `NOT_CONFIGURED`; the public handoff to Backend is a candidate/review result, not a provider exception or success assertion.
 - Logs contain request correlation and safe error classification only. Do not log message text, attachment contents, prompt, API key, recipient address, phone number, or raw provider body. Minimize data sent to providers and exclude sender identity/contact metadata unless strictly necessary and explicitly configured.

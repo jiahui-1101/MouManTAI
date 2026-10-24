@@ -22,6 +22,7 @@ from .contracts import (
     AttachmentSourceSnapshot,
     CustomerInquiryCandidate,
     EvidenceLink,
+    HumanReviewCandidate,
     Intent,
     ProviderAttempt,
     ProviderProvenance,
@@ -124,9 +125,13 @@ class MessageIntelligenceService:
             message, attachments, attachment_records, analyzed_at
         )
         source = self._source_reference(message, attachment_record_map, attachments)
-        identity_status, customer_id, association_id, association_version, association_updated_at = (
-            self._customer_identity(message, association, analyzed_at)
-        )
+        (
+            identity_status,
+            customer_id,
+            association_id,
+            association_version,
+            association_updated_at,
+        ) = self._customer_identity(message, association, analyzed_at)
         deterministic = classify_deterministically(message, tuple(evidence_items))
         reasons = list(deterministic.review_reasons) + attachment_reasons
         provider_attempts: list[ProviderAttempt] = []
@@ -312,6 +317,20 @@ class MessageIntelligenceService:
         if attachment_reasons and not reasons:
             reasons.extend(attachment_reasons)
         review_required = bool(reasons) or intent == "UNKNOWN"
+        review_reasons = list(dict.fromkeys(reasons))
+        human_review_candidate = (
+            HumanReviewCandidate(
+                tenant_id=message.raw.tenant_id,
+                source=source,
+                intent=intent,
+                review_reasons=review_reasons,
+                evidence=evidence,
+                provenance=ProviderProvenance(provider=selected_provider, version=provider_version),
+                analyzed_at=analyzed_at,
+            )
+            if review_required
+            else None
+        )
         return AnalysisOutcome(
             tenant_id=message.raw.tenant_id,
             source=source,
@@ -322,8 +341,9 @@ class MessageIntelligenceService:
             provider_attempts=provider_attempts,
             customer_inquiry=customer_candidate,
             supplier_delay=supplier_candidate,
+            human_review_candidate=human_review_candidate,
             review_required=review_required,
-            review_reasons=list(dict.fromkeys(reasons)),
+            review_reasons=review_reasons,
             analyzed_at=analyzed_at,
         )
 
@@ -623,7 +643,13 @@ class MessageIntelligenceService:
             status = (
                 "AMBIGUOUS" if association.status == IdentityLinkStatus.CONFLICT else "UNVERIFIED"
             )
-            return status, None, association.association_id, association.version, association.updated_at
+            return (
+                status,
+                None,
+                association.association_id,
+                association.version,
+                association.updated_at,
+            )
         customer = association.verified_customer
         if (
             customer is None
@@ -759,9 +785,10 @@ class MessageIntelligenceService:
             identity.tenant_id != message.raw.tenant_id
             or identity.channel != message.raw.channel
             or identity.sender_identity_id != message.raw.sender_identity_id
-            or identity.checked_at > now
         ):
             raise SourceContractError(
                 "trusted supplier identity result is not bound to this source"
             )
+        if identity.checked_at > now:
+            return None, "SUPPLIER_IDENTITY_CHECK_FROM_FUTURE"
         return identity, None

@@ -209,6 +209,21 @@ def test_candidate_contract_rejects_evidence_from_another_message():
         CustomerInquiryCandidate.model_validate(payload)
 
 
+def test_future_customer_association_time_becomes_human_review_candidate():
+    msg = message("How much is one box of chicken nuggets?")
+    association = verified_customer_association(msg).model_copy(
+        update={"updated_at": NOW + timedelta(days=1)}
+    )
+
+    result = MessageIntelligenceService().analyze(msg, association=association, now=NOW)
+
+    assert result.customer_inquiry.identity_status == "AMBIGUOUS"
+    assert result.customer_inquiry.customer_id is None
+    assert result.review_required is True
+    assert "SENDER_IDENTITY_AMBIGUOUS" in result.review_reasons
+    assert result.human_review_candidate is not None
+
+
 def test_supplier_delay_is_a_reported_candidate_even_for_verified_supplier():
     msg = message("Our PO-991 delivery is delayed until 2026-10-28.")
     service = MessageIntelligenceService(supplier_identity_resolver=VerifiedSupplierResolver())
@@ -225,6 +240,22 @@ def test_supplier_delay_is_a_reported_candidate_even_for_verified_supplier():
     assert candidate.review_required is True
     assert "REPORTED_CLAIM_NOT_AUTHORITATIVE" in candidate.review_reasons
     assert result.p2_event_created is False
+
+
+def test_future_supplier_identity_check_becomes_unverified_review_candidate():
+    class FutureSupplierResolver(VerifiedSupplierResolver):
+        def resolve_supplier(self, **kwargs):
+            identity = super().resolve_supplier(**kwargs)
+            return identity.model_copy(update={"checked_at": NOW + timedelta(days=1)})
+
+    result = MessageIntelligenceService(
+        supplier_identity_resolver=FutureSupplierResolver()
+    ).analyze(message("Our PO-991 delivery is delayed until 2026-10-28."), now=NOW)
+
+    assert result.supplier_delay.supplier_id is None
+    assert result.supplier_delay.supplier_identity_status == "UNVERIFIED"
+    assert "SUPPLIER_IDENTITY_CHECK_FROM_FUTURE" in result.review_reasons
+    assert result.human_review_candidate is not None
 
 
 def test_semantic_supplier_delay_preserves_deterministic_reference_and_eta_evidence():
@@ -427,6 +458,46 @@ def test_semantic_output_that_contradicts_deterministic_delay_signal_falls_back_
     assert result.customer_inquiry is None
     assert result.review_required is True
     assert "DETERMINISTIC_CONTRADICTION" in result.review_reasons
+
+
+def test_incompatible_model_claim_kinds_fall_back_and_create_review_candidate():
+    text = "Would the shipment reach our office before Friday?"
+    conflicting = json.loads(
+        assessment_json(
+            intent="CUSTOMER_INQUIRY",
+            topic="DELIVERY",
+            claim_kind="INQUIRY",
+            segment_id="s0",
+            text=text,
+        )
+    )
+    conflicting["claims"].append(
+        {
+            "kind": "SUPPLIER_DELAY",
+            "value": "reported delay",
+            "evidence": conflicting["claims"][0]["evidence"],
+        }
+    )
+    invalid_output = json.dumps(conflicting)
+    qwen = ScriptedProvider(invalid_output)
+    gemini = ScriptedProvider(invalid_output)
+
+    result = MessageIntelligenceService(
+        qwen=qwen, gemini=gemini, budget_policy=make_test_budget()
+    ).analyze(message(text), now=NOW)
+
+    assert qwen.calls == gemini.calls == 1
+    assert [attempt.status for attempt in result.provider_attempts] == [
+        "INVALID_OUTPUT",
+        "INVALID_OUTPUT",
+    ]
+    assert result.intent == "UNKNOWN"
+    assert result.customer_inquiry is None
+    assert result.review_required is True
+    assert result.human_review_candidate is not None
+    assert result.human_review_candidate.source == result.source
+    assert result.p2_event_created is False
+    assert result.p4_send_attempted is False
 
 
 def test_qwen_client_uses_configured_regional_endpoint_and_bounded_structured_request():

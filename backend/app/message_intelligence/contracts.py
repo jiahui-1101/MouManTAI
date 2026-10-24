@@ -64,12 +64,24 @@ class SemanticAssessment(StrictContract):
                 raise ValueError(
                     "customer inquiry requires a topic and an evidence-backed inquiry claim"
                 )
+            if kinds & {"SUPPLIER_DELAY", "ORDER_REQUEST"}:
+                raise ValueError(
+                    "customer inquiry cannot include incompatible order or supplier-delay claims"
+                )
         elif self.inquiry_topic is not None:
             raise ValueError("only customer inquiries may declare an inquiry topic")
         if self.intent == "SUPPLIER_DELAY" and "SUPPLIER_DELAY" not in kinds:
             raise ValueError("supplier delay requires an evidence-backed delay claim")
+        if self.intent == "SUPPLIER_DELAY" and kinds & {"INQUIRY", "ORDER_REQUEST"}:
+            raise ValueError("supplier delay cannot include incompatible inquiry or order claims")
         if self.intent == "CUSTOMER_ORDER_REQUEST" and "ORDER_REQUEST" not in kinds:
             raise ValueError("order request requires an evidence-backed request claim")
+        if self.intent == "CUSTOMER_ORDER_REQUEST" and kinds & {"INQUIRY", "SUPPLIER_DELAY"}:
+            raise ValueError(
+                "order request cannot include incompatible inquiry or supplier-delay claims"
+            )
+        if self.intent in {"OTHER", "UNKNOWN"} and kinds:
+            raise ValueError("other or unknown intent cannot include classified business claims")
         for kind in ("DELIVERY_REFERENCE", "REPORTED_ETA"):
             if len({claim.value for claim in self.claims if claim.kind == kind}) > 1:
                 raise ValueError("contradictory values for one supplier-delay field require review")
@@ -266,7 +278,8 @@ class CustomerInquiryCandidate(StrictContract):
         ):
             raise ValueError("association timestamp must be offset-aware")
         if (
-            self.association_updated_at is not None
+            self.identity_status == "LINK_VERIFIED"
+            and self.association_updated_at is not None
             and self.association_updated_at > self.analyzed_at
         ):
             raise ValueError("association timestamp cannot be newer than the analysis")
@@ -348,6 +361,29 @@ class SupplierDelaySignalCandidate(StrictContract):
         return self
 
 
+class HumanReviewCandidate(StrictContract):
+    contract: Literal["message_intelligence_review_candidate.v1"] = (
+        "message_intelligence_review_candidate.v1"
+    )
+    tenant_id: str = Field(min_length=1, max_length=200)
+    source: SourceMessageReference
+    intent: Intent
+    review_reasons: list[str] = Field(min_length=1, max_length=20)
+    evidence: list[EvidenceLink] = Field(default_factory=list, max_length=12)
+    provenance: ProviderProvenance
+    analyzed_at: datetime
+    candidate_only: Literal[True] = True
+
+    @model_validator(mode="after")
+    def source_and_reason_bindings(self):
+        if self.source.tenant_id != self.tenant_id:
+            raise ValueError("review candidate and source tenant must match")
+        _validate_candidate_evidence(self.source, self.evidence)
+        if self.analyzed_at.tzinfo is None or self.analyzed_at.utcoffset() is None:
+            raise ValueError("analysis timestamp must be offset-aware")
+        return self
+
+
 class AnalysisOutcome(StrictContract):
     tenant_id: str = Field(min_length=1, max_length=200)
     source: SourceMessageReference
@@ -358,6 +394,7 @@ class AnalysisOutcome(StrictContract):
     provider_attempts: list[ProviderAttempt] = Field(default_factory=list, max_length=4)
     customer_inquiry: CustomerInquiryCandidate | None = None
     supplier_delay: SupplierDelaySignalCandidate | None = None
+    human_review_candidate: HumanReviewCandidate | None = None
     review_required: bool
     review_reasons: list[str] = Field(default_factory=list, max_length=20)
     analyzed_at: datetime
@@ -373,8 +410,19 @@ class AnalysisOutcome(StrictContract):
                 candidate.tenant_id != self.tenant_id or candidate.source != self.source
             ):
                 raise ValueError("candidate must bind to the exact analysis source")
-        if self.review_reasons and not self.review_required:
-            raise ValueError("review reasons require Human Review")
+        if self.review_required:
+            if self.human_review_candidate is None:
+                raise ValueError("review-required analysis must include a Human Review candidate")
+            if (
+                self.human_review_candidate.tenant_id != self.tenant_id
+                or self.human_review_candidate.source != self.source
+                or self.human_review_candidate.intent != self.intent
+                or self.human_review_candidate.review_reasons != self.review_reasons
+                or self.human_review_candidate.analyzed_at != self.analyzed_at
+            ):
+                raise ValueError("Human Review candidate must bind to the exact analysis outcome")
+        elif self.human_review_candidate is not None or self.review_reasons:
+            raise ValueError("review candidate and reasons require Human Review")
         if self.analyzed_at.tzinfo is None or self.analyzed_at.utcoffset() is None:
             raise ValueError("analysis timestamp must be offset-aware")
         return self
