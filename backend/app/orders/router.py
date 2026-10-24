@@ -140,18 +140,24 @@ class MockOrderRequestView(ImmutableContract):
     evidence_tier: Literal["DEMO-ONLY"] = "DEMO-ONLY"
 
 
+def _utc_iso(value: datetime) -> str:
+    """SQLite drops timezone metadata; persisted Mock instants are UTC."""
+    return (value.replace(tzinfo=UTC) if value.tzinfo is None
+            else value.astimezone(UTC)).isoformat()
+
+
 def _view(row: OrderRequestRecord) -> MockOrderRequestView:
     return MockOrderRequestView(
         tenant_id=row.tenant_id, order_request_id=row.order_request_id,
         customer_id=row.customer_id, source_id=row.source_id, source_version=row.source_version,
         source_evidence_refs=tuple(row.source_evidence_refs),
-        source_observed_at=row.source_observed_at.isoformat(),
-        source_valid_through=row.source_valid_through.isoformat(),
+        source_observed_at=_utc_iso(row.source_observed_at),
+        source_valid_through=_utc_iso(row.source_valid_through),
         terms=OrderTerms.model_validate(row.terms), terms_hash=row.terms_hash,
         request_version=row.request_version, decision_status=row.decision_status,
         review_actor_id=row.review_actor_id, review_reason=row.review_reason,
-        commitment_id=row.commitment_id, created_at=row.created_at.isoformat(),
-        updated_at=row.updated_at.isoformat(),
+        commitment_id=row.commitment_id, created_at=_utc_iso(row.created_at),
+        updated_at=_utc_iso(row.updated_at),
     )
 
 

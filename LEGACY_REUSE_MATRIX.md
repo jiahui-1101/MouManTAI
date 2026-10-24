@@ -1,5 +1,22 @@
 # MouManTAI C1 Legacy Reuse Matrix
 
+## Final A–H integration mapping — 2026-10-25
+
+Audited before authoring the final merge revision: C1 `ee6196144ffe3d977bc2a744362a0671a4aabe2e`, Main `7035a509a61f684163cfa828f05d47619c0484f6` (merged #88). Git's merge preview and normal merge report no text conflicts. The combined graph has heads `0020_merge_c1_p4` and `0023_mock_memory_history`.
+
+| Existing entity / revision | Disposition | Compatibility / consumers |
+|---|---|---|
+| `p1_dev.inbound_messages` and other P1 source/context/attachment tables; `0018_c1_scoped_message_parent` | REUSE unchanged | Preserve canonical evidence, scoped identity, exact parents, legacy unknown provenance and safe downgrade refusal. Channel/P1/Orders source readers retain existing contracts. |
+| `mock_order_sources`, `order_requests`, `order_request_audit`, `mock_orbyte_states`, `mock_orbyte_reservations`; `0018_mock_order_requests` | REUSE unchanged | A–H synthetic acceptance/reservation authorities remain unchanged. |
+| `p4_orders`; `0019_p4_orders_persistence` | REUSE unchanged | Existing P4 read model, API and frontend consumers remain unchanged. |
+| `mock_supplier_datasets`, `mock_supplier_selections`, `mock_supplier_audit`; `0020_mock_supplier_advice` | REUSE unchanged | Supplier-owned synthetic comparison dataset; no C1 writes or authority changes. |
+| `mock_forecast_datasets`, `mock_forecast_audit`; `0021_mock_forecast_history` | REUSE unchanged | Forecast synthetic history, no predictive validation claim. |
+| `mock_optimization_datasets`, `mock_optimization_audit`; `0022_mock_optimization_dataset` | REUSE unchanged | Optimization synthetic inputs; no reservation authority. |
+| `mock_memory_datasets`, `mock_memory_audit`; `0023_mock_memory_history` | REUSE unchanged | Decision Memory synthetic history; no learning/policy authority. |
+| `0020_merge_c1_p4`, `0023_mock_memory_history` | ADD graph-only `0024_merge_c1_ah` | Two unchanged parents; upgrade/downgrade contain no DDL or data writes. Both histories are applied exactly once. No entities deprecated, duplicated or deleted. |
+
+Designated review: Jiahui must review the resulting integration HEAD and graph before merge. #95's orchestration migration is not copied, renamed or modified; its owner must reconcile its lineage after this PR lands. Main removed root requirements/blueprint documents in #110; existing `docs/requirements/v2.2/` versions remain available, and C1 preserves Main's removals.
+
 Date: 2026-10-25 (Asia/Kuala_Lumpur)
 Repository baseline: `d3c2a3e927977d428b63f240f665db34594786d2` (merged PR #89)
 Scope: C1 canonical message persistence, provider framing and exact-parent association.
