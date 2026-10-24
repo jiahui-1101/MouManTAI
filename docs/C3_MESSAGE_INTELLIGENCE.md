@@ -19,4 +19,3 @@ Verified C2 ingress → P1 persisted message/attachment evidence → C3 determin
 P4 provider transports remain disconnected. Any future inquiry reply or notification must use the approved P4 verified recipient/channel, purpose consent, explicit authorization, current draft/source evidence, durable outbox/idempotency and provider receipt/unknown-outcome path. Real sends remain disabled.
 
 See [Phase 3 integration report](reports/C3_P1_PHASE3_INTEGRATION_2026-10-25.md) for overlap, validation and blockers. Historical pre-integration C3 handoff remains in `docs/reports/C3_EARLY_BACKEND_AH_CONTRACT_HANDOFF.md`.
-

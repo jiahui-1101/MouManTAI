@@ -37,4 +37,3 @@ Required before GO: P1/P5 owner-approved shared semantic classification task and
 - Frontend `npm run typecheck`: passed. `npm test -- --run`: **1,232 passed, 5 skipped**. `npm run build`: passed with existing large-chunk advisory.
 - `ruff check`, `ruff format --check`, `compileall`, `git diff --check`, and `alembic heads` passed; sole Alembic head: `0025_merge_c1_business_orch`.
 - Exact-head GitHub Actions: **PENDING** until this branch is published and checks finish. Live Qwen/Gemini, channel provider E2E and real P4 outbound: **NOT_RUN** (credentials/privacy and P4 authorization unavailable).
-
