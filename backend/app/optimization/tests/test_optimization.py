@@ -347,6 +347,47 @@ def test_individually_feasible_jointly_infeasible_and_fixed_job():
     assert status == SolverStatus.INFEASIBLE and projection is None
 
 
+def test_joint_portfolio_100_supply_cannot_cover_70_and_60():
+    request, spec = fixture(material_capacity=Decimal(100), second_lot=Decimal(30))
+    demand = {"A": Decimal(70), "B": Decimal(60)}
+    request = request.model_copy(
+        update={
+            "candidates": tuple(
+                candidate.model_copy(
+                    update={
+                        "lines": tuple(
+                            line.model_copy(update={"quantity": demand[candidate.order_request_id]})
+                            for line in candidate.lines
+                        )
+                    }
+                )
+                for candidate in request.candidates
+            )
+        }
+    )
+    spec = spec.model_copy(
+        update={
+            "requirements": tuple(
+                requirement.model_copy(
+                    update={"quantity": demand[requirement.order_request_id]}
+                )
+                for requirement in spec.requirements
+            )
+        }
+    )
+
+    assert ORTOOLS_VERSION != "UNAVAILABLE"
+    for selected in (frozenset({"A"}), frozenset({"B"})):
+        status, projection, _, _ = solve(
+            request, spec, Strategy.FCFS, forced_selected=selected
+        )
+        assert status == SolverStatus.OPTIMAL and projection is not None
+    status, projection, _, _ = solve(
+        request, spec, Strategy.FCFS, forced_selected=frozenset({"A", "B"})
+    )
+    assert status == SolverStatus.INFEASIBLE and projection is None
+
+
 def test_missing_sources_and_disagreement_fail_closed():
     request, spec = fixture(missing_cost=True)
     result = compare(request, provider=FixtureProvider(spec), verifier=FixtureVerifier(spec))
