@@ -8,10 +8,11 @@ import { EmptyState, ErrorState, EvidenceTierBadge, LastUpdated, StatusBadge,
 import { instant, timestamp } from './queue';
 import { portfolioDimensions, type PortfolioSnapshot, type PortfolioSource } from './portfolioTypes';
 import { PortfolioUnavailableError, PortfolioVersionError, portfolioFresh, unavailablePortfolioSource, validatePortfolio } from './portfolioSource';
-import { metricDifference, metricText, verifiedRecommendation } from './portfolioView';
+import { metricText, verifiedRecommendation } from './portfolioView';
 import { PortfolioStrategyAvailability } from './PortfolioStrategyAvailability';
 import { PortfolioCalendarContext } from './portfolioCalendarContext';
 import { PortfolioAnalysisScope } from './PortfolioAnalysisScope';
+import { PortfolioComparisonMatrix } from './PortfolioComparisonMatrix';
 import './portfolio.css';
 
 const executionNotice = 'Scenario membership is a proposal only. Comparison does not accept orders, establish customer assent, reserve resources or change confirmed agreements.';
@@ -42,15 +43,7 @@ function PortfolioResults({ data, now }: { data: PortfolioSnapshot; now: number 
       <p>Evidence: {s.evidence.join(', ')}</p>
     </article>)}</div>
     {!!scenarios.length && <>
-      <h2>Side-by-side comparison</h2><p>Only source-backed values with matching units, objectives, model versions and policy are compared.</p>
-      <div className="pc-scroll" tabIndex={0} role="region" aria-label="Scenario comparison, scroll horizontally">
-        <table><caption>Scenario metrics and comparability</caption><thead><tr><th scope="col">Dimension</th>
-          {scenarios.map(s => <th scope="col" key={s.id}>{s.label} · v{s.version}</th>)}<th scope="col">Comparison</th></tr></thead>
-          <tbody>{portfolioDimensions.map(([key, label]) => { const difference = metricDifference(data, scenarios, key, now);
-            return <tr key={key} data-difference={difference.startsWith('Verified difference')}><th scope="row">{label}</th>
-              {scenarios.map(s => <td key={s.id}>{metricText(data, s, key, now)}<small>Evidence: {s.metrics[key]?.evidence.join(', ') || 'Unavailable'}</small></td>)}
-              <td>{difference}</td></tr>; })}</tbody></table>
-      </div>
+      <PortfolioComparisonMatrix data={data} scenarios={scenarios} now={now} />
       <h2>Order allocation breakdown</h2><p>{executionNotice}</p>
       {!data.orders.length ? <EmptyState kind="unavailable" title="Order breakdown unavailable" description="No source-provided order identities and request versions." /> :
         <div className="pc-scroll" tabIndex={0} role="region" aria-label="Order allocations, scroll horizontally"><table>
@@ -132,6 +125,7 @@ export function PortfolioComparisonPage({ source = unavailablePortfolioSource }:
       description="Source evidence is unverified, stale, expired, future-dated or of unknown freshness. Metrics, allocations and recommendations are withheld. Refresh or review individual orders." />}
     <PortfolioAnalysisScope data={available && !conflict ? data : undefined} />
     {(!available || conflict || !data.scenarios.length) && <PortfolioStrategyAvailability data={available && !conflict ? data : undefined} />}
+    {(!available || conflict || !data.scenarios.length) && <PortfolioComparisonMatrix now={observedNow} />}
     {available && !conflict && (data.scenarios.length ?
       <PortfolioResults key={`${auth.tenantId}:${auth.actorId}:${data.snapshotId}:${data.snapshotVersion}:${data.updatedAt}:${data.scenarios.map(s => `${s.id}:${s.version}`).join('|')}`} data={data} now={observedNow} /> :
       <EmptyState kind="empty" title="No source scenarios" description="The source returned no scenarios. Continue with individual order assessments; no local portfolio is invented." />)}

@@ -27,3 +27,15 @@ it('selects only returned strategies and preserves the per-metric profit redacti
  expect(document.body).not.toHaveTextContent('987654');
  expect(screen.queryByText(/Recommended · source-backed/)).not.toBeInTheDocument();
 });
+
+import { PortfolioComparisonMatrix } from './PortfolioComparisonMatrix';
+it('shows a fixed three-strategy matrix, preserving redaction and unknown scope without arithmetic', () => {
+ const data=portfolioFixture(); data.scenarios[1].metrics.profit!.state='REDACTED'; data.scenarios[1].metrics.profit!.value='987654';
+ render(<PortfolioComparisonMatrix data={data} scenarios={data.scenarios} now={Date.parse('2026-10-24T03:00:00Z')} />);
+ expect(screen.getByRole('columnheader',{name:'Profit-first'})).toBeInTheDocument();
+ expect(screen.getByRole('columnheader',{name:'Expiry-aware'})).toBeInTheDocument();
+ expect(screen.getByText('Redacted')).toBeInTheDocument();
+ expect(screen.getByRole('rowheader',{name:'Profit Difference'}).parentElement).toHaveTextContent('Unavailable');
+ expect(document.body).not.toHaveTextContent('987654');
+ expect(screen.getByText(/Matching snapshot versions alone/)).toBeInTheDocument();
+});

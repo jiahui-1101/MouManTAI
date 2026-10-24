@@ -59,3 +59,24 @@
 .pc-active-scenario select { max-width: 100%; border: 1px solid var(--ui-divider,#dce2eb); background: var(--ui-surface,#fff); color: inherit; border-radius: .5rem; padding: .65rem; }
 .pc-cards:has(> .pc-strategy-card) { grid-template-columns: repeat(3,minmax(0,1fr)); }
 @media(max-width:1000px) { .pc-cards:has(> .pc-strategy-card) { grid-template-columns: minmax(0,1fr); } }
+
+/* Strategy colors identify objectives, never feasibility or business approval. */
+.pc-strategy-card:nth-child(1) { --pc-accent:#2563eb; --pc-tint:#eff6ff; }
+.pc-strategy-card:nth-child(2) { --pc-accent:#7c3aed; --pc-tint:#f5f3ff; }
+.pc-strategy-card:nth-child(3) { --pc-accent:#a16207; --pc-tint:#fffbeb; }
+.pc-strategy-card { border-top-color:var(--pc-accent); background:linear-gradient(135deg,var(--pc-tint),var(--ui-surface,#fff) 65%); }
+.pc-strategy-card.pc-strategy-selected { border-color:var(--pc-accent); box-shadow:0 0 0 1px var(--pc-accent); }
+.pc-strategy-icon { display:grid; place-items:center; width:2.5rem; height:2.5rem; border-radius:.8rem; color:var(--pc-accent); background:var(--pc-tint); border:1px solid currentColor; }
+.pc-strategy-icon svg { width:1.4rem; height:1.4rem; }
+.pc-selected-label { font-size:.8rem; font-weight:700; color:var(--pc-accent); }
+.pc-scope-grid div:nth-child(4n+1) { border-color:#3b82f6; background:#eff6ff; }
+.pc-scope-grid div:nth-child(4n+2) { border-color:#8b5cf6; background:#f5f3ff; }
+.pc-scope-grid div:nth-child(4n+3) { border-color:#0f766e; background:#f0fdfa; }
+.pc-scope-grid div:nth-child(4n) { border-color:#a16207; background:#fffbeb; }
+.pc-scope-grid div { padding:.8rem; border-radius:.5rem; }
+.pc-metric-group th { background:#edf2fb; color:#254571; font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; }
+.pc-matrix table th:nth-child(2) { color:#1d4ed8; }
+.pc-matrix table th:nth-child(3) { color:#6d28d9; }
+.pc-matrix table th:nth-child(4) { color:#854d0e; }
+.pc-context-note,.pc-dependency { padding:1rem; background:var(--ui-background,#f4f8ff); border-radius:.65rem; border:1px dashed var(--ui-divider,#dce2eb); font-size:.9rem; }
+.pc-matrix .pc-scroll { margin-top:1rem; }
