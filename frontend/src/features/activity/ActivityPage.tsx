@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { ApiError, getAudit, getCommitments, getCommitmentTimeline } from "../../shared/api";
 import { KNOWN_ACTORS, useAuth } from "../../shared/auth";
-import { formatKLTimestamp } from "../../shared/date";
+import { formatKLDateOnly, formatKLTimestamp } from "../../shared/date";
 import { StatusBadge } from "../../shared/StatusBadge";
 import type { AuditEvent, Commitment, SourceFeature, TimelineEntry } from "../../shared/types";
 
@@ -128,16 +128,14 @@ export function extractStateTransitions(
   return transitions;
 }
 
-export function isHumanGovernanceRecord(entry: TimelineEntry): boolean {
+export function isHumanGovernanceRecord(entry: NormalizedTimelineEntry): boolean {
   const role = entry.actor_role?.toUpperCase();
   const isHuman = role === "OWNER" || role === "MANAGER";
   const hasReason = Boolean(entry.approval_reason && entry.approval_reason.trim().length > 0);
   const actionLower = (entry.action || "").toLowerCase();
   const isApprovalAction =
-    actionLower.includes("approval") ||
-    actionLower.includes("approved") ||
+    actionLower.includes("approv") ||
     actionLower.includes("reject") ||
-    actionLower.includes("confirm") ||
     actionLower.includes("proposal") ||
     actionLower.includes("fulfilment");
 
@@ -153,6 +151,10 @@ export function ActivityPage() {
 
   const [selectedCommitmentId, setSelectedCommitmentId] = useState<string>(commitmentIdParam);
   const [selectedCorrelationId, setSelectedCorrelationId] = useState<string>(correlationIdParam);
+  const [customerFilter, setCustomerFilter] = useState<string>("");
+  const [supplierFilter, setSupplierFilter] = useState<string>("");
+  const [incidentFilter, setIncidentFilter] = useState<string>("");
+  const [dateFilter, setDateFilter] = useState<string>("");
   const [viewMode, setViewMode] = useState<"timeline" | "grouped">("timeline");
 
   // Keep state in sync with URL
@@ -223,15 +225,75 @@ export function ActivityPage() {
     }
   }, [data, activeCommitmentId]);
 
-  // Apply correlation_id filter if present
+  // Filter entries by commitment, correlation, customer, supplier, incident, and date
   const filteredEntries = useMemo(() => {
-    if (!selectedCorrelationId) return allEntries;
-    return allEntries.filter(
-      (entry) =>
-        entry.correlation_id === selectedCorrelationId ||
-        entry.causation_id === selectedCorrelationId,
-    );
-  }, [allEntries, selectedCorrelationId]);
+    return allEntries.filter((entry) => {
+      // 1. Correlation filter
+      if (selectedCorrelationId) {
+        const matchesCorr =
+          entry.correlation_id === selectedCorrelationId ||
+          entry.causation_id === selectedCorrelationId;
+        if (!matchesCorr) return false;
+      }
+
+      // 2. Customer filter
+      if (customerFilter.trim()) {
+        const query = customerFilter.trim().toLowerCase();
+        const custId = String(
+          entry.new_state?.customer_id ||
+          entry.previous_state?.customer_id ||
+          ""
+        ).toLowerCase();
+        const actionStr = (entry.action || "").toLowerCase();
+        if (!custId.includes(query) && !actionStr.includes(query)) {
+          return false;
+        }
+      }
+
+      // 3. Supplier filter
+      if (supplierFilter.trim()) {
+        const query = supplierFilter.trim().toLowerCase();
+        const suppId = String(
+          entry.new_state?.supplier_id ||
+          entry.new_state?.supplier ||
+          entry.previous_state?.supplier_id ||
+          ""
+        ).toLowerCase();
+        const actionStr = (entry.action || "").toLowerCase();
+        const eventStr = (entry.event_type || "").toLowerCase();
+        if (!suppId.includes(query) && !actionStr.includes(query) && !eventStr.includes(query)) {
+          return false;
+        }
+      }
+
+      // 4. Incident / Disruption filter
+      if (incidentFilter.trim()) {
+        const query = incidentFilter.trim().toLowerCase();
+        const incId = String(
+          entry.recovery_case_id ||
+          entry.assessment_id ||
+          ""
+        ).toLowerCase();
+        const actionStr = (entry.action || "").toLowerCase();
+        const eventStr = (entry.event_type || "").toLowerCase();
+        if (!incId.includes(query) && !actionStr.includes(query) && !eventStr.includes(query)) {
+          return false;
+        }
+      }
+
+      // 5. Date filter (YYYY-MM-DD or partial date)
+      if (dateFilter.trim()) {
+        const query = dateFilter.trim();
+        const dateKL = formatKLDateOnly(entry.occurred_at);
+        const isoDate = String(entry.occurred_at || "");
+        if (!dateKL.includes(query) && !isoDate.includes(query)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [allEntries, selectedCorrelationId, customerFilter, supplierFilter, incidentFilter, dateFilter]);
 
   // Group entries by correlation_id for grouped correlation chain view
   const correlationGroups = useMemo(() => {
@@ -249,6 +311,7 @@ export function ActivityPage() {
     }));
   }, [filteredEntries]);
 
+
   // Role redaction detection
   const isViewingAsStaff = actorRole?.toUpperCase() === "STAFF";
   const hasAnyRedaction = useMemo(() => {
@@ -261,12 +324,30 @@ export function ActivityPage() {
     );
   }, [filteredEntries, isViewingAsStaff]);
 
+  const hasActiveFilters = Boolean(
+    activeCommitmentId ||
+    selectedCorrelationId ||
+    customerFilter ||
+    supplierFilter ||
+    incidentFilter ||
+    dateFilter
+  );
+
+  const resetAllFilters = () => {
+    handleCommitmentChange("");
+    handleCorrelationFilter("");
+    setCustomerFilter("");
+    setSupplierFilter("");
+    setIncidentFilter("");
+    setDateFilter("");
+  };
+
   return (
     <div className="activity-page" data-testid="activity-page">
       {/* Page Header & Transparency Controls */}
       <header className="page-heading">
         <div>
-          <p className="eyebrow">Audit & Event Traceability · FE-03</p>
+          <p className="eyebrow">Audit & Event Traceability · FE-03 · FE-AUD-01</p>
           <h2>Activity & Audit History</h2>
           <p className="muted">
             Immutable domain events, state transition diffs, human approvals, and end-to-end causal
@@ -300,13 +381,21 @@ export function ActivityPage() {
         {/* Staff / Sensitive Role Redaction Banner */}
         {(isViewingAsStaff || hasAnyRedaction) && (
           <div className="redacted-banner" data-testid="redacted-indicator">
-            <span className="redacted-icon" aria-hidden="true">🔒</span>
+            <span className="redacted-badge" data-testid="redacted-badge">🔒 Redacted for role</span>
             <span className="redacted-text">
               <strong>Redacted for role (Staff):</strong> Financial margins, profit amounts, and
               private contact details are masked.
             </span>
           </div>
         )}
+      </div>
+
+      {/* R-09 Partial Fallback Callout */}
+      <div className="correlation-fallback-note" data-testid="correlation-fallback-note">
+        <span className="notice-icon" aria-hidden="true">ℹ️</span>
+        <span className="notice-text">
+          <strong>Cross-feature causal correlation unavailable (R-09 Partial):</strong> Full causal correlation across F1 (inbound) → F2 (feasibility) → F3 (recovery) → F4 (confirmation) is pending backend event publication. Displaying linear timeline without speculative client-side correlation guessing.
+        </span>
       </div>
 
       {/* Filtering & Scoping Toolbar */}
@@ -354,6 +443,58 @@ export function ActivityPage() {
               </button>
             )}
           </div>
+        </div>
+
+        <div className="filter-item">
+          <label htmlFor="customer-filter">Filter by Customer:</label>
+          <input
+            id="customer-filter"
+            data-testid="customer-filter"
+            type="text"
+            className="text-input"
+            placeholder="e.g. cust_bk"
+            value={customerFilter}
+            onChange={(e) => setCustomerFilter(e.target.value)}
+          />
+        </div>
+
+        <div className="filter-item">
+          <label htmlFor="supplier-filter">Filter by Supplier:</label>
+          <input
+            id="supplier-filter"
+            data-testid="supplier-filter"
+            type="text"
+            className="text-input"
+            placeholder="e.g. sup_001"
+            value={supplierFilter}
+            onChange={(e) => setSupplierFilter(e.target.value)}
+          />
+        </div>
+
+        <div className="filter-item">
+          <label htmlFor="incident-filter">Filter by Incident:</label>
+          <input
+            id="incident-filter"
+            data-testid="incident-filter"
+            type="text"
+            className="text-input"
+            placeholder="e.g. rec_case_001"
+            value={incidentFilter}
+            onChange={(e) => setIncidentFilter(e.target.value)}
+          />
+        </div>
+
+        <div className="filter-item">
+          <label htmlFor="date-filter">Filter by Date:</label>
+          <input
+            id="date-filter"
+            data-testid="date-filter"
+            type="text"
+            className="text-input"
+            placeholder="YYYY-MM-DD"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+          />
         </div>
 
         <div className="view-mode-toggle" role="group" aria-label="View mode">
@@ -452,14 +593,11 @@ export function ActivityPage() {
             No audit or timeline events match the current filter criteria{" "}
             {activeCommitmentId ? `for commitment ${activeCommitmentId}` : ""}.
           </p>
-          {(activeCommitmentId || selectedCorrelationId) && (
+          {hasActiveFilters && (
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => {
-                handleCommitmentChange("");
-                handleCorrelationFilter("");
-              }}
+              onClick={resetAllFilters}
             >
               Reset All Filters
             </button>
@@ -472,38 +610,47 @@ export function ActivityPage() {
         <div className="activity-content">
           {viewMode === "grouped" ? (
             <div className="correlation-groups-container">
-              {correlationGroups.map((group) => (
-                <div key={group.correlation_id} className="correlation-chain-card">
-                  <div className="correlation-chain-header">
-                    <div className="chain-title">
-                      <span className="chain-icon">🔗</span>
-                      <div>
-                        <h4>Causal Chain: <code>{group.correlation_id}</code></h4>
-                        <span className="chain-subtitle">
-                          {group.entries.length} correlated events in trace
-                        </span>
+              {correlationGroups.map((group) => {
+                const isUncorrelatedGroup = !group.correlation_id || group.correlation_id === "uncorrelated";
+                return (
+                  <div key={group.correlation_id} className="correlation-chain-card">
+                    <div className="correlation-chain-header">
+                      <div className="chain-title">
+                        <span className="chain-icon">{isUncorrelatedGroup ? "⚠️" : "🔗"}</span>
+                        <div>
+                          <h4>
+                            {isUncorrelatedGroup
+                              ? "Uncorrelated Events (Cross-feature causal correlation unavailable)"
+                              : `Causal Chain: ${group.correlation_id}`}
+                          </h4>
+                          <span className="chain-subtitle">
+                            {group.entries.length} correlated events in trace
+                          </span>
+                        </div>
                       </div>
+                      {!isUncorrelatedGroup && (
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          onClick={() => handleCorrelationFilter(group.correlation_id)}
+                        >
+                          Filter this Chain
+                        </button>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      onClick={() => handleCorrelationFilter(group.correlation_id)}
-                    >
-                      Filter this Chain
-                    </button>
-                  </div>
 
-                  <div className="timeline-track">
-                    {group.entries.map((entry, index) => (
-                      <TimelineEntryCard
-                        key={entry.entry_id || index}
-                        entry={entry}
-                        onSelectCorrelation={handleCorrelationFilter}
-                      />
-                    ))}
+                    <div className="timeline-track">
+                      {group.entries.map((entry, index) => (
+                        <TimelineEntryCard
+                          key={entry.entry_id || index}
+                          entry={entry}
+                          onSelectCorrelation={handleCorrelationFilter}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="timeline-track" data-testid="timeline-track">
@@ -556,6 +703,9 @@ export function TimelineEntryCard({ entry, onSelectCorrelation }: TimelineEntryC
   const assessmentId = entry.assessment_id;
   const recoveryCaseId = entry.recovery_case_id;
   const confirmationId = entry.communication_id || entry.proposal_id;
+  const supplierId =
+    (entry.new_state?.supplier_id as string | undefined) ||
+    (entry.previous_state?.supplier_id as string | undefined);
 
   return (
     <article
@@ -640,7 +790,7 @@ export function TimelineEntryCard({ entry, onSelectCorrelation }: TimelineEntryC
       {/* Role Redaction Indicator (FE-03d) */}
       {isRedacted && (
         <div className="redacted-callout" data-testid="redacted-indicator">
-          <span className="redacted-badge">🔒 Redacted for role</span>
+          <span className="redacted-badge" data-testid="redacted-badge">🔒 Redacted for role</span>
           <span className="redacted-note">
             Confidential commercial, pricing, and contact fields are masked for this role view.
           </span>
@@ -651,14 +801,18 @@ export function TimelineEntryCard({ entry, onSelectCorrelation }: TimelineEntryC
       <div className="correlation-causation-row">
         <div className="correlation-info">
           <span className="corr-label">Correlation ID:</span>
-          <button
-            type="button"
-            className="corr-link-btn"
-            onClick={() => onSelectCorrelation(entry.correlation_id)}
-            title="Click to filter by this correlation ID"
-          >
-            <code>{entry.correlation_id}</code>
-          </button>
+          {entry.correlation_id && entry.correlation_id !== "uncorrelated" ? (
+            <button
+              type="button"
+              className="corr-link-btn"
+              onClick={() => onSelectCorrelation(entry.correlation_id)}
+              title="Click to filter by this correlation ID"
+            >
+              <code>{entry.correlation_id}</code>
+            </button>
+          ) : (
+            <span className="muted-corr">Cross-feature causal correlation unavailable</span>
+          )}
         </div>
 
         {entry.causation_id && (
@@ -701,6 +855,11 @@ export function TimelineEntryCard({ entry, onSelectCorrelation }: TimelineEntryC
           {confirmationId && (
             <Link to={`/confirmations/${confirmationId}`} className="module-deep-link deep-link-f4">
               F4 Confirmation ({confirmationId})
+            </Link>
+          )}
+          {supplierId && (
+            <Link to={`/suppliers/${supplierId}`} className="module-deep-link deep-link-supplier">
+              Supplier ({supplierId})
             </Link>
           )}
         </div>
