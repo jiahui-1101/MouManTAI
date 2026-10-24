@@ -48,7 +48,14 @@
 .p1-sort-button { display: inline-flex; align-items: center; gap: 4px; background: transparent; border: 0; padding: 0; color: inherit; font-weight: 700; }
 .p1-sort-button:hover { color: var(--p1-accent); }
 .p1-th-arrows { color: #94a3b8; font-size: 10px; margin-left: 4px; font-weight: 500; display: inline-block; }
-.p1-th-actions { text-align: right; }
+.p1-th-actions {
+  text-align: right;
+  position: sticky;
+  right: 0;
+  background: #ffffff !important;
+  z-index: 2;
+  box-shadow: -3px 0 6px -2px rgba(28, 49, 83, 0.08);
+}
 .p1-table-card td { padding: 7.2px 8px; border-bottom: 1px solid var(--p1-border); vertical-align: middle; height: 50px; font-size: 13px; font-weight: 400; color: rgba(28, 49, 83, 0.9); }
 .p1-table-card tbody tr:hover { background: #f8fafc; }
 .p1-date { color: #64748b; font-size: 11px; white-space: nowrap; width: 130px; }
@@ -67,7 +74,18 @@
 .p1-critical { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
 
 /* Orbyte Action Buttons */
-.p1-actions-cell { text-align: right; white-space: nowrap; }
+.p1-actions-cell {
+  text-align: right;
+  white-space: nowrap;
+  position: sticky;
+  right: 0;
+  background: #ffffff;
+  z-index: 1;
+  box-shadow: -3px 0 6px -2px rgba(28, 49, 83, 0.08);
+}
+.p1-table-card tbody tr:hover .p1-actions-cell {
+  background: #f8fafc;
+}
 .p1-orbyte-actions-group { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .p1-orbyte-action-icon-btn {
   display: inline-flex;
@@ -1253,6 +1271,35 @@
 .p1-attempt-hash {
   color: #94a3b8;
 }
+
+/* Focused context review: panels stay mounted so edits survive stage changes. */
+.p1-review-stage[data-active="false"],
+.p1-review-resolution-actions[data-active="false"] { display: none; }
+.p1-review-tabs { display: flex; gap: 4px; overflow-x: auto; padding: 8px 14px 0; border-bottom: 1px solid rgba(28,49,83,.12); }
+.p1-review-tabs button { flex: 0 0 auto; padding: 9px 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: rgba(28,49,83,.7); font: inherit; font-size: 12px; cursor: pointer; }
+.p1-review-tabs button[aria-selected="true"] { border-color: #0767e8; color: #0767e8; font-weight: 700; }
+.p1-review-tabs button:hover { background: rgba(7,103,232,.094); }
+.p1-review-tabs button:focus-visible, .p1-review-step-controls button:focus-visible { outline: 2px solid #0767e8; outline-offset: 2px; }
+.p1-review-summary-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 12px 0; }
+.p1-review-summary-grid div, .p1-review-summary-alert { padding: 10px; border: 1px solid rgba(28,49,83,.12); border-radius: 6px; background: #fff; }
+.p1-review-summary-grid dt { font-size: 11px; color: rgba(28,49,83,.7); }
+.p1-review-summary-grid dd { margin: 3px 0 0; font-weight: 700; color: #1c3153; overflow-wrap: anywhere; }
+.p1-review-summary-alert { background: #f4f8ff; }
+.p1-review-summary-note { color: rgba(28,49,83,.7); font-size: 12px; }
+.p1-review-source-message { margin: 8px 0; padding: 10px 12px; max-height: 150px; overflow-y: auto; background: #fff; border: 1px solid rgba(28,49,83,.12); border-left: 3px solid #0767e8; border-radius: 6px; color: #1c3153; white-space: pre-wrap; overflow-wrap: anywhere; }
+.p1-review-persistent-warning { margin: 0; padding: 7px 14px; background: #f4f8ff; color: #1c3153; border-bottom: 1px solid rgba(28,49,83,.12); font-size: 12px; }
+.p1-review-close-warning { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 14px; background: #f4f8ff; border-bottom: 1px solid rgba(28,49,83,.12); font-size: 12px; }
+.p1-review-step-controls { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; color: rgba(28,49,83,.7); font-size: 12px; }
+.p1-proposal-banner { padding: 12px; margin-bottom: 14px; background: #f4f8ff; border: 1px solid rgba(28,49,83,.12); border-radius: 6px; }
+.p1-proposal-banner > div:first-child > span:first-child { color: #1c3153; font-size: 12px; font-weight: 700; }
+.p1-candidate-card { display: flex; flex-direction: column; gap: 3px; padding: 6px; background: #fff; border: 1px solid rgba(28,49,83,.12); border-radius: 6px; }
+.p1-candidate-card button { text-align: left; }
+.p1-candidate-evidence { color: rgba(28,49,83,.7); font-size: 11px; overflow-wrap: anywhere; }
+.p1-candidate-evidence summary { cursor: pointer; color: #0767e8; }
+.p1-drawer-panel .status-partial,
+.p1-drawer-panel .status-unresolved,
+.p1-drawer-panel .extraction-diagnostic,
+.p1-drawer-panel .p1-prov-dot.is-amber { background: rgba(7,103,232,.094); color: #0767e8; border-color: rgba(7,103,232,.25); }
 
 
 

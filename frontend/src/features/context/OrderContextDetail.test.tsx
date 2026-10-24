@@ -165,7 +165,7 @@ describe('OrderContextDetail component', () => {
   });
 
   it('opens review drawer and submits field edits with optimistic locking', async () => {
-    render(<OrderContextDetail contextId="ctx_mock_1" />);
+    render(<OrderContextDetail contextId="ctx_mock_1" requestHeaders={{ 'X-Actor-ID': 'user_staff_01', 'X-Actor-Role': 'STAFF' }} />);
 
     await waitFor(() => {
       expect(screen.getByText('Order Context: ORD-5001')).toBeInTheDocument();
@@ -183,7 +183,7 @@ describe('OrderContextDetail component', () => {
     fireEvent.change(screen.getByLabelText(/Reviewer Note/i), { target: { value: 'Customer increased to 60 via phone call' } });
 
     // Submit review
-    fireEvent.click(screen.getByRole('button', { name: /Apply Field Edits/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Save changes|Apply Field Edits/i }));
 
     await waitFor(() => {
       expect(operationalApi.reviewContext).toHaveBeenCalledWith(
@@ -216,7 +216,9 @@ describe('OrderContextDetail component', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: /Review & Amend/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Apply Field Edits/i }));
+    fireEvent.change(screen.getByLabelText(/^Quantity$/i), { target: { value: '60' } });
+    fireEvent.change(screen.getByLabelText(/Reviewer Note/i), { target: { value: 'Update quantity' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save changes|Apply Field Edits/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/Stale context version 2/)).toBeInTheDocument();

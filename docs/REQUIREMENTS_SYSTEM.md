@@ -1,3 +1,5 @@
+> LEGACY v1 compatibility reference. Current target: [v2.2 System](../REQUIREMENTS_SYSTEM.md).
+
 # MouManTAI — System Requirements & Integration Contract
 
 > **版本**：1.0 · **冻结日期**：2026-10-20 · **交付检查日**：2026-10-25
