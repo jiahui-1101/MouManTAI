@@ -6,8 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.context.ai.endpoint import EndpointAdapter, EndpointConfig
-from app.context.ai.protocol import MODEL_CONFIG, InferenceOutput, Observation
-from app.context.ai.protocol import InferenceFailure
+from app.context.ai.protocol import MODEL_CONFIG, InferenceFailure, InferenceOutput, Observation
 from app.context.ai.service import ModelProposalService
 from app.context.ai.worker import ground_raw_answer
 from app.context.deterministic_extraction import PROVISIONAL_PRODUCTS, extract_explicit_fields
@@ -147,7 +146,7 @@ def test_http_failure_or_malformed_output_has_no_retry_or_authoritative_fields(r
     result = run(ModelProposalService(endpoint, enabled=True, stages=('qwen',)),
                  'Please prepare 20 mystery_items tomorrow')
     assert len(calls) == result.worker_request_count == 1
-    assert result.outcomes['qwen'] in {'endpoint_http_error','transport_or_schema_error'}
+    assert result.outcomes['qwen'] in {'service_unavailable', 'schema_validation'}
     assert not result.candidates
 
 
@@ -157,7 +156,7 @@ def test_injected_adapter_cannot_bypass_output_schema():
             return {'engine':'qwen','fields':[], 'execute_tool':'confirm_order'}
     result = run(ModelProposalService(MalformedEndpoint(), enabled=True, stages=('qwen',)),
                  'Please prepare 20 mystery_items tomorrow')
-    assert result.outcomes['qwen'] == 'invalid_structured_output'
+    assert result.outcomes['qwen'] == 'schema_validation'
     assert not result.candidates
 
 
@@ -197,6 +196,7 @@ def test_l2_candidates_never_accept_or_overwrite_human_corrections():
 def test_qwen_worker_refuses_cpu_before_model_loader_import(monkeypatch):
     import sys
     from types import SimpleNamespace
+
     from app.context.ai.worker import ModelRuntime
     monkeypatch.setitem(sys.modules, 'torch', SimpleNamespace())
     monkeypatch.setitem(sys.modules, 'transformers', None)
@@ -205,12 +205,13 @@ def test_qwen_worker_refuses_cpu_before_model_loader_import(monkeypatch):
 
 
 def test_mock_qwen_persistence_and_reprocess_cannot_overwrite_review_or_publish(pg_engine):
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
     from sqlalchemy.orm import Session
-    from app.context.postgres_repository import PostgresMessageRepository
+
     from app.context.context_service import ContextService
     from app.context.core_publisher import CoreContextPublisher
     from app.context.order_context_schemas import ContextReviewRequest
+    from app.context.postgres_repository import PostgresMessageRepository
     from app.core.models import CommitmentRecord, OutboxEventRecord
     text = 'Need 40 or 50 burgers'
     message = stored(text)
