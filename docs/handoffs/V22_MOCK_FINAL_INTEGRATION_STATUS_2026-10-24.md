@@ -28,10 +28,13 @@ The detailed field-level route, version, error and Frontend page matrix is in `d
 ## Verification performed
 
 - Final stacked branch: strict v2.2 suite against disposable migrated PostgreSQL, **533 passed**; no skipped tests. The suite includes registered HTTP, OpenAPI, security, idempotency, concurrency and advisory negative cases.
+- After the PR #85 UTC-offset response fix was merged forward: affected Optimization and Decision Memory PostgreSQL HTTP tests, **7 passed**.
 - Migration 0022 downgraded to 0021, upgraded back to head and reported `0022_mock_memory_history` as the single head.
 - Final stacked branch: live P3 Uvicorn + worker + PostgreSQL Recovery test, **1 passed**.
 - Final stacked branch: P4 route, outbound and confirmation regression subset, **74 passed, 21 skipped** (skips are alternate database parametrizations). This verifies Mock fixtures, not actual provider transport.
+- A broader local `app tests` sweep ran **2,431 passed, 256 skipped, 8 failed**. Six AI spike experiment failures came from missing local `psutil` or the repository-parent Python import path; all six passed on targeted rerun after correcting that setup. The migration 0007 test required a separate PostgreSQL migration database under strict mode; both tests in its file passed on a targeted SQLite rerun. The P1 image OCR acceptance test failed with `FAILED` instead of `SUCCESS` and remains an open blocker. Do not describe the broad sweep as green.
 - Earlier layers: PR #81 exact-head GitHub CI succeeded; PR #81 live Mock acceptance E2E and negative/concurrency cases passed. PR #84 forecasting pure-engine tests passed; PR #85 native CP-SAT pure tests passed. Relevant Frontend build and serial Vitest run passed on PR #81 with no Frontend source changes in later layers.
+- Exact-head GitHub push CI succeeded for PRs #82–#84 and for PR #85 after its UTC-offset response fix. PR #88 CI must be checked again on the final merged head.
 - Local lint, compile and diff checks for the last layer passed. GitHub exact-head CI and reviewer state for later stacked PRs are separate merge gates.
 
 ## Security and release gates
