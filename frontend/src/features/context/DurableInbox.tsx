@@ -47,7 +47,7 @@ import './inbox.css';
 
 
 type Resource = { state: 'loading' } | { state: 'error'; error: Error } | { state: 'ready'; page: MessagePage; context: DevelopmentContext };
-type AssociationLookup = Record<string, MessageAssociationRecord | null>;
+
 
 const formatTime = (value?: string | null) => value ? new Intl.DateTimeFormat('en-MY', { timeZone: 'Asia/Kuala_Lumpur', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Not supplied';
 
@@ -186,9 +186,9 @@ function sortMessages(items: StoredMessage[], by: SortKey, dir: SortDir): Stored
 
 }
 
-function MessageRow({ message, association, onOpen, onProcess, processing }: {
+function MessageRow({ message, onOpen, onProcess, processing }: {
   message: StoredMessage;
-  association: MessageAssociationRecord | null | undefined;
+
   onOpen: (button: HTMLButtonElement) => void;
   onProcess: () => void;
   processing: boolean;
@@ -213,7 +213,7 @@ function MessageRow({ message, association, onOpen, onProcess, processing }: {
 export function DurableInbox({ api = operationalApi }: { api?: OperationalApi }) {
 
   const [resource, setResource] = useState<Resource>({ state: 'loading' });
-  const [associations, setAssociations] = useState<AssociationLookup>({});
+
 
   const [tenantId, setTenantId] = useState<string | null>(null);
 
@@ -279,19 +279,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
   }, [api, channel, processing, search, offset, attempt]);
 
-  useEffect(() => {
-    if (resource.state !== 'ready') { setAssociations({}); return; }
-    let active = true;
-    setAssociations({});
-    for (const message of resource.page.items) {
-      void api.getAssociation(message.message_id).then(result => {
-        if (active) setAssociations(current => ({ ...current, [message.message_id]: result }));
-      }).catch(() => {
-        if (active) setAssociations(current => ({ ...current, [message.message_id]: null }));
-      });
-    }
-    return () => { active = false; };
-  }, [api, resource]);
+
 
 
 
@@ -421,7 +409,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
       </tr></thead>
 
-      <tbody>{sortMessages(resource.page.items, sortBy, sortDir).map(message => <MessageRow key={message.message_id} message={message} association={associations[message.message_id]} processing={processingId === message.message_id} onOpen={button => select(message.message_id, button)} onProcess={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')} />)}</tbody></table>
+      <tbody>{sortMessages(resource.page.items, sortBy, sortDir).map(message => <MessageRow key={message.message_id} message={message} processing={processingId === message.message_id} onOpen={button => select(message.message_id, button)} onProcess={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')} />)}</tbody></table>
 
     </div>{resource.page.items.length === 0 && <p role="status" className="p1-empty">No persisted messages match this view. Submit a synthetic message to begin.</p>}
 

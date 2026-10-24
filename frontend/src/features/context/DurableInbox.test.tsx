@@ -376,8 +376,12 @@ describe('durable synthetic Inbox', () => {
     });
     render(<DurableInbox api={api} />);
     const row = (await screen.findByRole('button', { name: 'View message synthetic_fixed_1' })).closest('tr')!;
-    expect(await within(row).findByText('Verified: Acme')).toBeInTheDocument();
-    expect(within(row).getByText('CONFIRMED')).toBeInTheDocument();
+    expect(screen.queryByText('Identity link')).not.toBeInTheDocument();
+    expect(screen.queryByText('Identity review')).not.toBeInTheDocument();
+    fireEvent.click(within(row).getByRole('button', { name: 'View message synthetic_fixed_1' }));
+    const detail = screen.getByRole('region', { name: 'Persisted message details' });
+    expect(await within(detail).findByText('Acme (customer_1)')).toBeInTheDocument();
+    expect(within(detail).getAllByText('CONFIRMED').length).toBeGreaterThan(0);
     expect(within(row).getByText('Not reported')).toBeInTheDocument();
     expect(api.getAssociation).toHaveBeenCalledWith(message.message_id);
   });
@@ -388,7 +392,9 @@ describe('durable synthetic Inbox', () => {
     vi.mocked(api.getAssociation).mockRejectedValue(new Error('Association unavailable'));
     render(<DurableInbox api={api} />);
     const row = (await screen.findByRole('button', { name: 'View message synthetic_fixed_1' })).closest('tr')!;
-    expect(await within(row).findAllByText('Unavailable')).toHaveLength(2);
+    fireEvent.click(within(row).getByRole('button', { name: 'View message synthetic_fixed_1' }));
+    const detail = screen.getByRole('region', { name: 'Persisted message details' });
+    expect(await within(detail).findByText('Not associated')).toBeInTheDocument();
     expect(within(row).getByText('Not reported')).toBeInTheDocument();
   });
 
