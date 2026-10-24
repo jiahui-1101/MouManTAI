@@ -4,6 +4,7 @@ import { ReviewDrawer, getSuggestedClarification } from './ReviewDrawer';
 import { operationalApi } from './operationalApi';
 import * as reviewApi from './operationalApi';
 import type { OrderContextRecord, StoredMessage } from './types';
+import { AuthProvider } from '../../shared/auth';
 
 const context: OrderContextRecord = {
   context_id: 'ctx_drawer_test', tenant_id: 'tenant_test', order_id: 'ORD-9001', customer_id: 'cust_1',
@@ -29,6 +30,73 @@ describe('Review & Amend workspace', () => {
     vi.restoreAllMocks(); onClose.mockReset(); onUpdated.mockReset();
     vi.spyOn(reviewApi, 'getReviewCatalog').mockResolvedValue([{ sku: 'SOURDOUGH', unit: 'pcs' }, { sku: 'CROISSANT', unit: 'box' }, { sku: 'BAGEL', unit: 'pcs' }]);
     vi.spyOn(operationalApi, 'getContext').mockResolvedValue({ ...context, context_version: 2 });
+  });
+
+  it('propagates scoped headers through catalog reads and both save/accept commands', async () => {
+    const headers = { 'X-Tenant-ID': 'tenant-scoped', 'X-Actor-ID': 'reviewer-scoped', Authorization: 'Bearer test-only' };
+    const review = vi.spyOn(operationalApi, 'reviewContext')
+      .mockResolvedValueOnce({ ...context, context_version: 2, requested_items: [{ sku: 'SOURDOUGH', quantity: '51', unit: 'pcs' }] })
+      .mockResolvedValueOnce({ ...context, context_version: 3, status: 'INFORMATION_READY', requested_items: [{ sku: 'SOURDOUGH', quantity: '51', unit: 'pcs' }] });
+    vi.mocked(operationalApi.getContext)
+      .mockResolvedValueOnce({ ...context, context_version: 2, requested_items: [{ sku: 'SOURDOUGH', quantity: '51', unit: 'pcs' }] })
+      .mockResolvedValueOnce({ ...context, context_version: 3, status: 'INFORMATION_READY', requested_items: [{ sku: 'SOURDOUGH', quantity: '51', unit: 'pcs' }] });
+    render(<AuthProvider><ReviewDrawer {...props} requestHeaders={headers} /></AuthProvider>);
+    await screen.findByText(/Approved SKU\/unit pairs: SOURDOUGH \/ pcs/);
+    expect(reviewApi.getReviewCatalog).toHaveBeenCalledWith(headers);
+    fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '51' } });
+    fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Verified buyer correction' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /confirm the change to a major field/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save & Accept' }));
+    console.log('ALERT TEXT:', screen.queryByRole('alert')?.textContent); await waitFor(() => expect(review).toHaveBeenCalledTimes(2));
+    expect(review.mock.calls[0]).toEqual([context.context_id, expect.objectContaining({ action: 'EDIT_FIELD', expected_context_version: 1 }), headers]);
+    expect(review.mock.calls[1]).toEqual([context.context_id, expect.objectContaining({ action: 'ACCEPT_EXTRACTION', expected_context_version: 2 }), headers]);
+  });
+
+  it('uses the active authentication tenant and actor when scoped headers are absent', async () => {
+    const review = vi.spyOn(operationalApi, 'reviewContext').mockResolvedValue(context);
+    render(<AuthProvider initialTenantId="tenant-active" initialActorId="manager_01"><ReviewDrawer {...props} /></AuthProvider>);
+    await screen.findByText(/Approved SKU\/unit pairs: SOURDOUGH \/ pcs/);
+    fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Follow up' } });
+    fireEvent.click(screen.getByRole('button', { name: /More actions/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Mark unresolved/i }));
+    const headers = { 'X-Tenant-ID': 'tenant-active', 'X-Actor-ID': 'manager_01', 'X-Actor-Role': 'MANAGER' };
+    await waitFor(() => expect(review).toHaveBeenCalledWith(context.context_id, expect.anything(), headers));
+    expect(reviewApi.getReviewCatalog).toHaveBeenCalledWith(headers);
+  });
+
+  it('does not invent identity headers when no authentication or actor is supplied', async () => {
+    const review = vi.spyOn(operationalApi, 'reviewContext').mockRejectedValue(new Error('Authentication required'));
+    render(<ReviewDrawer {...props} />);
+    fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Follow up' } });
+    fireEvent.click(screen.getByRole('button', { name: /More actions/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Mark unresolved/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Authentication required');
+    expect(review).toHaveBeenCalledWith(context.context_id, expect.anything(), {});
+    expect(onUpdated).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('retains scoped headers on a catalog retry before saving', async () => {
+    const headers = { 'X-Tenant-ID': 'tenant-scoped', 'X-Actor-ID': 'reviewer-scoped', 'X-Actor-Role': 'STAFF' };
+    vi.mocked(reviewApi.getReviewCatalog).mockRejectedValueOnce(new Error('Temporary failure'));
+    const review = vi.spyOn(operationalApi, 'reviewContext').mockResolvedValue(context);
+    render(<ReviewDrawer {...props} requestHeaders={headers} />);
+    await screen.findByText(/Approved catalog unavailable/);
+    fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '51' } });
+    fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Verified quantity' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /confirm the change to a major field/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith(context.context_id, expect.anything(), headers));
+    expect(reviewApi.getReviewCatalog).toHaveBeenCalledTimes(2);
+    expect(reviewApi.getReviewCatalog).toHaveBeenNthCalledWith(2, headers);
+  });
+
+  it('preserves a caller-supplied catalog loader', async () => {
+    const catalogLoader = vi.fn().mockResolvedValue([{ sku: 'SOURDOUGH', unit: 'pcs' }]);
+    render(<ReviewDrawer {...props} catalogLoader={catalogLoader} requestHeaders={{ 'X-Tenant-ID': 'tenant-scoped' }} />);
+    await screen.findByText(/Approved SKU\/unit pairs: SOURDOUGH \/ pcs/);
+    expect(catalogLoader).toHaveBeenCalledWith();
+    expect(reviewApi.getReviewCatalog).not.toHaveBeenCalled();
   });
 
   it('shows a single split workspace, source highlights and three footer actions', () => {

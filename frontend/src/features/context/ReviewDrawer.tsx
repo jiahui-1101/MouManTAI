@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ContextReviewRequest, ExtractionAttemptRecord, OrderContextRecord, RequestedItem, StoredMessage } from './types';
 import { getReviewCatalog, notifyReviewContextSaved, operationalApi } from './operationalApi';
@@ -18,6 +18,7 @@ export interface ReviewDrawerProps {
   onClose: () => void;
   onUpdated: (updated: OrderContextRecord) => void;
   catalogLoader?: () => Promise<{ sku: string; unit: string }[]>;
+  requestHeaders?: Record<string, string>;
   actorId?: string;
   actorRole?: string;
 }
@@ -87,8 +88,20 @@ export function ReviewDrawer(props: ReviewDrawerProps) {
   return <ReviewAmendWorkspace key={props.context.context_id} {...props} />;
 }
 
-function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onClose, onUpdated, catalogLoader, actorId, actorRole }: ReviewDrawerProps) {
+function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onClose, onUpdated, catalogLoader, requestHeaders, actorId, actorRole }: ReviewDrawerProps) {
   const auth = useOptionalAuth();
+  const headers = useMemo<Record<string, string>>(() => {
+    const currentActor = actorId || auth?.actorId;
+    // A caller-scoped actor must not inherit another actor's role from the shell.
+    const currentRole = actorRole || (currentActor === auth?.actorId ? auth?.actorRole : undefined);
+    return {
+      ...(auth?.tenantId ? { 'X-Tenant-ID': auth.tenantId } : {}),
+      ...(currentActor ? { 'X-Actor-ID': currentActor } : {}),
+      ...(currentRole && (!requestHeaders?.['X-Actor-ID'] || requestHeaders['X-Actor-ID'] === currentActor) ? { 'X-Actor-Role': currentRole } : {}),
+      ...requestHeaders,
+    };
+  }, [auth?.tenantId, auth?.actorId, auth?.actorRole, actorId, actorRole, requestHeaders]);
+  const loadCatalog = useCallback(() => catalogLoader ? catalogLoader() : getReviewCatalog(headers), [catalogLoader, headers]);
   const [record, setRecord] = useState(context);
   const [items, setItems] = useState<RequestedItem[]>(() => initialItems(context));
   const [deliveryAt, setDeliveryAt] = useState(() => initialDelivery(context));
@@ -129,12 +142,14 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
 
   useEffect(() => {
     let active = true;
-    (catalogLoader || getReviewCatalog)().then(products => {
+    setCatalog([]);
+    setCatalogState('loading');
+    loadCatalog().then(products => {
       if (!Array.isArray(products)) throw new Error('Invalid catalog');
       if (active) { setCatalog(products); setCatalogState('ready'); }
     }).catch(() => { if (active) setCatalogState('unavailable'); });
     return () => { active = false; };
-  }, [catalogLoader]);
+  }, [loadCatalog]);
 
   const requestClose = () => { if (dirty || note.trim()) setCloseRequested(true); else onClose(); };
   useEffect(() => {
@@ -149,7 +164,6 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
     sourceRef.current?.querySelector(`[data-evidence-field="${field}"]`)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
   };
   const updateItem = (index: number, field: keyof RequestedItem, value: string) => setItems(previous => previous.map((item, i) => i === index ? { ...item, [field]: value } : item));
-  const headers = { 'X-Actor-ID': actorId || auth?.actorId || 'user_staff_01', 'X-Actor-Role': actorRole || auth?.actorRole || 'STAFF' };
 
   const sendReview = async (action: ContextReviewRequest['action'], base: OrderContextRecord, fieldEdits: Record<string, unknown> = {}) => {
     const request: ContextReviewRequest = { expected_context_version: base.context_version, action, field_edits: fieldEdits, note: note.trim() };
@@ -182,7 +196,7 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
           if (!itemValuesReady) {
             itemProblem = 'The edited item needs an approved SKU, positive quantity and unit. Leave an unknown product unresolved.';
           } else {
-            const approved = catalogState === 'ready' ? catalog : await (catalogLoader || getReviewCatalog)();
+            const approved = catalogState === 'ready' ? catalog : await loadCatalog();
             for (let index = 0; index < items.length; index++) {
               const item = items[index];
               if (!Array.isArray(approved) || !approved.some(product => product.sku === item.sku.trim() && product.unit === item.unit.trim())) {
@@ -192,6 +206,7 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
             }
           }
           if (!itemProblem) edits.requested_items = items.map(item => ({ sku: item.sku.trim(), quantity: item.quantity.trim(), unit: item.unit.trim() }));
+
         }
         if (deliveryDirty) {
           if (!deliveryValid) throw new Error('Enter an ISO timestamp with explicit UTC offset.');

@@ -1,0 +1,24 @@
+.order-decisions { border: 1px solid var(--ui-input-border, #aeb8c8); border-radius: .75rem; padding: clamp(.8rem, 2vw, 1.4rem); background: var(--ui-surface, #fff); margin: 1rem 0; min-width: 0; }
+.order-decisions .decision-panel { border-top: 1px solid var(--ui-divider, #dce2eb); padding: 1rem 0; margin-top: 1rem; }
+.order-decisions p, .order-decisions li { line-height: 1.6; overflow-wrap: anywhere; }
+.order-decisions .decision-notice { border-left: 4px solid #a65b00; background: var(--ui-background, #f4f8ff); padding: .8rem; }
+.order-decisions .decision-terms { border: 1px solid var(--ui-divider, #dce2eb); padding: 1rem; margin: .8rem 0; border-radius: .5rem; }
+.order-decisions dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 1rem; }
+.order-decisions dt { color: var(--ui-muted, #4d5e79); font-size: .85rem; }
+.order-decisions dd { margin: .4rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.order-decisions .decision-scroll { overflow-x: auto; max-width: 100%; }
+.order-decisions table { border-collapse: collapse; width: 100%; min-width: 680px; }
+.order-decisions :is(th, td) { text-align: left; vertical-align: top; padding: .8rem; border-bottom: 1px solid var(--ui-input-border, #aeb8c8); white-space: pre-wrap; max-width: 300px; overflow-wrap: anywhere; }
+.order-decisions caption { text-align: left; color: var(--ui-muted, #4d5e79); padding: .6rem 0; }
+.order-decisions .decision-changed { background: #f5f0ff; }
+.order-decisions .decision-preparation { border: 1px dashed var(--ui-muted, #4d5e79); padding: 1rem; margin: 1rem 0; }
+.order-decisions summary { min-height: 44px; padding: .5rem; cursor: pointer; }
+.order-decisions .decision-fields, .order-decisions fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: .8rem; margin: .8rem 0; }
+.order-decisions label { display: flex; flex-direction: column; gap: .4rem; font-size: .85rem; }
+.order-decisions :is(button, input, textarea) { color: var(--ui-text, #1c3153); background: var(--ui-surface, #fff); border: 1px solid var(--ui-input-border, #aeb8c8); border-radius: .4rem; padding: .6rem; min-height: 44px; max-width: 100%; }
+.order-decisions textarea { min-height: 80px; resize: vertical; }
+.order-decisions button { cursor: pointer; }
+.order-decisions button:disabled { opacity: .6; cursor: wait; }
+.order-decisions :is(button, input, textarea, summary, [tabindex]):focus-visible { outline: 3px solid var(--ui-primary, #0767e8); outline-offset: 3px; }
+.order-decisions .decision-receipt { border: 1px solid var(--ui-input-border, #aeb8c8); border-radius: .5rem; padding: 1rem; margin-top: .8rem; }
+@media(max-width:600px) { .order-decisions header button { width: 100%; } }

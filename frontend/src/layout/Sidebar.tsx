@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../shared/auth";
 import { activeAncestors, isItemActive, navigation, type NavigationIcon, type NavigationItem } from "./navigation";
 
@@ -214,15 +214,16 @@ export function Sidebar() {
             {itemContent}
           </button>
         ) : item.to ? (
-          <NavLink
+          <Link
             to={item.to}
+            aria-current={isItemActive(item, pathname) ? "page" : undefined}
             className={className}
             title={item.label}
             aria-label={collapsed ? item.label : undefined}
             onClick={() => setSelectedItem(item.id)}
           >
             {itemContent}
-          </NavLink>
+          </Link>
         ) : (
           <button
             type="button"
