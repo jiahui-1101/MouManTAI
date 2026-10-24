@@ -26,6 +26,28 @@ interface BucketConfig {
   description: string;
 }
 
+function C3PendingNotice({ tenantId, actorId }: { tenantId: string; actorId: string }) {
+  const pending = useQuery({
+    queryKey: ['c3-dashboard-pending', tenantId, actorId],
+    enabled: import.meta.env.VITE_C3_REVIEW_READS === '1',
+    retry: false,
+    queryFn: async () => {
+      const session = await fetch('/demo-bff/session');
+      if (!session.ok) return null;
+      const scope = await session.json() as { tenant_id: string; actor_id: string };
+      if (scope.tenant_id !== tenantId || scope.actor_id !== actorId) return null;
+      const response = await fetch('/demo-bff/c3-reviews');
+      if (!response.ok) return null;
+      return await response.json() as { total: number };
+    },
+  });
+  if (!pending.data?.total) return null;
+  return <div className="od-notice" role="status">
+    {pending.data.total} pending C3 classification review{pending.data.total === 1 ? '' : 's'}.
+    {' '}<Link to="/human-review">Open Human Review</Link>
+  </div>;
+}
+
 const STATE_BUCKETS: BucketConfig[] = [
   {
     key: "REQUESTED",
@@ -344,6 +366,8 @@ export function OverviewPage() {
           </button>
         </div>
       </div>
+
+      <C3PendingNotice tenantId={tenantId} actorId={actorId} />
 
       {/* Quick Links for Daily Performance & Audit Activity - visually hidden, preserved for automated test contracts */}
       <div className="sr-only" data-testid="overview-subnav">

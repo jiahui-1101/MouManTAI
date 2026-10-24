@@ -78,7 +78,11 @@ def test_c3_review_reads_are_keyed_tenant_scoped_and_mutations_absent(monkeypatc
         assert response.json()["items"][0]["review_id"] == "review_tenant_a"
         assert response.json()["items"][0]["decision_authority_available"] is False
         assert client.get(f"{path}/review_tenant_b", headers=headers).status_code == 404
-        assert client.post(f"{path}/review_tenant_a/decide", headers=headers, json={}).status_code in {404, 405}
+        # The route exists only for an explicitly enabled Demo Admin and still
+        # requires a typed command, manager identity and current P1 evidence.
+        command = {"action": "REJECT", "expected_revision": 1,
+                   "request_key": "read-test-key", "reason": "manual review"}
+        assert client.post(f"{path}/review_tenant_a/decide", headers={**headers, "X-Actor-ID": "user_manager_01"}, json=command).status_code == 503
         monkeypatch.setenv("ENVIRONMENT", "production")
         assert client.get(path, headers=headers).status_code == 503
         monkeypatch.setenv("ENVIRONMENT", "test")

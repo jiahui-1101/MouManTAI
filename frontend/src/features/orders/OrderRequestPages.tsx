@@ -7,7 +7,7 @@ import { ConfirmationDialog } from '../../shared/ConfirmationDialog';
 import {
   acceptOrderRequest, closeDemoSession, getCommitmentEvidenceTimeline, getDemoSession,
   getNotificationIntents, getOrderRequest, getOrderRequestFeasibility, getOrderRequestTimeline,
-  getReservationReceipt, listOrderRequests, openDemoSession, reviewOrderRequest,
+  getReservationReceipt, listOrderRequests, openDemoAdminSession, openDemoSession, reviewOrderRequest,
   type DemoSession, type FeasibilityPreview,
 } from './orderRequestApi';
 
@@ -25,6 +25,9 @@ function diagnostic(error: unknown): string {
 
 function Gate({ children }: { children: (session: DemoSession) => ReactNode }) {
   const [token, setToken] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const demoAdminLogin = import.meta.env.VITE_DEMO_ADMIN_LOGIN === '1';
   const [failure, setFailure] = useState('');
   const [busy, setBusy] = useState(false);
   const queryClient = useQueryClient();
@@ -38,8 +41,8 @@ function Gate({ children }: { children: (session: DemoSession) => ReactNode }) {
   const signIn = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setFailure('');
     try {
-      const value = await openDemoSession(token);
-      setToken(''); queryClient.setQueryData(['demo-bff-session'], value);
+      const value = demoAdminLogin ? await openDemoAdminSession(username, password) : await openDemoSession(token);
+      setToken(''); setPassword(''); queryClient.setQueryData(['demo-bff-session'], value);
     } catch (error) { setFailure(diagnostic(error)); }
     finally { setBusy(false); }
   };
@@ -49,9 +52,12 @@ function Gate({ children }: { children: (session: DemoSession) => ReactNode }) {
     <p>Manager access requires a server-issued isolated demo session. The tenant and role selector does not authorize these actions.</p>
     {session.error instanceof ApiError && session.error.status === 503 ?
       <p role="alert">Secure demo bootstrap is not configured. OrderRequest actions are disabled.</p> :
-      <form onSubmit={signIn}><label>Operator bootstrap token
+      <form onSubmit={signIn}>{demoAdminLogin ? <>
+        <label>Demo Admin username<input value={username} onChange={event => setUsername(event.target.value)} required autoComplete="username" /></label>
+        <label>Demo Admin password<input type="password" value={password} onChange={event => setPassword(event.target.value)} required autoComplete="current-password" /></label>
+      </> : <label>Operator bootstrap token
         <input type="password" autoComplete="off" value={token} onChange={event => setToken(event.target.value)} required minLength={32} />
-      </label><button type="submit" disabled={busy}>{busy ? 'Opening session…' : 'Open isolated session'}</button></form>}
+      </label>}<button type="submit" disabled={busy}>{busy ? 'Opening session…' : 'Open isolated session'}</button></form>}
     {failure && <p role="alert">{failure}</p>}
   </section>;
   return <section>

@@ -25,7 +25,7 @@ interface C3Review {
   decision_reason: string | null;
   reviewer_id: string | null;
   decided_at: string | null;
-  decision_authority_available: false;
+  decision_authority_available: boolean;
 }
 
 async function read<T>(path: string): Promise<T> {
@@ -40,23 +40,33 @@ async function read<T>(path: string): Promise<T> {
 
 /** Durable C3 evidence stays separate from P1 context correction and order acceptance. */
 export function C3ReviewPanel() {
-  const { tenantId, actorId } = useAuth();
+  const { tenantId, actorId, setTenantId, setActorId } = useAuth();
   const [items, setItems] = useState<C3Review[]>([]);
   const [detail, setDetail] = useState<C3Review | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<'PENDING' | 'DECIDED'>('PENDING');
+  const [csrf, setCsrf] = useState('');
+  const [reason, setReason] = useState('');
+  const [correctedIntent, setCorrectedIntent] = useState('OTHER');
+  const [deciding, setDeciding] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
     setError(null);
     try {
-      const session = await read<{ tenant_id: string; actor_id: string }>('/demo-bff/session');
+      const session = await read<{ tenant_id: string; actor_id: string; csrf_token: string }>('/demo-bff/session');
       if (session.tenant_id !== tenantId || session.actor_id !== actorId) {
         setItems([]);
         setDetail(null);
+        if (import.meta.env.VITE_DEMO_ADMIN_LOGIN === '1') {
+          setTenantId(session.tenant_id);
+          setActorId(session.actor_id);
+          return;
+        }
         throw new Error('The isolated operator session does not match the selected organization and actor.');
       }
+      setCsrf(session.csrf_token);
       const page = await read<{ items: C3Review[] }>(
         state === 'PENDING' ? '/demo-bff/c3-reviews' : '/demo-bff/c3-reviews/decided');
       setItems(page.items);
@@ -66,6 +76,7 @@ export function C3ReviewPanel() {
     } catch (reason) {
       setItems([]);
       setDetail(null);
+      setCsrf('');
       setError(reason instanceof Error ? reason.message : 'C3 review loading failed.');
     } finally {
       setLoading(false);
@@ -73,6 +84,26 @@ export function C3ReviewPanel() {
   };
 
   useEffect(() => { void refresh(); }, [tenantId, actorId, state]);
+
+  const decide = async (action: 'APPROVE' | 'REJECT' | 'CORRECT') => {
+    if (!detail || !csrf || !reason.trim() || deciding) return;
+    if (!window.confirm(`Confirm ${action.toLowerCase()} for classification review ${detail.review_id}?`)) return;
+    setDeciding(true); setError(null);
+    try {
+      const response = await fetch(`/demo-bff/c3-reviews/${encodeURIComponent(detail.review_id)}/decide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        body: JSON.stringify({ action, expected_revision: detail.revision,
+          request_key: crypto.randomUUID(), reason: reason.trim(),
+          corrected_intent: action === 'CORRECT' ? correctedIntent : null }),
+      });
+      if (!response.ok) throw new Error(`C3 decision was not recorded (${response.status}). Refresh source and review version.`);
+      setReason('');
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'C3 decision failed.');
+    } finally { setDeciding(false); }
+  };
 
   return <section aria-label="C3 classification reviews" className="hr-table-card" style={{ padding: 20, marginBottom: 20 }}>
     <h2>C3 classification reviews</h2>
@@ -102,7 +133,20 @@ export function C3ReviewPanel() {
       <p>Provider attempts: {detail.provider_attempts.map(attempt => `${attempt.provider}: ${attempt.status}`).join(', ') || 'None'}</p>
       {detail.decision && <p>Decision: {detail.decision} by {detail.reviewer_id} at {detail.decided_at}.
         {' '}{detail.decision_reason}</p>}
-      <p role="status">Approve, reject and correct require a trusted C3 decision authority; these actions are unavailable.</p>
+      {detail.state === 'PENDING' && detail.decision_authority_available && csrf ? <div>
+        <label>Decision reason<textarea value={reason} onChange={event => setReason(event.target.value)} maxLength={1000} /></label>
+        <label>Corrected intent<select value={correctedIntent} onChange={event => setCorrectedIntent(event.target.value)}>
+          <option value="CUSTOMER_INQUIRY">Customer inquiry</option>
+          <option value="CUSTOMER_ORDER_REQUEST">Customer order request</option>
+          <option value="SUPPLIER_DELAY">Supplier delay</option>
+          <option value="OTHER">Other</option>
+          <option value="UNKNOWN">Unknown</option>
+        </select></label>
+        <button type="button" disabled={deciding || !reason.trim()} onClick={() => void decide('APPROVE')}>Approve classification</button>
+        <button type="button" disabled={deciding || !reason.trim()} onClick={() => void decide('REJECT')}>Reject classification</button>
+        <button type="button" disabled={deciding || !reason.trim()} onClick={() => void decide('CORRECT')}>Correct classification</button>
+      </div> : <p role="status">{detail.state === 'DECIDED' ? 'Classification decision recorded.' :
+        'Approve, reject and correct require a trusted C3 decision authority; these actions are unavailable.'}</p>}
     </article>}
   </section>;
 }

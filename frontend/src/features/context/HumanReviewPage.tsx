@@ -106,7 +106,18 @@ function useSafeNavigate() {
   }
 }
 
-export function HumanReviewPage({
+export function HumanReviewPage(props: HumanReviewPageProps) {
+  if (import.meta.env.VITE_DEMO_ADMIN_LOGIN === '1') {
+    return <main className="hr-page">
+      <header className="hr-page-header"><h1>Human Review</h1>
+        <p>Demo Admin classification decisions use current provider evidence and a server-issued session.</p></header>
+      <C3ReviewPanel />
+    </main>;
+  }
+  return <LegacyHumanReviewPage {...props} />;
+}
+
+function LegacyHumanReviewPage({
   initialFilter = 'ALL',
   selectedTaskId: propTaskId,
   onContextUpdated,

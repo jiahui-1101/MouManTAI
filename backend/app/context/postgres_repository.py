@@ -748,6 +748,25 @@ class PostgresMessageRepository:
                     raise DuplicateConflict("Provider message ID already has different original content")
                 if created_id is not None:
                     self._reconcile_waiting_children(session, row)
+                    if is_real and envelope.source_authenticity == "VERIFIED":
+                        # The C3 trigger commits atomically with the canonical P1 row.
+                        # Only the provider adapter may set verified REAL provenance.
+                        from app.core.models import OutboxEventRecord
+
+                        session.add(OutboxEventRecord(
+                            event_id=f"evt_{uuid4().hex}", tenant_id=envelope.tenant_id,
+                            event_type="p1.message_verified", commitment_id=None,
+                            commitment_version=None, correlation_id=f"p1_{created_id}",
+                            causation_id=None, occurred_at=now,
+                            payload={
+                                "message_id": created_id,
+                                "content_sha256": row.content_sha256,
+                                "provider": provider,
+                                "provider_account_id": envelope.provider_account_id,
+                                "provider_native_message_id": envelope.provider_native_message_id,
+                            },
+                            status="PENDING", attempts=0,
+                        ))
                 result = IngestResponse(message=stored(row), duplicate=created_id is None)
             # Return only after the transaction commits successfully.
             return result

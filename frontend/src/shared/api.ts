@@ -105,6 +105,9 @@ export function getHealth(): Promise<HealthResponse> {
 }
 
 export function getOverview(auth: RequestAuthHeaders): Promise<OverviewResponse> {
+  if (import.meta.env.VITE_DEMO_ADMIN_LOGIN === '1') {
+    return apiRequest<OverviewResponse>("/demo-bff/overview");
+  }
   return apiRequest<OverviewResponse>("/v1/overview", { headers: authHeaders(auth) });
 }
 

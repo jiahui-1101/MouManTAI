@@ -61,6 +61,11 @@ def configure_isolated_subscribers(dispatcher: OutboxDispatcher) -> None:
 
 
 def main() -> None:
+    from app.message_intelligence.consumer import classify_verified_message
+
+    default_dispatcher.register_subscriber(
+        "p1.message_verified", "c3.classification.v1", classify_verified_message,
+    )
     configure_isolated_subscribers(default_dispatcher)
     run_worker(SessionLocal, poll_interval=1.0, dispatcher=default_dispatcher)
 
