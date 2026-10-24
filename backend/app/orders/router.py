@@ -24,6 +24,7 @@ from app.orders.acceptance import accept_mock_order, reconcile_mock_order
 from app.orders.mock_feasibility import project_pending_order
 from app.orders.mock_source import MockInquiryCreate, MockInquiryView, seed_mock_inquiry
 from app.orders.models import OrderRequestAuditRecord, OrderRequestRecord
+from app.orders.operational_evidence import OperationalEvidenceView, read_operational_evidence
 from app.orders.service import get_request, import_request, review_request
 from app.orders.status import CommitmentStatusPreview, read_status_preview
 from app.orders.terms import (
@@ -98,6 +99,12 @@ def check_terms(command: TermsCheckRequest, context: Context) -> TermsCheckRespo
 def status_preview(commitment_id: str, context: Context,
                    db: Annotated[Session, Depends(get_db)]) -> CommitmentStatusPreview:
     return read_status_preview(db, context, commitment_id)
+
+
+@router.get("/commitments/{commitment_id}/operational-evidence", response_model=OperationalEvidenceView)
+def operational_evidence(commitment_id: str, context: MockContext,
+                         db: Annotated[Session, Depends(get_db)]) -> OperationalEvidenceView:
+    return read_operational_evidence(db, context, commitment_id)
 
 
 class ImportMockRequest(ImmutableContract):

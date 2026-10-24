@@ -18,7 +18,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.orm import Session
 
-from app.core.models import CommitmentRecord, OutboxEventRecord, ProcessedEventRecord
+from app.core.models import AuditEventRecord, CommitmentRecord, OutboxEventRecord, ProcessedEventRecord
 from app.feasibility.persisted_sources import stage_snapshot
 from app.feasibility.pipeline_fixtures import build_pipeline_example
 from app.feasibility.supplier_pipeline import SupplierDelayInputs
@@ -112,7 +112,8 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
     manager_id = "user_manager_01"  # Exact ID is registered in this isolated server environment.
     env = dict(os.environ, DATABASE_URL=os.environ["TEST_DATABASE_URL"],
                MOUMANTAI_ISOLATED_E2E="1", MOUMANTAI_ISOLATED_E2E_KEY=key,
-               MOUMANTAI_ISOLATED_E2E_MANAGER_ID=manager_id)
+               MOUMANTAI_ISOLATED_E2E_MANAGER_ID=manager_id,
+               MOUMANTAI_ISOLATED_E2E_TENANT_ID=tenant)
     port = _free_port()
     server = worker = None
     try:
@@ -216,6 +217,12 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
             assert executed.status_code == 200, executed.text
             task_id = executed.json()["task_id"]
             assert executed.json()["status"] == "SUCCEEDED" and task_id and executed.json()["receipt_ref"]
+            progress = http.get("/v1/backend-v2/commitments/com-001/operational-evidence",
+                                headers=headers)
+            assert progress.status_code == 200, progress.text
+            assert progress.json()["recovery"]["execution_status"] == "VERIFIED_INTERNAL_TASK"
+            assert progress.json()["recovery"]["receipt_ref"] == executed.json()["receipt_ref"]
+            assert progress.json()["actual_delivery"] == "NOT_AVAILABLE"
             duplicate = http.post(f"/v1/recovery/plans/{chosen['plan_id']}/execute", json=action, headers=headers)
             assert duplicate.status_code == 200 and duplicate.json()["task_id"] == task_id
             second_key = http.post(f"/v1/recovery/plans/{chosen['plan_id']}/execute", headers=headers,
@@ -318,6 +325,19 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
                 final_core = db.get(CommitmentRecord, (tenant, "com-001"))
                 assert final_core.risk_state == "AT_RISK"
                 assert final_core.agreement_state == "OFFERED" and final_core.fulfilment_state == "NOT_STARTED"
+                proof = db.scalar(select(AuditEventRecord).where(
+                    AuditEventRecord.tenant_id == tenant,
+                    AuditEventRecord.commitment_id == "com-001",
+                    AuditEventRecord.event_type == "recovery.internal_task_created",
+                ))
+                assert proof is not None
+                proof.new_state = {**proof.new_state, "task_id": "forged"}
+                db.commit()
+            downgraded = http.get("/v1/backend-v2/commitments/com-001/operational-evidence",
+                                  headers=headers)
+            assert downgraded.status_code == 200
+            assert downgraded.json()["recovery"]["execution_status"] == "UNVERIFIED"
+            assert downgraded.json()["recovery"]["receipt_ref"] is None
     finally:
         _stop(worker)
         _stop(server)
