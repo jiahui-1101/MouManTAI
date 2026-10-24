@@ -141,3 +141,55 @@ def test_scoped_message_migration_preserves_legacy_unknown_provenance(migrated_d
     assert legacy.raw.provider_native_message_id is None
     assert legacy.raw.source_authenticity == 'UNVERIFIED'
     assert repository.resolve_exact_parent('legacy-tenant', 'legacy-row').state == 'LEGACY_UNKNOWN'
+
+
+def test_scoped_delivery_collision_blocks_downgrade_without_data_loss(migrated_database):
+    from app.context.postgres_repository import PostgresMessageRepository
+    from app.context.tests.test_c1_completion_persistence import NOW, real_message
+
+    engine, config = migrated_database
+    repository = PostgresMessageRepository(engine)
+    legacy_key = "shared-provider-message-id"
+    first_raw = real_message("native-1", account="phone-a", channel="WHATSAPP").model_copy(
+        update={"provider_message_id": legacy_key}
+    )
+    second_raw = real_message("native-2", account="phone-b", channel="WHATSAPP").model_copy(
+        update={"provider_message_id": legacy_key}
+    )
+
+    first = repository.ingest(first_raw, NOW)
+    second = repository.ingest(second_raw, NOW)
+    assert not first.duplicate
+    assert not second.duplicate
+
+    with pytest.raises(RuntimeError, match="Cannot downgrade 0018"):
+        command.downgrade(config, "0017_p1_real_channel_provenance")
+
+    with engine.connect() as connection:
+        version = connection.scalar(text("SELECT version_num FROM alembic_version"))
+        rows = (
+            connection.execute(
+                text("""
+                SELECT provider_account_id, provider_native_message_id, provider_message_id,
+                       source_authenticity, raw
+                FROM p1_dev.inbound_messages
+                WHERE tenant_id = 'tenant-a' AND provider_message_id = :legacy_key
+                ORDER BY provider_account_id
+            """),
+                {"legacy_key": legacy_key},
+            )
+            .mappings()
+            .all()
+        )
+
+    indexes = {
+        index["name"] for index in inspect(engine).get_indexes("inbound_messages", schema="p1_dev")
+    }
+    assert version == "0018_c1_scoped_message_parent"
+    assert {"uq_p1_delivery_legacy", "uq_p1_delivery_scoped"} <= indexes
+    assert len(rows) == 2
+    assert {row["provider_account_id"] for row in rows} == {"phone-a", "phone-b"}
+    assert {row["provider_native_message_id"] for row in rows} == {"native-1", "native-2"}
+    assert {row["provider_message_id"] for row in rows} == {legacy_key}
+    assert {row["source_authenticity"] for row in rows} == {"VERIFIED"}
+    assert all(row["raw"]["provider_message_id"] == legacy_key for row in rows)

@@ -153,9 +153,33 @@ def downgrade() -> None:
     if op.get_bind().dialect.name != "postgresql":
         return
 
-    # Recreating the former global provider-message key can fail if account-
-    # scoped deliveries with the same legacy key now coexist. In that case the
-    # operator must retain this revision until an approved export/reconciliation.
+    # The old constraint covered every account. Check its exact non-NULL key
+    # semantics before dropping any current indexes or columns so valid scoped
+    # deliveries are preserved and operators get an actionable failure.
+    legacy_key_collision = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                """
+            SELECT 1
+            FROM p1_dev.inbound_messages
+            WHERE tenant_id IS NOT NULL
+              AND channel IS NOT NULL
+              AND provider_message_id IS NOT NULL
+            GROUP BY tenant_id, channel, provider_message_id
+            HAVING COUNT(*) > 1
+            LIMIT 1
+            """
+            )
+        )
+        .first()
+    )
+    if legacy_key_collision:
+        raise RuntimeError(
+            "Cannot downgrade 0018: account-scoped deliveries share a legacy delivery key; "
+            "keep this revision until the conflicting records are reconciled or exported."
+        )
+
     op.drop_index("ix_p1_pending_parent_scope", table_name="inbound_messages", schema="p1_dev")
     op.drop_index("ix_p1_parent_rfc_scope", table_name="inbound_messages", schema="p1_dev")
     op.drop_index("ix_p1_parent_native_scope", table_name="inbound_messages", schema="p1_dev")
