@@ -231,6 +231,7 @@ def test_whatsapp_parse_media_attachment(repo, state_mgr, wa_config):
     assert env.provider_message_id == "wamid.HBgLMEDIA991823="
     assert env.text == "Transfer slip for deposit payment"
     assert len(env.attachments) == 1
+    assert env.native_attachment_source_ids == ["media_rec_991"]
 
     att = env.attachments[0]
     assert att.media_type == "image/jpeg"

@@ -172,6 +172,14 @@ class ChannelStateManager:
             data["updated_at"] = datetime.now(timezone.utc).isoformat()
             self._save()
 
+    def set_verified_account_id(self, channel: str, tenant_id: str, account_id: str) -> None:
+        """Persist an OAuth-verified provider account key separately from its display mask."""
+        with self._lock:
+            data = self._get_channel_data(channel, tenant_id)
+            data["verified_account_id"] = account_id
+            data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._save()
+
     def get_channel_summary(self, channel: str, tenant_id: str) -> dict[str, Any]:
         with self._lock:
             return dict(self._get_channel_data(channel, tenant_id))

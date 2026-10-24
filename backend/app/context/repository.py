@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from .association_schemas import AssociationDecisionRequest, MessageAssociationRecord
 from .attachment_validator import (
@@ -27,6 +27,9 @@ from .order_context_schemas import (
     OrderContextVersionRecord,
 )
 from .schemas import Channel, ProcessingStatus, RawMessageEnvelope
+
+if TYPE_CHECKING:
+    from .channels.reply_framing import ParentResolution
 
 
 @dataclass(frozen=True)
@@ -79,6 +82,8 @@ class AttachmentNotFound(Exception):
 
 class MessageRepository(Protocol):
     def ingest(self, envelope: RawMessageEnvelope, now: datetime) -> IngestResponse: ...
+    def resolve_exact_parent(self, tenant_id: str, message_id: str) -> ParentResolution: ...
+    def get_contexts_by_exact_parent(self, tenant_id: str, message_id: str) -> list[OrderContextRecord]: ...
     def get(self, tenant_id: str, message_id: str) -> StoredMessage | None: ...
     def list(self, tenant_id: str, *, channel: Channel | None = None, search: str = "",
              processing_status: ProcessingStatus | None = None, limit: int = 25, offset: int = 0) -> MessagePage: ...

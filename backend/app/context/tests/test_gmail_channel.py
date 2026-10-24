@@ -46,6 +46,7 @@ def gmail_config():
         client_id="test_client_id.apps.googleusercontent.com",
         client_secret="test_client_secret_xyz",
         refresh_token="test_refresh_token_123",
+        mailbox_account_id="dedicated-moumantai@gmail.com",
         access_token="test_access_token_abc",
         redirect_uri="http://localhost:8000/v1/channels/gmail/oauth/callback",
         poll_interval_seconds=0.1,
@@ -196,6 +197,7 @@ def test_gmail_parse_attachment(repo, state_mgr, gmail_config):
             "headers": [
                 {"name": "From", "value": "procurement@campusdining.edu.my"},
                 {"name": "Subject", "value": "Official PO Attachment"},
+                {"name": "Message-ID", "value": "<po-attachment@example.edu>"},
             ],
             "parts": [
                 {
@@ -213,6 +215,7 @@ def test_gmail_parse_attachment(repo, state_mgr, gmail_config):
 
     envelope = adapter.parse_message(msg_data)
     assert envelope is not None
+    assert envelope.native_attachment_source_ids == ["att_pdf_11"]
     assert len(envelope.attachments) == 1
     att = envelope.attachments[0]
     assert att.filename == "official_po.pdf"
@@ -257,6 +260,7 @@ def test_gmail_incremental_polling_and_deduplication(repo, state_mgr, gmail_conf
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     adapter = GmailAdapter(config=gmail_config, repository=repo, state_manager=state_mgr, http_client=client)
+    state_mgr.set_verified_account_id("EMAIL", gmail_config.tenant_id, gmail_config.mailbox_account_id)
 
     count = adapter.poll_inbox()
     assert count == 2

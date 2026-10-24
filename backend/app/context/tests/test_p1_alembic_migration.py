@@ -1,5 +1,6 @@
 """Real Alembic chain in a newly-created, uniquely-named disposable PG DB."""
 import os
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -88,3 +89,55 @@ def test_clean_chain_supports_p1_persistence_review_core_replay_and_owned_rollba
     assert 'commitments' in inspect(engine).get_table_names()
     command.upgrade(config,'head')
     assert len(inspect(engine).get_table_names(schema='p1_dev'))==8
+
+
+def test_scoped_message_migration_preserves_legacy_unknown_provenance(migrated_database):
+    from app.context.postgres_repository import PostgresMessageRepository
+
+    engine, config = migrated_database
+    command.downgrade(config, '0017_p1_real_channel_provenance')
+    received = '2026-10-24T05:00:00+00:00'
+    legacy_raw = {
+        'tenant_id': 'legacy-tenant',
+        'channel': 'TELEGRAM',
+        'provider_message_id': 'tg_42_7',
+        'sender_identity_id': '42',
+        'sender_alias': 'Legacy customer',
+        'received_at': received,
+        'message_at': received,
+        'business_timezone': None,
+        'text': 'Legacy message with an unscoped reply reference',
+        'attachments': [],
+        'thread_ref': '42',
+        'reply_to_provider_message_id': '6',
+        'language': None,
+        'adapter_mode': 'SYNTHETIC',
+    }
+    with engine.begin() as connection:
+        connection.execute(text('''
+            INSERT INTO p1_dev.inbound_messages (
+                message_id, tenant_id, channel, provider_message_id, synthetic_provider,
+                provider, raw, immutable_fingerprint, content_sha256, processing_status,
+                ingested_at, updated_at
+            ) VALUES (
+                'legacy-row', 'legacy-tenant', 'TELEGRAM', 'tg_42_7', 'SYNTHETIC_TELEGRAM',
+                'SYNTHETIC', CAST(:raw AS JSONB), :fingerprint, :digest, 'RECEIVED',
+                CAST(:received AS TIMESTAMPTZ), CAST(:received AS TIMESTAMPTZ)
+            )
+        '''), {
+            'raw': json.dumps(legacy_raw),
+            'fingerprint': 'a' * 64,
+            'digest': 'b' * 64,
+            'received': received,
+        })
+
+    command.upgrade(config, 'head')
+    repository = PostgresMessageRepository(engine)
+    legacy = repository.get('legacy-tenant', 'legacy-row')
+
+    assert legacy is not None
+    assert legacy.raw.reply_to_provider_message_id == '6'
+    assert legacy.raw.provider_account_id is None
+    assert legacy.raw.provider_native_message_id is None
+    assert legacy.raw.source_authenticity == 'UNVERIFIED'
+    assert repository.resolve_exact_parent('legacy-tenant', 'legacy-row').state == 'LEGACY_UNKNOWN'
