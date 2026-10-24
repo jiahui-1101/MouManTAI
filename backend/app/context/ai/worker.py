@@ -9,7 +9,9 @@ from typing import Literal
 
 from pydantic import Field
 
-from .prompts import SYSTEM_PROMPT
+from app.message_intelligence.contracts import SemanticAssessment
+
+from .prompts import C3_CLASSIFICATION_PROMPT, SYSTEM_PROMPT
 from .protocol import (
     MODEL_CONFIG,
     Answer,
@@ -163,7 +165,7 @@ class ModelRuntime:
             torch.cuda.reset_peak_memory_stats()
         input_tokens = output_tokens = 0
         status, finish_reason = "ok", "stop"
-        raw, fields = "", []
+        raw, fields, classification = "", [], None
         before = time.perf_counter()
         with torch.inference_mode():
             if request.engine == "gliner":
@@ -182,7 +184,7 @@ class ModelRuntime:
                             quote=entity["text"], start=entity["start"], end=entity["end"]))
                 raw = json.dumps(entities, ensure_ascii=False)
             else:
-                messages = [{"role": "system", "content": SYSTEM_PROMPT},
+                messages = [{"role": "system", "content": C3_CLASSIFICATION_PROMPT if request.task == "c3_classification" else SYSTEM_PROMPT},
                             {"role": "user", "content": json.dumps([m.model_dump() for m in request.messages], ensure_ascii=False)}]
                 ids = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, return_tensors="pt").to(self.device)
                 input_tokens = ids.shape[-1]
@@ -196,7 +198,10 @@ class ModelRuntime:
                     finish_reason = "stop" if len(tail) and int(tail[-1]) == tokenizer.eos_token_id else "length"
                     raw = tokenizer.decode(tail, skip_special_tokens=True)
                     try:
-                        fields = ground_raw_answer(raw, request).fields
+                        if request.task == "c3_classification":
+                            classification = SemanticAssessment.model_validate_json(raw)
+                        else:
+                            fields = ground_raw_answer(raw, request).fields
                     except ValueError:
                         status = "invalid_output"
         if self.device == "cuda":
@@ -207,6 +212,7 @@ class ModelRuntime:
         peak_gpu_bytes = torch.cuda.max_memory_allocated() if (self.device == "cuda" and torch.cuda.is_available()) else None
         cuda_runtime = str(torch.version.cuda) if torch.cuda.is_available() else "none"
         return InferenceOutput(engine=request.engine, model_id=model_id, revision=revision, status=status, fields=fields,
+            classification=classification,
             raw_output=raw, finish_reason=finish_reason, load_seconds=load_seconds,
             inference_seconds=time.perf_counter() - before, input_tokens=input_tokens, output_tokens=output_tokens,
             peak_gpu_bytes=peak_gpu_bytes, gpu_name=gpu_name,

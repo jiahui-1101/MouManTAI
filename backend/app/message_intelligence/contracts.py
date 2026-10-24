@@ -220,6 +220,8 @@ class SourceMessageReference(StrictContract):
     adapter_mode: Literal["REAL", "SYNTHETIC"]
     relationship_source: Literal["PROVIDER_QUOTE", "SENDER_HEADER", "NONE", "UNKNOWN"]
     content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_updated_at: datetime
+    extractor_version: str | None = Field(default=None, max_length=200)
     received_at: datetime
     message_at: datetime | None = None
     thread_ref: str | None = Field(default=None, max_length=200)
@@ -237,7 +239,7 @@ class SourceMessageReference(StrictContract):
             raise ValueError("provider account and native message ID must be bound together")
         if [item.evidence_ref for item in self.attachment_sources] != self.attachment_evidence_refs:
             raise ValueError("attachment snapshots must exactly match message attachment refs")
-        for timestamp in (self.received_at, self.message_at):
+        for timestamp in (self.received_at, self.message_at, self.source_updated_at):
             if timestamp is not None and (
                 timestamp.tzinfo is None or timestamp.utcoffset() is None
             ):

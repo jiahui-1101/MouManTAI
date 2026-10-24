@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.message_intelligence.contracts import SemanticAssessment
+
 MODEL_CONFIG = {
     "gliner": ("urchade/gliner_multi-v2.1", "443d26d654e0324125a96bebd8e796c14ff2efe6"),
     "qwen": ("Qwen/Qwen3-4B-Instruct-2507", "cdbee75f17c01a7cc42f958dc650907174af0554"),
@@ -22,10 +24,13 @@ class SourceText(StrictModel):
 
 class InferenceInput(StrictModel):
     engine: Literal["gliner", "qwen"]
+    task: Literal["order_fields", "c3_classification"] = "order_fields"
     messages: list[SourceText] = Field(min_length=1, max_length=4)
 
     @model_validator(mode="after")
     def bounded_context(self):
+        if self.task == "c3_classification" and self.engine != "qwen":
+            raise ValueError("C3 classification requires Qwen")
         if len({m.id for m in self.messages}) != len(self.messages):
             raise ValueError("Duplicate source ID")
         if sum(len(m.text) for m in self.messages) > 4000:
@@ -53,6 +58,7 @@ class InferenceOutput(StrictModel):
     revision: str
     status: Literal["ok", "invalid_output", "input_too_long", "unavailable"]
     fields: list[Observation] = Field(default_factory=list, max_length=40)
+    classification: SemanticAssessment | None = None
     raw_output: str = Field(default="", max_length=32000)
     finish_reason: str = Field(max_length=60)
     load_seconds: float = Field(ge=0)
@@ -192,12 +198,31 @@ def validate_evidence(answer: InferenceOutput, request: InferenceInput) -> Infer
     elif (answer.model_id, answer.revision) != expected:
         raise InferenceFailure("model_mismatch")
     if answer.status == "invalid_output" and answer.finish_reason == "stop":
-        recovered = _recover_token_bounded_output(answer, request)
-        if recovered is not None:
-            answer = recovered
+        if request.task == "c3_classification":
+            try:
+                assessment = SemanticAssessment.model_validate_json(answer.raw_output)
+            except Exception:
+                assessment = None
+            if assessment is not None:
+                answer = answer.model_copy(update={"status": "ok", "classification": assessment})
+        else:
+            recovered = _recover_token_bounded_output(answer, request)
+            if recovered is not None:
+                answer = recovered
     if answer.status != "ok" or answer.finish_reason != "stop":
         raise InferenceFailure("incomplete_or_invalid_output")
     sources = {m.id: m.text for m in request.messages}
+    if request.task == "c3_classification":
+        if answer.classification is None or answer.fields:
+            raise InferenceFailure("schema_validation")
+        for claim in answer.classification.claims:
+            citation = claim.evidence
+            source = sources.get(citation.segment_id)
+            if source is None or citation.end > len(source) or source[citation.start:citation.end] != citation.quote:
+                raise InferenceFailure("source_evidence_invalid")
+        return answer.model_copy(update={"validation_outcome": "VALIDATED"})
+    if answer.classification is not None:
+        raise InferenceFailure("schema_validation")
     for field in answer.fields:
         source = sources.get(field.message_id)
         if source is None or not 0 <= field.start < field.end <= len(source):

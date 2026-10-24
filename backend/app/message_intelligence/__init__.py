@@ -1,5 +1,10 @@
 """Side-effect-free C3 message-intelligence adapters and candidate contracts."""
 
-from .service import MessageIntelligenceService
-
 __all__ = ["MessageIntelligenceService"]
+
+
+def __getattr__(name):
+    if name == "MessageIntelligenceService":
+        from .service import MessageIntelligenceService
+        return MessageIntelligenceService
+    raise AttributeError(name)

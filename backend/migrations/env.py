@@ -18,6 +18,7 @@ from app.recovery import durable_plans as _p3_plans  # noqa: F401 - register P3 
 from app.core import manager_approval as _manager_approval  # noqa: F401 - register Core approval table
 from app.recovery import durable_actions as _p3_actions  # noqa: F401 - register P3 action tables
 from app.orchestration import models as _orchestration_models  # noqa: F401 - register P5 orchestration projection tables
+from app.message_intelligence import review_models as _c3_review_models  # noqa: F401
 from app.db.base import Base
 
 
