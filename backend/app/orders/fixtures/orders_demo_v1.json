@@ -1,0 +1,106 @@
+{
+  "schema_version": "orders-demo-v1",
+  "tenant_id": "tenant_demo_01",
+  "integration_mode": "SYNTHETIC",
+  "evidence_tier": "DEMO-ONLY",
+  "source": "synthetic://orders-demo-v1",
+  "source_at": "2026-10-24T08:02:48.832001Z",
+  "coverage": "partial",
+  "orders": [
+    {
+      "order_id": "ord_normal_01",
+      "commitment_id": "com_normal_01",
+      "customer_display_name": "Classic Burger Demo Customer",
+      "requested_items": [
+        {
+          "sku": "BURGER_CLASSIC",
+          "quantity": "50",
+          "unit": "pcs"
+        }
+      ],
+      "requested_delivery_at": "2026-10-27T08:02:48.832001Z",
+      "received_at": "2026-10-23T00:00:00Z",
+      "lifecycle_status": "UNKNOWN",
+      "source_channel": "SYNTHETIC",
+      "evidence_refs": [
+        "synthetic://orders-demo-v1/ord_normal_01"
+      ]
+    },
+    {
+      "order_id": "ord_hero_001",
+      "commitment_id": "com_001",
+      "customer_display_name": "Premium Burger Demo Customer",
+      "requested_items": [
+        {
+          "sku": "BURGER_PREMIUM",
+          "quantity": "100",
+          "unit": "pcs"
+        }
+      ],
+      "requested_delivery_at": "2026-10-26T08:02:48.832001Z",
+      "received_at": "2026-10-23T01:00:00Z",
+      "lifecycle_status": "UNKNOWN",
+      "source_channel": "SYNTHETIC",
+      "evidence_refs": [
+        "synthetic://orders-demo-v1/ord_hero_001"
+      ]
+    },
+    {
+      "order_id": "ord_delay_01",
+      "commitment_id": "com_delay_01",
+      "customer_display_name": "Deluxe Burger Demo Customer",
+      "requested_items": [
+        {
+          "sku": "BURGER_DELUXE",
+          "quantity": "200",
+          "unit": "pcs"
+        }
+      ],
+      "requested_delivery_at": "2026-10-25T08:02:48.832001Z",
+      "received_at": "2026-10-23T02:00:00Z",
+      "lifecycle_status": "UNKNOWN",
+      "source_channel": "SYNTHETIC",
+      "evidence_refs": [
+        "synthetic://orders-demo-v1/ord_delay_01"
+      ]
+    },
+    {
+      "order_id": "ord_ambiguous_01",
+      "commitment_id": "com_ambiguous_01",
+      "customer_display_name": "Vegan Burger Demo Customer",
+      "requested_items": [
+        {
+          "sku": "BURGER_VEGAN",
+          "quantity": "75",
+          "unit": "pcs"
+        }
+      ],
+      "requested_delivery_at": "2026-10-28T08:02:48.832001Z",
+      "received_at": "2026-10-23T03:00:00Z",
+      "lifecycle_status": "UNKNOWN",
+      "source_channel": "SYNTHETIC",
+      "evidence_refs": [
+        "synthetic://orders-demo-v1/ord_ambiguous_01"
+      ]
+    },
+    {
+      "order_id": "ord_fulfilled_01",
+      "commitment_id": "com_fulfilled_01",
+      "customer_display_name": "Combo Burger Demo Customer",
+      "requested_items": [
+        {
+          "sku": "BURGER_COMBO",
+          "quantity": "120",
+          "unit": "pcs"
+        }
+      ],
+      "requested_delivery_at": "2026-10-24T06:02:48.832001Z",
+      "received_at": "2026-10-23T04:00:00Z",
+      "lifecycle_status": "UNKNOWN",
+      "source_channel": "SYNTHETIC",
+      "evidence_refs": [
+        "synthetic://orders-demo-v1/ord_fulfilled_01"
+      ]
+    }
+  ]
+}

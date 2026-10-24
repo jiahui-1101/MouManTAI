@@ -37,6 +37,7 @@ include = ["app*"]
 
 [tool.setuptools.package-data]
 "app.context" = ["fixtures/*.json"]
+"app.orders" = ["fixtures/*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
