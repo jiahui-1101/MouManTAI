@@ -49,6 +49,8 @@ UNIT_NORMALIZATION: dict[str, str] = {
     "buah": "pcs",
     "bj": "pcs",
     "bjk": "pcs",
+    "ketul": "pcs",
+    "粒": "pcs",
     "bungkus": "pack",
     "paket": "pack",
     "buns": "pcs",

@@ -39,6 +39,19 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    custom_connection = config.attributes.get("connection", None)
+    if custom_connection is not None:
+        if hasattr(custom_connection, "connect"):
+            with custom_connection.connect() as connection:
+                context.configure(connection=connection, target_metadata=target_metadata)
+                with context.begin_transaction():
+                    context.run_migrations()
+        else:
+            context.configure(connection=custom_connection, target_metadata=target_metadata)
+            with context.begin_transaction():
+                context.run_migrations()
+        return
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

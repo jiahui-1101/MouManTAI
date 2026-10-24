@@ -41,6 +41,27 @@ class HealthResponse(BaseModel):
 
 app = FastAPI(title="MouManTAI API", version="0.1.0")
 
+_P1_IDENTITY_PATHS = ("/dev/p1", "/v1/messages", "/v1/contexts", "/v1/attachments")
+
+
+@app.middleware("http")
+async def gate_p1_development_identity(request: Request, call_next):
+    """Keep P1's separate development identity fallback behind the shared gate."""
+    if (
+        request.method != "OPTIONS"
+        and request.url.path.startswith(_P1_IDENTITY_PATHS)
+        and os.getenv("MOUMANTAI_SYNTHETIC_MODE", "0") != "1"
+    ):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "code": "SYNTHETIC_IDENTITY_DISABLED",
+                "message": "Header-based demo identity is disabled; set MOUMANTAI_SYNTHETIC_MODE=1 only for a synthetic demo",
+                "correlation_id": request.headers.get("X-Correlation-ID") or f"corr_{uuid4().hex}",
+            },
+        )
+    return await call_next(request)
+
 origins = [
     origin.strip()
     for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
@@ -65,6 +86,26 @@ if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
 
 app.dependency_overrides[get_assessment_history] = lambda: AuthoritativeAssessmentHistoryReader()
 app.dependency_overrides[get_impact_reader] = lambda: AuthoritativeImpactReader()
+
+
+@app.on_event("startup")
+def on_startup() -> None:
+    try:
+        from app.context.channels.manager import get_channel_manager
+        get_channel_manager().start_configured_workers()
+    except Exception as exc:
+        import logging
+        logging.getLogger("moumantai.startup").warning("Channel workers startup skipped: %s", exc)
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    try:
+        from app.context.channels.manager import get_channel_manager
+        get_channel_manager().stop_all_workers()
+    except Exception as exc:
+        import logging
+        logging.getLogger("moumantai.shutdown").warning("Channel workers shutdown error: %s", exc)
 
 
 @app.exception_handler(DomainError)

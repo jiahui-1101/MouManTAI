@@ -15,6 +15,7 @@ Outputs:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import inspect
@@ -69,6 +70,7 @@ from app.main import app
 from tests.integration.test_e2e_hero_journey import (
     test_e2e_hero_journey_full_single_commitment_lifecycle,
 )
+from tests.integration.conftest import synthetic_execution_authority
 from tests.integration.test_e2e_negative_matrix import (
     test_e2e_04_stale_approval_stock_changed,
     test_e2e_05_ambiguous_customer_ok,
@@ -83,6 +85,17 @@ from tests.integration.test_e2e_negative_matrix import (
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+@contextmanager
+def _test_synthetic_execution_authority():
+    """Apply the same scoped test authority used by the imported hero test."""
+    fixture_generator = synthetic_execution_authority.__wrapped__()
+    next(fixture_generator)
+    try:
+        yield
+    finally:
+        fixture_generator.close()
 
 
 def _ctx(actor: str = "user_manager_01", tenant: str = "tenant_demo_01", role: str | None = None) -> RequestContext:
@@ -147,7 +160,11 @@ def _call_test_func(func: Callable, client: TestClient, session: Session) -> Non
         kwargs["client"] = client
     if "session" in sig.parameters:
         kwargs["session"] = session
-    func(**kwargs)
+    if "synthetic_execution_authority" in sig.parameters:
+        with _test_synthetic_execution_authority():
+            func(**kwargs, synthetic_execution_authority=None)
+    else:
+        func(**kwargs)
 
 
 def evaluate_acceptance_matrix() -> dict[str, Any]:
@@ -223,9 +240,9 @@ def evaluate_acceptance_matrix() -> dict[str, Any]:
         },
         {
             "id": "E2E-12",
-            "name": "Operational fulfilment verified (Signed POD Proof)",
+            "name": "Synthetic fulfilment reference accepted",
             "func": None,  # Verified as part of Hero Journey Step 4
-            "description": "Operational courier delivery confirmed with signed POD; transitions to FULFILLED and RESOLVED; premature receipt rejected (422)",
+            "description": "A tenant- and commitment-scoped synthetic reference passes the format check; the unverified receipt reference is rejected (422)",
         },
     ]
 
@@ -239,7 +256,8 @@ def evaluate_acceptance_matrix() -> dict[str, Any]:
     client = harness.get_client(session)
     t0 = time.perf_counter_ns()
     try:
-        test_e2e_hero_journey_full_single_commitment_lifecycle(client, session)
+        with _test_synthetic_execution_authority():
+            test_e2e_hero_journey_full_single_commitment_lifecycle(client, session, None)
         t1 = time.perf_counter_ns()
         hero_passed = True
         hero_duration_ms = (t1 - t0) / 1_000_000.0
@@ -314,7 +332,8 @@ def evaluate_audit_outbox_completeness() -> dict[str, Any]:
 
     try:
         # Run Hero Journey to generate realistic lifecycle events
-        test_e2e_hero_journey_full_single_commitment_lifecycle(client, session)
+        with _test_synthetic_execution_authority():
+            test_e2e_hero_journey_full_single_commitment_lifecycle(client, session, None)
 
         # Retrieve all commitments, audit events, and outbox events
         commitments = session.scalars(select(CommitmentRecord)).all()
@@ -469,7 +488,7 @@ def evaluate_security_and_stale_guards() -> dict[str, Any]:
                 json={
                     "expected_commitment_version": 1,
                     "fulfilment_state": "FULFILLED",
-                    "evidence_refs": ["ev_signed_pod"],
+                    "evidence_refs": [f"ev_synthetic_delivery|{tenant}|{com_id}|staff_probe"],
                     "reason": "Staff attempt",
                 },
             ),
@@ -506,46 +525,47 @@ def evaluate_security_and_stale_guards() -> dict[str, Any]:
         )
 
         # 5. Stale snapshot_version recovery execution (Snapshot drift 409 Conflict)
-        probe(
-            name="Stale snapshot_version recovery execution (HTTP 409)",
-            expected_status=409,
-            func=lambda: client.post(
-                f"/v1/commitments/{com_id}/recovery/execute",
-                headers={"X-Tenant-ID": tenant, "X-Actor-ID": "user_manager_01"},
-                json={
-                    "expected_commitment_version": 1,
-                    "plan": {
-                        "tenant_id": tenant,
-                        "recovery_case_id": "rc_sec",
-                        "plan_id": "p_sec",
-                        "plan_version": 1,
-                        "commitment_id": com_id,
-                        "based_on_assessment_id": "fa_sec",
-                        "snapshot_version": 142,  # Stale: plan pinned to 142
-                        "feasibility_status": "FEASIBLE",
-                        "estimated_extra_cost": "10.00",
-                        "currency": "MYR",
-                        "estimated_delay_minutes": 0,
-                        "risks": [],
-                        "actions": [
-                            {
-                                "action_id": "act_sec_02",
-                                "type": "REALLOCATE_STOCK",
-                                "requires_approval": True,
-                                "idempotency_key": "idem_sec_02",
-                            }
-                        ],
-                        "approval_state": "APPROVED",
-                        "execution_state": "PENDING",
+        with _test_synthetic_execution_authority():
+            probe(
+                name="Stale snapshot_version recovery execution (HTTP 409)",
+                expected_status=409,
+                func=lambda: client.post(
+                    f"/v1/commitments/{com_id}/recovery/execute",
+                    headers={"X-Tenant-ID": tenant, "X-Actor-ID": "user_manager_01"},
+                    json={
+                        "expected_commitment_version": 1,
+                        "plan": {
+                            "tenant_id": tenant,
+                            "recovery_case_id": "rc_sec",
+                            "plan_id": "p_sec",
+                            "plan_version": 1,
+                            "commitment_id": com_id,
+                            "based_on_assessment_id": "fa_sec",
+                            "snapshot_version": 142,  # Stale: plan pinned to 142
+                            "feasibility_status": "FEASIBLE",
+                            "estimated_extra_cost": "10.00",
+                            "currency": "MYR",
+                            "estimated_delay_minutes": 0,
+                            "risks": [],
+                            "actions": [
+                                {
+                                    "action_id": "act_sec_02",
+                                    "type": "REALLOCATE_STOCK",
+                                    "requires_approval": True,
+                                    "idempotency_key": "idem_sec_02",
+                                }
+                            ],
+                            "approval_state": "APPROVED",
+                            "execution_state": "PENDING",
+                        },
+                        "current_snapshot_version": 143,  # Live stock changed to 143
+                        "approved_at": (now - timedelta(minutes=5)).isoformat(),
+                        "approval_expires_at": (now + timedelta(hours=1)).isoformat(),
+                        "reason": "Stale snapshot drift attempt",
                     },
-                    "current_snapshot_version": 143,  # Live stock changed to 143
-                    "approved_at": (now - timedelta(minutes=5)).isoformat(),
-                    "approval_expires_at": (now + timedelta(hours=1)).isoformat(),
-                    "reason": "Stale snapshot drift attempt",
-                },
-            ),
-            check_mutation=lambda: session.scalar(select(CommitmentRecord.commitment_version).where(CommitmentRecord.commitment_id == com_id)) == 1,
-        )
+                ),
+                check_mutation=lambda: session.scalar(select(CommitmentRecord.commitment_version).where(CommitmentRecord.commitment_id == com_id)) == 1,
+            )
 
         # 6. Concurrency conflict on expected_commitment_version (HTTP 409)
         probe(
@@ -673,8 +693,42 @@ def evaluate_false_fulfilment_and_confirmation() -> dict[str, Any]:
             "passed": not falsely_confirmed_vague,
         })
 
+        # Confirm this commitment first so the evidence negative control reaches
+        # fulfilment validation rather than stopping at the state-transition guard.
+        offer = client.post(
+            f"/v1/commitments/{com_inv_id}/proposals",
+            headers={"X-Tenant-ID": tenant, "X-Actor-ID": "user_manager_01"},
+            json={
+                "proposal_id": "prop_unverified_receipt_probe",
+                "proposal_version": 1,
+                "expected_commitment_version": com_vague.commitment_version,
+                "reason": "Prepare a confirmed commitment for the receipt evidence negative control",
+                "evidence_refs": ["ev_offer_receipt_probe"],
+            },
+        )
+        assert offer.status_code == 200, offer.text
+        offered_commitment = offer.json()["commitment"]
+        confirmed = client.post(
+            f"/v1/commitments/{com_inv_id}/confirm-proposal",
+            headers={"X-Tenant-ID": tenant, "X-Actor-ID": "user_manager_01"},
+            json={
+                "proposal_id": "prop_unverified_receipt_probe",
+                "proposal_version": 1,
+                "expected_commitment_version": offered_commitment["commitment_version"],
+                "decision": "ACCEPT",
+                "evidence_refs": ["ev_customer_accept_unverified_probe"],
+                "reason": "Prepare the fulfilment evidence-policy check",
+            },
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        com_vague = session.scalar(select(CommitmentRecord).where(
+            CommitmentRecord.commitment_id == com_inv_id
+        ))
+
         # 3. Unverified OCR payment screenshot (E2E-09 & Hero Step 4)
-        # Verify that bank slip upload rejected from marking FULFILLED
+        # Keep this deliberately nonconforming legacy receipt ref as a negative
+        # control; the fulfilment API validates its synthetic format and scope,
+        # not whether a real-world receipt or delivery actually exists.
         res_slip = client.post(
             f"/v1/commitments/{com_inv_id}/record-fulfilment",
             headers={"X-Tenant-ID": tenant, "X-Actor-ID": "user_manager_01"},
@@ -940,8 +994,8 @@ def evaluate_command_latencies(iterations: int = 15) -> dict[str, Any]:
                 json={
                     "expected_commitment_version": 7,
                     "fulfilment_state": "FULFILLED",
-                    "evidence_refs": ["ev_ops_delivery_signed_pod"],
-                    "reason": "Courier delivery completed",
+                    "evidence_refs": [f"ev_synthetic_delivery|{tenant}|{com_id}|metrics_pod_{i}"],
+                    "reason": "Synthetic fulfilment format check",
                 },
             )
             t1 = time.perf_counter_ns()
@@ -1119,7 +1173,8 @@ def main() -> int:
     print(f"False Fulfilment/Confirmation Rate: {false_fulfil_metrics['false_rate']:.1f}%\n")
 
     # 5. Core Command Latencies
-    latency_metrics = evaluate_command_latencies(iterations=15)
+    with _test_synthetic_execution_authority():
+        latency_metrics = evaluate_command_latencies(iterations=15)
     print("Command Latencies (p50 / p95 ms):")
     for cmd, s in latency_metrics.items():
         print(f"  - {cmd:20s}: p50={s['p50_ms']:5.2f} ms | p95={s['p95_ms']:5.2f} ms")

@@ -41,6 +41,9 @@ include = ["app*"]
 pythonpath = ["."]
 testpaths = ["tests", "app/context/tests"]
 addopts = "-q"
+markers = [
+  "postgres: mark test as requiring real PostgreSQL database (strict mode via REQUIRE_POSTGRES=1)",
+]
 
 [tool.ruff]
 line-length = 100

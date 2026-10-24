@@ -1,0 +1,44 @@
+# MouManTAI — PostgreSQL CI Authoritative Test Execution Evidence Template
+# Date: 2026-10-23
+# Target: Stage A / Stage B GitHub Actions `backend-postgres` Workflow
+# Status: TEMPLATE / PENDING CI EXECUTION (Do NOT fabricate or record local results here)
+
+================================================================================
+INSTRUCTIONS FOR RECORDING EVIDENCE
+================================================================================
+1. This evidence file must be populated ONLY from real GitHub Actions CI logs.
+2. After P5 pushes branch `feat/p5-postgres-ci` and the `backend-postgres` CI job finishes,
+   download the artifacts `pg-test.log` and `pg-report.xml` from the workflow run.
+3. Replace the placeholder sections below with the exact CI run output, commit hash,
+   and test summary numbers.
+4. Record the permanent GitHub Actions run URL and artifact link.
+
+================================================================================
+CI RUN METADATA (To be recorded by P5 after CI run)
+================================================================================
+- Branch: feat/p5-postgres-ci
+- Commit SHA: [PENDING_CI_PUSH]
+- Workflow Run URL: [PENDING_CI_RUN_URL]
+- Job: backend-postgres
+- Runner: ubuntu-latest
+- Database: postgres:16 (moumantai_suite, moumantai_migration)
+- Mode: REQUIRE_POSTGRES=1
+
+================================================================================
+AUTOMATED TEST EXECUTION SUMMARY (From pg-test.log / pg-report.xml)
+================================================================================
+[To be pasted from CI pg-test.log output]
+Example format:
+- Total Passed: <N>
+- Total Failed: <N>
+- Total Skipped: 0 (A1 Policy Enforced)
+- Warnings: <N>
+- Duration: <N>s
+
+================================================================================
+DIALECT AND BOUNDARY VALIDATION
+================================================================================
+- app.db.session.engine dialect: postgresql (verified by test_pg_strict_guard.py)
+- client request injected session dialect: postgresql (verified by test_pg_strict_guard.py)
+- Alembic single head: 0016_p1_context_persistence (verified by CI step)
+- Application isolation: Dynamic TRUNCATE RESTART IDENTITY CASCADE (excluding alembic_version)

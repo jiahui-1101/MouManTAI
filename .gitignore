@@ -33,7 +33,14 @@ Thumbs.db
 *.db
 *.log
 !docs/evidence/*.log
+/pg-report.xml
 .local/
 output/
 tmp/
 
+
+# Secrets and credentials
+secrets/
+backend/secrets/
+*credentials*.json
+*token*.json

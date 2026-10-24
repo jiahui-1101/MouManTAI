@@ -50,10 +50,18 @@ def _approved_engine():
         pytest.skip("P1_DATABASE_URL is required to exercise the real P1 repository")
     parsed = make_url(url)
     p1_parsed = make_url(os.environ["P1_DATABASE_URL"])
-    if not parsed.database or not any(token in parsed.database.lower() for token in ("test", "demo")):
+    if not parsed.database or not any(
+        token in parsed.database.lower() for token in ("test", "demo")
+    ):
         pytest.fail("A named disposable test/demo database is required")
-    if parsed.database != p1_parsed.database or parsed.host != p1_parsed.host or parsed.port != p1_parsed.port:
-        pytest.fail("P1_DATABASE_URL and TEST_DATABASE_URL must point to the same isolated database")
+    if (
+        parsed.database != p1_parsed.database
+        or parsed.host != p1_parsed.host
+        or parsed.port != p1_parsed.port
+    ):
+        pytest.fail(
+            "P1_DATABASE_URL and TEST_DATABASE_URL must point to the same isolated database"
+        )
 
     engine = create_engine(url, pool_pre_ping=True)
     if engine.dialect.name != "postgresql":
@@ -63,7 +71,9 @@ def _approved_engine():
     with engine.connect() as connection:
         revisions = connection.scalars(text("SELECT version_num FROM alembic_version")).all()
     if len(script.get_heads()) != 1 or revisions != script.get_heads():
-        pytest.fail(f"Database migration head {revisions!r} differs from repository head {script.get_heads()!r}")
+        pytest.fail(
+            f"Database migration head {revisions!r} differs from repository head {script.get_heads()!r}"
+        )
     return engine
 
 
@@ -119,8 +129,9 @@ def _eventually(check, *, timeout: float = 25):
     raise AssertionError(f"Timed out waiting for durable upstream state: {last_error}")
 
 
-def _create_context_and_confirm(http: httpx.Client, tenant: str, order_id: str, quantity: int,
-                                headers: dict[str, str]) -> tuple[str, str, str]:
+def _create_context_and_confirm(
+    http: httpx.Client, tenant: str, order_id: str, quantity: int, headers: dict[str, str]
+) -> tuple[str, str, str]:
     envelope = {
         "tenant_id": tenant,
         "channel": "WHATSAPP",
@@ -220,16 +231,26 @@ def test_real_p1_context_to_p2_supplier_impact_to_p3_case_on_postgresql(tmp_path
     worker_log = tmp_path / "upstream-worker.log"
     try:
         with Session(engine) as db:
-            existing_contexts = db.scalar(select(func.count()).select_from(OrderContext).where(
-                OrderContext.tenant_id == tenant,
-                OrderContext.order_id.in_(("ORD-1001", "ORD-1002")),
-            ))
-            existing_commitments = db.scalar(select(func.count()).select_from(CommitmentRecord).where(
-                CommitmentRecord.tenant_id == tenant,
-                CommitmentRecord.order_id.in_(("ORD-1001", "ORD-1002")),
-            ))
+            existing_contexts = db.scalar(
+                select(func.count())
+                .select_from(OrderContext)
+                .where(
+                    OrderContext.tenant_id == tenant,
+                    OrderContext.order_id.in_(("ORD-1001", "ORD-1002")),
+                )
+            )
+            existing_commitments = db.scalar(
+                select(func.count())
+                .select_from(CommitmentRecord)
+                .where(
+                    CommitmentRecord.tenant_id == tenant,
+                    CommitmentRecord.order_id.in_(("ORD-1001", "ORD-1002")),
+                )
+            )
         if existing_contexts or existing_commitments:
-            pytest.fail("The approved disposable DB already contains upstream E2E fixture rows; provision a fresh test DB")
+            pytest.fail(
+                "The approved disposable DB already contains upstream E2E fixture rows; provision a fresh test DB"
+            )
 
         server = _start(
             ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port)],
@@ -265,7 +286,9 @@ def test_real_p1_context_to_p2_supplier_impact_to_p3_case_on_postgresql(tmp_path
                 service = CommitmentService()
                 target_commitment = service.get(db, context, target_id)
                 control_commitment = service.get(db, context, control_id)
-                seeded = seed_upstream_demo_snapshots(db, tenant, target_commitment, control_commitment)
+                seeded = seed_upstream_demo_snapshots(
+                    db, tenant, target_commitment, control_commitment
+                )
                 assert seeded.created is True
                 db.commit()
 
@@ -283,9 +306,16 @@ def test_real_p1_context_to_p2_supplier_impact_to_p3_case_on_postgresql(tmp_path
                     CommitmentService().get(db, replay_context, control_id),
                 )
                 assert replay.created is False
-                assert db.scalar(select(func.count()).select_from(OperationalSnapshotRecord).where(
-                    OperationalSnapshotRecord.tenant_id == tenant,
-                )) == 2
+                assert (
+                    db.scalar(
+                        select(func.count())
+                        .select_from(OperationalSnapshotRecord)
+                        .where(
+                            OperationalSnapshotRecord.tenant_id == tenant,
+                        )
+                    )
+                    == 2
+                )
 
             # Reload the persisted versions and call the real P2 evaluator.
             # These calculations verify fixture/schema compatibility, not source authority.
@@ -303,43 +333,70 @@ def test_real_p1_context_to_p2_supplier_impact_to_p3_case_on_postgresql(tmp_path
                 persisted_after = read_snapshot(db, tenant, version=2)
                 target_commitment = CommitmentService().get(db, source_context, target_id)
                 control_commitment = CommitmentService().get(db, source_context, control_id)
-                assert evaluate(persisted_before, None, target_commitment).status.value == "FEASIBLE"
-                assert evaluate(persisted_after, None, target_commitment).status.value == "INFEASIBLE"
-                assert evaluate(persisted_after, None, control_commitment).status.value == "FEASIBLE"
+                assert (
+                    evaluate(persisted_before, None, target_commitment).status.value == "FEASIBLE"
+                )
+                assert (
+                    evaluate(persisted_after, None, target_commitment).status.value == "INFEASIBLE"
+                )
+                assert (
+                    evaluate(persisted_after, None, control_commitment).status.value == "FEASIBLE"
+                )
 
             worker = _start(["-m", "app.worker"], env, worker_log)
 
             def synthetic_baseline_rejected():
                 with Session(engine) as db:
-                    confirmation_rows = db.scalars(select(OutboxEventRecord).where(
-                        OutboxEventRecord.tenant_id == tenant,
-                        OutboxEventRecord.event_id.in_((target_confirmation, control_confirmation)),
-                    )).all()
-                    processed = db.scalars(select(ProcessedEventRecord).where(
-                        ProcessedEventRecord.tenant_id == tenant,
-                        ProcessedEventRecord.event_id.in_((target_confirmation, control_confirmation)),
-                        ProcessedEventRecord.consumer_name == "p2_confirmed_evaluator",
-                    )).all()
-                    if len(confirmation_rows) == 2 and all(
-                        row.attempts > 0
-                        and row.status in {"FAILED", "DEAD_LETTER"}
-                        and "synthetic" in (row.last_error or "").lower()
-                        for row in confirmation_rows
-                    ) and not processed:
+                    confirmation_rows = db.scalars(
+                        select(OutboxEventRecord).where(
+                            OutboxEventRecord.tenant_id == tenant,
+                            OutboxEventRecord.event_id.in_(
+                                (target_confirmation, control_confirmation)
+                            ),
+                        )
+                    ).all()
+                    processed = db.scalars(
+                        select(ProcessedEventRecord).where(
+                            ProcessedEventRecord.tenant_id == tenant,
+                            ProcessedEventRecord.event_id.in_(
+                                (target_confirmation, control_confirmation)
+                            ),
+                            ProcessedEventRecord.consumer_name == "p2_confirmed_evaluator",
+                        )
+                    ).all()
+                    if (
+                        len(confirmation_rows) == 2
+                        and all(
+                            row.attempts > 0
+                            and row.status in {"FAILED", "DEAD_LETTER"}
+                            and "synthetic" in (row.last_error or "").lower()
+                            for row in confirmation_rows
+                        )
+                        and not processed
+                    ):
                         return confirmation_rows
                     return None
 
             refused_confirmations = _eventually(synthetic_baseline_rejected)
             assert len(refused_confirmations) == 2
             with Session(engine) as db:
-                commitments = db.scalars(select(CommitmentRecord).where(
-                    CommitmentRecord.tenant_id == tenant,
-                    CommitmentRecord.commitment_id.in_((target_id, control_id)),
-                )).all()
+                commitments = db.scalars(
+                    select(CommitmentRecord).where(
+                        CommitmentRecord.tenant_id == tenant,
+                        CommitmentRecord.commitment_id.in_((target_id, control_id)),
+                    )
+                ).all()
                 assert all(row.feasibility_state == "NOT_ASSESSED" for row in commitments)
-                assert db.scalar(select(func.count()).select_from(RecoveryCaseRecord).where(
-                    RecoveryCaseRecord.tenant_id == tenant,
-                )) == 0
+                assert (
+                    db.scalar(
+                        select(func.count())
+                        .select_from(RecoveryCaseRecord)
+                        .where(
+                            RecoveryCaseRecord.tenant_id == tenant,
+                        )
+                    )
+                    == 0
+                )
 
             delay_response = http.post(
                 "/v1/operations/events/supplier-delay",
@@ -361,14 +418,20 @@ def test_real_p1_context_to_p2_supplier_impact_to_p3_case_on_postgresql(tmp_path
 
             def case_ready():
                 with Session(engine) as db:
-                    case = db.scalar(select(RecoveryCaseRecord).where(
-                        RecoveryCaseRecord.tenant_id == tenant,
-                        RecoveryCaseRecord.commitment_id == target_id,
-                    ))
-                    processed = db.scalar(select(func.count()).select_from(ProcessedEventRecord).where(
-                        ProcessedEventRecord.tenant_id == tenant,
-                        ProcessedEventRecord.consumer_name == "p3.recovery_trigger.v1",
-                    ))
+                    case = db.scalar(
+                        select(RecoveryCaseRecord).where(
+                            RecoveryCaseRecord.tenant_id == tenant,
+                            RecoveryCaseRecord.commitment_id == target_id,
+                        )
+                    )
+                    processed = db.scalar(
+                        select(func.count())
+                        .select_from(ProcessedEventRecord)
+                        .where(
+                            ProcessedEventRecord.tenant_id == tenant,
+                            ProcessedEventRecord.consumer_name == "p3.recovery_trigger.v1",
+                        )
+                    )
                     return case if case is not None and processed == 1 else None
 
             case = _eventually(case_ready)
@@ -388,22 +451,36 @@ def test_real_p1_context_to_p2_supplier_impact_to_p3_case_on_postgresql(tmp_path
                     (tenant, seeded.supplier_delay.change.event_id),
                 )
                 assert delay_record is not None
-                assert db.scalar(select(func.count()).select_from(SupplierDelayEventRecord).where(
-                    SupplierDelayEventRecord.tenant_id == tenant,
-                    SupplierDelayEventRecord.event_id == seeded.supplier_delay.change.event_id,
-                )) == 1
+                assert (
+                    db.scalar(
+                        select(func.count())
+                        .select_from(SupplierDelayEventRecord)
+                        .where(
+                            SupplierDelayEventRecord.tenant_id == tenant,
+                            SupplierDelayEventRecord.event_id
+                            == seeded.supplier_delay.change.event_id,
+                        )
+                    )
+                    == 1
+                )
                 assert delay_record.before_snapshot_version == 1
                 assert delay_record.after_snapshot_version == 2
-                snapshots = db.scalars(select(OperationalSnapshotRecord).where(
-                    OperationalSnapshotRecord.tenant_id == tenant,
-                ).order_by(OperationalSnapshotRecord.snapshot_version)).all()
+                snapshots = db.scalars(
+                    select(OperationalSnapshotRecord)
+                    .where(
+                        OperationalSnapshotRecord.tenant_id == tenant,
+                    )
+                    .order_by(OperationalSnapshotRecord.snapshot_version)
+                ).all()
                 assert len(snapshots) == 2
                 assert snapshots[0].is_current is False and snapshots[1].is_current is True
 
-                trigger = db.scalar(select(RecoveryCaseTriggerRecord).where(
-                    RecoveryCaseTriggerRecord.tenant_id == tenant,
-                    RecoveryCaseTriggerRecord.case_id == case.case_id,
-                ))
+                trigger = db.scalar(
+                    select(RecoveryCaseTriggerRecord).where(
+                        RecoveryCaseTriggerRecord.tenant_id == tenant,
+                        RecoveryCaseTriggerRecord.case_id == case.case_id,
+                    )
+                )
                 assert trigger is not None
                 assert trigger.event_id
                 assert trigger.assessment_id
@@ -412,18 +489,33 @@ def test_real_p1_context_to_p2_supplier_impact_to_p3_case_on_postgresql(tmp_path
                 assert trigger.assessment_provenance_status == "VERIFIED_AUTHORITATIVE"
                 assert trigger.evidence_refs
                 assert any("synthetic" in ref.lower() for ref in trigger.evidence_refs)
-                assert db.scalar(select(OutboxEventRecord).where(
-                    OutboxEventRecord.tenant_id == tenant,
-                    OutboxEventRecord.event_type == "commitment.at_risk",
-                    OutboxEventRecord.status == "PUBLISHED",
-                )) is not None
-                assert db.scalar(select(func.count()).select_from(RecoveryCaseRecord).where(
-                    RecoveryCaseRecord.tenant_id == tenant,
-                    RecoveryCaseRecord.commitment_id == control_id,
-                )) == 0
-                assert db.get(ProcessedEventRecord, (
-                    tenant, trigger.event_id, "p3.recovery_trigger.v1"
-                )) is not None
+                assert (
+                    db.scalar(
+                        select(OutboxEventRecord).where(
+                            OutboxEventRecord.tenant_id == tenant,
+                            OutboxEventRecord.event_type == "commitment.at_risk",
+                            OutboxEventRecord.status == "PUBLISHED",
+                        )
+                    )
+                    is not None
+                )
+                assert (
+                    db.scalar(
+                        select(func.count())
+                        .select_from(RecoveryCaseRecord)
+                        .where(
+                            RecoveryCaseRecord.tenant_id == tenant,
+                            RecoveryCaseRecord.commitment_id == control_id,
+                        )
+                    )
+                    == 0
+                )
+                assert (
+                    db.get(
+                        ProcessedEventRecord, (tenant, trigger.event_id, "p3.recovery_trigger.v1")
+                    )
+                    is not None
+                )
 
             # Prove read-after-restart against persisted P1 and P3 records.
             _stop(server)
@@ -433,37 +525,82 @@ def test_real_p1_context_to_p2_supplier_impact_to_p3_case_on_postgresql(tmp_path
                 server_log,
             )
             with httpx.Client(base_url=base_url, timeout=8) as restarted_http:
-                _eventually(lambda: server.poll() is None and restarted_http.get("/health").status_code == 200)
-                trigger_read = restarted_http.get(f"/v1/recovery/cases/{target_id}/trigger", headers=headers)
+                _eventually(
+                    lambda: (
+                        server.poll() is None and restarted_http.get("/health").status_code == 200
+                    )
+                )
+                trigger_read = restarted_http.get(
+                    f"/v1/recovery/cases/{target_id}/trigger", headers=headers
+                )
                 assert trigger_read.status_code == 200, trigger_read.text
                 assert trigger_read.json()["storage_mode"] == "DURABLE_DATABASE"
                 assert trigger_read.json()["commitment_id"] == target_id
                 trigger_events = trigger_read.json()["trigger_events"]
                 assert any(row["event_id"] == trigger.event_id for row in trigger_events)
             with Session(engine) as db:
-                assert db.scalar(select(func.count()).select_from(OutboxEventRecord).where(
-                    OutboxEventRecord.tenant_id == tenant,
-                    OutboxEventRecord.event_id.in_((target_confirmation, control_confirmation)),
-                )) >= 2
-                assert db.scalar(select(func.count()).select_from(ProcessedEventRecord).where(
-                    ProcessedEventRecord.tenant_id == tenant,
-                    ProcessedEventRecord.event_id.in_((target_confirmation, control_confirmation)),
-                    ProcessedEventRecord.consumer_name == "p2_confirmed_evaluator",
-                )) == 0
-                assert db.scalar(select(func.count()).select_from(ProcessedEventRecord).where(
-                    ProcessedEventRecord.tenant_id == tenant,
-                    ProcessedEventRecord.consumer_name == "p3.recovery_trigger.v1",
-                )) == 1
+                assert (
+                    db.scalar(
+                        select(func.count())
+                        .select_from(OutboxEventRecord)
+                        .where(
+                            OutboxEventRecord.tenant_id == tenant,
+                            OutboxEventRecord.event_id.in_(
+                                (target_confirmation, control_confirmation)
+                            ),
+                        )
+                    )
+                    >= 2
+                )
+                assert (
+                    db.scalar(
+                        select(func.count())
+                        .select_from(ProcessedEventRecord)
+                        .where(
+                            ProcessedEventRecord.tenant_id == tenant,
+                            ProcessedEventRecord.event_id.in_(
+                                (target_confirmation, control_confirmation)
+                            ),
+                            ProcessedEventRecord.consumer_name == "p2_confirmed_evaluator",
+                        )
+                    )
+                    == 0
+                )
+                assert (
+                    db.scalar(
+                        select(func.count())
+                        .select_from(ProcessedEventRecord)
+                        .where(
+                            ProcessedEventRecord.tenant_id == tenant,
+                            ProcessedEventRecord.consumer_name == "p3.recovery_trigger.v1",
+                        )
+                    )
+                    == 1
+                )
                 assert db.get(InboundMessage, target_message) is not None
                 assert db.get(InboundMessage, control_message) is not None
-                assert db.scalar(select(func.count()).select_from(OrderContext).where(
-                    OrderContext.tenant_id == tenant,
-                    OrderContext.core_commitment_id.in_((target_id, control_id)),
-                )) == 2
-                assert db.scalar(select(func.count()).select_from(CommitmentRecord).where(
-                    CommitmentRecord.tenant_id == tenant,
-                    CommitmentRecord.fulfilment_state == "FULFILLED",
-                )) == 0
+                assert (
+                    db.scalar(
+                        select(func.count())
+                        .select_from(OrderContext)
+                        .where(
+                            OrderContext.tenant_id == tenant,
+                            OrderContext.core_commitment_id.in_((target_id, control_id)),
+                        )
+                    )
+                    == 2
+                )
+                assert (
+                    db.scalar(
+                        select(func.count())
+                        .select_from(CommitmentRecord)
+                        .where(
+                            CommitmentRecord.tenant_id == tenant,
+                            CommitmentRecord.fulfilment_state == "FULFILLED",
+                        )
+                    )
+                    == 0
+                )
     finally:
         _stop(worker)
         _stop(server)

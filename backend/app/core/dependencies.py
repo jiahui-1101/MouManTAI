@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from typing import Annotated, Generator
 from uuid import uuid4
 
@@ -50,6 +51,12 @@ def get_request_context(
 ) -> RequestContext:
     if not x_tenant_id or not x_actor_id:
         raise DomainError("AUTH_HEADERS_REQUIRED", "X-Tenant-ID and X-Actor-ID are required", status_code=400)
+    if os.getenv("MOUMANTAI_SYNTHETIC_MODE", "0") != "1":
+        raise DomainError(
+            "SYNTHETIC_IDENTITY_DISABLED",
+            "Header-based demo identity is disabled; set MOUMANTAI_SYNTHETIC_MODE=1 only for a synthetic demo",
+            status_code=403,
+        )
     return RequestContext(
         tenant_id=x_tenant_id,
         actor_id=x_actor_id,

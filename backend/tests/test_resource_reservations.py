@@ -22,6 +22,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.errors import DomainError, InsufficientResourceError
 from app.core.models import AuditEventRecord, ResourceReservationRecord, ResourceStockRecord
 from app.core.reservations import (
+    _RESERVATION_LOCK,
     consume_reservation,
     get_available_stock,
     get_resource_snapshot,
@@ -208,7 +209,8 @@ def test_thread_concurrent_reservations_prevent_overallocation(test_engine) -> N
         except Exception as e:
             errors.append(e)
         finally:
-            db.close()
+            with _RESERVATION_LOCK:
+                db.close()
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         t1 = executor.submit(_worker, "thread_key_1", "plan_thread_1")

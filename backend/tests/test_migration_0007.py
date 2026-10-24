@@ -67,11 +67,21 @@ def test_alembic_has_exactly_one_head() -> None:
         assert set(parents) <= revisions, f"Unresolved parent(s) for migration {revision.revision}"
 
 
-def test_sqlite_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
-    """Exercise upgrade/downgrade on an isolated temporary SQLite file only."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-        tmp_path = tmp.name
-    db_url = f"sqlite:///{tmp_path.replace(os.sep, '/')}"
+def test_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
+    """Exercise migration constraints on the dedicated PG DB or a temporary SQLite file."""
+    require_pg = os.getenv("REQUIRE_POSTGRES", "0").lower() in ("1", "true", "yes")
+    tmp_path = None
+    if require_pg:
+        mig_url = os.getenv("TEST_MIGRATION_DATABASE_URL")
+        if not mig_url:
+            pytest.fail("REQUIRE_POSTGRES=1 is set, but TEST_MIGRATION_DATABASE_URL is missing or empty.")
+        if mig_url.startswith("postgresql://"):
+            mig_url = mig_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        db_url = mig_url
+    else:
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = tmp.name
+        db_url = f"sqlite:///{tmp_path.replace(os.sep, '/')}"
 
     cfg = _get_alembic_config(db_url)
     old_env_db_url = os.environ.get("DATABASE_URL")
@@ -79,6 +89,11 @@ def test_sqlite_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
     engine = create_engine(db_url)
 
     try:
+        if require_pg:
+            with engine.begin() as conn:
+                conn.execute(text("DROP SCHEMA public CASCADE"))
+                conn.execute(text("CREATE SCHEMA public"))
+
         # 1. Migrate to 0006
         command.upgrade(cfg, "0006_recovery_cases")
 
@@ -90,12 +105,9 @@ def test_sqlite_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
 
         # 2. Seed data in commitments, recovery_cases, and recovery_case_triggers at 0006
         with engine.begin() as conn:
-            try:
-                conn.execute(text("DELETE FROM recovery_case_triggers WHERE tenant_id = :t"), {"t": tenant})
-                conn.execute(text("DELETE FROM recovery_cases WHERE tenant_id = :t"), {"t": tenant})
-                conn.execute(text("DELETE FROM commitments WHERE tenant_id = :t"), {"t": tenant})
-            except Exception:
-                pass
+            conn.execute(text("DELETE FROM recovery_case_triggers WHERE tenant_id = :t"), {"t": tenant})
+            conn.execute(text("DELETE FROM recovery_cases WHERE tenant_id = :t"), {"t": tenant})
+            conn.execute(text("DELETE FROM commitments WHERE tenant_id = :t"), {"t": tenant})
             # Seed commitment
             conn.execute(
                 text(
@@ -173,7 +185,8 @@ def test_sqlite_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
 
         # 5. Negative RESTRICT Test: DELETE FROM recovery_cases with dependent trigger MUST FAIL
         with engine.connect() as conn:
-            conn.execute(text("PRAGMA foreign_keys = ON"))
+            if engine.dialect.name == "sqlite":
+                conn.execute(text("PRAGMA foreign_keys = ON"))
             with pytest.raises(IntegrityError):
                 conn.execute(
                     text("DELETE FROM recovery_cases WHERE tenant_id = :t AND case_id = :c"),
@@ -184,7 +197,8 @@ def test_sqlite_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
 
         # 6. Negative RESTRICT Test: DELETE FROM commitments with dependent trigger MUST FAIL
         with engine.connect() as conn:
-            conn.execute(text("PRAGMA foreign_keys = ON"))
+            if engine.dialect.name == "sqlite":
+                conn.execute(text("PRAGMA foreign_keys = ON"))
             with pytest.raises(IntegrityError):
                 conn.execute(
                     text("DELETE FROM commitments WHERE tenant_id = :t AND commitment_id = :c"),

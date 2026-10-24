@@ -435,7 +435,7 @@ def test_e2e_hero_journey_full_single_commitment_lifecycle(
     valid_fulfil = {
         "expected_commitment_version": 8,
         "fulfilment_state": "FULFILLED",
-        "evidence_refs": ["ev_ops_delivery_signed_pod_com001"],
+        "evidence_refs": ["ev_synthetic_delivery|tenant_demo_01|com_001|pod_signed_com001"],
         "reason": "Courier delivered 100 pcs; customer signature verified on POD",
     }
     res = client.post("/v1/commitments/com_001/record-fulfilment", json=valid_fulfil, headers=manager_headers)
@@ -472,7 +472,7 @@ def test_e2e_hero_journey_full_single_commitment_lifecycle(
     assert "ev_msg_hero_sku" in all_evidence
     assert "ev_cust_signed_agreement_hero_v1" in all_evidence
     assert "ev_customer_accept_proposal_v3" in all_evidence
-    assert "ev_ops_delivery_signed_pod_com001" in all_evidence
+    assert "ev_synthetic_delivery|tenant_demo_01|com_001|pod_signed_com001" in all_evidence
 
     # Verify actor roles recorded
     roles = {entry["actor_role"] for entry in timeline}

@@ -47,6 +47,7 @@ import './inbox.css';
 
 
 type Resource = { state: 'loading' } | { state: 'error'; error: Error } | { state: 'ready'; page: MessagePage; context: DevelopmentContext };
+type AssociationLookup = Record<string, MessageAssociationRecord | null>;
 
 const formatTime = (value?: string | null) => value ? new Intl.DateTimeFormat('en-MY', { timeZone: 'Asia/Kuala_Lumpur', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Not supplied';
 
@@ -130,15 +131,26 @@ const PAGE_SIZE = 15;
 
 
 
-function formatChannel(channel: string | undefined): string {
 
-  if (!channel) return 'WhatsApp';
 
-  const clean = channel.replace(/^SYNTHETIC_/, '');
-
-  return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
-
+function formatSource(message: StoredMessage | undefined): string {
+  if (!message) return 'Synthetic';
+  if (message.source_label) {
+    return message.source_label;
+  }
+  const rawMode = (message.raw as any)?.adapter_mode;
+  const isReal = rawMode === 'REAL' || (message.provider && message.provider !== 'SYNTHETIC') || message.synthetic_provider === null;
+  if (isReal) {
+    const ch = message.raw?.channel;
+    if (ch === 'TELEGRAM') return 'Telegram';
+    if (ch === 'EMAIL') return 'Gmail';
+    if (ch === 'WHATSAPP') return 'WhatsApp';
+    return ch ? (ch.charAt(0).toUpperCase() + ch.slice(1).toLowerCase()) : 'Real';
+  }
+  return 'Synthetic';
 }
+
+
 
 
 
@@ -156,7 +168,7 @@ function sortMessages(items: StoredMessage[], by: SortKey, dir: SortDir): Stored
 
     if (by === 'ingested_at') {
 
-      cmp = (a.ingested_at ?? '').localeCompare(b.ingested_at ?? '');
+      cmp = (a.raw.received_at ?? '').localeCompare(b.raw.received_at ?? '');
 
     } else if (by === 'text') {
 
@@ -174,11 +186,34 @@ function sortMessages(items: StoredMessage[], by: SortKey, dir: SortDir): Stored
 
 }
 
+function MessageRow({ message, association, onOpen, onProcess, processing }: {
+  message: StoredMessage;
+  association: MessageAssociationRecord | null | undefined;
+  onOpen: (button: HTMLButtonElement) => void;
+  onProcess: () => void;
+  processing: boolean;
+}) {
+  const identity = association === undefined ? 'Checking…' : association === null ? 'Unavailable' : association.status === 'LINK_VERIFIED' ? `Verified: ${association.verified_customer?.display_name ?? association.verified_customer?.customer_id ?? 'customer'}` : association.status.replaceAll('_', ' ');
+  const review = association === undefined ? 'Checking…' : association === null ? 'Unavailable' : association.last_decision ? association.last_decision.decision : association.status === 'LINK_CANDIDATE' || association.status === 'CONFLICT' ? 'Needs identity review' : 'No identity decision';
+  return <tr className="p1-inbox-row">
+    <td className="p1-date"><time dateTime={message.raw.received_at}>{formatTime(message.raw.received_at)}</time></td>
+    <td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => onOpen(event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary p1-subtle-id">{message.raw.provider_message_id}{message.raw.attachments?.length ? ` · ${message.raw.attachments.length} attachment${message.raw.attachments.length === 1 ? '' : 's'}` : ''}</span></td>
+    <td className="p1-source-cell"><span className="p1-orbyte-source-badge">{formatSource(message)}</span></td>
+    <td><span className={`p1-orbyte-status-badge is-${message.processing_status === 'PROCESSED' ? 'valid' : message.processing_status === 'PROCESSING' ? 'attention' : message.processing_status === 'PROCESSING_FAILED' ? 'conflict' : 'neutral'}`}>{message.processing_status}</span></td>
+    <td>{message.processing_status === 'PROCESSED' ? (message.extractor_version?.startsWith('p1-ai-pipeline-') ? <span className="p1-orbyte-status-badge is-model">Model-assisted</span> : <span className="p1-orbyte-status-badge is-valid">Extracted</span>) : <span className="p1-subtle-text">Not available</span>}</td>
+    <td className="p1-identity">{identity}</td>
+    <td className="p1-subtle-text">{review}</td>
+    <td className="p1-subtle-text" title="The message API does not provide generated, queued, sent, or failed reply state">Not reported</td>
+    <td className="p1-actions-cell"><div className="p1-orbyte-actions-group"><button type="button" className="p1-orbyte-action-icon-btn" aria-label={`View message ${message.raw.provider_message_id}`} title="Inspect message details" onClick={event => onOpen(event.currentTarget)}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button type="button" className="p1-orbyte-action-icon-btn is-sync" disabled={processing} aria-label={`Reprocess message ${message.raw.provider_message_id}`} title={message.processing_status === 'PROCESSED' ? 'Reprocess extraction' : 'Run extraction'} onClick={onProcess}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={processing ? 'p1-spin' : ''}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button></div></td>
+  </tr>;
+}
+
 
 
 export function DurableInbox({ api = operationalApi }: { api?: OperationalApi }) {
 
   const [resource, setResource] = useState<Resource>({ state: 'loading' });
+  const [associations, setAssociations] = useState<AssociationLookup>({});
 
   const [tenantId, setTenantId] = useState<string | null>(null);
 
@@ -244,6 +279,20 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
   }, [api, channel, processing, search, offset, attempt]);
 
+  useEffect(() => {
+    if (resource.state !== 'ready') { setAssociations({}); return; }
+    let active = true;
+    setAssociations({});
+    for (const message of resource.page.items) {
+      void api.getAssociation(message.message_id).then(result => {
+        if (active) setAssociations(current => ({ ...current, [message.message_id]: result }));
+      }).catch(() => {
+        if (active) setAssociations(current => ({ ...current, [message.message_id]: null }));
+      });
+    }
+    return () => { active = false; };
+  }, [api, resource]);
+
 
 
   function select(id: string, button: HTMLButtonElement) { returnFocus.current = button; setSelected(id); }
@@ -302,9 +351,9 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
   return <div className="p1-inbox">
 
-    <header className="p1-page-heading"><div><h1>Message Inbox</h1><p>Receive synthetic messages and inspect their original content.</p></div><button type="button" className="p1-primary" disabled={resource.state !== 'ready' || composing} onClick={() => { setSaved(null); setComposing(true); }}>+ New synthetic message</button></header>
+    <header className="p1-page-heading"><div><h1 aria-label="Message Inbox">Customer Messages</h1><p>Inspect original messages, extraction evidence and verified identity links.</p></div><button type="button" className="p1-primary" disabled={resource.state !== 'ready' || composing} onClick={() => { setSaved(null); setComposing(true); }}>+ New synthetic message</button></header>
 
-    <div className="p1-tabs"><span className="p1-active-label">Persisted messages</span><span className="p1-demo-label">Local PostgreSQL · synthetic channel only</span></div>
+    <div className="p1-tabs"><span className="p1-active-label">Persisted messages</span><span className="p1-demo-label">Local development identity · provider mode shown per message</span></div>
 
     {saved && <p role="status" className="p1-success">{saved.duplicate ? 'Duplicate delivery — original message retrieved.' : 'Message saved.'} ID: {saved.message.message_id}. Awaiting processing; extraction has not run.</p>}
 
@@ -338,7 +387,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
       <button type="button" className="p1-secondary" onClick={() => setAttempt(n => n + 1)}>Refresh</button>
 
-    </div><div className="p1-filter-caption"><span>{resource.state === 'ready' ? `${resource.page.total} persisted messages` : 'PostgreSQL Inbox'}</span><span>Display timezone · Asia/Kuala_Lumpur</span></div></section>
+    </div><div className="p1-filter-caption"><span>{resource.state === 'ready' ? `${resource.page.total} persisted messages` : 'PostgreSQL Inbox'}</span><span>Display timezone · Asia/Kuala_Lumpur</span></div><p className="p1-filter-limit">Intent, reply-state and review-state filters require a conversation API; the current filters query persisted source messages.</p></section>
 
     {resource.state === 'loading' && <p role="status" className="p1-state">Loading persisted messages…</p>}
 
@@ -348,19 +397,19 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
       <table className="p1-orbyte-main-table"><caption className="p1-sr-only">Persisted original messages awaiting downstream work</caption><thead><tr>
 
-        <th scope="col" className={`p1-th-sortable${sortBy === 'ingested_at' ? ' is-active' : ''}`} aria-sort={sortBy === 'ingested_at' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} onClick={() => handleSort('ingested_at')}>Received At <span className="p1-th-arrows">{sortBy === 'ingested_at' ? (sortDir === 'asc' ? '↑' : '↓') : '↑↓'}</span></th>
+        <th scope="col" className={`p1-th-sortable${sortBy === 'ingested_at' ? ' is-active' : ''}`} aria-sort={sortBy === 'ingested_at' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" className="p1-sort-button" onClick={() => handleSort('ingested_at')}>Received At <span className="p1-th-arrows" aria-hidden="true">{sortBy === 'ingested_at' ? (sortDir === 'asc' ? '↑' : '↓') : '↑↓'}</span></button></th>
 
-        <th scope="col" className={`p1-th-sortable${sortBy === 'text' ? ' is-active' : ''}`} aria-sort={sortBy === 'text' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} onClick={() => handleSort('text')}>Original Message <span className="p1-th-arrows">{sortBy === 'text' ? (sortDir === 'asc' ? '↑' : '↓') : '↑↓'}</span></th>
+        <th scope="col" className={`p1-th-sortable${sortBy === 'text' ? ' is-active' : ''}`} aria-sort={sortBy === 'text' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" className="p1-sort-button" onClick={() => handleSort('text')}>Original Message <span className="p1-th-arrows" aria-hidden="true">{sortBy === 'text' ? (sortDir === 'asc' ? '↑' : '↓') : '↑↓'}</span></button></th>
 
         <th scope="col">Source</th>
 
-        <th scope="col" className={`p1-th-sortable${sortBy === 'processing_status' ? ' is-active' : ''}`} aria-sort={sortBy === 'processing_status' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} onClick={() => handleSort('processing_status')}>Processing <span className="p1-th-arrows">{sortBy === 'processing_status' ? (sortDir === 'asc' ? '↑' : '↓') : '↑↓'}</span></th>
+        <th scope="col" className={`p1-th-sortable${sortBy === 'processing_status' ? ' is-active' : ''}`} aria-sort={sortBy === 'processing_status' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" className="p1-sort-button" onClick={() => handleSort('processing_status')}>Processing <span className="p1-th-arrows" aria-hidden="true">{sortBy === 'processing_status' ? (sortDir === 'asc' ? '↑' : '↓') : '↑↓'}</span></button></th>
 
-        <th scope="col">Information</th><th scope="col">Identity</th><th scope="col">Review</th><th scope="col" className="p1-th-actions">Actions</th>
+        <th scope="col">Extraction</th><th scope="col">Identity link</th><th scope="col">Identity review</th><th scope="col">Reply</th><th scope="col" className="p1-th-actions">Actions</th>
 
       </tr></thead>
 
-      <tbody>{sortMessages(resource.page.items, sortBy, sortDir).map(message => <tr key={message.message_id} className="p1-inbox-row"><td className="p1-date"><time dateTime={message.ingested_at}>{formatTime(message.ingested_at)}</time></td><td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => select(message.message_id, event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary p1-subtle-id">{message.raw.provider_message_id}</span></td><td className="p1-source-cell"><span className="p1-orbyte-source-badge">{formatChannel(message.raw.channel)}</span></td><td><span className={`p1-orbyte-status-badge is-${message.processing_status === 'PROCESSED' ? 'valid' : message.processing_status === 'PROCESSING' ? 'attention' : message.processing_status === 'PROCESSING_FAILED' ? 'conflict' : 'neutral'}`}>{message.processing_status}</span></td><td className="p1-identity">{message.processing_status === 'PROCESSED' ? (message.extractor_version?.startsWith('p1-ai-pipeline-') ? <span className="p1-orbyte-status-badge is-model">Model review</span> : <span className="p1-orbyte-status-badge is-valid">Extracted (RULE)</span>) : message.processing_status === 'PROCESSING' ? <span className="p1-orbyte-status-badge is-attention">Extracting…</span> : message.processing_status === 'PROCESSING_FAILED' ? <span className="p1-orbyte-status-badge is-conflict">Extraction failed</span> : <span className="p1-orbyte-status-badge is-neutral">Awaiting extraction</span>}</td><td className="p1-subtle-text">Not associated</td><td className="p1-subtle-text">Not started</td><td className="p1-actions-cell"><div className="p1-orbyte-actions-group"><button type="button" className="p1-orbyte-action-icon-btn" aria-label={`View message ${message.raw.provider_message_id}`} title="Inspect message details" onClick={event => select(message.message_id, event.currentTarget)}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button type="button" className="p1-orbyte-action-icon-btn is-sync" disabled={processingId === message.message_id} aria-label={`Reprocess message ${message.raw.provider_message_id}`} title={message.processing_status === 'PROCESSED' ? 'Reprocess extraction' : 'Run extraction'} onClick={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={processingId === message.message_id ? 'p1-spin' : ''}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button></div></td></tr>)}</tbody></table>
+      <tbody>{sortMessages(resource.page.items, sortBy, sortDir).map(message => <MessageRow key={message.message_id} message={message} association={associations[message.message_id]} processing={processingId === message.message_id} onOpen={button => select(message.message_id, button)} onProcess={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')} />)}</tbody></table>
 
     </div>{resource.page.items.length === 0 && <p role="status" className="p1-empty">No persisted messages match this view. Submit a synthetic message to begin.</p>}
 
@@ -368,7 +417,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
     </section>}
 
-    <p className="p1-preview-note">Local development tenant only · no production authentication. Synthetic multi-channel adapters (WhatsApp, Email, Telegram) are implemented. Deterministic extraction is persisted with exact Unicode evidence spans.</p>
+    <p className="p1-preview-note">Local development tenant only · no production authentication. The composer creates synthetic test messages; provider-backed records retain their own source labels. Extraction evidence is persisted with exact Unicode spans.</p>
 
     {selected && <StoredMessageDetail id={selected} api={api} onUpdated={() => setAttempt(n => n + 1)} onClose={closeDetail} />}
 
@@ -718,13 +767,13 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
         <div className="p1-detail-heading-left">
 
-          <p className="p1-eyebrow">PERSISTED SOURCE · SYNTHETIC</p>
+          <p className="p1-eyebrow">PERSISTED SOURCE · {(data?.raw as any)?.adapter_mode === 'REAL' || (data?.provider && data?.provider !== 'SYNTHETIC') ? 'REAL PROVIDER' : 'SYNTHETIC'}</p>
 
           <div className="p1-detail-title-row">
 
             <h2>Original message</h2>
 
-            {data && <span className="p1-orbyte-source-badge">{formatChannel(data.raw?.channel)}</span>}
+            {data && <span className="p1-orbyte-source-badge">{formatSource(data)}</span>}
 
           </div>
 
@@ -846,6 +895,11 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
       </dl>
 
+      <section className="p1-inquiry-boundary" aria-label="Customer reply availability">
+        <h3>Customer reply</h3>
+        <p>This message record does not provide inquiry eligibility, approved public knowledge, or a generated or sent reply. Extraction evidence below is not authorization to answer a price, discount, or delivery question.</p>
+      </section>
+
       <blockquote className="p1-original">
 
         {extraction?.fields?.length ? renderHighlightedText(data.raw.text, extraction.fields) : data.raw.text}
@@ -868,7 +922,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
           <div><dt>Platform identity (unverified)</dt><dd>{data.raw.sender_identity_id}</dd></div>
 
-          <div><dt>Provider</dt><dd>{data.synthetic_provider}</dd></div>
+          <div><dt>Provider</dt><dd>{data.provider || data.synthetic_provider || 'REAL'}</dd></div>
 
           <div><dt>Provider message ID</dt><dd>{data.raw.provider_message_id}</dd></div>
 

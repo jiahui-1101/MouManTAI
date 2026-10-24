@@ -111,7 +111,9 @@ def build_upstream_demo_fixture(
         data["current_snapshot_version"] = version
 
         for source in operational["sources"]:
-            source["source_ref"] = f"synthetic://p2/upstream/{tenant_fingerprint}/{source['source_id']}"
+            source["source_ref"] = (
+                f"synthetic://p2/upstream/{tenant_fingerprint}/{source['source_id']}"
+            )
 
         for row in operational["confirmed_commitments"]:
             original_id = row["commitment_id"]
@@ -135,7 +137,9 @@ def build_upstream_demo_fixture(
         for reservation in operational["reservations"]:
             if reservation["commitment_id"] == "com-002":
                 reservation["commitment_id"] = unaffected_commitment.commitment_id
-                reservation["reservation_id"] = f"reservation-{unaffected_commitment.commitment_id}-patty"
+                reservation["reservation_id"] = (
+                    f"reservation-{unaffected_commitment.commitment_id}-patty"
+                )
 
         production = data.get("production")
         if production is not None:
@@ -191,7 +195,9 @@ def seed_upstream_demo_snapshots(
         return UpstreamDemoSnapshotSeed(before, after, supplier_delay, created=True)
 
     if len(rows) != 2:
-        raise DemoSnapshotSeedConflict("Existing tenant snapshot history is not the exact two-version demo fixture")
+        raise DemoSnapshotSeedConflict(
+            "Existing tenant snapshot history is not the exact two-version demo fixture"
+        )
 
     for row in rows:
         snapshot = expected.get(row.snapshot_version)
@@ -200,7 +206,9 @@ def seed_upstream_demo_snapshots(
             or row.snapshot_id != snapshot.operational.snapshot_id
             or row.payload != snapshot.model_dump(mode="json", exclude_computed_fields=True)
         ):
-            raise DemoSnapshotSeedConflict("Existing P2 snapshot differs from the deterministic demo fixture")
+            raise DemoSnapshotSeedConflict(
+                "Existing P2 snapshot differs from the deterministic demo fixture"
+            )
 
     digest = sha256(
         json.dumps(
@@ -216,7 +224,9 @@ def seed_upstream_demo_snapshots(
 
     expected_current = {1: event is None, 2: event is not None}
     if any(row.is_current != expected_current[row.snapshot_version] for row in rows):
-        raise DemoSnapshotSeedConflict("P2 demo current-snapshot state is inconsistent with supplier event history")
+        raise DemoSnapshotSeedConflict(
+            "P2 demo current-snapshot state is inconsistent with supplier event history"
+        )
 
     return UpstreamDemoSnapshotSeed(before, after, supplier_delay, created=False)
 
@@ -236,7 +246,9 @@ def _run_cli() -> None:
     except ArgumentError:
         database_name = ""
     if not any(token in database_name for token in ("test", "demo")):
-        raise SystemExit("Refusing P2 demo seeding: DATABASE_URL must name a disposable test/demo database")
+        raise SystemExit(
+            "Refusing P2 demo seeding: DATABASE_URL must name a disposable test/demo database"
+        )
 
     from app.db.session import SessionLocal
 
@@ -252,16 +264,21 @@ def _run_cli() -> None:
         unaffected = service.get(db, context, args.unaffected_commitment_id)
         result = seed_upstream_demo_snapshots(db, args.tenant_id, affected, unaffected)
 
-    print(json.dumps({
-        "created": result.created,
-        "tenant_id": args.tenant_id,
-        "before_snapshot_id": result.before.operational.snapshot_id,
-        "before_snapshot_version": result.before.operational.snapshot_version,
-        "after_snapshot_id": result.after.operational.snapshot_id,
-        "after_snapshot_version": result.after.operational.snapshot_version,
-        "supplier_delay_request": result.supplier_delay.model_dump(mode="json"),
-        "source_mode": "SYNTHETIC_ISOLATED_DEMO",
-    }, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "created": result.created,
+                "tenant_id": args.tenant_id,
+                "before_snapshot_id": result.before.operational.snapshot_id,
+                "before_snapshot_version": result.before.operational.snapshot_version,
+                "after_snapshot_id": result.after.operational.snapshot_id,
+                "after_snapshot_version": result.after.operational.snapshot_version,
+                "supplier_delay_request": result.supplier_delay.model_dump(mode="json"),
+                "source_mode": "SYNTHETIC_ISOLATED_DEMO",
+            },
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":

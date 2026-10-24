@@ -58,7 +58,7 @@ class RawMessageEnvelope(P1Model):
     thread_ref: str | None = Field(default=None, max_length=200)
     reply_to_provider_message_id: str | None = Field(default=None, max_length=200)
     language: str | None = Field(default=None, max_length=35)
-    adapter_mode: Literal["SYNTHETIC"] = "SYNTHETIC"
+    adapter_mode: Literal["SYNTHETIC", "REAL"] = "SYNTHETIC"
 
     @model_validator(mode="after")
     def supported_original_content(self):

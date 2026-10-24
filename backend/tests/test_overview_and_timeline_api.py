@@ -158,7 +158,7 @@ def test_overview_counts_and_attention_queue_match_db(client: TestClient) -> Non
         json={
             "expected_commitment_version": 3,
             "fulfilment_state": "FULFILLED",
-            "evidence_refs": ["ev_delivered_receipt_005"],
+            "evidence_refs": [f"ev_synthetic_delivery|tenant_alpha|{c5_id}|pod_005"],
             "reason": "Courier delivery confirmation signed",
         },
     )
@@ -284,7 +284,7 @@ def test_timeline_correlation_and_feature_links(client: TestClient) -> None:
         json={
             "expected_commitment_version": 4,
             "fulfilment_state": "FULFILLED",
-            "evidence_refs": ["ev_signed_delivery_note_001"],
+            "evidence_refs": [f"ev_synthetic_delivery|tenant_timeline|{com_id}|pod_001"],
             "reason": "Final delivery note signed by recipient",
         },
     )

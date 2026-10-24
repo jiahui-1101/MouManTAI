@@ -18,7 +18,9 @@ SyntheticProvider = Literal[
 class StoredMessage(P1Model):
     message_id: Identifier
     raw: RawMessageEnvelope
-    synthetic_provider: SyntheticProvider
+    synthetic_provider: SyntheticProvider | None = None
+    provider: str | None = None
+    source_label: str = "Synthetic"
     content_sha256: str
     processing_status: ProcessingStatus
     extractor_version: Identifier | None = None
