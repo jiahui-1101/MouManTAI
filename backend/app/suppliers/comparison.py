@@ -37,7 +37,7 @@ def _unique_names(values) -> None:
 class CategorySpec(ImmutableContract):
     tenant_id: Text
     category_id: Text
-    version: int = Field(ge=1)
+    version: int = Field(ge=1, strict=True)
     authority: Literal["SME_CONFIG", "ORBYTE_CATALOG", "EXAMPLE"]
     approval_ref: Text | None
     evidence_refs: tuple[Text, ...]
@@ -52,7 +52,7 @@ class CategorySpec(ImmutableContract):
 class SupplierRequirement(ImmutableContract):
     tenant_id: Text
     category_id: Text
-    spec_version: int = Field(ge=1)
+    spec_version: int = Field(ge=1, strict=True)
     properties: tuple[PropertyValue, ...]
     quantity: Quantity
     unit: Text
@@ -69,9 +69,9 @@ class SupplierOffer(ImmutableContract):
     tenant_id: Text
     supplier_id: Text
     quote_id: Text
-    quote_version: int = Field(ge=1)
+    quote_version: int = Field(ge=1, strict=True)
     category_id: Text
-    spec_version: int = Field(ge=1)
+    spec_version: int = Field(ge=1, strict=True)
     properties: tuple[PropertyValue, ...]
     evidence_refs: tuple[Text, ...]
     price_per_pack: Amount | None
@@ -98,8 +98,8 @@ class SupplierOffer(ImmutableContract):
 class OfferComparison(ImmutableContract):
     supplier_id: Text
     quote_id: Text
-    quote_version: int
-    spec_version: int | None
+    quote_version: int = Field(ge=1, strict=True)
+    spec_version: int | None = Field(ge=1, strict=True)
     status: Literal["MATCHES", "INCOMPATIBLE", "CONDITIONAL", "UNKNOWN"]
     violated_fields: tuple[Text, ...] = ()
     missing_fields: tuple[Text, ...] = ()

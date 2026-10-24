@@ -87,10 +87,89 @@ def offer(**changes):
     )
 
 
+def comparison_result(**changes):
+    from app.suppliers.comparison import OfferComparison
+
+    return OfferComparison.model_validate(
+        {
+            "supplier_id": "supplier_a",
+            "quote_id": "q1",
+            "quote_version": 1,
+            "spec_version": 1,
+            "status": "MATCHES",
+            "reason_codes": (),
+            "currency": "MYR",
+            "evidence_refs": ("supplier_message_q1",),
+        }
+        | changes
+    )
+
+
 def compare(offers=None, schema=None, req=None):
     from app.suppliers.comparison import compare_offers
 
     return compare_offers(schema or spec(), req or requirement(), offers or [offer()], now=NOW)
+
+
+@pytest.mark.parametrize(
+    ("model_factory", "field_name"),
+    [
+        pytest.param(spec, "version", id="CategorySpec.version"),
+        pytest.param(requirement, "spec_version", id="SupplierRequirement.spec_version"),
+        pytest.param(offer, "quote_version", id="SupplierOffer.quote_version"),
+        pytest.param(offer, "spec_version", id="SupplierOffer.spec_version"),
+        pytest.param(comparison_result, "quote_version", id="OfferComparison.quote_version"),
+        pytest.param(comparison_result, "spec_version", id="OfferComparison.spec_version"),
+    ],
+)
+@pytest.mark.parametrize("invalid_version", [True, False, 1.0, 1.5, "1", "oops", 0, -1])
+def test_supplier_version_fields_reject_non_strict_or_nonpositive_values(
+    model_factory, field_name, invalid_version
+):
+    with pytest.raises(ValidationError):
+        model_factory(**{field_name: invalid_version})
+
+
+@pytest.mark.parametrize(
+    ("model_factory", "field_name"),
+    [
+        pytest.param(spec, "version", id="CategorySpec.version"),
+        pytest.param(requirement, "spec_version", id="SupplierRequirement.spec_version"),
+        pytest.param(offer, "quote_version", id="SupplierOffer.quote_version"),
+        pytest.param(offer, "spec_version", id="SupplierOffer.spec_version"),
+        pytest.param(comparison_result, "quote_version", id="OfferComparison.quote_version"),
+        pytest.param(comparison_result, "spec_version", id="OfferComparison.spec_version"),
+    ],
+)
+def test_supplier_version_fields_accept_positive_integers(model_factory, field_name):
+    model = model_factory(**{field_name: 7})
+
+    assert getattr(model, field_name) == 7
+
+
+@pytest.mark.parametrize(
+    "comparison_attempt",
+    [
+        pytest.param(lambda: compare(schema=spec(version=True)), id="CategorySpec.version"),
+        pytest.param(
+            lambda: compare(req=requirement(spec_version=True)),
+            id="SupplierRequirement.spec_version",
+        ),
+        pytest.param(
+            lambda: compare([offer(quote_version=True)]), id="SupplierOffer.quote_version"
+        ),
+        pytest.param(lambda: compare([offer(spec_version=True)]), id="SupplierOffer.spec_version"),
+    ],
+)
+def test_malformed_version_evidence_is_rejected_before_comparison(monkeypatch, comparison_attempt):
+    import app.suppliers.comparison as comparison_module
+
+    def comparison_must_not_run(*args, **kwargs):
+        pytest.fail("malformed version evidence reached compare_offers")
+
+    monkeypatch.setattr(comparison_module, "compare_offers", comparison_must_not_run)
+    with pytest.raises(ValidationError):
+        comparison_attempt()
 
 
 def test_three_quotes_hard_mismatch_unknown_and_conditional_are_not_interchangeable():
