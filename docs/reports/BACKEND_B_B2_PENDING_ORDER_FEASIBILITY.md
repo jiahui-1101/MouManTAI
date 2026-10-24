@@ -1,0 +1,56 @@
+# Backend B B2 — pending-order feasibility boundary
+
+**2026-10-24 SGT. Outcome:** The current P2 evaluator cannot safely assess a pending OrderRequest. B2 preserves the B1 implementation, adds characterization tests for that boundary, and provides a field-level [Backend A/B contract handoff](BACKEND_AB_CONTRACT_HANDOFF.md). No pending-order adapter was implemented: Backend A's persisted AcceptanceCandidate and mapper are unfinished, and inserting a pending request into P2's `confirmed_commitments` would falsely assert Core agreement. This is a deliberate fail-closed result under the B2 prompt's conditional implementation rule, not a FEASIBLE demonstration.
+
+## 1. Baseline and preserved state
+
+`git fetch origin main refs/pull/48/head ... refs/pull/49/head ...` observed `origin/main=3efa7f23fc2842664f1164cc1dce363f7371bdd3`, PR #48 HEAD `741976d3cdd59352d66a30c5712ce9eca5d3bc16`, PR #49 HEAD `62040da02b4ec3532ea02d734567e0913996ec2b`. Merge base of main and #48 remains `3efa7f23`. This B2 work remains in the existing uncommitted B1 worktree `MouManTAI-backend-b-b1-readiness`, branch `feat/backend-b-b1-readiness`, HEAD `3efa7f23`. B1's two untracked code/test files and B1 report were read and preserved unchanged. Only a new B2 characterization test and the two new B2 reports were added. No branch was reset, stashed, cleaned, merged, committed, pushed, or opened as a PR; the dirty original P3 checkout, prior audit reports and three untracked duplicate Phase 1A files remain untouched.
+
+The previous [B1 report](BACKEND_B_FEASIBILITY_RESERVATION_READINESS.md) covers existing confirmed-target readiness. The [PR #48 reconciliation](../../../MouManTAI-phase1a-pr48-reconciliation/docs/reports/PHASE_1A_PR48_RECONCILIATION.md) remains the Backend A contract review. This B2 assessment uses the six canonical v2.2 pack documents, especially `REQUIREMENTS_BACKEND.md` BE-FEA-01/BE-ORD-ACC-01, `IMPLEMENTATION_BLUEPRINT.md` §§3.1–3.3/5.1, and `REQUIREMENTS_SYSTEM.md` §13.1. S1 was expressly approved earlier in this chat; the ownership split itself is not policy signoff, S2–S5 remain unratified, and this task does not authorize acceptance.
+
+## 2. Exact P2 input assumptions
+
+| Source evidence | Consequence for pending order |
+|---|---|
+| `feasibility/service.py:101-134` | `evaluate` revalidates typed input, requires a `Commitment` whose `agreement_state=CONFIRMED`, exact target ID/version in `OperationalSnapshot.confirmed_commitments`, one matching target line and Core SKU/quantity/unit/deadline. It rejects `REQUESTED/OFFERED` and absent targets before running ATP/capacity. |
+| `feasibility/bom.py:~75-96`, `inventory.py:19-55` | BOM demand and ATP iterate confirmed snapshot commitments; no pending-demand parameter. Inventory handles lot expiry, existing reservations and verified incoming evidence through P2 rules. Merely calling ATP on the current snapshot omits the new order. |
+| `feasibility/capacity.py:62-115,135-260` | Capacity checks supplied fixed jobs and plans keyed by confirmed commitment/line. No provisional production plan or capacity reservation for an unaccepted request. A failed fixed plan does not prove all schedules impossible. |
+| `feasibility/models.py:318-345,347-~535`, `production.py:99-150` | Snapshot is tenant/version-bound, with source, inventory, BOM, reservation, capacity, confirmed commitment, production and job evidence. The confirmed row has no `order_request_id`, `customer_id` or terms hash. |
+| `feasibility/persisted_sources.py:123-163`, `currentness.py:11-25` | Current persisted read validates tenant/snapshot payload identity and version token. A later write must still lock/revalidate; currentness checked once is not a reservation guarantee. |
+| `feasibility/service.py:101-134`, read-only diagnostic | Even a matching confirmed target is **not** bound to `Commitment.order_id` or `customer_id` by P2: changing both while keeping target ID/version returned FEASIBLE in a direct local diagnostic. A future A/B adapter must independently bind request/customer/terms before and at decision. This behavior is not frozen as a test expectation, so a future safety fix can tighten it. |
+
+The B1 `assess_operational_readiness` remains useful **only for an existing confirmed single-line target**. It checks supplied snapshot/tenant/current token and reuses P2 at an explicit time; it does not accept a candidate or a reservation receipt. PR #48 `app.orders.terms.OrderTerms` and `BusinessCommandPort` are unmerged pure contracts, not a persisted request reader or provisional P2 target. PR #49 changes supplier comparison, not this boundary. A quotation cannot be treated as an available lot or receipt.
+
+## 3. B2 architecture decision and actual changes
+
+An unaccepted OrderRequest should enter a future P2 extension as an **explicit provisional target** loaded from a persisted, verified AcceptanceCandidate. That extension must preserve accepted commitments/reservations as fixed competing demand, use the existing BOM/ATP/capacity calculations on a joint projection, and report whether a single or multi-line mapping is supported. It must not create a `CommitmentRecord`, label a provisional row `confirmed`, invent plan dates/warehouse/unit conversions or collapse multiple lines. The exact A candidate, item/plan mapping and reviewed P2 provisional type are not available on this main/PR head. Calling `evaluate` on a fake `CONFIRMED` Core object would make the result semantically false. Therefore B2 adds **no runtime adapter, OrderTerms, candidate persistence, API or second calculator**.
+
+Added `backend/app/feasibility/tests/test_pending_boundary.py` (3 parametrized cases): requested and offered Core states are rejected before either P2 calculator runs; an absent confirmed target is rejected before either calculator. Separately, a direct read-only Python diagnostic changed only the fixture Core `order_id` and `customer_id`; `evaluate` returned `FEASIBLE`. That is a **known limitation**, not permission to use mismatched identity, and was not made a permanent expected behavior in tests. No application code was changed during B2. These tests guard against accidental “make it pass by marking confirmed” shortcuts while owners design a real provisional path.
+
+Pending-order readiness and feasibility are currently **UNSUPPORTED/NOT_EVALUATED**. Missing or stale snapshot, wrong tenant/request/customer, terms/context/proposal version mismatch, unverified assent or price disclosure, unsupported/missing BOM/plan, unknown stock/capacity and multi-line inputs must each fail closed under the proposed reader/adapter; the current code cannot demonstrate those as a pending-order FEASIBLE path. B1 and existing P2 tests cover many of those conditions for *confirmed targets* only. The handoff specifies the exact future guards and error semantics without claiming implemented coverage.
+
+## 4. No-write and acceptance boundary
+
+The new B2 file is tests only. They call `feasibility.service.evaluate`, whose path is pure and whose requested/offered/absent-target preconditions reject before ATP/capacity; monkeypatched calculators prove those rejection paths do not even calculate. No B2 code imports a session, reservation command, Core service writer, outbox dispatcher, audit writer, message provider or external port. The tests run against in-memory P2 fixtures. No `reserve_resource()`, DB write, stock mutation, Core transition or message send was invoked. This is evidence for the B2 test path; it is not a transactional proof for a future acceptance endpoint.
+
+`READY_FOR_REVIEW` from B1, `FEASIBLE` from a confirmed-target P2 fixture, a PR #48 terms hash, and a structural `ReservationReceipt` are each insufficient to produce `ACCEPTED`. Only an authenticated SME decision, verified exact customer agreement, fresh P2 evaluation, successful authoritative reservation and reviewed Core/outbox transition can do that later.
+
+## 5. Reservation and Core blockers
+
+`core/reservations.py:226-355` is a P3 local plan/action primitive: tenant-scoped idempotency lookup under a process-local lock, conditional stock update and version increment, unique `(tenant_id,idempotency_key)` and audit. PostgreSQL's conditional update can prevent over-allocation of one stock row, but this does not reserve a multi-material/capacity order atomically or establish a cross-process acceptance intent. No disposable PostgreSQL was used here. A current P2 snapshot may be obsolete at reservation time. PR #48's unmerged receipt model binds tenant/order/operation/key/request version/hash structurally but cannot establish source authenticity, all-resource success or live Orbyte status by itself. `PENDING/UNKNOWN/FAILED` and partial results must not become accepted; a confirmed external reservation followed by failed Core commit requires durable reconciliation or approved release policy. P5 must review lock order, actor verification, receipt origin, idempotency and Core transaction/outbox. No B2 reservation or Core code changed.
+
+## 6. Test evidence and limitations
+
+Environment: Windows Python 3.14, `PYTHONDONTWRITEBYTECODE=1`, `DATABASE_URL=sqlite+pysqlite:///:memory:`, `MOUMANTAI_SYNTHETIC_MODE=1`, `REQUIRE_POSTGRES=0`; pytest invoked from `backend/` with `-p no:cacheprovider -q -o addopts= --disable-warnings --tb=short` and distinct task-owned `--basetemp` paths.
+
+| Invocation | Observed result |
+|---|---|
+| `python -m pytest ... app/feasibility/tests/test_pending_boundary.py app/feasibility/tests/test_readiness.py` | **15 passed**, 0 failed/errors/skipped, exit 0. |
+| `python -m pytest ... app/feasibility/tests tests/test_resource_reservations.py tests/test_p5_integration_recovery.py tests/test_outbox_events.py` | **344 passed**, 0 failed/errors/skipped, 4 warnings, exit 0. Includes all B1, P2, reservation, P5 recovery and outbox tests selected. |
+| Direct `python -` diagnostic with P2 fixture and altered Core `order_id`/`customer_id` | Printed `FEASIBLE`; read-only, no write, and not a regression expectation. |
+
+No pending-order positive evaluation exists, so no such test is claimed. Full backend, PostgreSQL integration, frontend, live providers and real Orbyte were not run. The 344-pass broad result verifies the unchanged legacy paths and boundary tests on this local main-based worktree; it does not validate PR #48/#49 code or any future acceptance integration.
+
+## 7. Smallest B3 proposal and gates
+
+After Backend A publishes a persisted versioned candidate and P1 mapper, have Backend A/P1/P4/P2/P5 agree the [field and authority table](BACKEND_AB_CONTRACT_HANDOFF.md), including source/disclosure/assent evidence and exact deadline/material-use/production-plan mapping. Then implement a **read-only P2 provisional-target extension** using the existing ATP/BOM/capacity kernel with accepted demand fixed, initially a strictly validated single-line case; return `UNKNOWN/UNSUPPORTED` for missing data and multi-line. Test identity/version, stock/capacity/expiry/competition and no writes. B3 should still stop before SME acceptance or resource reservation. Any shared model, schema, Auth, Core or Outbox change requires affected-owner review; no migration or activation is authorized by this report.
