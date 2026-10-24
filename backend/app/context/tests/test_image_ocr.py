@@ -178,6 +178,9 @@ def test_image_ocr_blank_image():
     result = extract_image_ocr(att, blank_bytes)
 
     assert result.status == "SUCCESS", f"Diagnostic: {result.diagnostic}"
+    assert result.text_content == ""
+    assert result.extracted_fields == []
+    assert result.is_payment_notice is False
     assert result.evidence_items == []
     assert "0 text lines detected by OCR" in result.diagnostic
 

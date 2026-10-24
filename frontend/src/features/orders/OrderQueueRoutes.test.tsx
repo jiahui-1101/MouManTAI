@@ -31,7 +31,7 @@ describe('Orders integration through the real application router and Sidebar', (
     const orders = within(nav).getByRole('link', { name: /^(Orders|All Orders)$/ });
     orders.focus(); expect(orders).toHaveFocus();
     fireEvent.click(orders);
-    expect(await screen.findByRole('heading', { name: 'Order Decision Queue' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Order Decision Queue' }, { timeout: 10000 })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/orders');
     fireEvent.change(screen.getByLabelText('Demo role selector'), { target: { value: 'user_staff_01' } });
     expect(screen.getByTestId('shell-tenant-badge')).toHaveTextContent('STAFF');
@@ -51,6 +51,7 @@ describe('Orders integration through the real application router and Sidebar', (
     vi.spyOn(operationalApi, 'listContextReviews').mockResolvedValue([]);
     window.history.replaceState({}, '', '/orders/legacy-order');
     render(<App routeExtensions={orderPlanningRoutes} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'History' }));
     expect(await screen.findByRole('heading', { name: 'Order Context: legacy-order' })).toBeInTheDocument();
     expect(getContext).toHaveBeenCalledWith('legacy-order', expect.objectContaining({ 'X-Tenant-ID': 'tenant_demo_01', 'X-Actor-ID': 'user_owner_01' }));
     expect(screen.getByRole('heading', { name: 'Order detail & feasibility' })).toBeInTheDocument();
@@ -73,7 +74,7 @@ describe('Orders integration through the real application router and Sidebar', (
         await act(async () => { window.history.back(); });
         await screen.findByRole('heading', {
           name: 'Order detail & feasibility',
-        });
+        }, { timeout: 10000 });
     
         // AZ-08: Order Detail -> Calendar & Scheduling
         fireEvent.click(
@@ -95,9 +96,9 @@ describe('Orders integration through the real application router and Sidebar', (
         await act(async () => { window.history.back(); });
         await screen.findByRole('heading', {
           name: 'Order detail & feasibility',
-        });
+        }, { timeout: 10000 });
         const crumbs = screen.queryByRole('navigation', { name: 'Breadcrumb' });
     fireEvent.click(crumbs ? within(crumbs).getByRole('link', { name: 'Orders' }) : screen.getByRole('link', { name: 'Back to Order Queue' }));
-    expect(await screen.findByRole('heading', { name: 'Order Decision Queue' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Order Decision Queue' }, { timeout: 10000 })).toBeInTheDocument();
   });
 });

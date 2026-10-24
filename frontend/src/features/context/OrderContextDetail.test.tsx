@@ -181,6 +181,8 @@ describe('OrderContextDetail component', () => {
     // Modify quantity and notes
     fireEvent.change(screen.getByLabelText(/^Quantity$/i), { target: { value: '60' } });
     fireEvent.change(screen.getByLabelText(/Reviewer Note/i), { target: { value: 'Customer increased to 60 via phone call' } });
+    const cb1 = screen.queryByRole('checkbox', { name: /confirm the change to a major field/i });
+    if (cb1) { fireEvent.click(cb1); }
 
     // Submit review
     fireEvent.click(screen.getByRole('button', { name: /Save changes|Apply Field Edits/i }));
@@ -218,6 +220,8 @@ describe('OrderContextDetail component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Review & Amend/ }));
     fireEvent.change(screen.getByLabelText(/^Quantity$/i), { target: { value: '60' } });
     fireEvent.change(screen.getByLabelText(/Reviewer Note/i), { target: { value: 'Update quantity' } });
+    const cb2 = screen.queryByRole('checkbox', { name: /confirm the change to a major field/i });
+    if (cb2) { fireEvent.click(cb2); }
     fireEvent.click(screen.getByRole('button', { name: /Save changes|Apply Field Edits/i }));
 
     await waitFor(() => {

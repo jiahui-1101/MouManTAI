@@ -61,22 +61,25 @@ export function getApprovalHistory(planId: string, auth: RequestAuthHeaders): Pr
 
 export function decideRecoveryPlan(
   plan: RecoveryPlanVersion, decision: "approve" | "reject" | "request-revision", reason: string,
-  commitmentVersion: number, idempotencyKey: string, auth: RequestAuthHeaders,
+  commitmentVersion: number, auth: RequestAuthHeaders,
 ): Promise<ApprovalDecision> {
   return recoveryRequest(`/v1/recovery/plans/${plan.plan_id}/${decision}`, {
     method: "POST", headers: authHeaders(auth),
     body: JSON.stringify({ expected_plan_version: plan.plan_version, expected_commitment_version: commitmentVersion,
-      expected_snapshot_version: plan.snapshot_version, reason, idempotency_key: idempotencyKey, evidence_refs: plan.evidence_refs }),
+      expected_snapshot_version: plan.snapshot_version, reason, idempotency_key: crypto.randomUUID(), evidence_refs: plan.evidence_refs }),
   });
 }
 
 export function executeRecoveryTask(
-  plan: RecoveryPlanVersion, commitmentVersion: number, idempotencyKey: string, auth: RequestAuthHeaders,
+  plan: RecoveryPlanVersion,
+  commitmentVersion: number,
+  auth: RequestAuthHeaders,
+  idempotencyKey?: string,
 ): Promise<DurableActionView> {
   return recoveryRequest(`/v1/recovery/plans/${plan.plan_id}/execute`, {
     method: "POST", headers: authHeaders(auth),
     body: JSON.stringify({ expected_plan_version: plan.plan_version, expected_commitment_version: commitmentVersion,
-      expected_snapshot_version: plan.snapshot_version, idempotency_key: idempotencyKey }),
+      expected_snapshot_version: plan.snapshot_version, idempotency_key: idempotencyKey ?? crypto.randomUUID() }),
   });
 }
 

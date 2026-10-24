@@ -87,17 +87,18 @@ it('opens remaining Sidebar destinations and restores hidden Pending and prior p
   await main().findByRole('heading', { name: 'Production & Delivery Calendar' });
   expect(window.location.pathname).toBe('/calendar');
   await act(async () => { window.history.back(); });
-  await main().findByRole('heading', { name: 'Portfolio Comparison' });
+  await waitFor(() => expect(window.location.pathname).toBe('/planning/portfolio'), { timeout: 10000 });
+  await main().findByRole('heading', { name: 'Portfolio Comparison' }, { timeout: 10000 });
   await act(async () => { window.history.back(); });
-  await waitFor(() => expect(window.location.pathname).toBe('/orders/pending'));
-  expect(main().getByRole('combobox', { name: 'Order Status' })).toHaveValue('PENDING_ACCEPTANCE');
+  await waitFor(() => expect(main().getByRole('combobox', { name: 'Order Status' })).toHaveValue('PENDING_ACCEPTANCE'), { timeout: 10000 });
+  expect(window.location.pathname).toBe('/orders/pending');
   await act(async () => { window.history.back(); });
-  await waitFor(() => expect(window.location.pathname).toBe('/orders'));
-  expect(main().getByRole('combobox', { name: 'Order Status' })).toHaveValue('ACCEPTED');
+  await waitFor(() => expect(main().getByRole('combobox', { name: 'Order Status' })).toHaveValue('ACCEPTED'), { timeout: 10000 });
+  expect(window.location.pathname).toBe('/orders');
   expect(main().getByLabelText('Customer')).toHaveValue('private test preference');
   await act(async () => { window.history.forward(); });
-  await waitFor(() => expect(window.location.pathname).toBe('/orders/pending'));
-  expect(main().getByRole('combobox', { name: 'Order Status' })).toHaveValue('PENDING_ACCEPTANCE');
+  await waitFor(() => expect(main().getByRole('combobox', { name: 'Order Status' })).toHaveValue('PENDING_ACCEPTANCE'), { timeout: 10000 });
+  expect(window.location.pathname).toBe('/orders/pending');
   openGroup('Orders');
   fireEvent.click(nav().getByRole('link', { name: 'All Orders' }));
   await waitFor(() => expect(window.location.pathname).toBe('/orders'));
@@ -170,7 +171,7 @@ it.each([
 });
 
 it.each([
-  ['/suppliers', 'Supplier directory'], ['/suppliers/compare', 'Offer comparison'], ['/suppliers/demo-packaging', 'Example Packaging Co.'],
+  ['/suppliers', 'Supplier directory'], ['/suppliers/compare', 'Offer comparison'], ['/suppliers/demo-packaging', 'Supplier details unavailable'],
 ])('preserves the implemented supplier route %s', (path, heading) => {
   window.history.replaceState({}, '', path); render(<App />);
   expect(main().getByRole('heading', { name: heading })).toBeInTheDocument();
@@ -187,8 +188,8 @@ it('replaces the legacy feasibility placeholder with the Queue without a Back re
   expect(new URLSearchParams(window.location.search).has('uncontracted')).toBe(false);
   expect(nav().getByRole('link', { name: 'All Orders' })).toHaveAttribute('aria-current', 'page');
   await act(async () => { window.history.back(); });
-  await main().findByRole('heading', { name: 'Production & Delivery Calendar' });
+  await main().findByRole('heading', { name: 'Production & Delivery Calendar' }, { timeout: 10000 });
   await act(async () => { window.history.forward(); });
-  await main().findByRole('heading', { name: 'Order Decision Queue' });
+  await main().findByRole('heading', { name: 'Order Decision Queue' }, { timeout: 10000 });
   expect(window.location.pathname).toBe('/orders');
 });

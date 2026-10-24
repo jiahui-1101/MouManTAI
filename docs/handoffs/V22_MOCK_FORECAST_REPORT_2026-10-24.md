@@ -1,6 +1,6 @@
 # v2.2 Mock forecast advisory follow-up
 
-Stacked on PR #83. The registered `/v1/backend-v2/mock-forecasts` routes persist tenant-bound Mock Orbyte demand history and call the existing Backend F validation, moving-average baseline, same-holdout backtest and four-family risk engines. The adapter replaces any caller-supplied reader attestation with a server-bound synthetic attestation; source and observation evidence must be `synthetic://`, `MOCK`, `DEMO-ONLY`, and match tenant, SKU, unit, version and watermark. Migration 0020 stores immutable history with audit and outbox evidence.
+Stacked on PR #83. The registered `/v1/backend-v2/mock-forecasts` routes persist tenant-bound Mock Orbyte demand history and call the existing Backend F validation, moving-average baseline, same-holdout backtest and four-family risk engines. The adapter replaces any caller-supplied reader attestation with a server-bound synthetic attestation; source and observation evidence must be `synthetic://`, `MOCK`, `DEMO-ONLY`, and match tenant, SKU, unit, version and watermark. Migration 0021 stores immutable history with audit and outbox evidence, after supplier migration 0020.
 
 Baselines and backtests expose diagnostics when sources are incomplete or stale. No P2 forward scenario or supplier-history attestation is fabricated; corresponding risk statuses remain `UNKNOWN`. Backtest numbers describe only the deterministic fixture and explicitly do not establish real-world predictive skill. Forecast output cannot reserve resources, accept orders or change policy.
 

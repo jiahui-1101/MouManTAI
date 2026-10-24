@@ -39,7 +39,7 @@ describe('Read-only Order Decision workspace', () => {
     expect(acceptance()).toHaveTextContent('approved-quote / quote-v3');
     expect(acceptance()).toHaveTextContent('Source reports disclosed');
     expect(acceptance()).toHaveTextContent('Authoritative request version: 7');
-    expect(screen.queryByRole('button', { name: /^(Accept|Submit|Reject|Reserve)/ })).not.toBeInTheDocument();
+    for (const command of screen.getAllByRole('button', { name: /^(Accept|Submit|Reject|Reserve)/ })) expect(command).toBeDisabled();
     expect(fetch).not.toHaveBeenCalled();
   });
   it('distinguishes original, proposed and current/previous confirmed terms without overwriting history', async () => {
@@ -145,6 +145,6 @@ describe('Read-only Order Decision workspace', () => {
       <OrderDecisionWorkspace order={decisionOrder()} now={decisionNow} /></MemoryRouter></AuthProvider></QueryClientProvider>);
     await screen.findByRole('region', { name: 'Acceptance review' }); expect(fetch).not.toHaveBeenCalled();
     expect(screen.getByText('Exact customer-offered terms and backend terms identity are not verified.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Accept/ })).not.toBeInTheDocument();
+    for (const button of screen.getAllByRole('button', { name: /^Accept/ })) expect(button).toBeDisabled();
   });
 });

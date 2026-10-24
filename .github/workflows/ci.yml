@@ -161,6 +161,94 @@ jobs:
             pg-report.xml
           if-no-files-found: warn
 
+  backend-ocr:
+    name: Backend OCR (CPU model execution and P1 PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: moumantai_ocr_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MOUMANTAI_SYNTHETIC_MODE: "1"
+      DISABLE_SQLALCHEMY_CEXT: "1"
+      P1_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/moumantai_ocr_test
+      P1_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/moumantai_ocr_test
+      FLAGS_use_mkldnn: "0"
+      PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT: "False"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Cache PaddleOCR CPU models
+        uses: actions/cache@v4
+        with:
+          path: ~/.paddlex/official_models
+          key: paddleocr-3.7-paddle-3.3-${{ runner.os }}
+
+      - name: Install backend with OCR extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "./backend[dev,ocr]"
+
+      - name: Require actual CPU OCR runtime
+        run: |
+          python - <<'PY'
+          import numpy
+          import paddle
+          import paddleocr
+          import pymupdf
+          import PIL
+
+          print(f"PaddlePaddle {paddle.__version__}; PaddleOCR {paddleocr.__version__}")
+          print(f"NumPy {numpy.__version__}; PyMuPDF {pymupdf.VersionBind}; Pillow {PIL.__version__}")
+          PY
+
+      - name: Run P1 PostgreSQL acceptance and real OCR tests
+        id: run-p1-ocr-tests
+        run: >-
+          pytest -v -rs --junitxml=ocr-report.xml
+          backend/app/context/tests/test_batch8_acceptance.py
+          backend/app/context/tests/test_image_ocr.py
+          backend/app/context/tests/test_pdf_extraction.py
+          backend/app/context/tests/test_p1_alembic_migration.py
+
+      - name: Verify no P1 or OCR tests were skipped
+        if: always() && steps.run-p1-ocr-tests.outcome != 'skipped'
+        run: |
+          python - <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("ocr-report.xml").getroot()
+          skipped = []
+          for case in root.iter("testcase"):
+              for item in case.iter("skipped"):
+                  skipped.append(f"{case.get('classname')}.{case.get('name')}: {item.get('message', '')}")
+          print(f"Skipped P1/OCR testcases: {len(skipped)}")
+          if skipped:
+              print("ERROR: mandatory P1/OCR job must execute every selected test:")
+              print("\n".join(skipped))
+              sys.exit(1)
+          PY
+
   backend-features:
     name: Feature Suites (Feasibility & Communication, non-blocking)
     runs-on: ubuntu-latest
