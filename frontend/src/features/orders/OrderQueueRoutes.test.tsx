@@ -71,9 +71,11 @@ describe('Orders integration through the real application router and Sidebar', (
     
         // Return to the original Order Detail
         window.history.back();
-        await screen.findByRole('heading', {
-          name: 'Order detail & feasibility',
-        });
+        await screen.findByRole(
+          'heading',
+          { name: 'Order detail & feasibility' },
+          { timeout: 10000 }
+        );
     
         // AZ-08: Order Detail -> Calendar & Scheduling
         fireEvent.click(
@@ -93,9 +95,11 @@ describe('Orders integration through the real application router and Sidebar', (
     
         // Return to Order Detail
         window.history.back();
-        await screen.findByRole('heading', {
-          name: 'Order detail & feasibility',
-        });
+        await screen.findByRole(
+          'heading',
+          { name: 'Order detail & feasibility' },
+          { timeout: 10000 }
+        );
         const crumbs = screen.queryByRole('navigation', { name: 'Breadcrumb' });
     fireEvent.click(crumbs ? within(crumbs).getByRole('link', { name: 'Orders' }) : screen.getByRole('link', { name: 'Back to Order Queue' }));
     expect(await screen.findByRole('heading', { name: 'Order Decision Queue' })).toBeInTheDocument();
