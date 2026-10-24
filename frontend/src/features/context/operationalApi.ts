@@ -77,6 +77,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
         } else if (body.detail.message) {
           message = body.detail.message;
         }
+      } else if (body.details && typeof body.details === 'object') {
+        if (Array.isArray(body.details.reasons)) {
+          message = `${body.message || body.details.message || 'Validation failed'}: ${body.details.reasons.join('; ')}`;
+        } else if (body.details.message || body.message) {
+          message = body.details.message || body.message;
+        }
+      } else if (typeof body.message === 'string') {
+        message = body.message;
       }
     } catch { /* Keep the status-based diagnostic when the server does not return JSON. */ }
     throw new PreviewError(message, response.status);

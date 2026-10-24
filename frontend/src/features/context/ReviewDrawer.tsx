@@ -174,32 +174,45 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
       if (action === 'EDIT_FIELD' || (action === 'ACCEPT_EXTRACTION' && dirty)) {
         if (majorFieldDirty && !majorFieldConfirmed) throw new Error('Confirm the major field change before saving.');
         const edits: Record<string, unknown> = {};
+        let itemProblem: string | null = null;
         if (itemsDirty) {
-          if (!itemValuesReady) throw new Error('Enter an explicit approved SKU, positive quantity and unit for every edited item. Leave unknown products unresolved.');
-          const approved = catalogState === 'ready' ? catalog : await (catalogLoader || getReviewCatalog)();
-          for (let index = 0; index < items.length; index++) {
-            const item = items[index];
-            if (!Array.isArray(approved) || !approved.some(product => product.sku === item.sku.trim() && product.unit === item.unit.trim())) throw new Error(`Item #${index + 1}: Map to an approved SKU and its supported unit. Unknown products remain unresolved.`);
+          if (!itemValuesReady) {
+            itemProblem = 'The edited item needs an approved SKU, positive quantity and unit. Leave an unknown product unresolved.';
+          } else {
+            const approved = catalogState === 'ready' ? catalog : await (catalogLoader || getReviewCatalog)();
+            for (let index = 0; index < items.length; index++) {
+              const item = items[index];
+              if (!Array.isArray(approved) || !approved.some(product => product.sku === item.sku.trim() && product.unit === item.unit.trim())) {
+                itemProblem = `Item #${index + 1}: ${item.sku.trim()} / ${item.unit.trim()} is not an approved SKU/unit pair. The product remains unresolved; do not substitute an unrelated SKU.`;
+                break;
+              }
+            }
           }
-          edits.requested_items = items.map(item => ({ sku: item.sku.trim(), quantity: item.quantity.trim(), unit: item.unit.trim() }));
+          if (!itemProblem) edits.requested_items = items.map(item => ({ sku: item.sku.trim(), quantity: item.quantity.trim(), unit: item.unit.trim() }));
         }
         if (deliveryDirty) {
           if (!deliveryValid) throw new Error('Enter an ISO timestamp with explicit UTC offset.');
+          if (qualifier === 'DATE_ONLY' && /^\d{4}-\d{2}-\d{2}$/.test(deliveryAt.trim())) throw new Error('The backend cannot persist a date-only delivery value. Keep the exact time unresolved and save another field, or request backend date-only support.');
           edits.requested_delivery_at = deliveryAt ? new Date(deliveryAt).toISOString() : null;
           edits.delivery_qualifier = qualifier;
         }
         if (instructionsDirty) edits.special_instructions = specialInstructions;
-        if (conflictsReviewed) edits.conflicts = [];
+        if (conflictsReviewed && !itemProblem) edits.conflicts = [];
+        if (!Object.keys(edits).length) throw new Error(itemProblem || 'No valid field change to save.');
         updated = await reloadConfirmed(await sendReview('EDIT_FIELD', record, edits), edits);
         setRecord(updated);
-        setItems(initialItems(updated));
+        if (!itemProblem) setItems(initialItems(updated));
         setDeliveryAt(initialDelivery(updated));
         setQualifier(updated.delivery_qualifier || '');
         setSpecialInstructions(updated.special_instructions || '');
-        setConflictsReviewed(false);
+        if (!itemProblem) setConflictsReviewed(false);
         setMajorFieldConfirmed(false);
         onUpdated(updated);
         notifyReviewContextSaved();
+        if (itemProblem) {
+          setError(`Other valid changes were saved and confirmed. ${itemProblem} This item edit is still unsaved.`);
+          return;
+        }
       }
       if (action === 'ACCEPT_EXTRACTION') {
         if (!acceptReady) throw new Error('Resolve required fields, identity and conflicts before accepting extraction.');
@@ -236,14 +249,13 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
         <div className="ra-status-strip" data-component="StatusStrip" aria-label="Review status"><div><span>Processing</span><strong>{message?.processing_status || 'Not available'}</strong></div><div><span>Information</span><strong>{record.status}</strong></div><div><span>Identity</span><strong>{record.customer_identity_status}</strong></div><div><span>Review</span><strong>{record.last_reviewed_at ? `Reviewed by ${record.last_reviewed_by || 'staff'}` : 'Not recorded'}</strong></div></div>
         {!!((record.missing_fields?.length || 0) + (record.conflicts?.length || 0)) && <div className="ra-issue-banner" data-component="IssueBanner" role="status"><strong>Information needs review</strong><span>{record.missing_fields?.length || 0} missing · {record.conflicts?.length || 0} conflicts</span>{!!record.missing_fields?.length && <p>Missing: {record.missing_fields.join(', ')}</p>}{!!record.conflicts?.length && <ul>{record.conflicts.map((conflict, index) => <li key={index}>{conflict}</li>)}</ul>}</div>}
         {closeRequested && <div className="ra-inline-alert" role="alert">Unsaved review changes will be lost. <button type="button" onClick={() => setCloseRequested(false)}>Keep editing</button><button type="button" onClick={onClose}>Discard and close</button></div>}
-        {error && <div className="ra-inline-alert" role="alert">{error}</div>}
         <div className="ra-columns">
           <section className="ra-card ra-source" ref={sourceRef} data-component="SourceMessagePanel"><h3>Original message</h3><p className="ra-hint">Select a field to locate its source evidence.</p><p className="ra-context-warning">Extraction evidence does not authorize a price, discount, or delivery promise.</p>{original ? <MarkedMessage text={original} context={record} activeField={activeField} /> : <p>Original text is not available in this context. Open the linked customer message to inspect it.</p>}<dl className="ra-source-meta"><div><dt>Source messages</dt><dd>{record.source_message_ids?.join(', ') || 'None linked'}</dd></div><div><dt>Order</dt><dd>{record.order_id || 'No verified order'}</dd></div></dl></section>
           <div className="ra-form" data-component="AmendForm">
             <section className="ra-card"><h3>Extracted fields</h3><p className="ra-hint">Edit values supported by the original request. Every change requires an audit reason.</p>
               <div className="ra-field" data-component="FieldRow"><div className="ra-field-heading"><label htmlFor="p1-input-delivery">Requested delivery <span aria-hidden="true">*</span></label><span className={`ra-chip ${deliveryAt && deliveryValid ? 'ra-chip-ok' : 'ra-chip-missing'}`}>{deliveryAt && deliveryValid ? 'Confirmed format' : 'Missing or invalid offset'}</span></div><input id="p1-input-delivery" type="text" value={deliveryAt} onFocus={() => focusEvidence('requested_delivery_at')} onChange={event => setDeliveryAt(event.target.value)} placeholder="2026-10-28T10:00:00+08:00" disabled={submitting} /><p className="ra-hint">Use ISO 8601 with an explicit UTC offset; do not infer a timezone from the prototype.</p><Evidence context={record} field="requested_delivery_at" label="delivery" /><label htmlFor="p1-input-qualifier">Timing qualifier</label><select id="p1-input-qualifier" value={qualifier} onFocus={() => focusEvidence('requested_delivery_at')} onChange={event => setQualifier(event.target.value)} disabled={submitting}><option value="">Unresolved</option><option value="EXACT">Exact</option><option value="DEADLINE">Deadline</option><option value="DATE_ONLY">Date only</option></select></div>
               <div className="ra-field" data-component="ItemsTable"><div className="ra-items-heading"><h4>Order Items ({items.length}) <span aria-hidden="true">*</span></h4><button type="button" className="ra-button" onClick={() => setItems(previous => [...previous, { sku: '', quantity: '', unit: '' }])} disabled={submitting}>+ Add Item</button></div><p className="ra-hint">{catalogState === 'ready' ? `Approved SKU/unit pairs: ${catalog.map(product => `${product.sku} / ${product.unit}`).join(', ') || 'none configured'}` : `Approved catalog ${catalogState}; product mapping cannot be verified.`}</p><datalist id="p1-approved-skus">{[...new Set(catalog.map(product => product.sku))].map(sku => <option key={sku} value={sku} />)}</datalist>
-                {items.map((item, index) => <div className="ra-item" key={index}><div className="ra-item-title"><strong>Item #{index + 1}</strong>{items.length > 1 && <button type="button" className="ra-link" onClick={() => setItems(previous => previous.filter((_, i) => i !== index))} disabled={submitting}>Remove</button>}</div><div className="ra-item-grid"><label>SKU / Product<input aria-label="SKU / Product" list="p1-approved-skus" value={item.sku} onFocus={() => focusEvidence('sku')} onChange={event => updateItem(index, 'sku', event.target.value)} disabled={submitting} /></label><label>Quantity<input aria-label="Quantity" value={item.quantity} onFocus={() => focusEvidence('quantity')} onChange={event => updateItem(index, 'quantity', event.target.value)} disabled={submitting} /></label><label>Unit<select aria-label="Unit" value={item.unit} onFocus={() => focusEvidence('unit')} onChange={event => updateItem(index, 'unit', event.target.value)} disabled={submitting}><option value="">Select unit</option>{[...new Set([...catalog.map(product => product.unit), ...items.map(value => value.unit), ...candidates.filter(candidate => candidate.field === 'unit').map(candidate => candidate.value)])].filter(Boolean).map(unit => <option key={unit}>{unit}</option>)}</select></label></div>{extractEvidenceItemGroups(record)[index]?.unverifiedProduct && <p className="ra-hint">Unverified product candidate: {extractEvidenceItemGroups(record)[index].unverifiedProduct}. Map to an approved SKU or leave unresolved.</p>}<div className="ra-item-evidence"><Evidence context={record} field="sku" label="product" /><Evidence context={record} field="quantity" label="quantity" /><Evidence context={record} field="unit" label="unit" /></div></div>)}
+                {items.map((item, index) => <div className="ra-item" key={index}><div className="ra-item-title"><strong>Item #{index + 1}</strong>{items.length > 1 && <button type="button" className="ra-link" onClick={() => setItems(previous => previous.filter((_, i) => i !== index))} disabled={submitting}>Remove</button>}</div><div className="ra-item-grid"><label>SKU / Product<input aria-label="SKU / Product" list="p1-approved-skus" value={item.sku} onFocus={() => focusEvidence('sku')} onChange={event => updateItem(index, 'sku', event.target.value)} disabled={submitting} /></label><label>Quantity<input aria-label="Quantity" value={item.quantity} onFocus={() => focusEvidence('quantity')} onChange={event => updateItem(index, 'quantity', event.target.value)} disabled={submitting} /></label><label>Unit<select aria-label="Unit" value={item.unit} onFocus={() => focusEvidence('unit')} onChange={event => updateItem(index, 'unit', event.target.value)} disabled={submitting}><option value="">Select unit</option>{[...new Set([...catalog.map(product => product.unit), ...items.map(value => value.unit), ...candidates.filter(candidate => candidate.field === 'unit').map(candidate => candidate.value)])].filter(Boolean).map(unit => <option key={unit}>{unit}</option>)}</select></label></div>{extractEvidenceItemGroups(record)[index]?.unverifiedProduct && <p className="ra-hint">Unverified product candidate: {extractEvidenceItemGroups(record)[index].unverifiedProduct}. Map to an approved SKU or leave unresolved. <button type="button" className="ra-link" onClick={() => updateItem(index, 'sku', initialItems(record)[index]?.sku || '')} disabled={submitting}>Leave product unresolved</button></p>}<div className="ra-item-evidence"><Evidence context={record} field="sku" label="product" /><Evidence context={record} field="quantity" label="quantity" /><Evidence context={record} field="unit" label="unit" /></div></div>)}
               </div>
               <div className="ra-field"><label htmlFor="p1-input-notes">Special instructions</label><textarea id="p1-input-notes" rows={2} value={specialInstructions} onChange={event => setSpecialInstructions(event.target.value)} disabled={submitting} placeholder="Customer handling preferences" /></div>
               {!!record.conflicts?.length && <label className="ra-conflict-check"><input type="checkbox" checked={conflictsReviewed} onChange={event => setConflictsReviewed(event.target.checked)} /> I reviewed and resolved all listed conflicts with evidence</label>}
@@ -255,7 +267,7 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
           </div>
         </div>
       </div>
-      <footer className="ra-footer" role="contentinfo" data-component="StickyActionBar"><span>{!dirty ? 'No field changes yet' : !noteReady ? 'Unsaved changes · reviewer note required' : 'Unsaved changes'}</span><div><button type="button" className="ra-button" onClick={requestClose}>Cancel</button><button type="button" className="ra-button ra-primary" disabled={submitting || !dirty || !noteReady || (majorFieldDirty && !majorFieldConfirmed)} onClick={() => void submit('EDIT_FIELD')}>Save changes</button><button type="button" className="ra-button ra-primary" disabled={submitting || !acceptReady} onClick={() => void submit('ACCEPT_EXTRACTION')}>Save &amp; Accept</button></div></footer>
+      <footer className="ra-footer" role="contentinfo" data-component="StickyActionBar"><span>{error ? <span role="alert">{error}</span> : !dirty ? 'No field changes yet' : !noteReady ? 'Unsaved changes · reviewer note required' : 'Unsaved changes'}</span><div><button type="button" className="ra-button" onClick={requestClose}>Cancel</button><button type="button" className="ra-button ra-primary" disabled={submitting || !dirty || !noteReady || (majorFieldDirty && !majorFieldConfirmed)} onClick={() => void submit('EDIT_FIELD')}>Save changes</button><button type="button" className="ra-button ra-primary" disabled={submitting || !acceptReady} onClick={() => void submit('ACCEPT_EXTRACTION')}>Save &amp; Accept</button></div></footer>
     </section>
   </>;
   return typeof document !== 'undefined' ? createPortal(content, document.body) : content;

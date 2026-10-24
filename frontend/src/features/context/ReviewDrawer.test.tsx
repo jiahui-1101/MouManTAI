@@ -131,6 +131,27 @@ describe('Review & Amend workspace', () => {
     expect(onUpdated).toHaveBeenCalledWith(saved);
   });
 
+  it('saves other fields while keeping an invalid BURGER/box item edit unsaved', async () => {
+    const partial = { ...context, requested_items: [], customer_id: null, customer_identity_status: 'UNVERIFIED', missing_fields: ['requested_items', 'customer_identity'] } as OrderContextRecord;
+    const saved = { ...partial, context_version: 2, special_instructions: 'Customer asks for a price' };
+    const review = vi.spyOn(operationalApi, 'reviewContext').mockResolvedValue(saved);
+    vi.mocked(operationalApi.getContext).mockResolvedValue(saved);
+    render(<ReviewDrawer {...props} context={partial} />);
+    fireEvent.change(screen.getByLabelText('SKU / Product'), { target: { value: 'BURGER' } });
+    fireEvent.change(screen.getByLabelText('Unit'), { target: { value: 'box' } });
+    fireEvent.change(screen.getByLabelText('Special instructions'), { target: { value: 'Customer asks for a price' } });
+    fireEvent.change(screen.getByLabelText(/Reviewer note/i), { target: { value: 'Source message reviewed' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /confirm the change to a major field/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith(partial.context_id, expect.objectContaining({ field_edits: { special_instructions: 'Customer asks for a price' } }), expect.anything()));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/item edit is still unsaved/i);
+    expect(screen.getByLabelText('SKU / Product')).toHaveValue('BURGER');
+    fireEvent.click(screen.getByRole('button', { name: 'Leave product unresolved' }));
+    expect(screen.getByLabelText('SKU / Product')).toHaveValue('');
+    expect(onUpdated).toHaveBeenCalledWith(saved);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it.each([400, 403, 409, 422, 503])('keeps a %i backend error visible and preserves the open edit', async status => {
     vi.spyOn(operationalApi, 'reviewContext').mockRejectedValue(new Error(`Backend rejected (${status})`));
     render(<ReviewDrawer {...props} />);
