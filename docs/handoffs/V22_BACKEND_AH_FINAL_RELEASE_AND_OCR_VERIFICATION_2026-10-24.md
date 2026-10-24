@@ -50,6 +50,7 @@ The fix is on branch `fix/p1-ocr-runtime-dependencies-main-20261024`, based on c
 | Exact-head OCR CI on PR #92 (`e978a239`) | GitHub run [40106631992](https://github.com/jiahui-1101/MouManTAI/actions/runs/40106631992), OCR job 120909562078: **25 passed, 0 skipped** including acceptance, image/PDF and migration tests. |
 | Exact-head required PR #92 checks (`e978a239`) | All 10 checks succeeded: Backend/PostgreSQL, general Backend, frontend, native Optimization, Forecasting, Decision Memory, Feature Suites, Hygiene, OCR and P1 Source Reader. Run [40106631992](https://github.com/jiahui-1101/MouManTAI/actions/runs/40106631992); separate source-reader run [40106631971](https://github.com/jiahui-1101/MouManTAI/actions/runs/40106631971). |
 | Follow-up exact-head validation (`b840c862`) | After the report-only PR update, all 10 checks succeeded again; OCR and zero-skip gates passed. Run [40106898374](https://github.com/jiahui-1101/MouManTAI/actions/runs/40106898374); separate source-reader run [40106898384](https://github.com/jiahui-1101/MouManTAI/actions/runs/40106898384). |
+| Latest-main refreshed OCR PR head (`28ecf464`) | All 10 checks succeeded after merging README-only `main` update `b0d7b65`. OCR job: **25 passed, 0 skipped** ([40107329876](https://github.com/jiahui-1101/MouManTAI/actions/runs/40107329876)). Authoritative Backend/PostgreSQL: **954 passed, 0 skipped** ([40107329876](https://github.com/jiahui-1101/MouManTAI/actions/runs/40107329876)); P1 Source Reader also passed ([40107329870](https://github.com/jiahui-1101/MouManTAI/actions/runs/40107329870)). |
 
 Known OCR coverage limitation: scanned-page fallback runs only when the PDF has no machine-readable text on any inspected page. A mixed PDF containing both text and scanned pages will not OCR the scanned pages. This was outside the reproduced acceptance failure and remains follow-up work.
 
@@ -109,11 +110,13 @@ All six PRs are open, non-draft, and GitHub reported them mergeable. Their curre
 
 The six PRs have no unresolved inline review threads and no top-level issue comments. Each approval states that code approval is not merge authorization. The required merge sequence was **not run**. The exact approval still needed is explicit authorization from the repository owner/release authority after the P1 fix is reviewed and the final Backend review/branch-protection requirements are satisfied. This release task does not override the reviewers' holds.
 
-The scoped OCR fix is open separately as [PR #92](https://github.com/jiahui-1101/MouManTAI/pull/92). Its code was validated on exact head `e978a23909428646a6117e0c26897d51647c0712` with all 10 checks passing, including 25/25 OCR/P1/Alembic tests and zero skips; report-only follow-up head `b840c86248de57d632ef1319cbae64144c0b3248` also passed all 10 checks. After `main` advanced, the OCR branch was updated by a normal merge, and the latest exact-head CI is running again. Meishuet's independent review was requested; the PR remains unmerged pending that review and release authorization.
+The scoped OCR fix is open separately as [PR #92](https://github.com/jiahui-1101/MouManTAI/pull/92), currently based on `main` at `b0d7b652353e0d256bb16b706f736def02f547d9`. Latest branch head `28ecf46411a84a4ceae5979cb4e7f17cff54587c` passed all 10 checks, including 25/25 OCR/P1/Alembic tests with zero skips and 954/954 authoritative Backend/PostgreSQL tests with zero skips. Meishuet approved the OCR implementation on code head `b840c86248de57d632ef1319cbae64144c0b3248` and explicitly stated that approval is not merge authorization. The later commits only merge README-only `main` and update this report; a fresh exact-head review is required before any merge decision. The PR remains unmerged pending that review and release authorization.
 
 PR #89 was not modified. Its C1 foundation is already an ancestor of current `main` (merge commit `d3c2a3e`). The separately opened PR #90 is Meishuet's draft C1 persistence/reply-association work; it remains untouched and has no changed-file overlap with this OCR fix. Its owner review asks that it stay Draft while its own CI/review gates are resolved. PR #91 was merged to `main` as `b0d7b65`; it changes only `README.md` and has no overlap with the OCR/backend stack. The other open draft PR inspected for overlap, #22, changes only `docs/TEAM_LOG.md`.
 
 The latest `main` tip is `b0d7b652353e0d256bb16b706f736def02f547d9`; after PR #79 (`f6eca1a`), PR #91 updated `README.md` only. No A–H stack PR has been merged into this tip. Consequently there is no final merged-main Backend/PostgreSQL validation to report, and the six successful branch-head runs do not replace that post-merge gate.
+
+The active `main-postgres-required` ruleset applies to the default branch. It blocks branch deletion and non-fast-forward updates and requires the `Backend Tests (PostgreSQL Authoritative)` check; its configuration reports no bypass permission. Direct branch-protection API inspection returned 403 to the connected GitHub integration, so additional protection settings outside this visible ruleset could not be independently read.
 
 ## Frontend and real-channel handoff
 
@@ -124,7 +127,7 @@ The latest `main` tip is `b0d7b652353e0d256bb16b706f736def02f547d9`; after PR #7
 ## Readiness labels
 
 - **Mock-backed Backend A–H implementation:** operational on the reviewed PR stack; **not released to `main`**.
-- **P1 OCR:** root cause fixed; real CPU execution verified in local and Docker runtimes; exact-head GitHub OCR/PostgreSQL CI passed 25/25 with zero skips. Independent PR review and release authorization remain required.
+- **P1 OCR:** root cause fixed; real CPU execution verified in local and Docker runtimes; latest-head GitHub OCR/PostgreSQL CI passed 25/25 with zero skips, and authoritative Backend/PostgreSQL passed 954/954. The reviewer approved the OCR implementation on `b840c862`; fresh current-head review and explicit release authorization remain required.
 - **Actual Telegram/WhatsApp/Email communication:** **not ready / separate phase**.
 - **Full Frontend + Backend system:** **not ready**; API wiring and browser E2E remain.
 - **Overall release:** **NOT_READY** until the OCR PR is reviewed, the explicit merge authorization is supplied, the stack merges in dependency order, and final-main Backend/PostgreSQL/Frontend validation passes.
