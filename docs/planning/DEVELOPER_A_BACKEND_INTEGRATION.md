@@ -108,3 +108,69 @@ To transition the frontend from Provisional to Authoritative mode, backend devel
 - **Production Build:** `npm run build` (`tsc -b && vite build`) passed in 2.62s.
 - **Unit Test Suite:** All feature-local context tests pass cleanly (`HumanReviewPage.test.tsx`, `reviewTaskApi.test.ts`, `clarificationApi.test.ts`, `ReviewDrawer.test.tsx`, `ReviewDrawerSafety.test.tsx`).
 - **File Ownership Integrity:** Zero modifications made to Developer C shared files (`App.tsx`, `layout/**`, `shared/**`) and Developer B files (`orders/**`, `feasibility/**`).
+
+
+---
+
+## 7. Backend Integration Assessment Alignment & Confirmed Team Agreement
+
+*In response to "# MouManTAI v2.2 — Backend Integration Assessment & API Gap Confirmation" from the Backend Lead.*
+
+### 7.1. Reconciled Status on the 5 Integration Items
+
+| Original Item | Reconciled Architecture Decision | Implementation Status | Frontend State | Action Required |
+|---|---|---|---|---|
+| **1. Delivery Timezone Validation** | Backend enforces offset-aware ISO 8601 (`2026-10-28T10:00:00+08:00`) and rejects naive timestamps (`2026-10-28T10:00:00`). | **SOLVED (Both Ends)** | `validateDeliveryTimestamp` verifies explicit offsets (`+08:00` or `Z`) with zero false positives. | None. Both ends completely aligned. |
+| **2. Review Task Resolution** | **REUSE EXISTING**: Do NOT implement redundant `POST /v1/reviews/{id}/resolve`. Reuse authoritative `POST /v1/contexts/{context_id}/review`. | **SOLVED VIA REUSE** | Frontend already invokes `POST /v1/contexts/{id}/review` directly with `expected_context_version` and audited `field_edits`. Catch 409 conflict. | Backend: Add P2 Feasibility Invalidation trigger on review save. |
+| **3. Human Review Task Queue** | `GET /v1/reviews` requires canonical `task_type`, priority, assignment, tenant isolation, and audit. If backend model is pending, dual-mode fallback is accepted for demo. | **GENUINELY MISSING (Backend)** | Frontend operates in Dual-Mode: probes `/v1/reviews`; falls back to projecting from durable P1 `GET /v1/messages`. Labeled honestly. | P1 + P5: Provide adapter or lightweight Task model when ready. Not a demo blocker. |
+| **4. Issue-Level Clarification Progress** | Contract logic exists; durable query `GET /v1/conversations/{id}/issues` not yet exposed. Clarification rule: **two-consecutive-no-progress applies per issue**, not as a blanket conversation question limit. | **GENUINELY MISSING (Backend)** | Tracks `consecutive_no_progress_count` per issue. Unanswered questions do not increment. Derives from `missing_fields` and `conflicts`. | P3 + P1/P4: Provide durable issues endpoint when ready. |
+| **5. Clarification Sending** | `POST /v1/conversations/{id}/clarify`. Sending cannot bypass authorization or accept raw email as identity. Outbound states: `DRAFT`, `PENDING_APPROVAL`, `QUEUED`, `SENT`, `FAILED`. | **GENUINELY MISSING (Backend)** | Strict non-simulation: blocks send when recipient identity is unverified; displays draft preview; deep-links to Communication Center for authorized send. | P3 + P4 + P5: Wire durable clarify endpoint coordinating Communication service. |
+
+---
+
+### 7.2. P2 Feasibility Invalidation Contract
+
+As highlighted by the backend team, consequential order commitments must never rely on stale feasibility evaluations:
+1. When a human reviewer amends `requested_items` (SKU, quantity, unit) or `requested_delivery_time` via `POST /v1/contexts/{id}/review`, the context version increments ($v \to v+1$).
+2. Any prior P2 feasibility assessment linked to `context_version: v` must be treated as `SUPERSEDED` / `STALE_TERMS`.
+3. In the UI, candidate orders linked to this context reflect updated terms and mandate a fresh feasibility assessment prior to commercial acceptance.
+
+---
+
+### 7.3. Answers to Backend Team Confirmation Questions (Section 8)
+
+1. **Which endpoints have equivalent, reusable functionality?**
+   - `POST /v1/contexts/{context_id}/review` completely covers task resolution with optimistic locking (`expected_context_version`) and audited field edits. `POST /v1/reviews/{id}/resolve` is NOT needed.
+   - Delivery timezone validation is already solved on both ends using offset-aware ISO 8601 (`+08:00`).
+
+2. **Which data models/repositories are already durable and authoritative?**
+   - P1 PostgreSQL tables (`messages`, `order_contexts`, `order_context_versions`, `extraction_attempts`, `message_associations`, `context_reviews`).
+   - P1 Source Reader & Context Mapping modules (`app/orders/p1_source_reader.py`, `app/orders/context_mapping.py`).
+
+3. **Which endpoints are genuinely missing from the current API?**
+   - `GET /v1/reviews` (Aggregated Task Queue).
+   - `POST /v1/conversations/{conversation_id}/clarify` (Durable Clarification Outbound Dispatch).
+   - `GET /v1/conversations/{conversation_id}/issues` (Durable Clarification Issue Timeline).
+
+4. **Which request/response fields need adjustment to match current backend contracts?**
+   - Review amendments use `ContextReviewRequest`: `{ action: "EDIT_FIELD" | "ACCEPT_EXTRACTION", expected_context_version: number, field_edits: object, note: string }`.
+   - Datetimes must always include explicit UTC offset (e.g. `2026-10-28T10:00:00+08:00`).
+   - Recipient references must use validated `recipient_identity_id` rather than arbitrary email strings.
+   - Outbound status follows `DRAFT` | `PENDING_APPROVAL` | `QUEUED` | `SENT` | `FAILED`.
+
+5. **Who will own each required integration?**
+   - **P1 + P5**: Review Task semantics, Context Association, and shared persistence/auth.
+   - **P3**: Clarification decision logic, issue-level progress evaluation, and turn accounting.
+   - **P4**: Outbound sending, communication channel policies, and delivery status tracking.
+   - **P2**: Feasibility assessment invalidation when order context terms are amended.
+
+6. **Which integrations are essential for the demo, and which remain documented limitations?**
+   - **Essential for End-to-End Demo Journey:**
+     - Ingestion (synthetic/Gmail) $\to$ Message Inbox $\to$ Human Review Queue $\to$ Review & Amend full-page workspace $\to$ Audited Save (advances context $v1 \to v2$) $\to$ Link Candidate Order $\to$ P2 Feasibility Re-evaluation.
+   - **Documented Limitations for Demo:**
+     - Clarification Outbound Sending is demonstrated as Draft Preview with validation guards (no synthetic `SENT` spoofing).
+     - Review Task Queue operates via the transparent Dual-Mode Adapter over durable P1 messages until a dedicated queue model is deployed.
+
+7. **How will Context Review updates invalidate or supersede stale P2 assessments?**
+   - On `POST /v1/contexts/{id}/review`, backend records the new version ($v+1$) and emits a domain event (`context.amended` or similar) that marks any active feasibility assessment referencing version $\le v$ as `SUPERSEDED`.
+   - Order terms comparison reports `TERMS_AMENDED_REVALUATION_REQUIRED`, blocking acceptance until re-assessed.
