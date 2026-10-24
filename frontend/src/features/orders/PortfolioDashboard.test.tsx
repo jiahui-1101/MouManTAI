@@ -70,3 +70,17 @@ it('binds source recommendations to the selected scenario rather than inventing 
  expect(screen.getByText('Source-provided trade-off explanation')).toBeInTheDocument();
  expect(screen.getByText(/Explanation source:/)).toBeInTheDocument();
 });
+
+it('retains different currency units and never generates profit differences or charts', () => {
+ const data=portfolioFixture();data.scenarios[1].metrics.profit!.unit='USD';
+ render(<PortfolioComparisonMatrix data={data} scenarios={data.scenarios} now={Date.parse('2026-10-24T03:00:00Z')} />);
+ expect(screen.getByText('20 USD')).toBeInTheDocument();expect(screen.getByText('20 MYR')).toBeInTheDocument();
+ expect(screen.getByRole('rowheader',{name:'Profit Difference'}).parentElement).toHaveTextContent('Unavailable');
+ expect(screen.queryByRole('img')).not.toBeInTheDocument();
+});
+it('never marks an unavailable strategy as selected', () => {
+ render(<PortfolioStrategyAvailability />);
+ expect(screen.queryByText('Selected strategy')).not.toBeInTheDocument();
+ expect(document.querySelector('.pc-strategy-selected')).toBeNull();
+ expect(screen.getAllByRole('button').every(button=>button.hasAttribute('disabled'))).toBe(true);
+});

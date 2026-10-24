@@ -42,11 +42,12 @@ function PortfolioResults({ data, now }: { data: PortfolioSnapshot; now: number 
       <p>Evaluation: {s.solverStatus}</p><p>Objective: {s.objectiveId} · model {s.modelVersion}</p><p>Constraint policy: {s.constraintPolicy}</p>
       {s.validation !== 'VALIDATED' && <UncertaintyNote kind="insufficient-evidence">Scenario validation is incomplete or mismatched. Positive metric claims are withheld; use the order detail for individual review.</UncertaintyNote>}
       <dl>{portfolioDimensions.map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{metricText(data, s, key, now)}</dd></div>)}</dl>
+      <p>Resource units / analysis window for capacity: Unavailable · no comparable scope supplied.</p>
       <p>Evidence: {s.evidence.join(', ')}</p>
     </article>)}</div>
+    <PortfolioComparisonMatrix data={data} scenarios={scenarios} now={now} />
+    <PortfolioAllocationPanel data={data} scenario={active} now={now} />
     {!!scenarios.length && <>
-      <PortfolioComparisonMatrix data={data} scenarios={scenarios} now={now} />
-      <PortfolioAllocationPanel data={data} scenario={active} now={now} />
       <h2>Order allocation breakdown</h2><p>{executionNotice}</p>
       {!data.orders.length ? <EmptyState kind="unavailable" title="Order breakdown unavailable" description="No source-provided order identities and request versions." /> :
         <div className="pc-scroll" tabIndex={0} role="region" aria-label="Order allocations, scroll horizontally"><table>
@@ -59,7 +60,6 @@ function PortfolioResults({ data, now }: { data: PortfolioSnapshot; now: number 
                 return <td key={s.id}><strong>{supported ? a!.membership : 'UNKNOWN'}</strong><small>{supported ? a!.reason || 'Reason unavailable' : 'Allocation evidence unavailable'}</small>
                   <small>Resource requirements: {supported ? a!.resources || 'Unknown' : 'Unknown'}</small><small>Conflicts: {supported ? a!.conflict || 'Unknown' : 'Unknown'}</small>
                   <small>Evidence: {a?.evidence.join(', ') || 'Unavailable'}</small></td>; })}</tr>)}</tbody></table></div>}
-      <PortfolioSolverExplanation data={data} scenario={active} now={now} />
       <h2>Constraints and trade-offs</h2>
       {scenarios.map(s => <section key={s.id} className="pc-card" aria-label={`Constraints: ${s.label}`}><h3>{s.label}</h3>
         {!s.constraints.length ? <p>Constraint findings unavailable; an empty list does not prove unconstrained capacity.</p> : s.constraints.map(c => <article key={c.id}>
@@ -68,6 +68,7 @@ function PortfolioResults({ data, now }: { data: PortfolioSnapshot; now: number 
           <p>Source: {c.source} · Evidence: {c.evidence.join(', ')}</p><UncertaintyNote kind="conditional">{c.uncertainty || 'No additional uncertainty statement supplied; absence is not a guarantee.'}</UncertaintyNote>
         </article>)}</section>)}
     </>}
+    <PortfolioSolverExplanation data={data} scenario={active} now={now} />
     <section className="pc-card" aria-label="Recommendation explanation"><h2>Recommendation explanation</h2>
       {recommendation ? <><h3>Backend recommendation: {recommendation.label}</h3><p>{recommendation.reason}</p>
         <p>Source: {recommendation.source} · Evidence: {recommendation.evidence.join(', ')}</p>

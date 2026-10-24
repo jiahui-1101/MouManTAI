@@ -13,12 +13,12 @@ export function PortfolioStrategyAvailability({ data, selectedId, onSelect, now 
       const active = returned?.find(s => s.id === selectedId) ?? returned?.[0];
       const descriptions = { FCFS: 'Prioritize eligible orders by verified received time.', PROFIT: 'Compare eligible portfolios using authorized estimated profit.', EXPIRY: 'Consider verified material expiry exposure and waste constraints.' };
       const recommended = data && verifiedRecommendation(data, now);
-      return <article className={`pc-card pc-strategy-card ${active?.id === selectedId ? 'pc-strategy-selected' : ''}`} key={strategy} aria-label={`Availability: ${label}`}><span className="pc-strategy-icon"><OrderQueueIcon name={strategy === 'FCFS' ? 'pending' : strategy === 'PROFIT' ? 'orders' : 'risk'} /></span><p className="pc-eyebrow">{strategy === 'FCFS' ? 'First Come, First Served' : 'Advisory strategy'}</p><h3>{strategy === 'PROFIT' ? 'Profit-first' : label}</h3>
+      return <article className={`pc-card pc-strategy-card ${!!active && active.id === selectedId ? 'pc-strategy-selected' : ''}`} key={strategy} aria-label={`Availability: ${label}`}><span className="pc-strategy-icon"><OrderQueueIcon name={strategy === 'FCFS' ? 'pending' : strategy === 'PROFIT' ? 'orders' : 'risk'} /></span><p className="pc-eyebrow">{strategy === 'FCFS' ? 'First Come, First Served' : 'Advisory strategy'}</p><h3>{strategy === 'PROFIT' ? 'Profit-first' : label}</h3>
         <p>{descriptions[strategy]}</p>
         {recommended && active?.id === recommended.scenarioId && <span className="pc-recommended">Recommended · source-backed</span>}
-        <dl className="pc-strategy-metrics">{([['profit','Estimated Profit'],['included','Selected Order Count'],['capacity','Capacity Utilization']] as const).map(([key,name]) => <div key={key}><dt>{name}</dt><dd>{data && active ? metricText(data,active,key,now) : 'Unavailable'}</dd></div>)}
+        <dl className="pc-strategy-metrics">{([['profit','Estimated Profit'],['included','Selected Order Count'],['capacity','Capacity Utilization']] as const).map(([key,name]) => <div key={key}><dt>{name}</dt><dd>{data && active ? metricText(data,active,key,now) : 'Unavailable'}{key === 'capacity' && <small>Resource / analysis window unavailable</small>}</dd></div>)}
           <div><dt>Waste / Expiry Risk</dt><dd>Unavailable · no metric contract</dd></div><div><dt>Solver Status</dt><dd>{active?.solverStatus ?? 'Not evaluated'}</dd></div></dl>
-        {active?.id === selectedId && <span className="pc-selected-label">Selected strategy</span>}
+        {!!active && active.id === selectedId && <span className="pc-selected-label">Selected strategy</span>}
         <button type="button" className="foundation-button foundation-button-secondary" aria-pressed={!!active && active.id === selectedId} disabled={!active || !onSelect} onClick={() => active && onSelect?.(active.id)}>Select {label} strategy</button>
         {!returned ? <p>Not verified · no current authorized snapshot is available.</p> : returned.length ? <>
           <p>Returned by source · {returned.length} scenario{returned.length === 1 ? '' : 's'}.</p>

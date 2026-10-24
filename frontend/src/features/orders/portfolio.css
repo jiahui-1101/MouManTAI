@@ -98,3 +98,5 @@
 .pc-constraint-groups p { font-size:.85rem; }
 .pc-explanation ul { padding-left:1.25rem; font-size:.85rem; }
 @media(max-width:640px) { .pc-constraint-groups { grid-template-columns:minmax(0,1fr); } }
+
+.pc-strategy-metrics small { display:block; font-size:.72rem; color:var(--ui-muted,#4d5e79); font-weight:400; margin-top:.3rem; }
