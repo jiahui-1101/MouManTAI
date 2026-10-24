@@ -19,6 +19,7 @@ The most important work in this audit was preserving #69's four unique B/D/F/G/H
 ## C. PR cleanup inventory
 
 The live initial open-PR inventory contained nine PRs. GitHub mergeability flags were checked against actual merge-tree output where relevant; the flag alone was not used as conflict proof.
+Frontend PR #79 opened during this audit, after the initial inventory; it is included below without taking over Frontend ownership.
 
 | PR | Original purpose | Current status / unique diff | Classification | Action and evidence |
 |---|---|---|---|---|
@@ -31,6 +32,7 @@ The live initial open-PR inventory contained nine PRs. GitHub mergeability flags
 | #69 | Combined B/D/F/G/H source bundle | Closed without merge; old source/workflow variants plus one unique four-test Foundation contract file; actual merge-tree conflicts in optimization test | SUPERSEDED | Extracted only the unique test file to #78. Verified identical Git blob on main after #78 and green new-main CI, left evidence-backed closing comment, then closed without deleting branch. |
 | #70 | Frontend B route aliases, calendar and portfolio | Ready-state PR without submitted reviews; 88-file effective stacked diff including #66/#67 material and Frontend Orders features | MANUAL_REVIEW | Frontend owners must reconcile dependencies, source contracts and effective diff. No teammate branch edit or merge. |
 | #73 | Wave 2/3 Backend handoff | Two handoff docs only; no source changes; exact-head six-job CI passed | READY_TO_MERGE / MERGED | Meishuet approved exact head; controlled merge evidence in D. Earlier status sections are explicitly historical and later sections supersede them. |
+| #79 | Human Review save synchronization | Newly open Frontend PR by mavisbong41 at `1fd716f9`; 14 Frontend route/context/review/style/test files | MANUAL_REVIEW | Frontend owner review and latest-main UI/API compatibility required. No edit, close or merge by this Backend audit. |
 
 No historical PR or teammate-owned Frontend branch was closed. #22 has unique information; #40/#42 have unresolved substantive Frontend review findings. #69's only unique integration assertions are now on main from #78, and #69 was closed as superseded.
 
@@ -144,7 +146,7 @@ Strict PostgreSQL rerun, migration repeatability, post-merge main CI and final s
 | GAP-08 | BE-MSG-02; P1 for OCR demo | PDF/image acceptance test fails under current Windows Python runtime because optional PyMuPDF/PaddleOCR packages are absent and not a CI gate. | `app/context/document_extractor.py`, P1 test/dependency config; Backend owners. Validate supported isolated OCR environment, then rerun. | Avoid OCR/PDF claim until verified. |
 | GAP-09 | BE-FORE-02 and Decision Memory; P2 | No real chronological demand/outcome history or measured lift. | Forecasting/Memory ports; Backend owners and data provider. | Safe to defer; explicitly DEMO-ONLY. |
 | GAP-10 | #39 test integration; P1 | #39 fresh approval pending; #69's only unique test was preserved and its bundle closed. | #39 owner and Meishuet; merge only after current-head approval and a fresh main/CI check. | Synthetic E2E evidence remains available locally meanwhile. |
-| GAP-11 | #40/#42/#66/#67/#70 Frontend integration; P1 | Overlapping/stacked UI changes and an unresolved accessibility review; some pages imply fixture E2E. | Frontend owners. Reconcile effective diffs and backend contract labels. | Use current main UI honestly; no unilateral Frontend merge. |
+| GAP-11 | #40/#42/#66/#67/#70/#79 Frontend integration; P1 | Overlapping/stacked UI changes and an unresolved accessibility review; #79 adds Human Review save synchronization; some pages imply fixture E2E. | Frontend owners. Reconcile effective diffs and backend contract labels. | Use current main UI honestly; no unilateral Frontend merge. |
 
 ## J. Recommendation
 
@@ -157,4 +159,4 @@ Use the isolated PostgreSQL supplier-delay journey, real CP-SAT contention calcu
 - Final main local real OR-Tools **9.15.6755**: `python -m pytest -p no:cacheprovider -o addopts= --basetemp=.pytest-release-cpsat app/optimization/tests/test_optimization.py tests/integration/test_backend_bdfgh_foundation_contracts.py -q --disable-warnings --tb=short` passed **63**, 4 warnings. The exact `test_three_order_aggregate_contention_triggers_comparison` rerun passed **1/1**. These runs used task-local solver dependencies and no live P2 authority.
 - Final main migration repeatability: `python -m pytest -p no:cacheprovider -o addopts= --basetemp=.pytest-release-migration-a tests/test_migration_0007.py -q --disable-warnings --tb=short` and the same command with `-migration-b` ran against the approved separate disposable migration DB: **2 passed, 10 warnings** each time.
 - The final-main OCR acceptance case still **fails 1/1**, expected `SUCCESS` and observed `FAILED`, with PyMuPDF and PaddleOCR absent. This file is outside the green CI `backend/tests` selection; do not describe the complete Backend acceptance suite as green. Local Frontend typecheck/build and 1,130 tests/5 skips ran on initial main; #73/#78 changed no Frontend files, so its tree is identical to final main. Prior local Windows variability remains historical evidence.
-- Final fetched main after controlled merges and cleanup: `584f1f110223a212baf2587493716e7ad11dfb53`. #39 remains the only open Backend code/test PR in this audit, pending Meishuet's fresh review. #22/#40/#42/#66/#67/#70 remain with their documented historical or Frontend owner gates. #69 is closed without merging or branch deletion.
+- Final fetched main after controlled merges and cleanup: `584f1f110223a212baf2587493716e7ad11dfb53`. #39 remains the only open Backend code/test PR in this audit, pending Meishuet's fresh review. #22/#40/#42/#66/#67/#70/#79 remain with their documented historical or Frontend owner gates. #69 is closed without merging or branch deletion.
