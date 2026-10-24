@@ -3,8 +3,8 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0021_mock_optimization_dataset"
-down_revision = "0020_mock_forecast_history"
+revision = "0022_mock_optimization_dataset"
+down_revision = "0021_mock_forecast_history"
 branch_labels = None
 depends_on = None
 
