@@ -43,14 +43,19 @@ function setup(entries = ['/orders']) {
   return router;
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); window.history.replaceState({}, '', '/'); });
-const change = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+const change = (label: string, value: string) => {
+  const field = screen.getByLabelText(label);
+  const advanced = field.closest('details');
+  if (advanced && !advanced.open) fireEvent.click(screen.getByText('Advanced Filters'));
+  fireEvent.change(field, { target: { value } });
+};
 const click = (name: string) => fireEvent.click(screen.getByRole('button', { name }));
 function fillAll() {
   change('Order Status', 'ALL');
   for (const [label, value] of [
     ['Search by Order ID or Customer', 'synthetic'], ['Customer', 'customer'], ['Product', 'bread'],
     ['Received from (MYT)', '2026-10-23'], ['Received through (MYT)', '2026-10-25'],
-    ['Origin channel', 'Telegram'], ['Priority', 'High'], ['Risk', 'Unknown'], ['Order size', 'Small'],
+    ['Sales Channel', 'Telegram'], ['Priority', 'High'], ['Risk Level', 'Unknown'], ['Order size', 'Small'],
     ['Analysis view', 'PROFIT'],
   ]) change(label, value);
 }
@@ -59,14 +64,14 @@ function expectAll() {
   for (const [label, value] of [
     ['Search by Order ID or Customer', 'synthetic'], ['Customer', 'customer'], ['Product', 'bread'],
     ['Received from (MYT)', '2026-10-23'], ['Received through (MYT)', '2026-10-25'],
-    ['Origin channel', 'Telegram'], ['Priority', 'High'], ['Risk', 'Unknown'], ['Order size', 'Small'],
+    ['Sales Channel', 'Telegram'], ['Priority', 'High'], ['Risk Level', 'Unknown'], ['Order size', 'Small'],
     ['Analysis view', 'PROFIT'],
   ]) expect(screen.getByLabelText(label)).toHaveValue(value);
 }
 function expectDefaults(analysis = 'QUEUE') {
   expect(screen.getByRole('combobox', { name: 'Order Status' })).toHaveValue('ALL');
   for (const label of ['Search by Order ID or Customer', 'Customer', 'Product', 'Received from (MYT)',
-    'Received through (MYT)', 'Origin channel', 'Priority', 'Risk', 'Order size'])
+    'Received through (MYT)', 'Sales Channel', 'Priority', 'Risk Level', 'Order size'])
     expect(screen.getByLabelText(label)).toHaveValue('');
   expect(screen.getByLabelText('Analysis view')).toHaveValue(analysis);
 }

@@ -7,6 +7,8 @@ import type { QueueFilters, StatusView } from './types';
 
 const statuses: readonly StatusView[] = ['PENDING_ACCEPTANCE', 'ACCEPTED', 'REJECTED', 'OTHER', 'ALL'];
 const analyses = ['QUEUE', 'FCFS', 'PROFIT', 'EXPIRY'];
+const sorts = ['FCFS', 'DEADLINE'];
+const feasibilities = ['', 'FEASIBLE', 'CONDITIONAL', 'INFEASIBLE', 'UNKNOWN'];
 interface Preferences { filters: QueueFilters; analysis: string }
 interface Snapshot extends Preferences { id: string }
 interface Session { snapshots: Map<string, Snapshot>; last?: Snapshot }
@@ -35,17 +37,22 @@ function read(search: string, session: Session): Snapshot {
   // fields. Old browser history must not restore another identity's preferences.
   if (params.has('oqState') && !session.snapshots.has(id)) return snapshot(defaults());
   const saved = session.snapshots.get(id);
-  const hasQueueParams = ['oqStatus', 'oqFrom', 'oqTo', 'oqAnalysis'].some(key => params.has(key));
+  const hasQueueParams = ['oqStatus', 'oqFrom', 'oqTo', 'oqAnalysis', 'oqSort', 'oqDueFrom', 'oqDueTo', 'oqFeasibility'].some(key => params.has(key));
   if (!saved && !hasQueueParams) return session.last ?? snapshot(defaults());
   const status = single(params, 'oqStatus');
   const analysis = single(params, 'oqAnalysis');
   const from = single(params, 'oqFrom'), to = single(params, 'oqTo');
+  const sort = single(params, 'oqSort'), feasibility = single(params, 'oqFeasibility');
+  const dueFrom = single(params, 'oqDueFrom'), dueTo = single(params, 'oqDueTo');
   return {
     id: saved?.id ?? newId(),
     filters: {
       ...(saved?.filters ?? initialFilters),
       status: statuses.includes(status as StatusView) ? status as StatusView : initialFilters.status,
       from: validDate(from) ? from : '', to: validDate(to) ? to : '',
+      sort: sorts.includes(sort) ? sort as QueueFilters['sort'] : 'FCFS',
+      deadlineFrom: validDate(dueFrom) ? dueFrom : '', deadlineTo: validDate(dueTo) ? dueTo : '',
+      feasibility: feasibilities.includes(feasibility) ? feasibility : '',
     },
     analysis: analyses.includes(analysis) ? analysis : 'QUEUE',
   };
@@ -60,6 +67,10 @@ function searchFor(value: Snapshot): string {
   if (value.filters.from) params.set('oqFrom', value.filters.from);
   if (value.filters.to) params.set('oqTo', value.filters.to);
   if (value.analysis !== 'QUEUE') params.set('oqAnalysis', value.analysis);
+  if (value.filters.sort !== 'FCFS') params.set('oqSort', value.filters.sort);
+  if (value.filters.deadlineFrom) params.set('oqDueFrom', value.filters.deadlineFrom);
+  if (value.filters.deadlineTo) params.set('oqDueTo', value.filters.deadlineTo);
+  if (value.filters.feasibility) params.set('oqFeasibility', value.filters.feasibility);
   return `?${params}`;
 }
 

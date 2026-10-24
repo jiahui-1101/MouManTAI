@@ -5,6 +5,7 @@ import type { OrderQueueItem, QueueFilters } from './types';
 export const initialFilters: QueueFilters = {
   status: 'ALL', search: '', from: '', to: '', product: '',
   channel: '', priority: '', risk: '', customer: '', size: '',
+  sort: 'FCFS', deadlineFrom: '', deadlineTo: '', feasibility: '',
 };
 const knownStatuses = ['PENDING_ACCEPTANCE', 'ACCEPTED', 'REJECTED'];
 export const statusBucket = (status?: string | null) => knownStatuses.includes(status ?? '') ? status : 'OTHER';
@@ -37,12 +38,15 @@ export function selectOrders(items: OrderQueueItem[], filters: QueueFilters): Or
         .some(value => contains(value, filters.search))) &&
       (!filters.from || (!!date && date >= filters.from)) &&
       (!filters.to || (!!date && date <= filters.to)) &&
+      (!filters.deadlineFrom || (!!businessDate(order.deadline) && businessDate(order.deadline) >= filters.deadlineFrom)) &&
+      (!filters.deadlineTo || (!!businessDate(order.deadline) && businessDate(order.deadline) <= filters.deadlineTo)) &&
+      (!filters.feasibility || (['FEASIBLE', 'CONDITIONAL', 'INFEASIBLE'].includes(order.feasibility ?? '') ? order.feasibility : 'UNKNOWN') === filters.feasibility) &&
       (!filters.product.trim() || (order.lines ?? []).some(l => contains(l.product, filters.product))) &&
       contains(order.customer, filters.customer) &&
       (['channel', 'priority', 'risk', 'size'] as const).every(key => !filters[key] || shown(order[key]) === filters[key]);
   }).sort((a, b) => {
-    const left = instant(a.receivedAt) ?? Infinity;
-    const right = instant(b.receivedAt) ?? Infinity;
+    const left = instant(filters.sort === 'DEADLINE' ? a.deadline : a.receivedAt) ?? Infinity;
+    const right = instant(filters.sort === 'DEADLINE' ? b.deadline : b.receivedAt) ?? Infinity;
     return (left === right ? 0 : left < right ? -1 : 1) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   });
 }

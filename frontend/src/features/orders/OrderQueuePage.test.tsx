@@ -96,9 +96,10 @@ describe('Order Decision Queue', () => {
     setup(sourceFor({ items: [pending], coverage: 'partial' }));
     expect(await screen.findByRole('table')).toBeInTheDocument();
     expect(screen.getByText('Synthetic Alice')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Evidence & order details'));
     expect(screen.getByText('24 Oct 2026, 00:30:00 (MYT)')).toBeInTheDocument();
     expect(screen.getByText('24 Oct 2026, 01:00:00 (MYT)')).toBeInTheDocument();
-    expect(screen.getByText('UNKNOWN')).toBeInTheDocument();
+    expect(within(screen.getByRole('table')).getByText('UNKNOWN')).toBeInTheDocument();
     expect(screen.getByText('Cost incomplete — expected profit unavailable')).toBeInTheDocument();
     expect(screen.getByText('Request only · no reservation')).toBeInTheDocument();
     expect(screen.getByText('DEMO-ONLY / SYNTHETIC')).toBeInTheDocument();
@@ -119,9 +120,9 @@ describe('Order Decision Queue', () => {
   });
   it('provides status-specific empty states', async () => {
     setup(sourceFor({ items: [], coverage: 'complete' }));
-    expect(await screen.findByText('No orders match')).toBeInTheDocument();
+    expect(await screen.findByText('No orders yet')).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: 'Order Status' }), { target: { value: 'REJECTED' } });
-    expect(screen.getByText('No rejected orders match')).toBeInTheDocument();
+    expect(screen.getByText('No orders yet')).toBeInTheDocument();
   });
   it.each(['Synthetic Alice', 'ORDER/ONE'])('searches %s case-insensitively', async search => {
     setup(sourceFor({ items: [pending], coverage: 'partial' })); await screen.findByRole('table');
@@ -130,9 +131,10 @@ describe('Order Decision Queue', () => {
     fireEvent.change(screen.getByLabelText('Search by Order ID or Customer'), { target: { value: 'absent' } });
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
-  it.each(['Origin channel', 'Priority', 'Risk', 'Order size'])('filters %s and resets', async label => {
+  it.each(['Sales Channel', 'Priority', 'Risk Level', 'Order size'])('filters %s and resets', async label => {
     setup(sourceFor()); await screen.findByRole('table');
     fireEvent.change(screen.getByRole('combobox', { name: 'Order Status' }), { target: { value: 'ALL' } });
+    if (label !== 'Risk Level') fireEvent.click(screen.getByText('Advanced Filters'));
     const select = screen.getByLabelText(label);
     const second = within(select).getAllByRole('option')[1] as HTMLOptionElement;
     fireEvent.change(select, { target: { value: second.value } });
@@ -178,6 +180,7 @@ describe('Order Decision Queue', () => {
     let reject!: (error: Error) => void;
     const load = vi.fn().mockResolvedValueOnce(snapshot).mockImplementation(() => new Promise((_, fail) => { reject = fail; }));
     setup({ cacheKey: 'privacy-refresh', load }); await screen.findByRole('table');
+    fireEvent.click(screen.getByText('Advanced Filters'));
     expect(screen.getByRole('option', { name: 'Telegram' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh queue' }));
     await waitFor(() => expect(screen.queryByRole('table')).not.toBeInTheDocument());
