@@ -70,6 +70,17 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
   const [selectedConfirmation, setSelectedConfirmation] = useState<string>("");
   const [now, setNow] = useState(Date.now);
 
+  // Collapsible sidebar state: auto-collapses on selection, expands on hover
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarHovered, setSidebarHovered] = useState(false);
+  const isCollapsed = sidebarCollapsed && !sidebarHovered;
+
+  const handleNavClick = (nav: NavSection) => {
+    setActiveNav(nav);
+    setSidebarCollapsed(true);
+    setSidebarHovered(false);
+  };
+
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
@@ -208,10 +219,10 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
         return request.outbound_status === "FAILED" || request.outbound_status === "DELIVERY_UNKNOWN";
       }
       if (actionFilter === "review_replies") {
-        return false; // Handled in confirmations view
+        return false;
       }
       if (actionFilter === "follow_up") {
-        return false; // Handled in follow up view
+        return false;
       }
     }
 
@@ -374,104 +385,168 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
         ) : null}
       </section>
 
-      {/* 4. Main Body: Left Sidebar + Center Workspace */}
-      <div className="cc-main-layout">
-        {/* Left Sidebar Navigation */}
-        <nav className="cc-sidebar" aria-label="Communication navigation">
-          {/* Work Group */}
-          <div className="cc-nav-group">
-            <div className="cc-nav-group-title">Work</div>
-            <button
-              type="button"
-              className={`cc-nav-item ${activeNav === "needs_action" ? "active" : ""}`}
-              onClick={() => setActiveNav("needs_action")}
-            >
-              <div className="cc-nav-item-text">
-                <div className="cc-nav-item-title">Needs action</div>
-                <div className="cc-nav-item-desc">Approve, fix failures, answer unclear replies</div>
-              </div>
-              <span className="cc-nav-badge">{list.isSuccess ? needsActionTotalCount : "-"}</span>
-            </button>
-            <button
-              type="button"
-              className={`cc-nav-item ${activeNav === "drafts" ? "active" : ""}`}
-              onClick={() => setActiveNav("drafts")}
-            >
-              <div className="cc-nav-item-text">
-                <div className="cc-nav-item-title">Drafts & Approvals</div>
-                <div className="cc-nav-item-desc">Write, check, approve and send messages</div>
-              </div>
-              <span className="cc-nav-badge">{list.isSuccess ? draftsCount : "-"}</span>
-            </button>
-          </div>
+      {/* 4. Main Body: Left Collapsible Sidebar + Full-Width Center Table */}
+      <div className={`cc-main-layout ${isCollapsed ? "sidebar-is-collapsed" : "sidebar-is-expanded"}`}>
+        {/* Left Sidebar Navigation (Auto-collapses on select, expands on hover) */}
+        <div
+          className={`cc-sidebar-wrapper ${isCollapsed ? "collapsed" : "expanded"}`}
+          onMouseEnter={() => setSidebarHovered(true)}
+          onMouseLeave={() => setSidebarHovered(false)}
+        >
+          <nav className={`cc-sidebar ${isCollapsed ? "collapsed" : "expanded"}`} aria-label="Communication navigation">
+            {/* Work Group */}
+            <div className="cc-nav-group">
+              <div className="cc-nav-group-title">Work</div>
+              <button
+                type="button"
+                className={`cc-nav-item ${activeNav === "needs_action" ? "active" : ""}`}
+                onClick={() => handleNavClick("needs_action")}
+                title="Needs action — Approve, fix failures, answer unclear replies"
+              >
+                <div className="cc-nav-item-icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                </div>
+                <div className="cc-nav-item-text">
+                  <div className="cc-nav-item-title">Needs action</div>
+                  <div className="cc-nav-item-desc">Approve, fix failures, answer unclear replies</div>
+                </div>
+                <span className="cc-nav-badge">{list.isSuccess ? needsActionTotalCount : "-"}</span>
+              </button>
+              <button
+                type="button"
+                className={`cc-nav-item ${activeNav === "drafts" ? "active" : ""}`}
+                onClick={() => handleNavClick("drafts")}
+                title="Drafts & Approvals — Write, check, approve and send messages"
+              >
+                <div className="cc-nav-item-icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                  </svg>
+                </div>
+                <div className="cc-nav-item-text">
+                  <div className="cc-nav-item-title">Drafts & Approvals</div>
+                  <div className="cc-nav-item-desc">Write, check, approve and send messages</div>
+                </div>
+                <span className="cc-nav-badge">{list.isSuccess ? draftsCount : "-"}</span>
+              </button>
+            </div>
 
-          {/* Track Group */}
-          <div className="cc-nav-group">
-            <div className="cc-nav-group-title">Track</div>
-            <button
-              type="button"
-              className={`cc-nav-item ${activeNav === "sending_history" ? "active" : ""}`}
-              onClick={() => setActiveNav("sending_history")}
-            >
-              <div className="cc-nav-item-text">
-                <div className="cc-nav-item-title">Sending History</div>
-                <div className="cc-nav-item-desc">What was sent and its delivery status</div>
-              </div>
-              <span className="cc-nav-badge">{list.isSuccess ? sendingHistoryCount : "-"}</span>
-            </button>
-            <button
-              type="button"
-              className={`cc-nav-item ${activeNav === "confirmations" ? "active" : ""}`}
-              onClick={() => setActiveNav("confirmations")}
-            >
-              <div className="cc-nav-item-text">
-                <div className="cc-nav-item-title">Customer Confirmations</div>
-                <div className="cc-nav-item-desc">Accept, reject, counteroffer, questions</div>
-              </div>
-              <span className="cc-nav-badge">{confirmations.isSuccess ? confirmationsCount : "-"}</span>
-            </button>
-            <Link
-              to="/communications/follow-ups"
-              aria-label="Follow-Up Queue"
-              className={`cc-nav-item ${activeNav === "follow_ups" ? "active" : ""}`}
-            >
-              <div className="cc-nav-item-text">
-                <div className="cc-nav-item-title">Follow-Up Queue</div>
-                <div className="cc-nav-item-desc">Send reminders and escalate late replies</div>
-              </div>
-              <span className="cc-nav-badge">{confirmations.isSuccess ? followUpsCount : "-"}</span>
-            </Link>
-          </div>
+            {/* Track Group */}
+            <div className="cc-nav-group">
+              <div className="cc-nav-group-title">Track</div>
+              <button
+                type="button"
+                className={`cc-nav-item ${activeNav === "sending_history" ? "active" : ""}`}
+                onClick={() => handleNavClick("sending_history")}
+                title="Sending History — What was sent and its delivery status"
+              >
+                <div className="cc-nav-item-icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                </div>
+                <div className="cc-nav-item-text">
+                  <div className="cc-nav-item-title">Sending History</div>
+                  <div className="cc-nav-item-desc">What was sent and its delivery status</div>
+                </div>
+                <span className="cc-nav-badge">{list.isSuccess ? sendingHistoryCount : "-"}</span>
+              </button>
+              <button
+                type="button"
+                className={`cc-nav-item ${activeNav === "confirmations" ? "active" : ""}`}
+                onClick={() => handleNavClick("confirmations")}
+                title="Customer Confirmations — Accept, reject, counteroffer, questions"
+              >
+                <div className="cc-nav-item-icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                </div>
+                <div className="cc-nav-item-text">
+                  <div className="cc-nav-item-title">Customer Confirmations</div>
+                  <div className="cc-nav-item-desc">Accept, reject, counteroffer, questions</div>
+                </div>
+                <span className="cc-nav-badge">{confirmations.isSuccess ? confirmationsCount : "-"}</span>
+              </button>
+              <Link
+                to="/communications/follow-ups"
+                aria-label="Follow-Up Queue"
+                className={`cc-nav-item ${activeNav === "follow_ups" ? "active" : ""}`}
+                onClick={() => handleNavClick("follow_ups")}
+                title="Follow-Up Queue — Send reminders and escalate late replies"
+              >
+                <div className="cc-nav-item-icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                  </svg>
+                </div>
+                <div className="cc-nav-item-text">
+                  <div className="cc-nav-item-title">Follow-Up Queue</div>
+                  <div className="cc-nav-item-desc">Send reminders and escalate late replies</div>
+                </div>
+                <span className="cc-nav-badge">{confirmations.isSuccess ? followUpsCount : "-"}</span>
+              </Link>
+            </div>
 
-          {/* Manage Group */}
-          <div className="cc-nav-group">
-            <div className="cc-nav-group-title">Manage</div>
-            <button
-              type="button"
-              className={`cc-nav-item ${activeNav === "preferences" ? "active" : ""}`}
-              onClick={() => setActiveNav("preferences")}
-            >
-              <div className="cc-nav-item-text">
-                <div className="cc-nav-item-title">Recipient Preferences</div>
-                <div className="cc-nav-item-desc">Consent, channels and opt-out</div>
-              </div>
-              <span className="cc-nav-badge">{preferences.isSuccess ? preferencesCount : "-"}</span>
-            </button>
-            <button
-              type="button"
-              className={`cc-nav-item ${activeNav === "requests" ? "active" : ""}`}
-              onClick={() => setActiveNav("requests")}
-            >
-              <div className="cc-nav-item-text">
-                <div className="cc-nav-item-title">Communication Requests</div>
-                <div className="cc-nav-item-desc">All requests and proposals</div>
-              </div>
-              <span className="cc-nav-badge">{list.isSuccess ? requests.length : "-"}</span>
-            </button>
-          </div>
-        </nav>
+            {/* Manage Group */}
+            <div className="cc-nav-group">
+              <div className="cc-nav-group-title">Manage</div>
+              <button
+                type="button"
+                className={`cc-nav-item ${activeNav === "preferences" ? "active" : ""}`}
+                onClick={() => handleNavClick("preferences")}
+                title="Recipient Preferences — Consent, channels and opt-out"
+              >
+                <div className="cc-nav-item-icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="4" y1="21" x2="4" y2="14" />
+                    <line x1="4" y1="10" x2="4" y2="3" />
+                    <line x1="12" y1="21" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12" y2="3" />
+                    <line x1="20" y1="21" x2="20" y2="16" />
+                    <line x1="20" y1="12" x2="20" y2="3" />
+                    <line x1="1" y1="14" x2="7" y2="14" />
+                    <line x1="9" y1="8" x2="15" y2="8" />
+                    <line x1="17" y1="16" x2="23" y2="16" />
+                  </svg>
+                </div>
+                <div className="cc-nav-item-text">
+                  <div className="cc-nav-item-title">Recipient Preferences</div>
+                  <div className="cc-nav-item-desc">Consent, channels and opt-out</div>
+                </div>
+                <span className="cc-nav-badge">{preferences.isSuccess ? preferencesCount : "-"}</span>
+              </button>
+              <button
+                type="button"
+                className={`cc-nav-item ${activeNav === "requests" ? "active" : ""}`}
+                onClick={() => handleNavClick("requests")}
+                title="Communication Requests — All requests and proposals"
+              >
+                <div className="cc-nav-item-icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+                    <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+                  </svg>
+                </div>
+                <div className="cc-nav-item-text">
+                  <div className="cc-nav-item-title">Communication Requests</div>
+                  <div className="cc-nav-item-desc">All requests and proposals</div>
+                </div>
+                <span className="cc-nav-badge">{list.isSuccess ? requests.length : "-"}</span>
+              </button>
+            </div>
+          </nav>
+        </div>
 
-        {/* Center Content Area */}
+        {/* Center Content Area: 100% Full-Width Table View */}
         <div className="cc-content-area">
           {/* Top Filter Pills for Needs Action */}
           {activeNav === "needs_action" && (
@@ -528,7 +603,7 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
           {activeNav === "preferences" ? (
             <RecipientPreferences auth={auth} />
           ) : activeNav === "confirmations" || (activeNav === "needs_action" && actionFilter === "review_replies") ? (
-            /* Sub-view: Customer Confirmations */
+            /* Sub-view: Customer Confirmations (Full-width Table + Slide-over Drawer) */
             <ConfirmationsView
               confirmations={confirmations}
               auth={auth}
@@ -540,7 +615,7 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
               }}
             />
           ) : activeNav === "follow_ups" || (activeNav === "needs_action" && actionFilter === "follow_up") ? (
-            /* Sub-view: Follow-Up Queue */
+            /* Sub-view: Follow-Up Queue (Full-width Table) */
             <FollowUpQueueView
               confirmations={confirmations}
               followUps={followUps}
@@ -572,111 +647,158 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
               <p className="muted">Requests will appear here when they are created from an approved recovery proposal.</p>
             </div>
           ) : (
-            /* Requests Workspace (Needs action / Drafts / Sending History / Requests) */
-            <div className="cc-workspace">
-              <div className="cc-queue">
-                <form className="cc-filters" onSubmit={event => event.preventDefault()} aria-label="Request filters">
-                  <label>
-                    Search references
-                    <input
-                      type="search"
-                      value={search}
-                      onChange={event => setSearch(event.target.value)}
-                      placeholder="Commitment, communication or proposal"
-                    />
-                  </label>
-                  <label>
-                    Status
-                    <select value={status} onChange={event => setStatus(event.target.value)}>
-                      <option value="">All statuses</option>
-                      {["Pending", "Drafted", "Sent", "Blocked"].map(value => (
-                        <option key={value}>{value}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Channel
-                    <select value={channel} onChange={event => setChannel(event.target.value)}>
-                      <option value="">All channels</option>
-                      {[...new Set(requests.map(r => r.channel ?? "UNKNOWN"))].map(value => (
-                        <option key={value} value={value}>
-                          {channelText(value)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    className="btn btn-ghost"
-                    type="button"
-                    onClick={() => {
-                      setSearch("");
-                      setStatus("");
-                      setChannel("");
-                    }}
-                  >
-                    Clear filters
-                  </button>
-                </form>
-                <p className="muted text-sm cc-filter-note">Search and filters apply to the {requests.length} loaded requests.</p>
-                <section className="cc-list" aria-label="Communication requests">
+            /* Full-Width Requests Table View */
+            <div className="cc-full-workspace">
+              <form className="cc-filters" onSubmit={event => event.preventDefault()} aria-label="Request filters">
+                <label>
+                  Search references
+                  <input
+                    type="search"
+                    value={search}
+                    onChange={event => setSearch(event.target.value)}
+                    placeholder="Commitment, communication or proposal"
+                  />
+                </label>
+                <label>
+                  Status
+                  <select value={status} onChange={event => setStatus(event.target.value)}>
+                    <option value="">All statuses</option>
+                    {["Pending", "Drafted", "Sent", "Blocked"].map(value => (
+                      <option key={value}>{value}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Channel
+                  <select value={channel} onChange={event => setChannel(event.target.value)}>
+                    <option value="">All channels</option>
+                    {[...new Set(requests.map(r => r.channel ?? "UNKNOWN"))].map(value => (
+                      <option key={value} value={value}>
+                        {channelText(value)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="btn btn-ghost"
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    setStatus("");
+                    setChannel("");
+                  }}
+                >
+                  Clear filters
+                </button>
+              </form>
+              <p className="muted text-sm cc-filter-note">Search and filters apply to the {requests.length} loaded requests.</p>
+
+              <section className="cc-list cc-full-table-section" aria-label="Communication requests">
+                <div className="cc-table-heading-row">
                   <h3>
                     Requests <span className="muted">({visible.length})</span>
                   </h3>
-                  {pendingSelection && (
-                    <div className="cc-unsaved-warning" role="alert">
-                      <span>Unsaved communication input will be lost.</span>
-                      <button type="button" className="btn btn-secondary" onClick={() => setPendingSelection("")}>
-                        Keep editing
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        onClick={() => {
-                          setDetailDirty(false);
-                          setSelected(pendingSelection);
-                          setPendingSelection("");
-                        }}
-                      >
-                        Discard and switch
-                      </button>
-                    </div>
-                  )}
-                  {!visible.length ? (
+                </div>
+                {pendingSelection && (
+                  <div className="cc-unsaved-warning" role="alert">
+                    <span>Unsaved communication input will be lost.</span>
+                    <button type="button" className="btn btn-secondary" onClick={() => setPendingSelection("")}>
+                      Keep editing
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setDetailDirty(false);
+                        setSelected(pendingSelection);
+                        setPendingSelection("");
+                      }}
+                    >
+                      Discard and switch
+                    </button>
+                  </div>
+                )}
+                {!visible.length ? (
+                  <div className="cc-state">
                     <p className="muted">No search results. Try clearing your filters.</p>
-                  ) : (
-                    <ul>
-                      {visible.map(request => (
-                        <li key={request.communication_id}>
-                          <button
-                            className="cc-request"
-                            aria-pressed={selected === request.communication_id}
-                            onClick={() => selectRequest(request.communication_id)}
+                  </div>
+                ) : (
+                  <div className="cc-table-container">
+                    <table className="cc-table cc-master-table">
+                      <thead>
+                        <tr>
+                          <th>Commitment</th>
+                          <th>Communication ID</th>
+                          <th>Proposal & Version</th>
+                          <th>Case & Mode</th>
+                          <th>Status</th>
+                          <th>Channel</th>
+                          <th>Created</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visible.map(request => (
+                          <tr
+                            key={request.communication_id}
+                            className={selected === request.communication_id ? "row-selected" : ""}
                           >
-                            <span className="cc-row">
-                              <strong>{request.reference.commitment_id}</strong>
-                              <DisplayBadge label={label(request)} />
-                            </span>
-                            <span className="cc-id">{request.communication_id}</span>
-                            <span className="muted">
-                              {request.reference.proposal_id} · v{request.reference.proposal_version}
-                            </span>
-                            <span className="cc-row muted">
+                            <td>
+                              <button
+                                type="button"
+                                className="cc-table-link-btn"
+                                aria-pressed={selected === request.communication_id}
+                                onClick={() => selectRequest(request.communication_id)}
+                              >
+                                <strong>{request.reference.commitment_id}</strong>
+                              </button>
+                            </td>
+                            <td>
+                              <span className="cc-id">{request.communication_id}</span>
+                            </td>
+                            <td>
+                              <span className="muted">
+                                {request.reference.proposal_id} · v{request.reference.proposal_version}
+                              </span>
+                            </td>
+                            <td>
                               <span className="cc-badges-group">
                                 <OriginBadge request={request} />
                                 <DeliveryModeBadge request={request} />
                               </span>
+                            </td>
+                            <td>
+                              <DisplayBadge label={label(request)} />
+                            </td>
+                            <td>{channelText(request.channel)}</td>
+                            <td>
                               <time>{formatKLTimestamp(request.created_at)}</time>
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
-              </div>
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => selectRequest(request.communication_id)}
+                              >
+                                Inspect
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
 
-              {/* Right Detail Panel with 4 Independent State Boxes */}
-              <section className="cc-panel" aria-label="Communication details">
+              {/* Detail Drawer: slides in from right when selected; hidden offscreen when unselected */}
+              {selected && (
+                <div className="cc-drawer-backdrop" onClick={() => setSelected("")} />
+              )}
+              <section
+                className={`cc-drawer cc-panel ${selected ? "active" : ""}`}
+                aria-label="Communication details"
+              >
                 {!selected ? (
                   <div className="cc-state">
                     <h3>Select a request</h3>
@@ -694,52 +816,70 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
                   />
                 ) : detail.data ? (
                   <>
-                    {/* 4 Independent State Cards: Never Merged */}
-                    <div className="cc-four-states-grid" aria-label="Independent workflow states">
-                      <div className="cc-state-box">
-                        <div className="cc-state-box-label">Message sent</div>
-                        <div
-                          className={`cc-state-box-value ${
-                            detail.data.outbound_status === "SENT"
-                              ? "val-good"
-                              : detail.data.outbound_status === "FAILED"
-                              ? "val-bad"
-                              : "val-neutral"
-                          }`}
-                        >
-                          {detail.data.outbound_status === "SENT"
-                            ? "SENT"
-                            : detail.data.outbound_status === "QUEUED"
-                            ? "SENDING"
-                            : detail.data.outbound_status === "FAILED"
-                            ? "FAILED"
-                            : "NOT SENT"}
+                    <div className="cc-drawer-header">
+                      <div className="cc-row">
+                        <div>
+                          <p className="eyebrow">Request details</p>
+                          <h3>{detail.data.reference.commitment_id}</h3>
                         </div>
-                      </div>
-                      <div className="cc-state-box">
-                        <div className="cc-state-box-label">Terms accepted</div>
-                        <div className="cc-state-box-value val-neutral">NOT ACCEPTED</div>
-                      </div>
-                      <div className="cc-state-box">
-                        <div className="cc-state-box-label">Action completed</div>
-                        <div className="cc-state-box-value val-neutral">PENDING</div>
-                      </div>
-                      <div className="cc-state-box">
-                        <div className="cc-state-box-label">Fulfilled</div>
-                        <div className="cc-state-box-value val-neutral">UNFULFILLED</div>
+                        <button
+                          type="button"
+                          className="cc-drawer-close"
+                          aria-label="Close details"
+                          onClick={() => setSelected("")}
+                        >
+                          ✕
+                        </button>
                       </div>
                     </div>
+                    <div className="cc-drawer-body">
+                      {/* 4 Independent State Cards: Never Merged */}
+                      <div className="cc-four-states-grid" aria-label="Independent workflow states">
+                        <div className="cc-state-box">
+                          <div className="cc-state-box-label">Message sent</div>
+                          <div
+                            className={`cc-state-box-value ${
+                              detail.data.outbound_status === "SENT"
+                                ? "val-good"
+                                : detail.data.outbound_status === "FAILED"
+                                ? "val-bad"
+                                : "val-neutral"
+                            }`}
+                          >
+                            {detail.data.outbound_status === "SENT"
+                              ? "SENT"
+                              : detail.data.outbound_status === "QUEUED"
+                              ? "SENDING"
+                              : detail.data.outbound_status === "FAILED"
+                              ? "FAILED"
+                              : "NOT SENT"}
+                          </div>
+                        </div>
+                        <div className="cc-state-box">
+                          <div className="cc-state-box-label">Terms accepted</div>
+                          <div className="cc-state-box-value val-neutral">NOT ACCEPTED</div>
+                        </div>
+                        <div className="cc-state-box">
+                          <div className="cc-state-box-label">Action completed</div>
+                          <div className="cc-state-box-value val-neutral">PENDING</div>
+                        </div>
+                        <div className="cc-state-box">
+                          <div className="cc-state-box-label">Fulfilled</div>
+                          <div className="cc-state-box-value val-neutral">UNFULFILLED</div>
+                        </div>
+                      </div>
 
-                    <CommunicationDetails
-                      key={selected}
-                      request={detail.data}
-                      auth={auth}
-                      knownIds={known[selected] ?? []}
-                      remember={remember}
-                      checked={checked}
-                      onDirtyChange={setDetailDirty}
-                      now={now}
-                    />
+                      <CommunicationDetails
+                        key={selected}
+                        request={detail.data}
+                        auth={auth}
+                        knownIds={known[selected] ?? []}
+                        remember={remember}
+                        checked={checked}
+                        onDirtyChange={setDetailDirty}
+                        now={now}
+                      />
+                    </div>
                   </>
                 ) : null}
               </section>
@@ -875,151 +1015,205 @@ function ConfirmationsView({
   const selectedItem = allItems.find(item => item.confirmation_id === selectedId);
 
   return (
-    <div className="cc-workspace">
-      <div className="cc-queue">
-        <form className="cc-filters" onSubmit={e => e.preventDefault()} aria-label="Confirmation filters">
-          <label>
-            Search confirmations
-            <input
-              type="search"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Confirmation ID, customer or proposal"
-            />
-          </label>
-          <label>
-            Response state
-            <select value={filterState} onChange={e => setFilterState(e.target.value)}>
-              <option value="">All responses</option>
-              <option value="AWAITING_RESPONSE">Awaiting response</option>
-              <option value="ACCEPTED">Accepted</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="COUNTEROFFER_RECEIVED">Counteroffer received</option>
-              <option value="CLARIFICATION_REQUIRED">Clarification required</option>
-              <option value="UNRESOLVED">Unresolved</option>
-              <option value="EXPIRED">Expired</option>
-            </select>
-          </label>
-        </form>
+    <div className="cc-full-workspace">
+      <form className="cc-filters" onSubmit={e => e.preventDefault()} aria-label="Confirmation filters">
+        <label>
+          Search confirmations
+          <input
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Confirmation ID, customer or proposal"
+          />
+        </label>
+        <label>
+          Response state
+          <select value={filterState} onChange={e => setFilterState(e.target.value)}>
+            <option value="">All responses</option>
+            <option value="AWAITING_RESPONSE">Awaiting response</option>
+            <option value="ACCEPTED">Accepted</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="COUNTEROFFER_RECEIVED">Counteroffer received</option>
+            <option value="CLARIFICATION_REQUIRED">Clarification required</option>
+            <option value="UNRESOLVED">Unresolved</option>
+            <option value="EXPIRED">Expired</option>
+          </select>
+        </label>
+      </form>
 
-        <section className="cc-list" aria-label="Customer confirmations">
+      <section className="cc-list cc-full-table-section" aria-label="Customer confirmations">
+        <div className="cc-table-heading-row">
           <h3>
             Confirmations <span className="muted">({filtered.length})</span>
           </h3>
-          {!filtered.length ? (
-            <div className="cc-state">
-              <h3>Nothing here yet</h3>
-              <p className="muted">No customer confirmations found.</p>
-            </div>
-          ) : (
-            <ul>
-              {filtered.map(item => (
-                <li key={item.confirmation_id}>
-                  <button
-                    className="cc-request"
-                    aria-pressed={selectedId === item.confirmation_id}
-                    onClick={() => onSelect(item.confirmation_id)}
+        </div>
+        {!filtered.length ? (
+          <div className="cc-state">
+            <h3>Nothing here yet</h3>
+            <p className="muted">No customer confirmations found.</p>
+          </div>
+        ) : (
+          <div className="cc-table-container">
+            <table className="cc-table cc-master-table">
+              <thead>
+                <tr>
+                  <th>Confirmation ID</th>
+                  <th>Customer</th>
+                  <th>Proposal & Version</th>
+                  <th>Channel</th>
+                  <th>Response</th>
+                  <th>Created At</th>
+                  <th>Expires At</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(item => (
+                  <tr
+                    key={item.confirmation_id}
+                    className={selectedId === item.confirmation_id ? "row-selected" : ""}
                   >
-                    <span className="cc-row">
-                      <strong>{item.confirmation_id}</strong>
+                    <td>
+                      <button
+                        type="button"
+                        className="cc-table-link-btn"
+                        aria-pressed={selectedId === item.confirmation_id}
+                        onClick={() => onSelect(item.confirmation_id)}
+                      >
+                        <strong>{item.confirmation_id}</strong>
+                      </button>
+                    </td>
+                    <td>{item.customer_id}</td>
+                    <td>
+                      {item.reference.proposal_id} · v{item.reference.proposal_version}
+                    </td>
+                    <td>{item.channel.replace("MOCK_", "Mock ")}</td>
+                    <td>
                       <ConfirmationBadge value={item} />
-                    </span>
-                    <span className="cc-id">Customer: {item.customer_id}</span>
-                    <span className="muted">
-                      Proposal: {item.reference.proposal_id} · v{item.reference.proposal_version}
-                    </span>
-                    <span className="cc-row muted">
-                      <span>{item.channel.replace("MOCK_", "Mock ")}</span>
-                      <time>{formatKLTimestamp(item.created_at)}</time>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+                    </td>
+                    <td>{formatKLTimestamp(item.created_at)}</td>
+                    <td>{formatKLTimestamp(item.expires_at)}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => onSelect(item.confirmation_id)}
+                      >
+                        Inspect
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
-      <section className="cc-panel" aria-label="Confirmation details">
+      {/* Slide-over Confirmation Detail Drawer */}
+      {selectedId && (
+        <div className="cc-drawer-backdrop" onClick={() => onSelect("")} />
+      )}
+      <section
+        className={`cc-drawer cc-panel ${selectedId && selectedItem ? "active" : ""}`}
+        aria-label="Confirmation details"
+      >
         {!selectedItem ? (
           <div className="cc-state">
             <h3>Select a confirmation</h3>
             <p className="muted">View recorded responses, evidence and proposed amendments.</p>
           </div>
         ) : (
-          <div>
-            <div className="cc-row">
-              <div>
-                <p className="eyebrow">Customer response</p>
-                <h3>{selectedItem.confirmation_id}</h3>
+          <>
+            <div className="cc-drawer-header">
+              <div className="cc-row">
+                <div>
+                  <p className="eyebrow">Customer response</p>
+                  <h3>{selectedItem.confirmation_id}</h3>
+                </div>
+                <button
+                  type="button"
+                  className="cc-drawer-close"
+                  aria-label="Close confirmation details"
+                  onClick={() => onSelect("")}
+                >
+                  ✕
+                </button>
               </div>
-              <ConfirmationBadge value={selectedItem} />
             </div>
+            <div className="cc-drawer-body">
+              <div className="cc-row" style={{ marginBottom: "16px" }}>
+                <ConfirmationBadge value={selectedItem} />
+                <span>
+                  Customer: <strong>{selectedItem.customer_id}</strong>
+                </span>
+              </div>
 
-            <dl className="cc-facts">
-              <div>
-                <dt>Communication ID</dt>
-                <dd>
-                  <code>{selectedItem.communication_id}</code>
-                </dd>
-              </div>
-              <div>
-                <dt>Customer reference</dt>
-                <dd>{selectedItem.customer_id}</dd>
-              </div>
-              <div>
-                <dt>Channel</dt>
-                <dd>{selectedItem.channel.replace("MOCK_", "Mock ")}</dd>
-              </div>
-              <div>
-                <dt>Proposal version</dt>
-                <dd>
-                  {selectedItem.reference.proposal_id} · v{selectedItem.reference.proposal_version}
-                </dd>
-              </div>
-              <div>
-                <dt>Expires at</dt>
-                <dd>{formatKLTimestamp(selectedItem.expires_at)}</dd>
-              </div>
-              <div>
-                <dt>State</dt>
-                <dd>{selectedItem.state}</dd>
-              </div>
-            </dl>
+              <dl className="cc-facts">
+                <div>
+                  <dt>Communication ID</dt>
+                  <dd>
+                    <code>{selectedItem.communication_id}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Customer reference</dt>
+                  <dd>{selectedItem.customer_id}</dd>
+                </div>
+                <div>
+                  <dt>Channel</dt>
+                  <dd>{selectedItem.channel.replace("MOCK_", "Mock ")}</dd>
+                </div>
+                <div>
+                  <dt>Proposal version</dt>
+                  <dd>
+                    {selectedItem.reference.proposal_id} · v{selectedItem.reference.proposal_version}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Expires at</dt>
+                  <dd>{formatKLTimestamp(selectedItem.expires_at)}</dd>
+                </div>
+                <div>
+                  <dt>State</dt>
+                  <dd>{selectedItem.state}</dd>
+                </div>
+              </dl>
 
-            <section className="cc-section">
-              <h4>Inbound response attempts</h4>
-              {attempts.isFetching ? (
-                <P4Loading>Loading response attempts…</P4Loading>
-              ) : attempts.isError ? (
-                <p className="cc-error">Failed to load attempts.</p>
-              ) : attempts.data?.length ? (
-                <ul>
-                  {attempts.data.map(attempt => (
-                    <li key={attempt.attempt_id} className="cc-attempt-item">
-                      <div className="cc-row">
-                        <strong>Intent: {attempt.intent}</strong>
-                        <time>{formatKLTimestamp(attempt.received_at)}</time>
-                      </div>
-                      <p className="muted text-sm">{attempt.reason}</p>
-                      {attempt.proposed_changes && (
-                        <div className="cc-proposed-changes">
-                          <p className="text-sm font-semibold">Proposed counteroffer:</p>
-                          {attempt.proposed_changes.quantity && <p>Quantity: {attempt.proposed_changes.quantity}</p>}
-                          {attempt.proposed_changes.deadline && <p>Deadline: {formatKLTimestamp(attempt.proposed_changes.deadline)}</p>}
-                          {attempt.proposed_changes.special_instructions && (
-                            <p>Special instructions: {attempt.proposed_changes.special_instructions}</p>
-                          )}
+              <section className="cc-section">
+                <h4>Inbound response attempts</h4>
+                {attempts.isFetching ? (
+                  <P4Loading>Loading response attempts…</P4Loading>
+                ) : attempts.isError ? (
+                  <p className="cc-error">Failed to load attempts.</p>
+                ) : attempts.data?.length ? (
+                  <ul>
+                    {attempts.data.map(attempt => (
+                      <li key={attempt.attempt_id} className="cc-attempt-item">
+                        <div className="cc-row">
+                          <strong>Intent: {attempt.intent}</strong>
+                          <time>{formatKLTimestamp(attempt.received_at)}</time>
                         </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="muted">No response received yet.</p>
-              )}
-            </section>
-          </div>
+                        <p className="muted text-sm">{attempt.reason}</p>
+                        {attempt.proposed_changes && (
+                          <div className="cc-proposed-changes">
+                            <p className="text-sm font-semibold">Proposed counteroffer:</p>
+                            {attempt.proposed_changes.quantity && <p>Quantity: {attempt.proposed_changes.quantity}</p>}
+                            {attempt.proposed_changes.deadline && <p>Deadline: {formatKLTimestamp(attempt.proposed_changes.deadline)}</p>}
+                            {attempt.proposed_changes.special_instructions && (
+                              <p>Special instructions: {attempt.proposed_changes.special_instructions}</p>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="muted">No response received yet.</p>
+                )}
+              </section>
+            </div>
+          </>
         )}
       </section>
     </div>
@@ -1087,7 +1281,7 @@ function FollowUpQueueView({
   const expired = items.filter(c => c.state === "EXPIRED" || Date.parse(c.expires_at) <= now);
 
   return (
-    <div className="cc-section cc-panel">
+    <div className="cc-section cc-panel cc-full-width">
       <div className="cc-row">
         <div>
           <h3>Follow-Up Queue</h3>
@@ -1119,20 +1313,21 @@ function FollowUpQueueView({
           <p className="muted">No pending follow-ups or confirmations in queue.</p>
         </div>
       ) : (
-        <table className="cc-table">
-          <thead>
-            <tr>
-              <th>Confirmation ID</th>
-              <th>Customer</th>
-              <th>Proposal Version</th>
-              <th>State</th>
-              <th>Expires At</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map(c => (
-              <tr key={c.confirmation_id}>
+        <div className="cc-table-container">
+          <table className="cc-table cc-master-table">
+            <thead>
+              <tr>
+                <th>Confirmation ID</th>
+                <th>Customer</th>
+                <th>Proposal Version</th>
+                <th>State</th>
+                <th>Expires At</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(c => (
+                <tr key={c.confirmation_id}>
                   <td>
                     <code>{c.confirmation_id}</code>
                   </td>
@@ -1151,8 +1346,9 @@ function FollowUpQueueView({
                   </td>
                 </tr>
               ))}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
