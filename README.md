@@ -440,7 +440,7 @@ sequenceDiagram
     P4->>CUS: Approved proposal on customer's originating channel
     CUS->>P4: Actual reply, correlated to contact/order/thread
     P4->>CORE: confirmation.accepted for proposal version 2
-    CORE->>CORE: Agreement CONFIRMED only for exact assent; fulfilment separate
+    CORE->>CORE: Agreement is CONFIRMED only after exact assent, with fulfilment tracked separately
 ```
 
 - **Recovery options** — `RESCHEDULE_PARTIAL_FULFILMENT` and `ALTERNATIVE_SUPPLY`, each persisted against the exact feasibility source and Core risk evidence (`durable_plans.py`).
