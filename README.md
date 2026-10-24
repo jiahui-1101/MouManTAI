@@ -1,7 +1,3 @@
-> [!IMPORTANT]
-> ## 📁 Submission Documents
-> The current `main` snapshot does not include a `submission/` directory. Add and verify official SDC 2026 submission files before treating the checklist or proof-of-use links below as complete.
-
 # MouManTAI
 
 <p align="center">
@@ -44,7 +40,6 @@
 - [Innovation](#innovation)
 - [Business Impact & Measurement](#business-impact--measurement)
 - [Technical Deep Dive](#technical-deep-dive)
-- [Implementation Status & Verification Matrix](#implementation-status--verification-matrix)
 - [Technical Stack](#technical-stack)
 - [Installation](#installation)
 - [Environment Variables](#environment-variables)
@@ -114,15 +109,15 @@ When a supplier is late, a reminder does not answer the real questions: **which 
 
 ### Solution
 
-MouManTAI connects **Customer, SME and Supplier** in one evidence-backed commitment workflow — **Understand → Decide → Anticipate → Recover → Learn**. Deterministic processing handles known cases; Qwen interprets uncertain meaning, with Gemini API fallback on specified Qwen failures and evidence validation before Human Review or an authorized next step. GLiNER can provide additional extraction evidence where useful. A deterministic feasibility engine and Google OR-Tools CP-SAT support the owner's decision; every emergency action requires explicit authorized human plan approval before separate execution.
+MouManTAI is designed to connect **Customer, SME and Supplier** in one evidence-backed commitment workflow — **Understand → Decide → Anticipate → Recover → Learn**. Deterministic processing handles known cases; the target semantic route uses Qwen first, with a bounded Gemini API fallback on specified Qwen failures. Current code and provider evidence do not establish a deployed Gemini fallback or real-channel end-to-end journey. GLiNER can provide additional extraction evidence where useful. A deterministic feasibility engine and Google OR-Tools CP-SAT support the owner's decision; every emergency action requires explicit authorized human plan approval before separate execution.
 
 | Stage | What MouManTAI does |
 |---|---|
-| **Understand** | Receives customer and supplier messages through Telegram, official WhatsApp Cloud API and Email; processes text and attachments, extracts order terms with source evidence, asks targeted clarification questions, and routes uncertainty to Human Review. |
-| **Decide** | Checks clearly labelled Mock stock, lots, BOM and capacity; compares competing plans with OR-Tools CP-SAT; lets an authorized SME accept exact agreed terms after fresh feasibility and a guarded Mock reservation. |
-| **Anticipate** | Forecasts demand and supply risk from validated history and raises advisory alerts before a disruption becomes a breach. |
-| **Recover** | When verified supplier evidence indicates delay, identifies affected commitments, ranks recovery options by cost, delay and risk, and executes the chosen scoped plan only after explicit human approval and fresh revalidation. |
-| **Learn** | Records decisions, approvals and verified outcomes in Decision Memory, so the next similar case starts from evidence instead of memory. |
+| **Understand** | The target workflow receives customer and supplier messages through Telegram, official WhatsApp Cloud API and Email; it processes text and attachments, extracts order terms with source evidence, asks targeted clarification questions, and routes uncertainty to Human Review. |
+| **Decide** | The implemented prototype checks clearly labelled Mock stock, lots, BOM and capacity and compares plans with OR-Tools CP-SAT. The target workflow lets an authorized SME accept exact agreed terms after fresh feasibility and a guarded Mock reservation. |
+| **Anticipate** | The prototype includes forecasting components; a consented SME pilot is needed to validate operational alerts against real history. |
+| **Recover** | The target workflow uses verified supplier evidence to identify affected commitments, rank recovery options by cost, delay and risk, and execute a scoped plan only after explicit human approval and fresh revalidation. |
+| **Learn** | The target workflow records decisions, approvals and verified outcomes in Decision Memory, so later cases can start from evidence. |
 
 **Three perspectives, one shared decision core:**
 
@@ -149,13 +144,13 @@ flowchart LR
     RECOVER --> COMM["Communicate & Learn<br/>authorized same-origin message<br/>exact assent · independent fulfilment evidence<br/>audit · Decision Memory"]
 ```
 
-For example, a customer orders through WhatsApp. MouManTAI preserves the message, extracts terms with source evidence, checks available Mock resources, and presents the request for SME acceptance. Later, a verified supplier reports a delivery delay. MouManTAI identifies affected commitments, proposes feasible recovery alternatives, and executes only an explicitly approved plan. It contacts the customer through the originating channel and tracks customer agreement separately from actual fulfilment. The final Telegram, WhatsApp and Email channels are real API integration targets; Orbyte inventory, BOM and capacity remain Mock/Synthetic.
+**Illustrative target journey, not a live-provider end-to-end record:** a customer orders through WhatsApp. The target workflow preserves the message, extracts terms with source evidence, checks available Mock resources, and presents the request for SME acceptance. Later, a verified supplier reports a delivery delay. The target workflow identifies affected commitments, proposes feasible recovery alternatives, and executes only an explicitly approved plan. It contacts the customer through the originating channel and tracks customer agreement separately from actual fulfilment. Telegram, WhatsApp and Email are real API integration targets; Orbyte inventory, BOM and capacity remain Mock/Synthetic.
 
 ---
 
 ## System Flow
 
-Target end-to-end journey for one commitment. The identity gate below safely persists inbound messages first; verified contacts may continue to the customer or supplier workflow. Unverified content may receive non-authoritative analysis, but cannot trigger commitment, supplier-authority or customer-assent actions. Current implementation and evidence tiers are in the [Implementation Status & Verification Matrix](#implementation-status--verification-matrix).
+Target end-to-end journey for one commitment. The identity gate below persists inbound messages before processing; verified contacts may continue to the customer or supplier workflow. Unverified content may receive non-authoritative analysis, but cannot trigger commitment, supplier-authority or customer-assent actions.
 
 For first contact, an authorized human must confirm the Customer or Supplier role, tenant association and immutable channel identifiers; record the evidence, reviewer and audit decision. Rejected, suspicious or ambiguous identities stay held or enter review. Do not grant supplier authority, accept customer assent or merge cross-channel contacts from name similarity or AI confidence alone; cross-channel linking requires verified identity plus trustworthy Order ID/context.
 
@@ -252,7 +247,7 @@ flowchart TB
     end
 
     subgraph EXT["External services"]
-        LLM["Qwen semantic API<br/>Gemini fallback on specified failure"]
+        LLM["Target semantic route<br/>Qwen first; bounded Gemini fallback"]
         RP["Optional RunPod compute<br/>configure and verify before use"]
         RAI["Optional Replit reply wording<br/>approved templates remain safe default"]
         ORB["Orbyte business data<br/>MOCK / SYNTHETIC<br/>inventory · BOM · capacity"]
@@ -289,7 +284,7 @@ flowchart TB
 | Layer | Responsibility |
 |---|---|
 | **Real communication channels** | Telegram Bot API, official WhatsApp Cloud API test number, and real Email. Customer and supplier messages use their provider events; replies use the originating channel when permitted. An API acknowledgment is not delivery, assent or fulfilment. |
-| **Current adapter starting points** | Telegram polling/webhook and WhatsApp webhook code, plus Gmail OAuth/polling code. Evaluate Resend inbound first for Email; a verified outbound provider and thread correlation are required. Adapter code alone does not establish real provider E2E; see the status matrix. |
+| **Current adapter starting points** | Telegram polling/webhook and WhatsApp webhook code, plus Gmail OAuth/polling code. Evaluate Resend inbound first for Email; a verified outbound provider and thread correlation are required. Adapter code alone does not establish real provider end-to-end behavior. |
 | **Mock business authority** | Orbyte inventory, BOM, capacity, supplier availability, resource reads/reservations and receipts use deterministic tenant/version-scoped Mock data and adapters. Internal P2, CP-SAT, approval, guarded reservation logic, PostgreSQL transitions and audit are real application behavior over disclosed Mock inputs. |
 | **Frontend** | One SME Command Center with sidebar workspaces: Dashboard, Inbox, Orders, Planning, Suppliers, Recovery, Communications, Insights. Customers and suppliers interact through messaging, so no separate portal is required. |
 | **Understand** | `context`, `conversations` and `orders` turn messages into versioned, evidence-backed order contexts and canonical `OrderTerms`. |
@@ -297,7 +292,7 @@ flowchart TB
 | **Anticipate · Recover · Learn** | `forecasting`, `recovery`, `communication`, `decision_memory` and `operational_reporting`. |
 | **Core** | The Commitment Registry owns commitment identity, version, the five state dimensions, audit records, resource reservations and the transactional outbox. |
 | **Data & workers** | PostgreSQL 16 (SQLAlchemy 2 + psycopg 3, Alembic migrations) and the outbox worker that dispatches events to subscribers with retry, back-off and dead-lettering. |
-| **External services** | Configurable Qwen then Gemini API fallback for semantic analysis; optional RunPod compute where configured; optional Replit reply wording with approved factual templates as the safe default; isolated Mock Orbyte business-data ports. |
+| **External services** | Qwen is the first semantic model in the target route, with bounded Gemini fallback on specified failures; optional RunPod compute where configured; optional Replit reply wording with approved factual templates as the safe default; isolated Mock Orbyte business-data ports. |
 
 ---
 
@@ -305,7 +300,7 @@ flowchart TB
 
 ### 1. Multi-Channel Customer Inbox
 
-The final system receives real customer and supplier messages through provider adapters. Existing inbound adapter code is in `backend/app/context/channels/`; current evidence and missing E2E gates are summarized in the [verification matrix](#implementation-status--verification-matrix).
+The target system receives real customer and supplier messages through provider adapters. Existing inbound adapter code is in `backend/app/context/channels/`; real-provider end-to-end behavior still needs verification.
 
 - **Telegram Bot API** — long polling via `getUpdates` with a persistent offset (no duplicate updates across restarts), or webhook mode verified with a secret token. Webhook and polling conflicts are resolved automatically.
 - **Email** — retain the Gmail API OAuth/polling adapter (token refresh, history cursor, pagination and deduplication). Evaluate Resend inbound first for hosted/test receipt, body and attachment retrieval; select and verify legitimate outbound sending separately, preserving `Message-ID`, `In-Reply-To`, `References` and thread correlation.
@@ -325,7 +320,7 @@ flowchart TD
     Q0 -- "No" --> QWEN["Selective Qwen interpretation<br/>bounded request; source evidence"]
     QWEN --> VQ["Schema + evidence validation<br/>source refs · contradictions · policy"]
     VQ -- "Valid and usable" --> RECON["Reconcile with deterministic fields<br/>proposal · duplicate · conflict · rejected"]
-    VQ -- "API error · timeout · invalid output" --> GEM["Gemini API fallback<br/>bounded attempt"]
+    VQ -- "API error · timeout · invalid output" --> GEM["Gemini API fallback target<br/>bounded attempt"]
     GEM --> VG["Validate schema + evidence again"]
     VG -- "Valid and usable" --> RECON
     VG -- "Unavailable · invalid · uncertain" --> HR
@@ -335,12 +330,12 @@ flowchart TD
 
 - **L0 rules** (`deterministic_extraction.py`) handle multilingual SKU aliases from an approved catalogue (for example "burger", "bgr", "汉堡"), quantities, unit normalisation, timezone-aware delivery dates and deadlines, rescheduling phrases and self-corrections. Every observation stores exact Unicode code-point offsets `[start, end)`.
 - **Routing** (`context/ai/service.py`) skips the GPU for non-order inquiries ("berapa harga", "请问多少"), fully resolved orders, unsupported-unit cases that need an authorised human, and timezone-only gaps that a model cannot fix. The reason is stored with the message.
-- **Selective semantic route** — when rules cannot settle meaning, Qwen is first; Gemini API is the bounded fallback on Qwen API failure, timeout or structured/schema/evidence validation failure. If neither yields trustworthy evidence, route to Human Review. Existing GLiNER stages may provide extraction evidence where useful; GLiNER does not replace the Qwen-first semantic route.
+- **Selective semantic route target** — when rules cannot settle meaning, Qwen is first; Gemini API is the bounded fallback on Qwen API failure, timeout or structured/schema/evidence validation failure. If neither yields trustworthy evidence, route to Human Review. This README does not claim the Gemini fallback is implemented or deployed. Existing GLiNER stages may provide extraction evidence where useful; GLiNER does not replace the Qwen-first semantic route.
 - **Validation and privacy** — validate permitted output types, schema, source refs, confidence/useability flags and contradictions after either model; valid JSON alone is insufficient. Bound time, attempts, tokens and spend; minimize or redact personal data. If safe redaction is not possible and a model is required, route to Human Review without external disclosure. Model output proposes facts for review and never authorizes business action.
 
 ### 3. Evidence-Backed Documents and Attachments
 
-`document_extractor.py` uses **PyMuPDF** for machine-readable PDF text and **PaddleOCR** for images/scanned pages when supported by the runtime. Preserve the original attachment, content/type limits and provenance. Each extraction records an `evidence_ref`, status and source location; OCR text is evidence for review, never proof of payment. If extraction fails, keep the message, mark the attachment `UNVERIFIED` or `EXTRACTION_FAILED`, create Human Review for any dependent facts and continue only with independently supported body text. Never infer an unsupported SKU, price, quantity, delivery term or assent from an unreadable file. Runtime and acceptance coverage are listed in the verification matrix.
+`document_extractor.py` uses **PyMuPDF** for machine-readable PDF text and **PaddleOCR** for images/scanned pages when supported by the runtime. Preserve the original attachment, content/type limits and provenance. Each extraction records an `evidence_ref`, status and source location; OCR text is evidence for review, never proof of payment. If extraction fails, keep the message, mark the attachment `UNVERIFIED` or `EXTRACTION_FAILED`, create Human Review for any dependent facts and continue only with independently supported body text. Never infer an unsupported SKU, price, quantity, delivery term or assent from an unreadable file.
 
 ### 4. Conversational Ordering and Adaptive Clarification
 
@@ -596,7 +591,7 @@ Chat apps carry the conversation, spreadsheets carry the stock, and basic order 
 
 | Need | Chat apps | Spreadsheets | Basic order tools | MouManTAI |
 |---|---|---|---|---|
-| Understand a messy multilingual order | Staff re-type details | Manual entry | Form fields only | Deterministic rules → Qwen → Gemini fallback, with validated source evidence and optional GLiNER extraction |
+| Understand a messy multilingual order | Staff re-type details | Manual entry | Form fields only | Target route: deterministic rules → Qwen → bounded Gemini fallback; validate source evidence and use optional GLiNER extraction |
 | Check if an order can be fulfilled | — | Manual formulas | Stock count only | Time-phased ATP, lot expiry, BOM and capacity on a versioned snapshot |
 | Handle competing orders | — | Gut feeling | First come, first served | CP-SAT portfolios re-validated by the same feasibility engine |
 | React to a supplier delay | Someone reads it | Someone recalculates | Status flag | Impact on affected commitments only, ranked recovery options |
@@ -606,7 +601,7 @@ Chat apps carry the conversation, spreadsheets carry the stock, and basic order 
 **What is new:**
 
 1. **Evidence-backed commitments with source spans.** Every extracted field stores the message ID, the exact quote and its `[start, end)` offsets, and the method that produced it (`RULE`, `MODEL`, `HUMAN`). A reviewer can always see *why* the system believes a quantity or deadline, and a model quote that does not match the source is rejected.
-2. **Cheapest-reliable-layer selective AI.** Deterministic rules handle known cases first; Qwen handles unresolved semantics, with Gemini as a bounded fallback on specified Qwen failures. GLiNER may add extraction evidence where useful. Every model output is validated against source evidence, and AI never calculates stock, grants authority or certifies delivery.
+2. **Cheapest-reliable-layer selective AI.** Deterministic rules handle known cases first; the target route uses Qwen for unresolved semantics, with Gemini as a bounded fallback on specified Qwen failures. GLiNER may add extraction evidence where useful. Every model output must be validated against source evidence, and AI never calculates stock, grants authority or certifies delivery.
 3. **CP-SAT plans re-validated by the same feasibility engine.** The optimiser searches, but the feasibility engine decides. Every projected portfolio is fingerprinted and checked by the same evaluator used for single orders, so a solver bug or modelling gap cannot produce a plan the business cannot keep.
 4. **Version-bound human approval with separate approval and execution records.** One *Approve & Execute* click produces two commands and two audit records. Approval is bound to plan, snapshot and commitment versions, expires, and is consumed once. If the data changes, re-approval is required.
 5. **Closed-loop confirmation that tracks agreement and fulfilment separately.** `SENT ≠ ACCEPTED ≠ FULFILLED`. Customer acceptance is matched to an exact proposal version, and fulfilment needs its own evidence. The owner always knows which step a promise is really at.
@@ -617,17 +612,19 @@ Chat apps carry the conversation, spreadsheets carry the stock, and basic order 
 
 ## Business Impact & Measurement
 
-These KPIs define how a future SME pilot can evaluate operational usefulness, productivity and commitment reliability. They are measurement definitions, not achieved results. Baseline, target and actual are **Not measured — requires SME pilot data** until timestamped, independently reviewable pilot evidence exists.
+These KPIs define how a future SME pilot can evaluate operational usefulness, productivity and commitment reliability. They are measurement definitions, not achieved results.
 
-| KPI | Calculation and required evidence | SME relevance and limitations | Baseline / target / actual |
-|---|---|---|---|
-| **Risk Detection Latency** | For each verified supplier-risk event, alert creation time minus durable receipt time of the source evidence. Correlate the provider message ID, durable `received_at`, evidence reference and alert `created_at`. | Measures how quickly owners learn which commitments may be at risk. Depends on provider delivery, durable queueing, OCR/model latency and reliable clocks; measure provider and processing delay separately where possible. | Not measured — requires SME pilot data |
-| **Order Decision Time** | Authorized final SME decision time minus the time a complete, valid request entered `PENDING_ACCEPTANCE`. Record request/version, completeness decision, `pending_acceptance_at` and authorized decision timestamp. | Measures time from decision-ready order to acceptance/rejection. Excludes time spent obtaining missing customer information; completeness rules must be applied consistently across baseline and pilot. | Not measured — requires SME pilot data |
-| **Recovery Completion Rate** | Recovery cases with independently evidenced successful resolution by their evaluation deadline ÷ all recovery cases whose evaluation deadline falls in the measurement period × 100. Use case ID, evaluation deadline, resolution time and independent fulfilment or operational evidence. | Measures whether recovery plans resolve disruptions rather than merely being approved or executed. Results depend on correct case linkage, evidence availability and a consistent deadline policy; report unresolved and unverified cases separately. | Not measured — requires SME pilot data |
-| **Manual Handling Steps** | Count logged human administrative actions per order from receipt to closure, including manual entry, checks, coordination and approvals. Use timestamped actor/action audit events; exclude automated processing and count repeated actions transparently. | Indicates administrative effort and adoption friction. Approval remains necessary for consequential decisions, and more complex orders naturally need more review; compare similar order types and report the action taxonomy. | Not measured — requires SME pilot data |
-| **On-Time Commitment Fulfilment Rate** | Commitments due during the period with independent evidence of fulfilment at or before the agreed deadline ÷ all commitments due during the period × 100. Use the exact confirmed deadline/version and fulfilment evidence timestamp. | Measures reliability of customer promises. Do not count message sent, customer assent, supplier promise or synthetic receipt as fulfilment; disclose missing evidence, partial fulfilment and deadline changes separately. | Not measured — requires SME pilot data |
+| KPI | How We Measure It | Business Value for SMEs |
+|---|---|---|
+| **Risk Detection Latency** | Alert creation time minus durable receipt time for verified supplier-risk evidence; correlate provider message ID, `received_at`, evidence reference and alert `created_at`. | Shows how quickly owners learn which commitments may be at risk. Separate provider delivery from processing delay where possible. |
+| **Order Decision Time** | Authorized final SME decision time minus the time a complete, valid request entered `PENDING_ACCEPTANCE`; record request/version, completeness decision and timestamps. | Measures time from decision-ready order to acceptance or rejection; excludes time waiting for missing customer information. |
+| **Recovery Completion Rate** | Recovery cases with independently evidenced resolution by their evaluation deadline ÷ all cases due in the period × 100; report unresolved and unverified cases separately. | Shows whether recovery plans resolve disruptions, rather than merely being approved or executed. |
+| **Manual Handling Steps** | Count timestamped human administrative actions per order from receipt to closure, including entry, checks, coordination and approvals; exclude automated processing. | Indicates administrative effort and adoption friction; compare similar order types and keep consequential approvals visible. |
+| **On-Time Commitment Fulfilment Rate** | Commitments due in the period with independent fulfilment evidence at or before the agreed deadline ÷ all commitments due × 100. | Measures reliability of customer promises. A sent message, customer assent, supplier promise or synthetic receipt does not count as fulfilment. |
 
-Together, these measures can test whether MouManTAI reduces avoidable handling time and helps SMEs protect commitments, supporting the intended SDG 8 productivity and business-growth alignment. For adoption and scalability, report results by SME, order volume, channel and order type rather than pooling unlike workloads without context. Any real-world impact claim requires a documented baseline, consented SME pilot, defined cohort and period, and independently reviewable outcomes; synthetic tests do not establish business impact.
+**Measurement integrity:** No baseline, target or actual performance is claimed; all five KPIs require consented SME pilot data and independently reviewable evidence. Synthetic tests do not establish business impact.
+
+Together, these measures can test whether MouManTAI reduces avoidable handling time and helps SMEs protect commitments, supporting the intended SDG 8 productivity and business-growth alignment. For adoption and scalability, report results by SME, order volume, channel and order type rather than pooling unlike workloads without context. Any real-world impact claim requires a documented baseline, consented SME pilot, defined cohort and period, and independently reviewable outcomes.
 
 ---
 
@@ -659,7 +656,7 @@ The outbox worker (`app/worker.py`, `core/outbox.py`) polls pending events, exec
 
 | Module | How it works | Connects to |
 |---|---|---|
-| **`context`** | Ingests provider messages, stores attachments, runs L0 rules and useful extraction stages, reconciles fields to canonical terms, associates messages through verified contact/order evidence, records versioned human reviews, and publishes eligible contexts to Core. Final semantic fallback is Qwen → Gemini with evidence validation. | `channels`, configured model providers, `orders`, Core |
+| **`context`** | Ingests provider messages, stores attachments, runs L0 rules and useful extraction stages, reconciles fields to canonical terms, associates messages through verified contact/order evidence, records versioned human reviews, and publishes eligible contexts to Core. The target semantic route is Qwen → bounded Gemini fallback with evidence validation. | `channels`, configured model providers, `orders`, Core |
 | **`conversations`** | Pure, versioned clarification decisions per unresolved issue, plus the factual reply pipeline (`ReplyGenerator`, `TemplateGenerator`, `ReplitGenerator`). | `context`, `communication` |
 | **`orders`** | Canonical `OrderTerms`, exact-terms comparison and guard, P1 context → acceptance-candidate mapping, trusted P1 source reader and a read-only status projection. | `context`, Core reservations |
 | **`feasibility`** | ATP, BOM, capacity, supplier pipeline and impact calculations over immutable snapshots; Core-backed assessment history and impact readers; consumer for `commitment.confirmed`. | Core, `optimization`, `recovery`, `forecasting` |
@@ -679,7 +676,7 @@ The outbox worker (`app/worker.py`, `core/outbox.py`) polls pending events, exec
 
 ### Existing RunPod adapter (implementation detail)
 
-The current RunPod adapter supports GLiNER/Qwen inference as described below. The final semantic route is Qwen first with Gemini fallback; this adapter does not yet implement the Gemini fallback, as recorded in the status matrix.
+The current RunPod adapter supports GLiNER/Qwen inference as described below. Gemini fallback is a separate target requirement and is not implemented by this adapter.
 
 ```text
 backend (EndpointAdapter)                      RunPod Serverless worker
@@ -697,7 +694,7 @@ validate_evidence(output, request)
 - **Input bounds** (`protocol.py`) — at most four source messages and 4,000 characters in total; over-budget input is refused rather than silently truncated.
 - **Worker image** (`context/ai/Dockerfile`) — digest-pinned `pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime` base with pinned `gliner`, `transformers`, `runpod` and related packages from `requirements-gpu.txt`. Models load lazily on the first job.
 - **Stage control** — `P1_AI_ENABLED` turns the model path on; `P1_AI_STAGES` selects stages. The code default is `gliner` only, so Qwen (L2) requires an explicit opt-in; `.env.example` and Docker Compose set `gliner,qwen`.
-- **Failure codes** — only fixed codes cross the boundary (`timeout`, `endpoint_http_error`, `model_mismatch`, `evidence_mismatch`, …); provider bodies and credentials are never echoed. In this current adapter, failure preserves rule fields and routes to Human Review; the final Qwen-to-Gemini fallback remains a separate target requirement.
+- **Failure codes** — only fixed codes cross the boundary (`timeout`, `endpoint_http_error`, `model_mismatch`, `evidence_mismatch`, …); provider bodies and credentials are never echoed. In this current adapter, failure preserves rule fields and routes to Human Review; Qwen-to-Gemini fallback remains a separate target requirement.
 
 ### Security and trust boundaries
 
@@ -724,36 +721,6 @@ The React 19 SPA (`frontend/src`) uses React Router 7 and TanStack Query 5. `sha
 | `shared/` | `ApprovalActionControl`, `ConfirmationDialog`, `VersionConflictBanner`, `EvidenceTierBadge`, `StatusBadge`, `StateTimeline`, `UncertaintyNote`, `ErrorBoundary` |
 
 Design rules carried through the UI: pending states never use a success colour; a version conflict shows a banner instead of overwriting; uncertainty is shown explicitly; and every consequential action asks for confirmation first.
-
----
-
-## Implementation Status & Verification Matrix
-
-The final architecture above describes the intended v2.2 product. Implementation evidence was reviewed against code baseline `main` at `f6eca1ac93b382c2ffe68965e18b55f12e03d322` (24 Oct 2026). PRs #86, #87 and #89 are merged and included in that snapshot; #89 adds pure channel-framing helpers and tests but does not wire runtime persistence/provider E2E. PRs #81–#85, #88 and #90 were open at review time and are not counted as merged capabilities. No channel has `REAL_CHANNEL_VERIFIED` evidence in the reviewed sources.
-
-| Capability | Final Required Behavior | Current Evidence | Verification Status | Remaining Gate |
-|---|---|---|---|---|
-| Telegram inbound / outbound / reply | Real Bot API ingress, provider IDs and same-chat replies | Inbound starting code/tests: `backend/app/context/channels/telegram.py`, `backend/app/context/tests/test_telegram_channel.py`; merged PR #89 adds pure framing tests, not runtime wiring; P4 uses `LocalMockProvider` in `backend/app/communication/providers.py` | `IMPLEMENTED_NOT_E2E_VERIFIED` inbound; `SYNTHETIC_ONLY` outbound | Configure bot/webhook secret and prove provider message, authorized reply, receipt and correlated customer reply |
-| WhatsApp inbound / outbound / reply | Official Meta Cloud API test number; actual sends, callbacks and replies within number/template/window restrictions | Inbound webhook code/tests: `backend/app/context/channels/whatsapp.py`, `backend/app/context/tests/test_whatsapp_channel.py`; merged PR #89 adds pure framing tests, not runtime wiring; no real outbound E2E record found | `IMPLEMENTED_NOT_E2E_VERIFIED` inbound; `SYNTHETIC_ONLY` outbound | Configure official test number, allowed recipients, webhook signatures/status callbacks and prove send/reply E2E |
-| Email inbound / outbound / threaded reply | Genuine receipt and send, body/attachment retrieval and thread correlation | Gmail OAuth/polling starting code/tests: `backend/app/context/channels/gmail.py`, `backend/app/context/tests/test_gmail_channel.py`; merged PR #89 adds pure framing tests, not runtime wiring; no selected real outbound sender/threaded E2E evidence | `IMPLEMENTED_NOT_E2E_VERIFIED` inbound adapter; outbound `IN_PROGRESS` | Evaluate Resend inbound first (test address, webhook, body and attachments); select outbound separately; authorize verified From/Reply-To and prove IDs, headers, media and reply correlation |
-| Contact Registry / first-contact verification | Human verifies role, tenant and immutable channel IDs; safe cross-channel linking | No merged Contact Registry implementation or provider-level verification trace identified; next-phase requirements are described in the unmerged PR #88 handoff | `IN_PROGRESS` | Implement registry, audit/revocation and fail-closed spoof, tenant, ambiguity and cross-channel tests |
-| Message extraction and Qwen → Gemini | Deterministic first, Qwen as first semantic model, Gemini fallback on specified failure, schema/evidence validation | Current context AI route/protocol and GLiNER/Qwen components under `backend/app/context/ai/`; main has no evidenced Gemini fallback or live inference trace | `IN_PROGRESS` | Implement bounded Qwen/Gemini routing, redaction, validation and fallback tests; record provider evidence |
-| PDF/image/OCR positive and failure paths | Parse supported files; preserve provenance; failed dependency/extraction creates Human Review without invented terms | `backend/app/context/document_extractor.py` and context tests; release audit records `test_e2e_11_pdf_image_evidence_traceable_payment_unverified` failed (`FAILED` vs expected `SUCCESS`) with PyMuPDF/PaddleOCR absent | `BLOCKED` | Install/check runtime dependencies; pass positive and malformed/unreadable tests; verify failure-to-Review behavior |
-| Customer OrderRequest and acceptance | Real ingress → verified contact → versioned request → fresh P2 → authorized exact-term SME acceptance | Existing terms/context/Core components; durable Mock OrderRequest flow and API are in unmerged PR #81 | `IN_PROGRESS` | Merge/review separately; verify real ingress binding, exact version, authorization, PostgreSQL, audit and UI journey |
-| Mock Orbyte reservation and receipt | Actual guarded internal operation over disclosed Mock resources; never live Orbyte authority | Core reservation and business-port code/tests; PR #81 describes persisted Mock receipts and concurrency cases but remains unmerged | `SYNTHETIC_ONLY` | Verify merged persisted reservation, idempotency/concurrency/unknown outcomes and receipt-to-commitment audit |
-| P2 feasibility and supplier impact | Shared deterministic evaluator over tenant/version-scoped Mock inventory, BOM and capacity | `backend/app/feasibility/` engines/tests and synthetic integration handoffs; no live Orbyte data source | `SYNTHETIC_ONLY` | Verify end-to-end P2 against Mock OrderRequests, freshness and supplier impact linkage; keep Mock labels visible |
-| OR-Tools CP-SAT optimization | FCFS, Profit and Expiry-Aware; hard constraints, exact scaling and full P2 revalidation | `backend/app/optimization/` and merged CP-SAT tests/handoff; optimizer is advisory over synthetic constraints | `SYNTHETIC_ONLY` | Verify registered full-portfolio source/API/UI path; preserve missing-input, timeout and P2-mismatch fail-closed states |
-| Supplier comparison and RFQ | Hard specifications before price; Qualified/Conditional/Incompatible; unsent RFQ draft distinct from authorized send | `backend/app/sourcing/` comparison logic and tests; persisted synthetic supplier API / RFQ work is in open PR #83 | `SYNTHETIC_ONLY` | Verify persisted source/evidence and SME choice; real authorized provider send/reply remains a channel gate |
-| Emergency Recovery approval and execution | Real verified supplier incident; scoped human plan approval, separate revalidated execute command; Mock action receipt | Recovery modules and synthetic supplier-delay tests/handoffs; no real supplier-channel-to-customer-channel journey evidenced | `SYNTHETIC_ONLY` | Link real verified message to alert/impact; prove approval/execution separation, Mock receipt and correlated audit |
-| Customer communication and explicit assent | Same-origin real send/reply, truthful provider states, exact proposal/version assent separate from fulfillment | P4 communication/confirmation code and `LocalMockProvider`; no real provider receipts or customer replies in reviewed evidence | `SYNTHETIC_ONLY` | Add real outbound adapters, consent/opt-out, origin-channel failure and actual reply/assent E2E |
-| Forecasting and Decision Memory | Baselines/backtests and provenance-aware case retrieval; synthetic history labelled Demo-only | Existing `backend/app/forecasting/` and `backend/app/decision_memory/` modules; persisted synthetic APIs/fixtures in open PRs #84 and #88 | `SYNTHETIC_ONLY` | Merge/review API work; retain synthetic labels; validate performance only with genuine held-out history and outcomes |
-| PostgreSQL, audit, outbox and worker reliability | Durable raw intake/outbox, idempotency, retries, reconciliation, tenant isolation and truthful unknown state | SQLAlchemy/Alembic/Core/outbox implementation and PostgreSQL CI suites in main; no real-provider cold-start/send reconciliation evidence | `IMPLEMENTED_NOT_E2E_VERIFIED` | Verify durable provider webhook handoff, restart/replay, duplicate/out-of-order events, retries and real send reconciliation |
-| Frontend browser integration | Main business pages consume backend status/review APIs and show evidence tiers, failures and Mock labels | React pages and component tests exist; latest PR #88 handoff says new Mock APIs are not wired and browser-to-provider E2E is not complete | `IN_PROGRESS` | Wire backend/API clients and run browser → API → PostgreSQL → provider → UI E2E |
-| Replit development use | Replit used for development/code changes; no implication of live hosting or AI-integration use | Owner confirms Replit was used to write and modify project code; no workspace export or Replit Proof-of-Use PDF is in `main` | `OWNER_CONFIRMED_HISTORICAL_USE` | Add verified project URL and `submission/SDC2026_XMM_Replit_POU.pdf` when available; keep hosting status separate |
-| RunPod GLiNER/Qwen inference | Optional historical inference path; current endpoint and Gemini fallback must be assessed separately | Owner confirms FastAPI previously ran GLiNER multi v2.1 and Qwen3-4B-Instruct-2507 inference; endpoint adapter/image are in `backend/app/context/ai/`; no POU PDF or runtime log is in `main` | `OWNER_CONFIRMED_HISTORICAL_USE` | Attach `submission/SDC2026_XMM_Runpod_POU.pdf`; current endpoint availability and complete Qwen→Gemini path remain unverified |
-| Vercel, Render and database deployment | Vercel frontend, Render FastAPI/webhooks, durable PostgreSQL and an available async worker | Local Docker Compose and provider adapters are in main; no verified Vercel/Render deployment URL/configuration or cold-start evidence identified | `IN_PROGRESS` | Provision target services; verify HTTPS, durable intake, worker availability, cold starts, retries and database lifecycle; no always-on claim |
-
-`REAL_CHANNEL_VERIFIED` requires actual authorized provider callbacks/API calls and replies for that channel and test mode. `MOCK_RESOURCE_VERIFIED` requires verified internal calculation, approval, reservation, persistence and tests over disclosed Mock resources. Neither is inferred from unit tests, mocked SDKs, an OpenAPI route or an unmerged PR. `SYNTHETIC_ONLY` means fixture/demo evidence without real provider evidence. `BLOCKED` records a known release gate, not an acceptable final state.
 
 ---
 
@@ -795,7 +762,7 @@ The final architecture above describes the intended v2.2 product. Implementation
 |---|---|
 | Deterministic rules | First path for known fields, normalization, deduplication and safe public FAQ eligibility |
 | Qwen | First selective semantic interpreter when rules are insufficient |
-| Gemini API | Required bounded fallback on Qwen error, timeout or structured/evidence validation failure |
+| Gemini API | Target bounded fallback on Qwen error, timeout or structured/evidence validation failure; not claimed as implemented or deployed |
 | GLiNER `urchade/gliner_multi-v2.1` | Existing optional multilingual span-extraction support where useful; not a replacement for Qwen-first semantics |
 | RunPod Serverless | Optional external compute adapter; configure and verify before describing as active |
 | PyMuPDF · PaddleOCR | PDF text and image OCR for attachments |
@@ -809,7 +776,7 @@ The final architecture above describes the intended v2.2 product. Implementation
 | Docker Compose | `db`, `api` and `worker` services |
 | GitHub Actions | Backend, PostgreSQL, optimisation, frontend and hygiene checks |
 
-**Preferred application deployment target:** Vercel for the React/TypeScript frontend, Render for FastAPI and public webhooks, and durable PostgreSQL. RunPod is optional inference compute. These are target choices; see the status matrix for deployment evidence.
+**Preferred application deployment target:** Vercel for the React/TypeScript frontend, Render for FastAPI and public webhooks, and durable PostgreSQL. RunPod is optional inference compute. These are target choices; no hosted deployment is claimed here.
 
 ---
 
@@ -962,51 +929,37 @@ The first table lists variables present in the repository's current configuratio
 
 ## Deployment
 
+The diagram shows the intended hosted topology. Docker Compose is the current local development setup; Vercel, Render, durable hosted PostgreSQL and real provider connections are target choices, not verified deployments.
+
 ```mermaid
-flowchart LR
-    subgraph USER["Browser"]
-        UI["React SPA<br/>SME Command Center"]
-    end
+flowchart TB
+    B["Browser"] --> V["Vercel<br/>React and TypeScript frontend"]
+    V --> API["Render<br/>FastAPI API and HTTPS webhooks"]
+    API --> DB[("Durable PostgreSQL<br/>application, inbox and outbox data")]
+    DB --> WORK["Render background worker<br/>transactional outbox consumers"]
+    WORK --> DB
 
-    subgraph VITE["Vite dev server · :5173"]
-        PX["Proxy /v1 · /health"]
-    end
+    TG["Telegram Bot API"] --> CH["Channel adapters"]
+    WA["Official Meta WhatsApp Cloud API<br/>test number"] --> CH
+    EMAIL["Email<br/>Gmail integration; evaluate Resend inbound"] --> CH
+    CH --> API
+    WORK --> CH
+    CH --> TG
+    CH --> WA
+    CH --> EMAIL
 
-    subgraph COMPOSE["Docker Compose · docker-compose.yml"]
-        DB[("db<br/>postgres:16-alpine<br/>host 5433 → 5432<br/>volume moumantai-postgres<br/>healthcheck pg_isready")]
-        API["api<br/>backend/Dockerfile · python:3.11-slim<br/>alembic upgrade head → seed → uvicorn :8000<br/>healthcheck /health"]
-        WK["worker<br/>python -m app.worker<br/>outbox dispatcher"]
-    end
-
-    subgraph EXT["External services"]
-        LLM["Qwen semantic API → Gemini fallback<br/>provider deployment unverified"]
-        RP["Optional RunPod compute<br/>deployment unverified"]
-        CHN["Telegram · Gmail · WhatsApp Cloud API<br/>Email provider selection pending"]
-        RAI["Replit AI Integrations<br/>adapter switched off until verified"]
-        ORB["Orbyte business ports<br/>MOCK / SYNTHETIC"]
-    end
-
-    subgraph CI["GitHub Actions"]
-        GHA["pytest · CP-SAT · Vitest · tsc · build<br/>postgres:16 service"]
-    end
-
-    UI --> PX --> API
-    API -->|"depends_on: healthy"| DB
-    WK -->|"depends_on: api healthy"| API
-    WK --> DB
-    API --> LLM
-    API -. optional configured compute .-> RP
-    CHN --> API
-    API --> RAI
-    API <--> ORB
+    API --> QWEN["Qwen semantic processing"]
+    QWEN -. "specified failure fallback target" .-> GEM["Gemini API fallback"]
+    API -. "optional GPU inference" .-> RP["Optional RunPod inference"]
+    API <--> ORB["Mock Orbyte adapters<br/>inventory, BOM and capacity"]
 ```
 
 | Target | How |
 |---|---|
-| **Vercel + Render + PostgreSQL** | Preferred target: Vercel frontend, Render FastAPI/public webhooks and durable PostgreSQL with an available async worker. No deployment or provider end-to-end verification is claimed; see the status matrix. |
+| **Vercel + Render + PostgreSQL** | Preferred target: Vercel frontend, Render FastAPI/public webhooks and durable PostgreSQL with an available async worker. Deployment and provider end-to-end behavior are unverified. |
 | **Docker Compose** | `docker compose up -d --build` starts `db`, `api` and `worker`, with health-gated start-up order. |
 | **RunPod GPU worker** | Optional compute target. The repository has an endpoint adapter and worker image; configure endpoint credentials and verify the live endpoint before describing it as active. |
-| **Channels** | Telegram polling needs no public URL; Telegram and WhatsApp webhooks need a public HTTPS API URL. Email provider selection and inbound/outbound production setup remain pending. |
+| **Channels** | Telegram polling needs no public URL; Telegram and WhatsApp webhooks need a public HTTPS API URL. Gmail OAuth/polling code exists; evaluate Resend inbound first and select/verify outbound email separately. Provider end-to-end behavior remains unverified. |
 
 For the target deployment, require HTTPS, durable inbox/outbox storage, idempotent intake and send attempts, retry/backoff and reconciliation for uncertain send outcomes, and an available worker. Verify host sleep/cold-start behavior, webhook delivery and database persistence under the selected plans. These are deployment acceptance checks, not verified properties of a current deployment.
 
@@ -1272,7 +1225,7 @@ Key test areas: amendment protection, stale-version and snapshot races, tenant i
 ## How We Use Replit *(Required)*
 
 - **Development:** The team used Replit to write and modify MouManTAI project code. The resulting code is maintained in this GitHub repository; repository history does not identify which edits were made in Replit. No claim is made that Replit Agent, Multiplayer or Replit Slides were used.
-- **Hosting:** Replit was used for development, not verified live application hosting. The preferred application deployment remains Vercel for the frontend, Render for FastAPI/webhooks and durable PostgreSQL; see the status matrix for deployment evidence.
+- **Hosting:** Replit was used for development, not verified live application hosting. The preferred application deployment remains Vercel for the frontend, Render for FastAPI/webhooks and durable PostgreSQL; no hosted deployment is claimed.
 - **AI:** customer replies are built from approved factual templates today. The `ReplyGenerator` interface already includes a `ReplitGenerator` adapter (provider `REPLIT`) for **Replit AI Integrations** wording; it stays switched off until its endpoint, privacy and timeout checks pass. Once enabled, any wording that does not preserve the approved facts still falls back to the template.
 - **Secrets:** store development secrets in a secret manager, never in code. The presence of provider configuration in documentation does not establish that a service was deployed.
 
@@ -1282,7 +1235,7 @@ Key test areas: amendment protection, stale-version and snapshot races, tenant i
 
 - **Historical use:** The owner confirms that MouManTAI's FastAPI backend previously integrated with RunPod Serverless and successfully ran GLiNER multi v2.1 and Qwen3-4B-Instruct-2507 inference tasks. This confirms historical use only; current endpoint availability has not been independently reconfirmed.
 - **Integration path:** `FastAPI Backend → RunPod Serverless → GLiNER / Qwen → Backend Response → Evidence Validation`. The repository contains the RunPod endpoint adapter and worker image (`backend/app/context/ai/endpoint.py`, `backend/app/context/ai/Dockerfile`) and `P1_AI_*` settings. GLiNER supports multilingual entity/field extraction; Qwen is the selective semantic interpreter after deterministic rules. Outputs must pass schema and source-evidence validation before use.
-- **Current readiness:** No current endpoint state is asserted. Historical GLiNER/Qwen success does not prove current availability, real-channel E2E, production hosting or the separate Qwen-to-Gemini fallback.
+- **Current readiness:** No current endpoint state is asserted. Historical GLiNER/Qwen success does not prove current availability, real-channel E2E or production hosting. Gemini fallback is a separate target requirement.
 
 📄 Proof of use: `submission/SDC2026_XMM_Runpod_POU.pdf` — pending; this file is not present in the current `main` snapshot.
 
