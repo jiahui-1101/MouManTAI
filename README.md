@@ -939,18 +939,12 @@ flowchart TB
     DB --> WORK["Render background worker<br/>transactional outbox consumers"]
     WORK --> DB
 
-    TG["Telegram Bot API"] --> CH["Channel adapters"]
-    WA["Official Meta WhatsApp Cloud API<br/>test number"] --> CH
-    EMAIL["Email<br/>Gmail integration; evaluate Resend inbound"] --> CH
+    CHANNELS["Real channel providers<br/>Telegram Bot API<br/>Official Meta WhatsApp Cloud API test number<br/>Email: Gmail; evaluate Resend inbound"] --> CH["Channel adapters"]
+    CH --> CHANNELS
     CH --> API
     WORK --> CH
-    CH --> TG
-    CH --> WA
-    CH --> EMAIL
 
-    API --> QWEN["Qwen semantic processing"]
-    QWEN -. "specified failure fallback target" .-> GEM["Gemini API fallback"]
-    API -. "optional GPU inference" .-> RP["Optional RunPod inference"]
+    API --> AI["Qwen semantic processing<br/>Gemini fallback target on specified failures<br/>Optional RunPod GPU inference"]
     API <--> ORB["Mock Orbyte adapters<br/>inventory, BOM and capacity"]
 ```
 
