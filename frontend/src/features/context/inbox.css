@@ -48,7 +48,14 @@
 .p1-sort-button { display: inline-flex; align-items: center; gap: 4px; background: transparent; border: 0; padding: 0; color: inherit; font-weight: 700; }
 .p1-sort-button:hover { color: var(--p1-accent); }
 .p1-th-arrows { color: #94a3b8; font-size: 10px; margin-left: 4px; font-weight: 500; display: inline-block; }
-.p1-th-actions { text-align: right; }
+.p1-th-actions {
+  text-align: right;
+  position: sticky;
+  right: 0;
+  background: #ffffff !important;
+  z-index: 2;
+  box-shadow: -3px 0 6px -2px rgba(28, 49, 83, 0.08);
+}
 .p1-table-card td { padding: 7.2px 8px; border-bottom: 1px solid var(--p1-border); vertical-align: middle; height: 50px; font-size: 13px; font-weight: 400; color: rgba(28, 49, 83, 0.9); }
 .p1-table-card tbody tr:hover { background: #f8fafc; }
 .p1-date { color: #64748b; font-size: 11px; white-space: nowrap; width: 130px; }
@@ -67,7 +74,18 @@
 .p1-critical { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
 
 /* Orbyte Action Buttons */
-.p1-actions-cell { text-align: right; white-space: nowrap; }
+.p1-actions-cell {
+  text-align: right;
+  white-space: nowrap;
+  position: sticky;
+  right: 0;
+  background: #ffffff;
+  z-index: 1;
+  box-shadow: -3px 0 6px -2px rgba(28, 49, 83, 0.08);
+}
+.p1-table-card tbody tr:hover .p1-actions-cell {
+  background: #f8fafc;
+}
 .p1-orbyte-actions-group { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .p1-orbyte-action-icon-btn {
   display: inline-flex;

@@ -193,16 +193,16 @@ function MessageRow({ message, association, onOpen, onProcess, processing }: {
   onProcess: () => void;
   processing: boolean;
 }) {
-  const identity = association === undefined ? 'Checking…' : association === null ? 'Unavailable' : association.status === 'LINK_VERIFIED' ? `Verified: ${association.verified_customer?.display_name ?? association.verified_customer?.customer_id ?? 'customer'}` : association.status.replaceAll('_', ' ');
-  const review = association === undefined ? 'Checking…' : association === null ? 'Unavailable' : association.last_decision ? association.last_decision.decision : association.status === 'LINK_CANDIDATE' || association.status === 'CONFLICT' ? 'Needs identity review' : 'No identity decision';
+
+
   return <tr className="p1-inbox-row">
     <td className="p1-date"><time dateTime={message.raw.received_at}>{formatTime(message.raw.received_at)}</time></td>
     <td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => onOpen(event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary p1-subtle-id">{message.raw.provider_message_id}{message.raw.attachments?.length ? ` · ${message.raw.attachments.length} attachment${message.raw.attachments.length === 1 ? '' : 's'}` : ''}</span></td>
     <td className="p1-source-cell"><span className="p1-orbyte-source-badge">{formatSource(message)}</span></td>
     <td><span className={`p1-orbyte-status-badge is-${message.processing_status === 'PROCESSED' ? 'valid' : message.processing_status === 'PROCESSING' ? 'attention' : message.processing_status === 'PROCESSING_FAILED' ? 'conflict' : 'neutral'}`}>{message.processing_status}</span></td>
     <td>{message.processing_status === 'PROCESSED' ? (message.extractor_version?.startsWith('p1-ai-pipeline-') ? <span className="p1-orbyte-status-badge is-model">Model-assisted</span> : <span className="p1-orbyte-status-badge is-valid">Extracted</span>) : <span className="p1-subtle-text">Not available</span>}</td>
-    <td className="p1-identity">{identity}</td>
-    <td className="p1-subtle-text">{review}</td>
+
+
     <td className="p1-subtle-text" title="The message API does not provide generated, queued, sent, or failed reply state">Not reported</td>
     <td className="p1-actions-cell"><div className="p1-orbyte-actions-group"><button type="button" className="p1-orbyte-action-icon-btn" aria-label={`View message ${message.raw.provider_message_id}`} title="Inspect message details" onClick={event => onOpen(event.currentTarget)}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button type="button" className="p1-orbyte-action-icon-btn is-sync" disabled={processing} aria-label={`Reprocess message ${message.raw.provider_message_id}`} title={message.processing_status === 'PROCESSED' ? 'Reprocess extraction' : 'Run extraction'} onClick={onProcess}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={processing ? 'p1-spin' : ''}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button></div></td>
   </tr>;
@@ -417,7 +417,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
         <th scope="col" className={`p1-th-sortable${sortBy === 'processing_status' ? ' is-active' : ''}`} aria-sort={sortBy === 'processing_status' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" className="p1-sort-button" onClick={() => handleSort('processing_status')}>Processing <span className="p1-th-arrows" aria-hidden="true">{sortBy === 'processing_status' ? (sortDir === 'asc' ? '↑' : '↓') : '↑↓'}</span></button></th>
 
-        <th scope="col">Extraction</th><th scope="col">Identity link</th><th scope="col">Identity review</th><th scope="col">Reply</th><th scope="col" className="p1-th-actions">Actions</th>
+        <th scope="col">Extraction</th><th scope="col">Reply</th><th scope="col" className="p1-th-actions">Actions</th>
 
       </tr></thead>
 
@@ -763,7 +763,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
     <div className="p1-drawer-backdrop" onClick={onClose} aria-label="Close message details" role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onClose(); }} />
 
-    <section className={`p1-detail ${isResizing ? 'p1-is-resizing' : ''}`} style={{ width: `${panelWidth}px` }} ref={panel} tabIndex={-1} aria-label="Persisted message details">
+    <section className={`p1-detail ${isResizing ? 'p1-is-resizing' : ''} ${showReviewDrawer ? 'p1-detail-shifted' : ''}`} style={{ width: `${panelWidth}px` }} ref={panel} tabIndex={-1} aria-label="Persisted message details">
 
       <div className={`p1-resize-handle ${isResizing ? 'active' : ''}`} onMouseDown={e => { e.preventDefault(); setIsResizing(true); }} title="Drag left or right to resize panel width">
 
