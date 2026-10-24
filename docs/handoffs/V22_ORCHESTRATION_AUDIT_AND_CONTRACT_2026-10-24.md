@@ -33,7 +33,7 @@ This adds no second Order or Commitment entity: Core remains commitment authorit
 
 ## Refreshed release and Alembic graph (2026-10-25)
 
-`origin/main` refreshed to `7ad3ba0482d3ea8cb4b1a6aa5b7b989d66eb19d0` after PR #92 merged. Main's current migration head remains `0017_p1_real_channel_provenance`; PR #89 (C1 framing foundation) has no migration. The A–H chain through #88 remains open and unmerged, and #95 remains based on #88 at `d2fa4da975a3d7e939cd1bca2e8f6a0732eec8b6`.
+`origin/main` refreshed again to `7c5ac1531e71bc5d1f762d098af69eaf3dd3785d` after PR #81 and #82 merged on top of PR #92. Main's current migration head is now `0018_mock_order_requests`; PR #89 (C1 framing foundation) has no migration. PRs #83–85 and #88 remain open, so the A–H release baseline is still incomplete. PR #95 remains based on #88 at `d2fa4da975a3d7e939cd1bca2e8f6a0732eec8b6`.
 
 The current branch chain is `0017_p1_real_channel_provenance` → `0018_mock_order_requests` → `0019_mock_supplier_advice` → `0020_mock_forecast_history` → `0021_mock_optimization_dataset` → `0022_mock_memory_history` → `0023_business_orch_links`. Concurrent C1 PR #90 adds a distinct revision `0018_c1_scoped_message_parent` whose parent is also `0017_p1_real_channel_provenance`. These are sibling revisions with different revision IDs (the shared `0018` numeric prefix is not itself an ID collision). When the two branches are present together, Alembic has two heads: `0023_business_orch_links` and `0018_c1_scoped_message_parent`.
 
@@ -41,7 +41,7 @@ Once the release baseline and C1 #90 are both merged, add a merge-only Alembic r
 
 PR #92 resolves the previously recorded optional OCR-runtime failure on refreshed main: its dedicated latest-main PostgreSQL image/PDF acceptance run reports 24 passed and zero skipped, and its Docker OCR smoke passed. The OCR item remains stale text in open PR #88's body; that does not make OCR an active blocker on current main. It does not replace the need to rerun release CI and migrated E2E after the A–H baseline lands.
 
-At the 2026-10-25 refresh, #81–85 and #88 were still open; #81's GitHub mergeability was reported false while #82–85 and #88 were reported mergeable. #90 remained open Draft. Keep #95 Draft and stacked on #88 until its A–H dependencies have merged in order. Do not reconcile #95 directly onto main before that baseline settles.
+At the 2026-10-25 refresh, #81 and #82 were closed as merged to main (`ca66561` and `7c5ac15` respectively); #83–85 and #88 remained open and mergeable. C1 PR #90 remained open Draft, with a stale base SHA `f6eca1a` and GitHub reporting it non-mergeable against refreshed main; it needs its own owner-led refresh/reconciliation. PR #95 remained open Draft, mergeable against #88, and based on #88's head. Keep #95 stacked on #88 until the remaining A–H dependencies have merged in order. Do not reconcile #95 directly onto main before that baseline settles.
 
 ## Entity reuse / extend / add / deprecate mapping
 
