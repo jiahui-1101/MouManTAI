@@ -35,6 +35,7 @@ def channels_config():
     return ChannelsConfig(
         telegram=TelegramChannelConfig(
             bot_token="test_bot_123",
+            bot_account_id="channel-test-bot",
             mode="webhook",
             webhook_secret="secret_tg_token_xyz",
             tenant_id="tenant_channel_test",
@@ -200,6 +201,7 @@ def test_gmail_oauth_routes(client, channel_mgr):
         return {"access_token": "mocked_access", "refresh_token": "mocked_refresh"}
 
     channel_mgr.gmail.exchange_code = mock_exchange  # type: ignore[assignment]
+    channel_mgr.gmail.verify_connection = lambda: {"authenticated": True, "email_address": "owner@example.com"}  # type: ignore[assignment]
 
     callback_resp = client.get("/v1/channels/gmail/oauth/callback?code=mock_code_12345")
     assert callback_resp.status_code == 200

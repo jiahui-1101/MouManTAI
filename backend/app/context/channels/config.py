@@ -27,6 +27,7 @@ class TelegramChannelConfig(ChannelConfigBase):
     mode: Literal["polling", "webhook"] = "polling"
     webhook_url: str | None = None
     webhook_secret: str | None = None
+    bot_account_id: str | None = None
     poll_interval_seconds: float = Field(default=2.0, ge=0.01, le=60.0)
     poll_timeout_seconds: int = Field(default=20, ge=1, le=60)
     tenant_id: str = "synthetic_tenant_a"
@@ -37,12 +38,23 @@ class TelegramChannelConfig(ChannelConfigBase):
     def is_configured(self) -> bool:
         return bool(self.bot_token and len(self.bot_token.strip()) > 5)
 
+    @property
+    def provider_account_id(self) -> str | None:
+        if self.bot_account_id and self.bot_account_id.strip():
+            return self.bot_account_id.strip()
+        if self.bot_token:
+            token_prefix = self.bot_token.partition(":")[0]
+            if token_prefix.isdigit():
+                return token_prefix
+        return None
+
 
 class GmailChannelConfig(ChannelConfigBase):
     """Configuration for Google OAuth & Gmail API polling."""
     client_id: str | None = None
     client_secret: str | None = None
     refresh_token: str | None = None
+    mailbox_account_id: str | None = None
     access_token: str | None = None
     token_expiry: datetime | None = None
     redirect_uri: str = "http://localhost:8000/v1/channels/gmail/oauth/callback"
@@ -103,6 +115,7 @@ class ChannelsConfig(ChannelConfigBase):
 
         telegram = TelegramChannelConfig(
             bot_token=os.environ.get("TELEGRAM_BOT_TOKEN"),
+            bot_account_id=os.environ.get("TELEGRAM_BOT_ID"),
             mode=os.environ.get("TELEGRAM_MODE", "polling").lower(),  # type: ignore[arg-type]
             webhook_url=os.environ.get("TELEGRAM_WEBHOOK_URL"),
             webhook_secret=os.environ.get("TELEGRAM_WEBHOOK_SECRET"),
@@ -148,6 +161,7 @@ class ChannelsConfig(ChannelConfigBase):
             client_id=os.environ.get("GMAIL_CLIENT_ID") or file_client_id,
             client_secret=os.environ.get("GMAIL_CLIENT_SECRET") or file_client_secret,
             refresh_token=os.environ.get("GMAIL_REFRESH_TOKEN"),
+            mailbox_account_id=os.environ.get("GMAIL_ACCOUNT_EMAIL"),
             access_token=os.environ.get("GMAIL_ACCESS_TOKEN"),
             redirect_uri=os.environ.get("GMAIL_REDIRECT_URI") or file_redirect_uri or "http://localhost:8000/v1/channels/gmail/oauth/callback",
             poll_interval_seconds=float(os.environ.get("GMAIL_POLL_INTERVAL", "30.0")),

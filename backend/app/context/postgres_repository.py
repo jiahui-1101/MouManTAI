@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -68,6 +68,9 @@ from .repository import (
 )
 from .schemas import Channel, ExtractedField, ProcessingStatus, RawMessageEnvelope
 
+if TYPE_CHECKING:
+    from .channels.reply_framing import ParentResolution, ReplyFrame
+
 
 def _to_json_compatible(val: Any) -> Any:
     """Recursively convert datetime and pydantic models to JSON-safe primitives for JSONB columns."""
@@ -112,7 +115,71 @@ class ExtractionAttempt(P1Base):
 class InboundMessage(P1Base):
     __tablename__ = "inbound_messages"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "channel", "provider_message_id", name="uq_p1_delivery"),
+        Index(
+            "uq_p1_delivery_legacy",
+            "tenant_id",
+            "channel",
+            "provider_message_id",
+            unique=True,
+            postgresql_where=text("provider_account_id IS NULL"),
+        ),
+        Index(
+            "uq_p1_delivery_scoped",
+            "tenant_id",
+            "provider",
+            "provider_account_id",
+            "provider_native_message_id",
+            unique=True,
+            postgresql_where=text("provider_account_id IS NOT NULL AND channel <> 'TELEGRAM'"),
+        ),
+        Index(
+            "uq_p1_delivery_telegram_scoped",
+            "tenant_id",
+            "provider",
+            "provider_account_id",
+            "conversation_id",
+            "provider_native_message_id",
+            unique=True,
+            postgresql_where=text("provider_account_id IS NOT NULL AND channel = 'TELEGRAM'"),
+        ),
+        Index(
+            "ix_p1_parent_native_scope",
+            "tenant_id",
+            "provider",
+            "provider_account_id",
+            "conversation_id",
+            "provider_native_message_id",
+            postgresql_where=text("provider_account_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_p1_parent_rfc_scope",
+            "tenant_id",
+            "provider",
+            "provider_account_id",
+            "rfc_message_id",
+            postgresql_where=text("provider_account_id IS NOT NULL AND rfc_message_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_p1_pending_parent_scope",
+            "tenant_id",
+            "provider",
+            "provider_account_id",
+            "conversation_id",
+            "exact_parent_reference",
+            postgresql_where=text("parent_resolution = 'UNRESOLVED' AND provider_account_id IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "(provider_account_id IS NULL) = (provider_native_message_id IS NULL)",
+            name="ck_p1_provider_identity_pair",
+        ),
+        CheckConstraint(
+            "parent_resolution IN ('NO_EXACT_PARENT', 'UNRESOLVED', 'AMBIGUOUS', 'REFERENCE_MATCH', 'LEGACY_UNKNOWN', 'INVALID')",
+            name="ck_p1_parent_resolution",
+        ),
+        CheckConstraint(
+            "source_authenticity IN ('VERIFIED', 'UNVERIFIED', 'SYNTHETIC')",
+            name="ck_p1_source_authenticity",
+        ),
         CheckConstraint("processing_status IN ('RECEIVED', 'PROCESSING', 'PROCESSED', 'PROCESSING_FAILED')", name="ck_p1_processing"),
         CheckConstraint(
             "(synthetic_provider IS NOT NULL AND ("
@@ -132,6 +199,14 @@ class InboundMessage(P1Base):
     tenant_id: Mapped[str] = mapped_column(String(200), nullable=False)
     channel: Mapped[str] = mapped_column(String(20), nullable=False)
     provider_message_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    provider_account_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    provider_native_message_id: Mapped[str | None] = mapped_column(String(998), nullable=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(998), nullable=True)
+    rfc_message_id: Mapped[str | None] = mapped_column(String(998), nullable=True)
+    exact_parent_reference: Mapped[str | None] = mapped_column(String(998), nullable=True)
+    parent_resolution: Mapped[str] = mapped_column(String(24), nullable=False, default="LEGACY_UNKNOWN", server_default="LEGACY_UNKNOWN")
+    resolved_parent_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    source_authenticity: Mapped[str] = mapped_column(String(20), nullable=False, default="UNVERIFIED", server_default="UNVERIFIED")
     synthetic_provider: Mapped[str | None] = mapped_column(String(30), nullable=True)
     provider: Mapped[str] = mapped_column(String(50), nullable=False, default="SYNTHETIC")
     raw: Mapped[dict] = mapped_column(JSONB, nullable=False)
@@ -275,6 +350,68 @@ def fingerprint(envelope: RawMessageEnvelope) -> str:
     content = envelope.model_dump(mode="json", exclude={"received_at"})
     canonical = json.dumps(content, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+_CHANNEL_PROVIDER = {
+    "TELEGRAM": "TELEGRAM_BOT_API",
+    "EMAIL": "GMAIL_API",
+    "WHATSAPP": "WHATSAPP_CLOUD_API",
+    "UNKNOWN": "REAL",
+}
+
+
+def _frame_from_envelope(envelope: RawMessageEnvelope, *, parent: bool = False) -> ReplyFrame | None:
+    from .channels.reply_framing import FramingError, ReplyFrame
+
+    if not envelope.provider_account_id or not envelope.provider_native_message_id:
+        return None
+    provider = {"TELEGRAM": "TELEGRAM", "EMAIL": "EMAIL", "WHATSAPP": "WHATSAPP"}.get(envelope.channel)
+    if provider is None:
+        return None
+    exact_parent_id = None
+    if not parent:
+        if provider == "EMAIL":
+            exact_parent_id = (envelope.rfc_in_reply_to or [None])[0]
+        else:
+            exact_parent_id = envelope.reply_to_provider_message_id
+    try:
+        return ReplyFrame(
+            tenant_id=envelope.tenant_id,
+            provider=provider,
+            account_id=envelope.provider_account_id,
+            native_message_id=envelope.provider_native_message_id,
+            sender_id=envelope.sender_identity_id,
+            conversation_id=envelope.conversation_id,
+            exact_parent_id=exact_parent_id,
+            relationship_source=envelope.relationship_source if exact_parent_id else "NONE",
+            rfc_message_id=envelope.rfc_message_id,
+            in_reply_to=tuple(envelope.rfc_in_reply_to),
+            references=tuple(envelope.rfc_references),
+            attachment_source_ids=tuple(envelope.native_attachment_source_ids),
+        )
+    except (FramingError, ValueError):
+        return None
+
+
+def _parent_reference(envelope: RawMessageEnvelope) -> str | None:
+    if envelope.channel == "EMAIL":
+        return (envelope.rfc_in_reply_to or [None])[0] or envelope.reply_to_provider_message_id
+    return envelope.reply_to_provider_message_id
+
+
+def _scope_lock_key(frame: ReplyFrame, native_id: str) -> str:
+    conversation = "" if frame.provider == "EMAIL" else (frame.conversation_id or "")
+    return f"{frame.tenant_id}\x1f{frame.provider}\x1f{frame.account_id}\x1f{conversation}\x1f{native_id}"
+
+
+def _row_frame(row: InboundMessage) -> ReplyFrame | None:
+    if not row.provider_account_id or not row.provider_native_message_id or row.source_authenticity != "VERIFIED":
+        return None
+    try:
+        raw = RawMessageEnvelope.model_validate(row.raw)
+        return _frame_from_envelope(raw, parent=True)
+    except ValidationError:
+        return None
 
 
 def stored(row: InboundMessage, extractor_version: str | None = None) -> StoredMessage:
@@ -421,29 +558,196 @@ class PostgresMessageRepository:
             self._proposal_service = prepare_model_proposal_service()
         return self._proposal_service
 
+    def _candidate_parent_rows(self, session: Session, envelope: RawMessageEnvelope) -> list[InboundMessage]:
+        frame = _frame_from_envelope(envelope)
+        reference = _parent_reference(envelope)
+        if frame is None or not reference or envelope.relationship_source not in {"PROVIDER_QUOTE", "SENDER_HEADER"}:
+            return []
+        filters = [
+            InboundMessage.tenant_id == envelope.tenant_id,
+            InboundMessage.channel == envelope.channel,
+            InboundMessage.provider == _CHANNEL_PROVIDER[envelope.channel],
+            InboundMessage.provider_account_id == envelope.provider_account_id,
+            InboundMessage.source_authenticity == "VERIFIED",
+        ]
+        if envelope.channel == "EMAIL":
+            filters.append(InboundMessage.rfc_message_id == reference)
+        else:
+            filters.extend((
+                InboundMessage.conversation_id == envelope.conversation_id,
+                InboundMessage.provider_native_message_id == reference,
+            ))
+        return list(session.scalars(select(InboundMessage).where(*filters)).all())
+
+    def _resolve_parent_in_session(
+        self, session: Session, envelope: RawMessageEnvelope
+    ) -> tuple[ParentResolution, InboundMessage | None]:
+        from .channels.reply_framing import ParentResolution, resolve_parent
+
+        reference = _parent_reference(envelope)
+        if not reference:
+            return ParentResolution("NO_EXACT_PARENT"), None
+        if envelope.framing_error:
+            return ParentResolution("INVALID"), None
+        if envelope.relationship_source not in {"PROVIDER_QUOTE", "SENDER_HEADER"}:
+            return ParentResolution("UNRESOLVED"), None
+        frame = _frame_from_envelope(envelope)
+        if frame is None:
+            return ParentResolution("UNRESOLVED"), None
+        rows = self._candidate_parent_rows(session, envelope)
+        frames = [candidate for row in rows if (candidate := _row_frame(row)) is not None]
+        resolution = resolve_parent(frame, frames)
+        if resolution.state != "REFERENCE_MATCH":
+            return resolution, None
+        matched = [row for row in rows if row.provider_native_message_id == resolution.parent_native_id]
+        if len(matched) != 1:
+            return ParentResolution("AMBIGUOUS"), None
+        return resolution, matched[0]
+
+    @staticmethod
+    def _lock_parent_scopes(session: Session, envelope: RawMessageEnvelope) -> None:
+        frame = _frame_from_envelope(envelope, parent=True)
+        if frame is None:
+            return
+        own_reference = envelope.rfc_message_id if envelope.channel == "EMAIL" else envelope.provider_native_message_id
+        references = {own_reference, _parent_reference(envelope)} - {None}
+        for reference in sorted(references):
+            lock_key = _scope_lock_key(frame, reference)
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": lock_key},
+            )
+
+    def _reconcile_waiting_children(self, session: Session, parent: InboundMessage) -> None:
+        if parent.source_authenticity != "VERIFIED" or not parent.provider_account_id:
+            return
+        parent_target = parent.rfc_message_id if parent.channel == "EMAIL" else parent.provider_native_message_id
+        if not parent_target:
+            return
+        filters = [
+            InboundMessage.tenant_id == parent.tenant_id,
+            InboundMessage.channel == parent.channel,
+            InboundMessage.provider == parent.provider,
+            InboundMessage.provider_account_id == parent.provider_account_id,
+            InboundMessage.exact_parent_reference == parent_target,
+            InboundMessage.parent_resolution.in_(["UNRESOLVED", "REFERENCE_MATCH", "AMBIGUOUS"]),
+        ]
+        if parent.channel != "EMAIL":
+            filters.append(InboundMessage.conversation_id == parent.conversation_id)
+        children = session.scalars(select(InboundMessage).where(*filters).with_for_update()).all()
+        for child in children:
+            try:
+                envelope = RawMessageEnvelope.model_validate(child.raw)
+            except ValidationError:
+                child.parent_resolution = "INVALID"
+                child.resolved_parent_message_id = None
+                continue
+            resolution, parent_row = self._resolve_parent_in_session(session, envelope)
+            child.parent_resolution = resolution.state
+            child.resolved_parent_message_id = parent_row.message_id if parent_row else None
+
+    def resolve_exact_parent(self, tenant_id: str, message_id: str) -> ParentResolution:
+        """Read the durable exact-parent result; thread/sender are never consulted."""
+        from .channels.reply_framing import ParentResolution
+
+        try:
+            with Session(self.engine) as session:
+                child = session.scalar(select(InboundMessage).where(
+                    InboundMessage.tenant_id == tenant_id,
+                    InboundMessage.message_id == message_id,
+                ))
+                if child is None:
+                    return ParentResolution("UNRESOLVED")
+                if child.parent_resolution != "REFERENCE_MATCH" or not child.resolved_parent_message_id:
+                    return ParentResolution(child.parent_resolution)  # type: ignore[arg-type]
+                parent = session.scalar(select(InboundMessage).where(
+                    InboundMessage.tenant_id == tenant_id,
+                    InboundMessage.message_id == child.resolved_parent_message_id,
+                ))
+                if parent is None:
+                    return ParentResolution("UNRESOLVED")
+                return ParentResolution("REFERENCE_MATCH", parent.provider_native_message_id)
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Parent lookup temporarily unavailable") from None
+
+    def get_contexts_by_exact_parent(self, tenant_id: str, message_id: str) -> list[OrderContextRecord]:
+        """Return active context(s) sourced by the unique, resolved parent message."""
+        try:
+            with Session(self.engine) as session:
+                child = session.scalar(select(InboundMessage).where(
+                    InboundMessage.tenant_id == tenant_id,
+                    InboundMessage.message_id == message_id,
+                    InboundMessage.parent_resolution == "REFERENCE_MATCH",
+                ))
+                if child is None or not child.resolved_parent_message_id:
+                    return []
+                rows = session.scalars(select(OrderContext).where(
+                    OrderContext.tenant_id == tenant_id,
+                    OrderContext.source_message_ids.contains([child.resolved_parent_message_id]),
+                    OrderContext.core_commitment_id.is_(None),
+                    OrderContext.status.in_(["INFORMATION_PARTIAL", "UNRESOLVED", "CONFLICT"]),
+                ).order_by(OrderContext.updated_at.desc())).all()
+                return [order_context_record(row) for row in rows]
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Context lookup temporarily unavailable") from None
+
     def ingest(self, envelope: RawMessageEnvelope, now: datetime) -> IngestResponse:
         digest = fingerprint(envelope)
+        is_real = envelope.adapter_mode == "REAL"
+        provider = _CHANNEL_PROVIDER[envelope.channel] if is_real else "SYNTHETIC"
+        parent_reference = _parent_reference(envelope)
         try:
             with Session(self.engine) as session, session.begin():
-                statement = insert(InboundMessage).values(
-                    message_id=str(uuid4()), tenant_id=envelope.tenant_id, channel=envelope.channel,
-                    provider_message_id=envelope.provider_message_id,
-                    synthetic_provider=(None if getattr(envelope, "adapter_mode", "SYNTHETIC") == "REAL" else f"SYNTHETIC_{envelope.channel}"),
-                    provider=("TELEGRAM_BOT_API" if getattr(envelope, "adapter_mode", "SYNTHETIC") == "REAL" and envelope.channel == "TELEGRAM" else ("GMAIL_API" if getattr(envelope, "adapter_mode", "SYNTHETIC") == "REAL" and envelope.channel == "EMAIL" else ("WHATSAPP_CLOUD_API" if getattr(envelope, "adapter_mode", "SYNTHETIC") == "REAL" and envelope.channel == "WHATSAPP" else ("REAL" if getattr(envelope, "adapter_mode", "SYNTHETIC") == "REAL" else "SYNTHETIC")))),
-                    raw=envelope.model_dump(mode="json"), immutable_fingerprint=digest,
-                    content_sha256=hashlib.sha256(envelope.text.encode("utf-8")).hexdigest(),
-                    processing_status="RECEIVED", ingested_at=now, updated_at=now,
-                ).on_conflict_do_nothing(constraint="uq_p1_delivery").returning(InboundMessage.message_id)
+                self._lock_parent_scopes(session, envelope)
+                resolution, parent_row = self._resolve_parent_in_session(session, envelope)
+                exact_reference = parent_reference if envelope.relationship_source in {"PROVIDER_QUOTE", "SENDER_HEADER"} else None
+                values = {
+                    "message_id": str(uuid4()),
+                    "tenant_id": envelope.tenant_id,
+                    "channel": envelope.channel,
+                    "provider_message_id": envelope.provider_message_id,
+                    "provider_account_id": envelope.provider_account_id,
+                    "provider_native_message_id": envelope.provider_native_message_id,
+                    "conversation_id": envelope.conversation_id,
+                    "rfc_message_id": envelope.rfc_message_id,
+                    "exact_parent_reference": exact_reference,
+                    "parent_resolution": resolution.state,
+                    "resolved_parent_message_id": parent_row.message_id if parent_row else None,
+                    "source_authenticity": envelope.source_authenticity,
+                    "synthetic_provider": None if is_real else f"SYNTHETIC_{envelope.channel}",
+                    "provider": provider,
+                    "raw": envelope.model_dump(mode="json"),
+                    "immutable_fingerprint": digest,
+                    "content_sha256": hashlib.sha256(envelope.text.encode("utf-8")).hexdigest(),
+                    "processing_status": "RECEIVED",
+                    "ingested_at": now,
+                    "updated_at": now,
+                }
+                statement = insert(InboundMessage).values(**values).on_conflict_do_nothing().returning(InboundMessage.message_id)
                 created_id = session.execute(statement).scalar_one_or_none()
-                # PostgreSQL READ COMMITTED: a fresh statement sees the winner of a concurrent insert.
-                row = session.scalar(select(InboundMessage).where(
-                    InboundMessage.tenant_id == envelope.tenant_id, InboundMessage.channel == envelope.channel,
-                    InboundMessage.provider_message_id == envelope.provider_message_id,
-                ))
+                if envelope.provider_account_id and envelope.provider_native_message_id:
+                    identity_filters = [
+                        InboundMessage.tenant_id == envelope.tenant_id,
+                        InboundMessage.provider == provider,
+                        InboundMessage.provider_account_id == envelope.provider_account_id,
+                        InboundMessage.provider_native_message_id == envelope.provider_native_message_id,
+                    ]
+                    if envelope.channel == "TELEGRAM":
+                        identity_filters.append(InboundMessage.conversation_id == envelope.conversation_id)
+                else:
+                    identity_filters = [
+                        InboundMessage.tenant_id == envelope.tenant_id,
+                        InboundMessage.channel == envelope.channel,
+                        InboundMessage.provider_message_id == envelope.provider_message_id,
+                        InboundMessage.provider_account_id.is_(None),
+                    ]
+                row = session.scalar(select(InboundMessage).where(*identity_filters))
                 if row is None:
                     raise PersistenceUnavailable("Message storage temporarily unavailable")
                 if row.immutable_fingerprint != digest:
                     raise DuplicateConflict("Provider message ID already has different original content")
+                if created_id is not None:
+                    self._reconcile_waiting_children(session, row)
                 result = IngestResponse(message=stored(row), duplicate=created_id is None)
             # Return only after the transaction commits successfully.
             return result
@@ -964,7 +1268,10 @@ class PostgresMessageRepository:
         reply_to_provider_message_id: str | None,
         thread_ref: str | None,
     ) -> list[OrderContextRecord]:
-        if not reply_to_provider_message_id and not thread_ref:
+        # Exact parents are resolved through durable provider/account scope in
+        # get_contexts_by_exact_parent. This legacy method now serves only broad
+        # same-thread grouping and never interprets a provider ID on its own.
+        if reply_to_provider_message_id or not thread_ref:
             return []
         try:
             with Session(self.engine) as session:
@@ -974,19 +1281,16 @@ class PostgresMessageRepository:
                     .order_by(InboundMessage.ingested_at.desc())
                     .limit(50)
                 ).all()
-                reply_msg_ids: list[str] = []
                 thread_msg_ids: list[str] = []
                 for m in recent_msgs:
                     if not isinstance(m.raw, dict):
                         continue
                     if sender_identity_id and m.raw.get("sender_identity_id") != sender_identity_id:
                         continue
-                    if reply_to_provider_message_id and m.raw.get("provider_message_id") == reply_to_provider_message_id:
-                        reply_msg_ids.append(m.message_id)
                     if thread_ref and m.raw.get("thread_ref") == thread_ref:
                         thread_msg_ids.append(m.message_id)
 
-                candidate_msg_ids = reply_msg_ids if reply_msg_ids else thread_msg_ids
+                candidate_msg_ids = thread_msg_ids
                 seen_ctx_ids: set[str] = set()
                 results: list[OrderContextRecord] = []
                 for msg_id in candidate_msg_ids:

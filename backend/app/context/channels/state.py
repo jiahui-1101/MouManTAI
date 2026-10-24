@@ -14,7 +14,7 @@ import json
 import logging
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -187,6 +187,14 @@ class ChannelStateManager:
             data = self._get_channel_data(channel, tenant_id)
             data["verified_email"] = email
             data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._save()
+
+    def set_verified_account_id(self, channel: str, tenant_id: str, account_id: str) -> None:
+        """Persist an OAuth-verified provider account key separately from its display mask."""
+        with self._lock:
+            data = self._get_channel_data(channel, tenant_id)
+            data["verified_account_id"] = account_id
+            data["updated_at"] = datetime.now(UTC).isoformat()
             self._save()
 
     def get_channel_summary(self, channel: str, tenant_id: str) -> dict[str, Any]:
