@@ -11,7 +11,7 @@
 | #83 | Persisted synthetic supplier requirement/quotes, existing comparator, SME choice, RFQ draft, audit/outbox; `backend/app/supplier_intelligence` | 0019 | `/v1/backend-v2/mock-suppliers` |
 | #84 | Persisted synthetic demand history, source attestation, existing baseline/backtest/risk engine, audit/outbox; `backend/app/forecasting` | 0020 | `/v1/backend-v2/mock-forecasts` |
 | #85 | Reviewed OrderRequest-bound portfolio constraints, native OR-Tools CP-SAT FCFS/profit/expiry comparison and full-set synthetic verifier, audit/outbox; `backend/app/optimization` | 0021 | `/v1/backend-v2/mock-optimization` |
-| #86 | Persisted validated DEMO decisions, existing Backend G retrieval/outcome/review engine, read-only insights, audit/outbox; `backend/app/decision_memory` | 0022 | `/v1/backend-v2/mock-memory` |
+| #88 | Persisted validated DEMO decisions, existing Backend G retrieval/outcome/review engine, read-only insights, audit/outbox; `backend/app/decision_memory` | 0022 | `/v1/backend-v2/mock-memory` |
 
 The detailed field-level route, version, error and Frontend page matrix is in `docs/contracts/V22_MOCK_BACKEND_API_2026-10-24.md`. The exact stacked PR numbers and merge status must be checked on GitHub before release.
 
