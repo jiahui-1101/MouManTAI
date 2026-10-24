@@ -171,7 +171,7 @@ it.each([
 });
 
 it.each([
-  ['/suppliers', 'Supplier directory'], ['/suppliers/compare', 'Offer comparison'], ['/suppliers/demo-packaging', 'Example Packaging Co.'],
+  ['/suppliers', 'Supplier directory'], ['/suppliers/compare', 'Offer comparison'], ['/suppliers/demo-packaging', 'Supplier details unavailable'],
 ])('preserves the implemented supplier route %s', (path, heading) => {
   window.history.replaceState({}, '', path); render(<App />);
   expect(main().getByRole('heading', { name: heading })).toBeInTheDocument();

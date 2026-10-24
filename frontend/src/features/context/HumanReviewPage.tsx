@@ -1,3 +1,4 @@
+import { useScopedOperationalApi } from './useScopedOperationalApi';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../shared/auth';
@@ -5,7 +6,6 @@ import {
   getResolvedTaskIds,
   markTaskResolved,
   notifyReviewContextSaved,
-  operationalApi,
   unmarkTaskResolved,
 } from './operationalApi';
 import type {
@@ -110,15 +110,17 @@ export function HumanReviewPage({
   selectedTaskId: propTaskId,
   onContextUpdated,
 }: HumanReviewPageProps) {
+  const { tenantId, actorId } = useAuth();
+  const identity = JSON.stringify([tenantId, actorId]);
   const params = useSafeParams();
   const [searchParams] = useSafeSearchParams();
   const taskId = propTaskId || params.taskId || searchParams.get('taskId') || null;
 
   if (taskId) {
-    return <HumanReviewDetail taskId={taskId} onContextUpdated={onContextUpdated} />;
+    return <HumanReviewDetail key={`${identity}:${taskId}`} taskId={taskId} onContextUpdated={onContextUpdated} />;
   }
 
-  return <HumanReviewQueue initialFilter={initialFilter} />;
+  return <HumanReviewQueue key={identity} initialFilter={initialFilter} />;
 }
 
 /* ==========================================================================
@@ -135,6 +137,7 @@ interface QueueItem {
 }
 
 function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | 'UNRESOLVED' | 'FAILED_EXTRACTION' }) {
+  const api = useScopedOperationalApi();
   const navigate = useSafeNavigate();
   const { actorId } = useAuth();
   const [messages, setMessages] = useState<StoredMessage[]>([]);
@@ -163,7 +166,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
     setLoading(true);
     setError(null);
     try {
-      const page = await operationalApi.list({
+      const page = await api.list({
         channel: 'ALL',
         processing: 'ALL',
         search: search.trim(),
@@ -186,16 +189,15 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
     };
     window.addEventListener('moumantai:review-context-saved', handleSaved);
     return () => window.removeEventListener('moumantai:review-context-saved', handleSaved);
-  }, [search]);
+  }, [api, search]);
 
   // Map messages to queue items with canonical task types
   const queueItems: QueueItem[] = useMemo(() => {
-    return messages.map((msg, idx) => {
+    return messages.map((msg) => {
       const taskType = toCanonicalTaskType(undefined, msg);
       const config = getTaskTypeConfig(taskType);
-      const isVerified = msg.processing_status === 'PROCESSED' && idx % 2 === 0;
-      const identityStatus = isVerified ? 'LINK_VERIFIED' : 'UNVERIFIED';
-      const assignedTo = idx % 3 === 0 ? actorId || 'user_staff_01' : idx % 3 === 1 ? 'Unassigned' : 'Alice';
+      const identityStatus = 'UNVERIFIED' as const;
+      const assignedTo = 'Unavailable';
       const rawMeta = msg.raw as Record<string, unknown> | undefined;
       const isResolved = resolvedTaskIds.has(msg.message_id) ||
         Boolean(rawMeta?.is_resolved || rawMeta?.context_status === 'INFORMATION_READY' || rawMeta?.reviewed);
@@ -750,6 +752,7 @@ function renderEvidenceMarks(
 }
 
 function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps) {
+  const api = useScopedOperationalApi();
   const navigate = useSafeNavigate();
   const [searchParams] = useSafeSearchParams();
   const returnTo = searchParams.get('returnTo');
@@ -821,22 +824,22 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
     setLoading(true);
     setError(null);
     try {
-      const msg = await operationalApi.detail(taskId);
+      const msg = await api.detail(taskId);
       setMessage(msg);
 
       const [ext, assoc] = await Promise.all([
-        operationalApi.getExtraction(taskId).catch(() => null),
-        operationalApi.getAssociation(taskId).catch(() => null),
+        api.getExtraction(taskId).catch(() => null),
+        api.getAssociation(taskId).catch(() => null),
       ]);
       setExtraction(ext);
       setAssociation(assoc);
 
       let ctx: OrderContextRecord | null = null;
       if (assoc?.verified_order?.order_id) {
-        ctx = await operationalApi.getContextByOrder(assoc.verified_order.order_id).catch(() => null);
+        ctx = await api.getContextByOrder(assoc.verified_order.order_id).catch(() => null);
       }
       if (!ctx) {
-        ctx = await operationalApi.createContextFromMessage(taskId).catch(() => null);
+        ctx = await api.createContextFromMessage(taskId).catch(() => null);
       }
       setContext(ctx);
 
@@ -852,7 +855,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
         setSpecialInstructions(ctx.special_instructions || '');
 
         // Load audits
-        const reviews = await operationalApi.listContextReviews(ctx.context_id).catch(() => []);
+        const reviews = await api.listContextReviews(ctx.context_id).catch(() => []);
         setAuditReviews(reviews);
 
         // Load clarification issues
@@ -874,7 +877,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
 
   useEffect(() => {
     void loadTaskData();
-  }, [taskId]);
+  }, [api, taskId]);
 
   // Task type configuration
   const canonicalType = useMemo(() => {
@@ -971,7 +974,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
 
       const action = saveMode === 'accept' ? 'ACCEPT_EXTRACTION' : 'EDIT_FIELD';
 
-      const saved = await operationalApi.reviewContext(
+      const saved = await api.reviewContext(
         context.context_id,
         {
           action,
@@ -986,7 +989,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
         }
       );
 
-      const updated = await operationalApi.getContext(context.context_id, { 'X-Tenant-ID': context.tenant_id });
+      const updated = await api.getContext(context.context_id, { 'X-Tenant-ID': context.tenant_id });
       if (updated.context_version < saved.context_version || Object.entries(fieldEdits).some(([key, value]) => {
         const actual = updated[key as keyof OrderContextRecord];
         if (key === 'requested_delivery_at' && typeof actual === 'string' && typeof value === 'string') return Date.parse(actual) !== Date.parse(value);
@@ -1018,7 +1021,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
 
       if (onContextUpdated) onContextUpdated(updated);
       notifyReviewContextSaved();
-      const reloadedReviews = await operationalApi.listContextReviews(context.context_id, { 'X-Tenant-ID': context.tenant_id }).catch(() => []);
+      const reloadedReviews = await api.listContextReviews(context.context_id, { 'X-Tenant-ID': context.tenant_id }).catch(() => []);
       setAuditReviews(reloadedReviews);
       const refreshedIssues = await getConversationIssues(taskId, updated).catch(() => null);
       if (refreshedIssues?.issues) setIssues(refreshedIssues.issues);
@@ -1034,7 +1037,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
     setReprocessConfirmOpen(false);
     showToast('Reprocessing extraction…');
     try {
-      await operationalApi.process(taskId, true);
+      await api.process(taskId, true);
       showToast('Extraction reprocessed. Refreshed latest results.');
       void loadTaskData();
     } catch (err) {
@@ -1047,7 +1050,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
     if (!context || !managerReviewNote.trim()) return;
     setManagerReviewModalOpen(false);
     try {
-      await operationalApi.reviewContext(
+      await api.reviewContext(
         context.context_id,
         {
           action: 'REQUEST_MORE_INFO',
@@ -1072,7 +1075,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
     if (!context || !markUnresolvedReason.trim()) return;
     setMarkUnresolvedModalOpen(false);
     try {
-      await operationalApi.reviewContext(
+      await api.reviewContext(
         context.context_id,
         {
           action: 'MARK_UNRESOLVED',
@@ -1100,7 +1103,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
     if (!selectedCandidateOrder || !linkOrderReason.trim()) return;
     setLinkOrderModalOpen(false);
     try {
-      await operationalApi.decideAssociation(
+      await api.decideAssociation(
         taskId,
         {
           decision: 'CONFIRMED',
@@ -1123,7 +1126,7 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
   // Tab 3: Reject Unlink
   const handleRejectUnlink = async () => {
     try {
-      await operationalApi.decideAssociation(
+      await api.decideAssociation(
         taskId,
         {
           decision: 'REJECTED',
@@ -1821,8 +1824,8 @@ function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps)
               <b>Verified customer</b>
               {association?.status === 'LINK_VERIFIED' ? (
                 <div style={{ marginTop: '8px', fontSize: '13px' }}>
-                  <div>Name: <b>{message?.raw.sender_alias || 'Alice Baker'}</b></div>
-                  <div>ID: <code>{message?.raw.sender_identity_id || 'cust_1'}</code></div>
+                  <div>Name: <b>{message?.raw.sender_alias || 'Unavailable'}</b></div>
+                  <div>ID: <code>{message?.raw.sender_identity_id || 'Unavailable'}</code></div>
                   <div>Channel: {message?.raw.channel}</div>
                 </div>
               ) : (

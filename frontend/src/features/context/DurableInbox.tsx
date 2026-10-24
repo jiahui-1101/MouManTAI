@@ -1,3 +1,5 @@
+import { useOptionalAuth } from '../../shared/auth';
+import { useScopedOperationalApi } from './useScopedOperationalApi';
 import { useEffect, useRef, useState } from 'react';
 
 import { createPortal } from 'react-dom';
@@ -6,7 +8,7 @@ import type { ReactNode } from 'react';
 
 import { PreviewError } from './api';
 
-import { getResolvedTaskIds, operationalApi } from './operationalApi';
+import { getResolvedTaskIds } from './operationalApi';
 
 import type { OperationalApi } from './operationalApi';
 
@@ -210,7 +212,14 @@ function MessageRow({ message, onOpen, onProcess, processing }: {
 
 
 
-export function DurableInbox({ api = operationalApi }: { api?: OperationalApi }) {
+export function DurableInbox({ api }: { api?: OperationalApi }) {
+  const auth = useOptionalAuth();
+  const scopedApi = useScopedOperationalApi();
+  const identity = JSON.stringify([auth?.tenantId, auth?.actorId]);
+  return <DurableInboxContents key={identity} api={api ?? scopedApi} />;
+}
+
+function DurableInboxContents({ api }: { api: OperationalApi }) {
 
   const [resource, setResource] = useState<Resource>({ state: 'loading' });
 
@@ -414,6 +423,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
 
 function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api: OperationalApi; onUpdated?: () => void; onClose: () => void }) {
+  const auth = useOptionalAuth();
   const [data, setData] = useState<StoredMessage | null>(null);
   const [extraction, setExtraction] = useState<ExtractionAttemptRecord | null>(null);
   const [attempts, setAttempts] = useState<ExtractionAttemptRecord[]>([]);
@@ -1271,7 +1281,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
           <div className="p1-modal-backdrop" role="dialog" aria-modal="true" aria-label="Order Context Details">
             <div className="p1-modal-card">
               <OrderContextDetail
-                requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id }}
+                requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id, ...(auth ? { 'X-Actor-ID': auth.actorId } : {}) }}
                 contextId={activeContext.context_id}
                 onClose={() => setShowContextModal(false)}
                 onContextUpdated={updated => setActiveContext(updated)}
@@ -1283,7 +1293,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
           <div className="p1-modal-backdrop" role="dialog" aria-modal="true" aria-label="Order Context Details">
             <div className="p1-modal-card">
               <OrderContextDetail
-                requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id }}
+                requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id, ...(auth ? { 'X-Actor-ID': auth.actorId } : {}) }}
                 contextId={activeContext.context_id}
                 onClose={() => setShowContextModal(false)}
                 onContextUpdated={updated => setActiveContext(updated)}
@@ -1294,7 +1304,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
         {showReviewDrawer && activeContext && (
           <ReviewDrawer
-            requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id }}
+            requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id, ...(auth ? { 'X-Actor-ID': auth.actorId } : {}) }}
             context={activeContext}
             sourceMessage={data && activeContext.source_message_ids?.includes(data.message_id) ? data.raw.text : undefined}
             message={data}
