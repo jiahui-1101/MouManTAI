@@ -14,6 +14,7 @@ import { PortfolioCalendarContext } from './portfolioCalendarContext';
 import { PortfolioAnalysisScope } from './PortfolioAnalysisScope';
 import { PortfolioComparisonMatrix } from './PortfolioComparisonMatrix';
 import { PortfolioAllocationPanel, supportedAllocation } from './PortfolioAllocationPanel';
+import { PortfolioSolverExplanation } from './PortfolioSolverExplanation';
 import './portfolio.css';
 
 const executionNotice = 'Scenario membership is a proposal only. Comparison does not accept orders, establish customer assent, reserve resources or change confirmed agreements.';
@@ -58,6 +59,7 @@ function PortfolioResults({ data, now }: { data: PortfolioSnapshot; now: number 
                 return <td key={s.id}><strong>{supported ? a!.membership : 'UNKNOWN'}</strong><small>{supported ? a!.reason || 'Reason unavailable' : 'Allocation evidence unavailable'}</small>
                   <small>Resource requirements: {supported ? a!.resources || 'Unknown' : 'Unknown'}</small><small>Conflicts: {supported ? a!.conflict || 'Unknown' : 'Unknown'}</small>
                   <small>Evidence: {a?.evidence.join(', ') || 'Unavailable'}</small></td>; })}</tr>)}</tbody></table></div>}
+      <PortfolioSolverExplanation data={data} scenario={active} now={now} />
       <h2>Constraints and trade-offs</h2>
       {scenarios.map(s => <section key={s.id} className="pc-card" aria-label={`Constraints: ${s.label}`}><h3>{s.label}</h3>
         {!s.constraints.length ? <p>Constraint findings unavailable; an empty list does not prove unconstrained capacity.</p> : s.constraints.map(c => <article key={c.id}>
@@ -129,6 +131,7 @@ export function PortfolioComparisonPage({ source = unavailablePortfolioSource }:
     {(!available || conflict || !data.scenarios.length) && <PortfolioStrategyAvailability data={available && !conflict ? data : undefined} />}
     {(!available || conflict || !data.scenarios.length) && <PortfolioComparisonMatrix now={observedNow} />}
     {(!available || conflict || !data.scenarios.length) && <PortfolioAllocationPanel now={observedNow} />}
+    {(!available || conflict || !data.scenarios.length) && <PortfolioSolverExplanation now={observedNow} />}
     {available && !conflict && (data.scenarios.length ?
       <PortfolioResults key={`${auth.tenantId}:${auth.actorId}:${data.snapshotId}:${data.snapshotVersion}:${data.updatedAt}:${data.scenarios.map(s => `${s.id}:${s.version}`).join('|')}`} data={data} now={observedNow} /> :
       <EmptyState kind="empty" title="No source scenarios" description="The source returned no scenarios. Continue with individual order assessments; no local portfolio is invented." />)}

@@ -54,3 +54,19 @@ it.each(['INFEASIBLE','MODEL_INVALID','SOLVER_UNAVAILABLE'])('does not present a
  render(<MemoryRouter><PortfolioAllocationPanel data={data} scenario={data.scenarios[0]} now={Date.parse('2026-10-24T03:00:00Z')} /></MemoryRouter>);
  expect(screen.queryByRole('table')).not.toBeInTheDocument(); expect(screen.getByText(/Allocation withheld/)).toBeInTheDocument();
 });
+
+import { PortfolioSolverExplanation } from './PortfolioSolverExplanation';
+it('shows dependency categories without classifying prose as authoritative evidence', () => {
+ render(<PortfolioSolverExplanation now={Date.now()} />);
+ expect(screen.getByText('Solver explanation is not available.')).toBeInTheDocument();
+ for(const name of ['Inventory Constraints','Capacity Constraints','Expiry Constraints','Delivery Constraints']) expect(screen.getByRole('heading',{name})).toBeInTheDocument();
+ expect(screen.queryByRole('button')).not.toBeInTheDocument();
+});
+it('binds source recommendations to the selected scenario rather than inventing explanations', () => {
+ const data=portfolioFixture();data.integrationMode='LIVE';data.evidenceTier='VALIDATED';
+ const view=render(<PortfolioSolverExplanation data={data} scenario={data.scenarios[0]} now={Date.parse('2026-10-24T03:00:00Z')} />);
+ expect(screen.queryByText('Source-provided trade-off explanation')).not.toBeInTheDocument();
+ view.rerender(<PortfolioSolverExplanation data={data} scenario={data.scenarios[1]} now={Date.parse('2026-10-24T03:00:00Z')} />);
+ expect(screen.getByText('Source-provided trade-off explanation')).toBeInTheDocument();
+ expect(screen.getByText(/Explanation source:/)).toBeInTheDocument();
+});

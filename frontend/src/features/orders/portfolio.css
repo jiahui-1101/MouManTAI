@@ -91,3 +91,10 @@
 .pc-membership-DEFERRED { color:#854d0e; background:#fef9c3; }
 .pc-membership-EXCLUDED { color:#9f1239; background:#fff1f2; }
 @media(max-width:520px) { .pc-allocation-counts { grid-template-columns:minmax(0,1fr); } }
+
+.pc-constraint-groups { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.85rem; margin:1rem 0; }
+.pc-constraint-groups section { border:1px solid var(--ui-divider,#dce2eb); border-radius:.65rem; padding:.9rem; background:var(--ui-background,#f4f8ff); }
+.pc-constraint-groups h4 { margin:.15rem 0 .5rem; color:#304975; }
+.pc-constraint-groups p { font-size:.85rem; }
+.pc-explanation ul { padding-left:1.25rem; font-size:.85rem; }
+@media(max-width:640px) { .pc-constraint-groups { grid-template-columns:minmax(0,1fr); } }
