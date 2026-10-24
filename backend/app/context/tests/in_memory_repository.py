@@ -27,6 +27,7 @@ from app.context.order_context_schemas import (
 )
 from app.context.repository import DuplicateConflict, MessageNotFound, PersistenceUnavailable
 from app.context.schemas import Channel, ExtractedField, ProcessingStatus, RawMessageEnvelope
+from app.context.channels.reply_framing import ParentResolution, ReplyFrame, resolve_parent
 
 
 def _fingerprint(envelope: RawMessageEnvelope) -> str:
@@ -42,7 +43,8 @@ class InMemoryMessageRepository:
         self.catalog = PROVISIONAL_PRODUCTS if catalog is None else catalog
         self._proposal_service = proposal_service
         self.messages: dict[tuple[str, str], StoredMessage] = {}  # (tenant_id, message_id) -> StoredMessage
-        self.fingerprints: dict[tuple[str, str, str], tuple[str, str]] = {}  # (tenant, channel, provider_id) -> (msg_id, digest)
+        self.fingerprints: dict[tuple[str, ...], tuple[str, str]] = {}
+        self.parent_links: dict[tuple[str, str], tuple[str, str | None]] = {}
         self.attempts: dict[tuple[str, str], list[ExtractionAttemptRecord]] = {}
         self.attachments: dict[tuple[str, str], tuple[AttachmentRecord, bytes]] = {}  # (tenant_id, evidence_ref) -> (record, bytes)
         self.contexts: dict[tuple[str, str], OrderContextRecord] = {}  # (tenant_id, context_id) -> record
@@ -56,7 +58,12 @@ class InMemoryMessageRepository:
         return self._proposal_service
 
     def ingest(self, envelope: RawMessageEnvelope, now: datetime) -> IngestResponse:
-        key = (envelope.tenant_id, envelope.channel, envelope.provider_message_id)
+        if envelope.provider_account_id and envelope.provider_native_message_id:
+            scope = (envelope.conversation_id or "") if envelope.channel == "TELEGRAM" else ""
+            key = (envelope.tenant_id, envelope.channel, envelope.provider_account_id, scope,
+                   envelope.provider_native_message_id)
+        else:
+            key = (envelope.tenant_id, envelope.channel, "LEGACY", envelope.provider_message_id)
         digest = _fingerprint(envelope)
 
         if key in self.fingerprints:
@@ -101,7 +108,94 @@ class InMemoryMessageRepository:
         )
         self.messages[(envelope.tenant_id, msg_id)] = stored
         self.fingerprints[key] = (msg_id, digest)
+        resolution, parent = self._resolve_parent(envelope)
+        self.parent_links[(envelope.tenant_id, msg_id)] = (
+            resolution.state,
+            parent.message_id if parent is not None else None,
+        )
+        self._reconcile_parent_links(envelope)
         return IngestResponse(message=stored, duplicate=False)
+
+    @staticmethod
+    def _as_frame(raw: RawMessageEnvelope, *, parent: bool = False) -> ReplyFrame | None:
+        if not raw.provider_account_id or not raw.provider_native_message_id:
+            return None
+        provider = {"TELEGRAM": "TELEGRAM", "WHATSAPP": "WHATSAPP", "EMAIL": "EMAIL"}.get(raw.channel)
+        if not provider:
+            return None
+        exact_parent = None if parent else (
+            (raw.rfc_in_reply_to or [None])[0] if provider == "EMAIL" else raw.reply_to_provider_message_id
+        )
+        try:
+            return ReplyFrame(
+                raw.tenant_id,
+                provider,
+                raw.provider_account_id,
+                raw.provider_native_message_id,
+                raw.sender_identity_id,
+                raw.conversation_id,
+                exact_parent,
+                raw.relationship_source if exact_parent else "NONE",
+                raw.rfc_message_id,
+                tuple(raw.rfc_in_reply_to),
+                tuple(raw.rfc_references),
+                tuple(raw.native_attachment_source_ids),
+            )
+        except ValueError:
+            return None
+
+    def _resolve_parent(self, raw: RawMessageEnvelope) -> tuple[ParentResolution, StoredMessage | None]:
+        reference = (raw.rfc_in_reply_to or [None])[0] if raw.channel == "EMAIL" else raw.reply_to_provider_message_id
+        if not reference:
+            return ParentResolution("NO_EXACT_PARENT"), None
+        if raw.framing_error:
+            return ParentResolution("INVALID"), None
+        reply = self._as_frame(raw)
+        if reply is None or raw.relationship_source not in {"PROVIDER_QUOTE", "SENDER_HEADER"}:
+            return ParentResolution("UNRESOLVED"), None
+        candidates: list[tuple[StoredMessage, ReplyFrame]] = []
+        for (candidate_tenant, _), candidate in self.messages.items():
+            candidate_raw = candidate.raw
+            if candidate_tenant != raw.tenant_id or candidate_raw.source_authenticity != "VERIFIED":
+                continue
+            frame = self._as_frame(candidate_raw, parent=True)
+            if frame:
+                candidates.append((candidate, frame))
+        result = resolve_parent(reply, [frame for _, frame in candidates])
+        if result.state != "REFERENCE_MATCH":
+            return result, None
+        matched = [message for message, frame in candidates if frame.native_message_id == result.parent_native_id]
+        if len(matched) != 1:
+            return ParentResolution("AMBIGUOUS"), None
+        return result, matched[0]
+
+    def _reconcile_parent_links(self, _new_message: RawMessageEnvelope) -> None:
+        for (tenant_id, message_id), child in list(self.messages.items()):
+            if tenant_id != _new_message.tenant_id or self.parent_links[(tenant_id, message_id)][0] not in {
+                "UNRESOLVED", "REFERENCE_MATCH", "AMBIGUOUS"
+            }:
+                continue
+            result, parent = self._resolve_parent(child.raw)
+            self.parent_links[(tenant_id, message_id)] = (result.state, parent.message_id if parent else None)
+
+    def resolve_exact_parent(self, tenant_id: str, message_id: str) -> ParentResolution:
+        link = self.parent_links.get((tenant_id, message_id))
+        if link is None:
+            return ParentResolution("UNRESOLVED")
+        state, parent_id = link
+        if state != "REFERENCE_MATCH" or not parent_id:
+            return ParentResolution(state)  # type: ignore[arg-type]
+        parent = self.messages.get((tenant_id, parent_id))
+        return ParentResolution("REFERENCE_MATCH", parent.raw.provider_native_message_id if parent else None)
+
+    def get_contexts_by_exact_parent(self, tenant_id: str, message_id: str) -> list[OrderContextRecord]:
+        link = self.parent_links.get((tenant_id, message_id))
+        if not link or link[0] != "REFERENCE_MATCH" or not link[1]:
+            return []
+        return [context for (ctx_tenant, _), context in self.contexts.items()
+                if ctx_tenant == tenant_id and link[1] in context.source_message_ids
+                and context.core_commitment_id is None
+                and context.status in {"INFORMATION_PARTIAL", "UNRESOLVED", "CONFLICT"}]
 
     def get(self, tenant_id: str, message_id: str) -> StoredMessage | None:
         return self.messages.get((tenant_id, message_id))
@@ -320,3 +414,24 @@ class InMemoryMessageRepository:
         )
         self.contexts[(tenant_id, context_id)] = updated_ctx
         return updated_ctx
+
+    def delete_message(self, tenant_id: str, message_id: str) -> bool:
+        msg_key = (tenant_id, message_id)
+        if msg_key not in self.messages:
+            return False
+        stored = self.messages.pop(msg_key)
+        fp_key = (tenant_id, stored.raw.channel, stored.raw.provider_message_id)
+        self.fingerprints.pop(fp_key, None)
+        self.attempts.pop(msg_key, None)
+        self.associations.pop(msg_key, None)
+        to_del = []
+        for c_key, ctx in self.contexts.items():
+            if c_key[0] == tenant_id and message_id in (ctx.source_message_ids or []):
+                rem = [m for m in ctx.source_message_ids if m != message_id]
+                if not rem:
+                    to_del.append(c_key)
+                else:
+                    self.contexts[c_key] = ctx.model_copy(update={"source_message_ids": rem})
+        for c_key in to_del:
+            self.contexts.pop(c_key, None)
+        return True

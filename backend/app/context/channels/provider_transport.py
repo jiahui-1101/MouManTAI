@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import threading
 from collections.abc import Callable
@@ -10,9 +12,18 @@ from typing import Literal
 
 import httpx
 
-ProviderErrorClass = Literal[
-    "AUTHENTICATION", "RATE_LIMITED", "TRANSIENT", "PERMANENT", "UNKNOWN"
-]
+
+def source_evidence_key(
+    tenant_id: str, provider: str, account_id: str | None, source_ids: list[str], content: bytes
+) -> str:
+    """Stable scoped source bytes; changed bytes cannot overwrite prior evidence."""
+    if not tenant_id or not account_id or not source_ids:
+        raise ValueError("Attachment source account and native identity are required")
+    identity = [tenant_id, provider, account_id, source_ids, hashlib.sha256(content).hexdigest()]
+    return hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()[:32]
+
+
+ProviderErrorClass = Literal["AUTHENTICATION", "RATE_LIMITED", "TRANSIENT", "PERMANENT", "UNKNOWN"]
 ProviderSendState = Literal["ACCEPTED", "REJECTED", "UNKNOWN"]
 
 
@@ -48,7 +59,9 @@ class ProviderTransportError(RuntimeError):
         super().__init__(f"{provider} transport failed ({error_code}; {error_class})")
 
 
-def classify_http_status(status_code: int) -> tuple[ProviderSendState, ProviderErrorClass | None, str | None]:
+def classify_http_status(
+    status_code: int,
+) -> tuple[ProviderSendState, ProviderErrorClass | None, str | None]:
     if 200 <= status_code < 300:
         return "ACCEPTED", None, None
     if status_code in {401, 403}:
@@ -89,11 +102,15 @@ def read_limited_get(client: httpx.Client, url: str, max_bytes: int, **kwargs) -
                     return response.status_code, b""
                 content_length = response.headers.get("content-length")
                 if content_length and int(content_length) > max_bytes:
-                    raise ProviderPayloadTooLarge("provider response exceeded the configured size limit")
+                    raise ProviderPayloadTooLarge(
+                        "provider response exceeded the configured size limit"
+                    )
                 content = bytearray()
                 for chunk in response.iter_bytes():
                     if len(content) + len(chunk) > max_bytes:
-                        raise ProviderPayloadTooLarge("provider response exceeded the configured size limit")
+                        raise ProviderPayloadTooLarge(
+                            "provider response exceeded the configured size limit"
+                        )
                     content.extend(chunk)
                 return response.status_code, bytes(content)
         except httpx.RequestError:
@@ -114,8 +131,9 @@ class ProcessIdempotencyGate:
         self._entries: dict[str, tuple[str, ProviderSendResult]] = {}
         self._max_entries = max_entries
 
-    def execute(self, key: str, request_fingerprint: str,
-                operation: Callable[[], ProviderSendResult]) -> ProviderSendResult:
+    def execute(
+        self, key: str, request_fingerprint: str, operation: Callable[[], ProviderSendResult]
+    ) -> ProviderSendResult:
         if not re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", key):
             raise ValueError("a bounded, header-safe idempotency key is required")
         with self._lock:

@@ -336,8 +336,8 @@ describe("Phase 5 — Full UAT Journey & Integration Harness (FE-UAT-01..15)", (
   it("loads Supplier Workspace and enforces disabled selection under missing R-05 contract", async () => {
     renderFullHarness("/suppliers");
     expect(await screen.findByRole("heading", { name: /supplier directory/i })).toBeInTheDocument();
-    expect(screen.getByText("DEMO-ONLY")).toBeInTheDocument();
-    expect(screen.getByText("SYNTHETIC")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Supplier data unavailable");
+    expect(screen.queryByText("Example Packaging Co.")).not.toBeInTheDocument();
 
     cleanup();
 

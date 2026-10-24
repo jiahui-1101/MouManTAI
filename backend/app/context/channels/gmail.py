@@ -41,7 +41,8 @@ from app.context.repository import MessageRepository
 from app.context.schemas import Attachment, RawMessageEnvelope
 
 from .config import GmailChannelConfig
-from .provider_transport import read_limited_get, safe_get
+from .provider_transport import read_limited_get, safe_get, source_evidence_key
+from .reply_framing import FramingError, email_frame
 from .state import ChannelStateManager, get_state_manager
 
 logger = logging.getLogger(__name__)
@@ -253,12 +254,26 @@ class GmailAdapter:
         if not self.config.is_configured:
             return {"authenticated": False, "reason": "Not configured"}
         profile = self.get_profile()
-        email_addr = profile.get("emailAddress", "")
+        email_addr = profile.get("emailAddress", "").strip()
+        if not re.fullmatch(r"[^@\s<>]+@[^@\s<>]+", email_addr):
+            return {"authenticated": False, "reason": "OAuth mailbox identity is invalid"}
+        previous_account = self.state_manager.get_channel_summary(
+            "EMAIL", self.config.tenant_id
+        ).get("verified_account_id")
+        if previous_account and previous_account.casefold() != email_addr.casefold():
+            return {"authenticated": False, "reason": "Existing mailbox state belongs to another account"}
+        if not previous_account and self.state_manager.get_gmail_cursor(self.config.tenant_id) is not None:
+            return {"authenticated": False, "reason": "Legacy mailbox cursor account is unknown"}
+        if self.config.mailbox_account_id and email_addr.casefold() != self.config.mailbox_account_id.strip().casefold():
+            return {"authenticated": False, "reason": "OAuth mailbox differs from configured account identity"}
         if "@" in email_addr:
             u, d = email_addr.split("@", 1)
             masked = (u[:3] + "***@" + d) if len(u) > 3 else (u[0] + "***@" + d)
         else:
             masked = "***"
+        if "@" in email_addr:
+            self.state_manager.set_verified_account_id("EMAIL", self.config.tenant_id, email_addr)
+            self.config.mailbox_account_id = email_addr
         return {
             "authenticated": True,
             "email_address": email_addr,
@@ -367,7 +382,7 @@ class GmailAdapter:
         text_html_parts: list[str] = []
         attachments: list[Attachment] = []
 
-        def walk_parts(part: dict[str, Any]) -> None:
+        def walk_parts(part: dict[str, Any], part_path: str = "0") -> None:
             mime_type = part.get("mimeType", "")
             filename = part.get("filename", "")
             body = part.get("body", {})
@@ -386,7 +401,9 @@ class GmailAdapter:
                         content = _base64url_decode(inline_data)
 
                     detected_mime, clean_filename = validate_attachment(filename, content, mime_type)
-                    stable = hashlib.sha256(f"{message_id}:{attachment_id or filename}".encode()).hexdigest()[:24]
+                    stable = source_evidence_key(self.config.tenant_id, "GMAIL_API",
+                        self.config.mailbox_account_id,
+                        [message_id, str(attachment_id or "inline"), str(part.get("partId") or part_path)], content)
                     att_id = f"att_gm_{stable}"
                     ev_ref = f"ev_gm_{stable}"
                     sha256 = hashlib.sha256(content).hexdigest()
@@ -428,8 +445,8 @@ class GmailAdapter:
                 except Exception as exc:
                     logger.warning("Failed decoding Gmail message part (%s)", type(exc).__name__)
 
-            for subpart in part.get("parts", []):
-                walk_parts(subpart)
+            for index, subpart in enumerate(part.get("parts", [])):
+                walk_parts(subpart, f"{part_path}.{index}")
 
         walk_parts(payload)
 
@@ -443,7 +460,9 @@ class GmailAdapter:
 
         return full_body, attachments
 
-    def parse_message(self, msg_data: dict[str, Any]) -> RawMessageEnvelope | None:
+    def parse_message(
+        self, msg_data: dict[str, Any], *, source_verified: bool = False
+    ) -> RawMessageEnvelope | None:
         """Parse raw Gmail message payload into canonical RawMessageEnvelope."""
         msg_id = msg_data.get("id")
         if not msg_id:
@@ -470,16 +489,24 @@ class GmailAdapter:
         # Extract Subject
         subject = headers.get("subject", "").strip()
 
-        # Extract Message-ID
+        verified_account_id = self.state_manager.get_channel_summary(
+            "EMAIL", self.config.tenant_id
+        ).get("verified_account_id")
+        account_id = verified_account_id or self.config.mailbox_account_id
+        frame = None
+        framing_error = None
+        try:
+            if not account_id:
+                raise FramingError("Authenticated Gmail mailbox identity is unavailable")
+            frame = email_frame(msg_data, tenant_id=self.config.tenant_id, mailbox=account_id)
+        except FramingError as exc:
+            framing_error = str(exc)
+
+        # Preserve source header values even when conservative framing rejects them.
+        rfc_message_id = frame.rfc_message_id if frame else headers.get("message-id", "").strip() or None
+        in_reply_to = list(frame.in_reply_to) if frame else ([headers["in-reply-to"].strip()] if headers.get("in-reply-to", "").strip() else [])
+        references = list(frame.references) if frame else ([headers["references"].strip()] if headers.get("references", "").strip() else [])
         provider_message_id = f"gmail_{msg_id}"
-        def message_ids(value: str) -> list[str]:
-            if "\r" in value or "\n" in value:
-                return []
-            return re.findall(r"<[^\s<>\r\n]+@[^\s<>\r\n]+>", value)[:100]
-
-        parent_ids = message_ids(headers.get("in-reply-to", ""))
-        references = message_ids(headers.get("references", ""))
-
         # Extract Body and Attachments
         body_text, attachments = self._extract_body_and_attachments(msg_id, payload, received_at)
 
@@ -503,14 +530,30 @@ class GmailAdapter:
             tenant_id=self.config.tenant_id,
             channel="EMAIL",
             provider_message_id=provider_message_id,
-            sender_identity_id=sender_email,
+            provider_account_id=frame.account_id if frame else account_id,
+            provider_native_message_id=(frame.native_message_id if frame else (str(msg_id) if account_id else None)),
+            sender_identity_id=frame.sender_id if frame else sender_email,
             sender_alias=sender_alias,
             received_at=received_at,
             message_at=message_at,
             text=text,
             attachments=attachments,
-            thread_ref=thread_id or (references[0] if references else provider_message_id),
-            reply_to_provider_message_id=parent_ids[-1] if parent_ids else (references[-1] if references else None),
+            thread_ref=thread_id,
+            conversation_id=frame.conversation_id if frame else thread_id,
+            reply_to_provider_message_id=frame.exact_parent_id if frame else None,
+            rfc_message_id=rfc_message_id,
+            rfc_in_reply_to=in_reply_to,
+            rfc_references=references,
+            native_attachment_source_ids=list(frame.attachment_source_ids) if frame else [],
+            relationship_source=frame.relationship_source if frame else "UNKNOWN",
+            source_authenticity=(
+                "VERIFIED"
+                if source_verified and verified_account_id and account_id
+                and verified_account_id.casefold() == account_id.casefold()
+                else "UNVERIFIED"
+            ),
+            correlation_id=f"gmail-message:{msg_id}",
+            framing_error=framing_error,
             adapter_mode="REAL",
         )
 
@@ -520,6 +563,20 @@ class GmailAdapter:
         """Poll Gmail inbox incrementally using restart-safe cursor."""
         if not self.config.is_configured:
             return 0
+
+        # Tenant-only legacy cursors must never cross OAuth mailbox accounts.
+        # Recheck the current token before using cached identity or delivery IDs.
+        previous_account = self.state_manager.get_channel_summary(
+            "EMAIL", self.config.tenant_id
+        ).get("verified_account_id")
+        if previous_account:
+            configured_account = self.config.mailbox_account_id
+            if configured_account and configured_account.casefold() != previous_account.casefold():
+                raise GmailAuthError("Gmail account state requires a separate mailbox state file")
+            self.config.mailbox_account_id = previous_account
+        verification = self.verify_connection()
+        if not verification.get("authenticated"):
+            raise GmailAuthError("Authenticated Gmail mailbox identity could not be verified")
 
         # Retrieve restart-safe cursor
         last_internal_date = self.state_manager.get_gmail_cursor(self.config.tenant_id)
@@ -559,7 +616,7 @@ class GmailAdapter:
                         continue
 
                     try:
-                        envelope = self.parse_message(msg_data)
+                        envelope = self.parse_message(msg_data, source_verified=True)
                         if envelope is not None:
                             result = self.ingestion_service.ingest(envelope, self.config.tenant_id)
                             if not result.duplicate:

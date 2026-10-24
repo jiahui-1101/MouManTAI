@@ -38,7 +38,9 @@ from .provider_transport import (
     classify_http_status,
     read_limited_get,
     safe_get,
+    source_evidence_key,
 )
+from .reply_framing import FramingError, email_frame
 from .state import ChannelStateManager, get_state_manager
 
 logger = logging.getLogger(__name__)
@@ -55,10 +57,19 @@ class ResendProviderUnavailable(ResendWebhookError):
     """The signed event is valid but Resend's retrieval API is unavailable."""
 
 
+class ResendCanonicalContractUnavailable(ResendProviderUnavailable):
+    """Shared P1 cannot truthfully persist RESEND provenance until owner approval."""
+
+
 class ResendAdapter:
-    def __init__(self, config: ResendChannelConfig, repository: MessageRepository,
-                 state_manager: ChannelStateManager | None = None,
-                 http_client: httpx.Client | None = None, clock: Any = None):
+    def __init__(
+        self,
+        config: ResendChannelConfig,
+        repository: MessageRepository,
+        state_manager: ChannelStateManager | None = None,
+        http_client: httpx.Client | None = None,
+        clock: Any = None,
+    ):
         self.config = config
         self.repository = repository
         self.state_manager = state_manager or get_state_manager()
@@ -70,14 +81,18 @@ class ResendAdapter:
     def _get_client(self) -> httpx.Client:
         if self._custom_client is not None:
             return self._custom_client
-        return httpx.Client(timeout=httpx.Timeout(self.config.request_timeout_seconds, connect=3.0),
-                            follow_redirects=False)
+        return httpx.Client(
+            timeout=httpx.Timeout(self.config.request_timeout_seconds, connect=3.0),
+            follow_redirects=False,
+        )
 
     @staticmethod
     def _header(headers: dict[str, str], name: str) -> str | None:
         return next((value for key, value in headers.items() if key.lower() == name.lower()), None)
 
-    def verify_webhook(self, raw_body: bytes, headers: dict[str, str], *, now: int | None = None) -> bool:
+    def verify_webhook(
+        self, raw_body: bytes, headers: dict[str, str], *, now: int | None = None
+    ) -> bool:
         """Verify Resend/Svix v1 signatures over the exact raw body and a bounded timestamp."""
         secret = self.config.webhook_secret
         msg_id = self._header(headers, "svix-id")
@@ -94,7 +109,9 @@ class ResendAdapter:
             raise ResendWebhookError("Resend webhook signature configuration is invalid") from exc
         current = int(now if now is not None else time.time())
         if abs(current - issued_at) > 300:
-            raise ResendWebhookError("Resend webhook signature timestamp is outside the accepted window")
+            raise ResendWebhookError(
+                "Resend webhook signature timestamp is outside the accepted window"
+            )
         signed = msg_id.encode() + b"." + timestamp.encode() + b"." + raw_body
         expected = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
         signatures = []
@@ -112,15 +129,19 @@ class ResendAdapter:
         return {"Authorization": f"Bearer {self.config.api_key}", "Accept": "application/json"}
 
     def _get_received_email(self, email_id: str) -> dict[str, Any]:
-        response = safe_get(self._get_client(),
+        response = safe_get(
+            self._get_client(),
             f"{self.config.api_base_url.rstrip('/')}/emails/receiving/{email_id}",
-            headers=self._api_headers())
+            headers=self._api_headers(),
+        )
         if not response.is_success:
             raise ResendProviderUnavailable("Resend received-email retrieval failed")
         try:
             data = response.json()
         except ValueError as exc:
-            raise ResendProviderUnavailable("Resend returned an invalid received-email response") from exc
+            raise ResendProviderUnavailable(
+                "Resend returned an invalid received-email response"
+            ) from exc
         if not isinstance(data, dict):
             raise ResendProviderUnavailable("Resend returned an invalid received-email response")
         return data
@@ -146,32 +167,46 @@ class ResendAdapter:
         value = re.sub(r"<[^>]+>", "", value)
         return html.unescape(re.sub(r"\n\s*\n+", "\n\n", value)).strip()
 
-    def _download_attachments(self, email_id: str, attachment_meta: list[dict[str, Any]],
-                              received_at: datetime) -> list[Attachment]:
+    def _download_attachments(
+        self, email_id: str, attachment_meta: list[dict[str, Any]], received_at: datetime
+    ) -> list[Attachment]:
         saved: list[Attachment] = []
         for item in attachment_meta[:10]:
             if not isinstance(item, dict):
                 continue
             attachment_id = str(item.get("id") or "")
-            if not attachment_id or len(attachment_id) > 200 or not re.fullmatch(r"[A-Za-z0-9._-]+", attachment_id):
+            if (
+                not attachment_id
+                or len(attachment_id) > 200
+                or not re.fullmatch(r"[A-Za-z0-9._-]+", attachment_id)
+            ):
                 raise ResendProviderUnavailable("Resend returned an invalid attachment identifier")
-            response = safe_get(self._get_client(),
+            response = safe_get(
+                self._get_client(),
                 f"{self.config.api_base_url.rstrip('/')}/emails/receiving/{email_id}/attachments/{attachment_id}",
-                headers=self._api_headers())
+                headers=self._api_headers(),
+            )
             if not response.is_success:
                 raise ResendProviderUnavailable("Resend attachment metadata retrieval failed")
             try:
                 metadata = response.json()
             except ValueError as exc:
-                raise ResendProviderUnavailable("Resend returned invalid attachment metadata") from exc
+                raise ResendProviderUnavailable(
+                    "Resend returned invalid attachment metadata"
+                ) from exc
             if not isinstance(metadata, dict):
                 raise ResendProviderUnavailable("Resend returned invalid attachment metadata")
             url = metadata.get("download_url")
             try:
                 parsed = httpx.URL(url) if isinstance(url, str) else None
-                allowed_url = (parsed is not None and parsed.scheme == "https"
+                allowed_url = (
+                    parsed is not None
+                    and parsed.scheme == "https"
                     and parsed.host == "inbound-cdn.resend.com"
-                    and parsed.port in {None, 443} and not parsed.username and not parsed.password)
+                    and parsed.port in {None, 443}
+                    and not parsed.username
+                    and not parsed.password
+                )
             except (TypeError, ValueError):
                 allowed_url = False
             if not allowed_url:
@@ -180,36 +215,69 @@ class ResendAdapter:
             try:
                 declared_size = int(declared_size) if declared_size is not None else None
             except (TypeError, ValueError) as exc:
-                raise ResendProviderUnavailable("Resend attachment size metadata is invalid") from exc
-            if declared_size is not None and (declared_size < 0 or declared_size > self.config.max_attachment_bytes):
+                raise ResendProviderUnavailable(
+                    "Resend attachment size metadata is invalid"
+                ) from exc
+            if declared_size is not None and (
+                declared_size < 0 or declared_size > self.config.max_attachment_bytes
+            ):
                 raise ResendWebhookError("Resend attachment exceeds the configured size limit")
             try:
                 status_code, content = read_limited_get(
-                    self._get_client(), url, self.config.max_attachment_bytes)
+                    self._get_client(), url, self.config.max_attachment_bytes
+                )
             except ProviderPayloadTooLarge as exc:
-                raise ResendWebhookError("Resend attachment exceeds the configured size limit") from exc
+                raise ResendWebhookError(
+                    "Resend attachment exceeds the configured size limit"
+                ) from exc
             if not 200 <= status_code < 300:
-                raise ResendProviderUnavailable("Resend attachment download failed or exceeded the size limit")
+                raise ResendProviderUnavailable(
+                    "Resend attachment download failed or exceeded the size limit"
+                )
             filename = str(metadata.get("filename") or item.get("filename") or "attachment.bin")
-            mime = str(metadata.get("content_type") or item.get("content_type") or "application/octet-stream")
+            mime = str(
+                metadata.get("content_type")
+                or item.get("content_type")
+                or "application/octet-stream"
+            )
             try:
                 detected_mime, clean_filename = validate_attachment(filename, content, mime)
             except AttachmentValidationError as exc:
                 logger.info("Skipping unsupported Resend attachment (%s)", type(exc).__name__)
                 continue
-            digest = hashlib.sha256(f"{email_id}:{attachment_id}".encode()).hexdigest()[:24]
+            digest = source_evidence_key(
+                self.config.tenant_id,
+                "RESEND",
+                self.config.account_id,
+                [email_id, attachment_id],
+                content,
+            )
             att_id, evidence_ref = f"att_rs_{digest}", f"ev_rs_{digest}"
-            record = AttachmentRecord(attachment_id=att_id, tenant_id=self.config.tenant_id,
-                evidence_ref=evidence_ref, filename=clean_filename, media_type=detected_mime,
-                size_bytes=len(content), content_sha256=hashlib.sha256(content).hexdigest(),
-                created_at=received_at)
+            record = AttachmentRecord(
+                attachment_id=att_id,
+                tenant_id=self.config.tenant_id,
+                evidence_ref=evidence_ref,
+                filename=clean_filename,
+                media_type=detected_mime,
+                size_bytes=len(content),
+                content_sha256=hashlib.sha256(content).hexdigest(),
+                created_at=received_at,
+            )
             self.repository.save_attachment(self.config.tenant_id, record, content)
-            saved.append(Attachment(attachment_id=att_id, filename=clean_filename,
-                media_type=detected_mime, size_bytes=len(content), evidence_ref=evidence_ref))
+            saved.append(
+                Attachment(
+                    attachment_id=att_id,
+                    filename=clean_filename,
+                    media_type=detected_mime,
+                    size_bytes=len(content),
+                    evidence_ref=evidence_ref,
+                )
+            )
         return saved
 
-    def process_received_event(self, raw_body: bytes, headers: dict[str, str], *,
-                               signature_verified: bool = False) -> RawMessageEnvelope | None:
+    def process_received_event(
+        self, raw_body: bytes, headers: dict[str, str], *, signature_verified: bool = False
+    ) -> RawMessageEnvelope | None:
         if not signature_verified:
             self.verify_webhook(raw_body, headers)
         try:
@@ -220,6 +288,8 @@ class ResendAdapter:
             raise ResendWebhookError("Unsupported Resend webhook event")
         if not self.config.has_tenant_assignment:
             raise ResendWebhookError("Resend tenant assignment is not configured")
+        if not self.config.is_inbound_configured:
+            raise ResendWebhookError("Resend receiving account identity is not configured")
         event_data = event.get("data") or {}
         if not isinstance(event_data, dict):
             raise ResendWebhookError("Resend event data is invalid")
@@ -231,9 +301,24 @@ class ResendAdapter:
         received_to = {str(item).strip().lower() for item in raw_to if isinstance(item, str)}
         allowed_to = {item.strip().lower() for item in self.config.inbound_addresses}
         if not allowed_to or not received_to.intersection(allowed_to):
-            raise ResendWebhookError("Resend event recipient is outside the configured tenant inboxes")
+            raise ResendWebhookError(
+                "Resend event recipient is outside the configured tenant inboxes"
+            )
 
         email_data = self._get_received_email(email_id)
+        if email_data.get("id") != email_id:
+            raise ResendWebhookError(
+                "Resend retrieved message identity does not match the signed event"
+            )
+        account_id = self.config.account_id.strip().lower()
+        retrieved_to = email_data.get("to") or []
+        retrieved_to = retrieved_to if isinstance(retrieved_to, list) else [retrieved_to]
+        if account_id not in received_to or account_id not in {
+            self._safe_address(str(value), "recipient")[1] for value in retrieved_to
+        }:
+            raise ResendWebhookError(
+                "Resend receiving account differs from signed/API recipient routing"
+            )
         from_value = str(email_data.get("from") or event_data.get("from") or "")
         display_name, sender_email = self._safe_address(from_value, "From")
         received_at = self._clock()
@@ -251,17 +336,40 @@ class ResendAdapter:
 
         headers_data = email_data.get("headers") or {}
         if isinstance(headers_data, list):
-            rfc_headers = {str(item.get("name", "")).lower(): str(item.get("value", ""))
-                           for item in headers_data if isinstance(item, dict)}
+            rfc_headers = {
+                str(item.get("name", "")).lower(): str(item.get("value", ""))
+                for item in headers_data
+                if isinstance(item, dict)
+            }
         elif isinstance(headers_data, dict):
             rfc_headers = {str(key).lower(): str(value) for key, value in headers_data.items()}
         else:
             rfc_headers = {}
-        rfc_message_id = str(email_data.get("message_id") or event_data.get("message_id")
-                             or rfc_headers.get("message-id") or "")
-        own_message_ids = self._message_ids(rfc_message_id)
-        parent_ids = self._message_ids(rfc_headers.get("in-reply-to"))
-        reference_ids = self._message_ids(rfc_headers.get("references"))
+        rfc_message_id = str(
+            email_data.get("message_id")
+            or event_data.get("message_id")
+            or rfc_headers.get("message-id")
+            or ""
+        )
+        # Reuse C1's conservative RFC parser; References alone is no exact parent.
+        framing_headers = (
+            [{"name": str(k), "value": str(v)} for k, v in headers_data.items()]
+            if isinstance(headers_data, dict)
+            else list(headers_data)
+        )
+        for name, value in (("From", from_value), ("Message-ID", rfc_message_id)):
+            if not any(str(h.get("name", "")).lower() == name.lower() for h in framing_headers):
+                framing_headers.append({"name": name, "value": value})
+        try:
+            frame = email_frame(
+                {"id": email_id, "payload": {"headers": framing_headers}},
+                tenant_id=self.config.tenant_id,
+                mailbox=account_id,
+            )
+        except FramingError as exc:
+            raise ResendWebhookError("Resend RFC source framing requires review") from exc
+        if not frame.rfc_message_id:
+            raise ResendWebhookError("Resend RFC Message-ID is missing; source requires review")
         # Sender-controlled RFC Message-ID is retained for threading, never used as
         # the provider delivery key or tenant-scoped persistence identity.
         provider_id = f"resend_{email_id}"
@@ -278,32 +386,54 @@ class ResendAdapter:
         else:
             text = body
         attachments_meta = email_data.get("attachments") or event_data.get("attachments") or []
-        attachments = self._download_attachments(email_id, attachments_meta, received_at) if attachments_meta else []
+        attachments = (
+            self._download_attachments(email_id, attachments_meta, received_at)
+            if attachments_meta
+            else []
+        )
         if not text.strip() and attachments:
             text = f"[Email Attachment: {attachments[0].filename}]"
         if not text.strip():
             return None
         text = text[:20_000]
-        thread_ref = reference_ids[0] if reference_ids else (own_message_ids[-1] if own_message_ids else email_id)
-        return RawMessageEnvelope(tenant_id=self.config.tenant_id, channel="EMAIL",
-            provider_message_id=provider_id, sender_identity_id=sender_email,
-            sender_alias=(display_name.strip() or sender_email)[:200], received_at=received_at,
-            message_at=message_at, text=text, attachments=attachments, thread_ref=thread_ref,
-            reply_to_provider_message_id=parent_ids[-1] if parent_ids else (reference_ids[-1] if reference_ids else None),
-            adapter_mode="REAL")
+        thread_ref = frame.rfc_message_id
+        return RawMessageEnvelope(
+            tenant_id=self.config.tenant_id,
+            channel="EMAIL",
+            provider_message_id=provider_id,
+            provider_account_id=account_id,
+            provider_native_message_id=email_id,
+            sender_identity_id=sender_email,
+            sender_alias=(display_name.strip() or sender_email)[:200],
+            received_at=received_at,
+            message_at=message_at,
+            text=text,
+            attachments=attachments,
+            thread_ref=thread_ref,
+            conversation_id=None,
+            reply_to_provider_message_id=frame.exact_parent_id,
+            rfc_message_id=frame.rfc_message_id,
+            rfc_in_reply_to=list(frame.in_reply_to),
+            rfc_references=list(frame.references),
+            relationship_source=frame.relationship_source,
+            native_attachment_source_ids=[
+                str(item["id"]) for item in attachments_meta if item.get("id")
+            ],
+            # Cryptographic verification alone cannot provide the missing
+            # canonical RESEND provenance contract. Direct ingestion must also
+            # refuse this envelope until that shared contract is approved.
+            source_authenticity="UNVERIFIED",
+            correlation_id=self._header(headers, "svix-id"),
+            adapter_mode="REAL",
+        )
 
-    def ingest_received_event(self, raw_body: bytes, headers: dict[str, str], *,
-                              signature_verified: bool = False):
-        envelope = self.process_received_event(raw_body, headers, signature_verified=signature_verified)
-        if envelope is None:
-            return None
-        result = self.ingestion_service.ingest(envelope, self.config.tenant_id)
-        if not result.duplicate:
-            try:
-                self.repository.process(self.config.tenant_id, result.message.message_id)
-            except Exception as exc:  # noqa: BLE001 - ingestion is committed; avoid provider retry for extraction failure.
-                logger.warning("Resend inbound extraction failed (%s)", type(exc).__name__)
-        return result
+    def ingest_received_event(
+        self, raw_body: bytes, headers: dict[str, str], *, signature_verified: bool = False
+    ):
+        # Shared P1 currently derives EMAIL provenance as GMAIL_API. Until the
+        # additive RESEND contract is approved/implemented, refuse before any
+        # retrieval, attachment write or message persistence.
+        raise ResendCanonicalContractUnavailable("RESEND_CANONICAL_PROVIDER_CONTRACT_UNAPPROVED")
 
     @staticmethod
     def _validate_rfc_header(value: str, header_name: str) -> str:
@@ -311,14 +441,24 @@ class ResendAdapter:
             raise ResendWebhookError(f"Email {header_name} header is invalid")
         return value
 
-    def send_reply(self, *, to: str, subject: str, text: str, idempotency_key: str,
-                   in_reply_to: str | None = None, references: list[str] | None = None) -> ProviderSendResult:
+    def send_reply(
+        self,
+        *,
+        to: str,
+        subject: str,
+        text: str,
+        idempotency_key: str,
+        in_reply_to: str | None = None,
+        references: list[str] | None = None,
+    ) -> ProviderSendResult:
         if not self.config.is_outbound_configured:
             raise ResendWebhookError("Resend outbound transport is disabled or unconfigured")
         _, recipient = self._safe_address(to, "recipient")
         allowed = {value.strip().lower() for value in self.config.test_recipients}
         if recipient not in allowed:
-            raise ResendWebhookError("Email recipient is not in the configured test recipient allowlist")
+            raise ResendWebhookError(
+                "Email recipient is not in the configured test recipient allowlist"
+            )
         display, sender = self._safe_address(str(self.config.verified_from_email), "verified From")
         from_value = f"{display} <{sender}>" if display else sender
         reply_to: str | None = None
@@ -338,15 +478,22 @@ class ResendAdapter:
             for value in references:
                 parsed = self._message_ids(self._validate_rfc_header(value, "References"))
                 if len(parsed) != 1:
-                    raise ResendWebhookError("Email References header contains an invalid identifier")
+                    raise ResendWebhookError(
+                        "Email References header contains an invalid identifier"
+                    )
                 ids.append(parsed[0])
             headers["References"] = " ".join(ids)
             if len(headers["References"]) > 998:
                 raise ResendWebhookError("Email References header exceeds the RFC line limit")
         if not isinstance(text, str) or not text.strip() or len(text) > 20_000:
             raise ResendWebhookError("Email reply body is empty or exceeds the supported limit")
-        payload: dict[str, Any] = {"from": from_value, "to": [recipient], "subject": safe_subject,
-                                   "text": text, "headers": headers}
+        payload: dict[str, Any] = {
+            "from": from_value,
+            "to": [recipient],
+            "subject": safe_subject,
+            "text": text,
+            "headers": headers,
+        }
         if reply_to:
             payload["reply_to"] = [reply_to]
         key = str(idempotency_key).strip()
@@ -354,14 +501,27 @@ class ResendAdapter:
 
         def submit() -> ProviderSendResult:
             try:
-                response = self._get_client().post(f"{self.config.api_base_url.rstrip('/')}/emails",
-                    headers={**self._api_headers(), "Idempotency-Key": key}, json=payload)
+                response = self._get_client().post(
+                    f"{self.config.api_base_url.rstrip('/')}/emails",
+                    headers={**self._api_headers(), "Idempotency-Key": key},
+                    json=payload,
+                )
             except httpx.TimeoutException:
-                return ProviderSendResult("RESEND", "UNKNOWN", error_class="UNKNOWN",
-                    error_code="PROVIDER_TIMEOUT", idempotency_key=key)
+                return ProviderSendResult(
+                    "RESEND",
+                    "UNKNOWN",
+                    error_class="UNKNOWN",
+                    error_code="PROVIDER_TIMEOUT",
+                    idempotency_key=key,
+                )
             except httpx.RequestError:
-                return ProviderSendResult("RESEND", "UNKNOWN", error_class="UNKNOWN",
-                    error_code="PROVIDER_CONNECTION_ERROR", idempotency_key=key)
+                return ProviderSendResult(
+                    "RESEND",
+                    "UNKNOWN",
+                    error_class="UNKNOWN",
+                    error_code="PROVIDER_CONNECTION_ERROR",
+                    idempotency_key=key,
+                )
             state, error_class, error_code = classify_http_status(response.status_code)
             try:
                 data = response.json()
@@ -370,12 +530,29 @@ class ResendAdapter:
             if state == "ACCEPTED":
                 provider_id = data.get("id") if isinstance(data, dict) else None
                 if isinstance(provider_id, str) and provider_id.strip():
-                    return ProviderSendResult("RESEND", "ACCEPTED", provider_id,
-                        provider_status="ACCEPTED", idempotency_key=key)
-                return ProviderSendResult("RESEND", "UNKNOWN", provider_status=str(response.status_code),
-                    error_class="UNKNOWN", error_code="PROVIDER_RESPONSE_INVALID", idempotency_key=key)
-            return ProviderSendResult("RESEND", state, provider_status=str(response.status_code),
-                error_class=error_class, error_code=error_code, idempotency_key=key)
+                    return ProviderSendResult(
+                        "RESEND",
+                        "ACCEPTED",
+                        provider_id,
+                        provider_status="ACCEPTED",
+                        idempotency_key=key,
+                    )
+                return ProviderSendResult(
+                    "RESEND",
+                    "UNKNOWN",
+                    provider_status=str(response.status_code),
+                    error_class="UNKNOWN",
+                    error_code="PROVIDER_RESPONSE_INVALID",
+                    idempotency_key=key,
+                )
+            return ProviderSendResult(
+                "RESEND",
+                state,
+                provider_status=str(response.status_code),
+                error_class=error_class,
+                error_code=error_code,
+                idempotency_key=key,
+            )
 
         try:
             return self._send_gate.execute(key, fingerprint, submit)
@@ -384,12 +561,21 @@ class ResendAdapter:
 
     def parse_status_event(self, event: dict[str, Any]) -> ProviderStatusReceipt | None:
         data = event.get("data") or {}
-        message_id = data.get("message_id") or data.get("email_id")
+        message_id = data.get("email_id") if isinstance(data, dict) else None
         if not message_id:
             return None
         event_type = str(event.get("type", ""))
-        state = {"email.sent": "SENT", "email.delivered": "DELIVERED",
-                 "email.bounced": "FAILED", "email.failed": "FAILED"}.get(event_type, "UNKNOWN")
-        return ProviderStatusReceipt("RESEND", self.config.tenant_id, str(message_id), state,
+        state = {
+            "email.sent": "SENT",
+            "email.delivered": "DELIVERED",
+            "email.bounced": "FAILED",
+            "email.failed": "FAILED",
+        }.get(event_type, "UNKNOWN")
+        return ProviderStatusReceipt(
+            "RESEND",
+            self.config.tenant_id,
+            str(message_id),
+            state,
             str(event.get("created_at")) if event.get("created_at") else None,
-            "PROVIDER_DELIVERY_FAILED" if state == "FAILED" else None)
+            "PROVIDER_DELIVERY_FAILED" if state == "FAILED" else None,
+        )

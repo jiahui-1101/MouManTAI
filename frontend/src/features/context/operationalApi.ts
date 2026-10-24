@@ -1,3 +1,4 @@
+import { authHeaders, type RequestAuthHeaders } from '../../shared/api';
 import { PreviewError } from './api';
 import type {
   AssociationDecisionRequest,
@@ -71,8 +72,9 @@ export interface OperationalApi {
   config(): Promise<DevelopmentContext>;
   list(query: MessageQuery): Promise<MessagePage>;
   detail(id: string): Promise<StoredMessage>;
+  deleteMessage(id: string, headers?: Record<string, string>): Promise<{ status: string; message_id: string }>;
   ingest(envelope: RawMessageEnvelope): Promise<IngestResponse>;
-  process(id: string, reprocess?: boolean): Promise<ProcessResponse>;
+  process(id: string, reprocess?: boolean, headers?: Record<string, string>): Promise<ProcessResponse>;
   getExtraction(id: string): Promise<ExtractionAttemptRecord>;
   listAttempts(id: string): Promise<ExtractionHistoryResponse>;
   getAssociation(id: string): Promise<MessageAssociationRecord>;
@@ -124,18 +126,23 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+type Requester = <T>(path: string, options?: RequestInit) => Promise<T>;
+
+function createOperationalApi(request: Requester): OperationalApi {
 const processingRequests = new Map<string, Promise<ProcessResponse>>();
-function processMessage(id: string, reprocess = false): Promise<ProcessResponse> {
-  const existing = processingRequests.get(id);
+function processMessage(id: string, reprocess = false, headers: Record<string, string> = {}): Promise<ProcessResponse> {
+  const identity = new Headers(headers);
+  const key = JSON.stringify([id, identity.get('X-Tenant-ID'), identity.get('X-Actor-ID')]);
+  const existing = processingRequests.get(key);
   if (existing) return existing;
   const promise = request<ProcessResponse>(`/v1/messages/${encodeURIComponent(id)}/process${reprocess ? '?reprocess=true' : ''}`, {
-    method: 'POST', headers: { 'X-P1-Operation-ID': crypto.randomUUID() },
-  }).finally(() => processingRequests.delete(id));
-  processingRequests.set(id, promise);
+    method: 'POST', headers: { ...headers, 'X-P1-Operation-ID': crypto.randomUUID() },
+  }).finally(() => processingRequests.delete(key));
+  processingRequests.set(key, promise);
   return promise;
 }
 
-export const operationalApi: OperationalApi = {
+return {
   config: () => request('/dev/p1/config'),
   list: ({ channel, search, processing, offset, limit = 25 }) => {
     const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
@@ -145,6 +152,11 @@ export const operationalApi: OperationalApi = {
     return request(`/v1/messages?${params}`);
   },
   detail: id => request(`/v1/messages/${encodeURIComponent(id)}`),
+  deleteMessage: (id: string, headers: Record<string, string> = {}) =>
+    request<{ status: string; message_id: string }>(`/v1/messages/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { ...headers },
+    }),
   ingest: envelope => request('/v1/messages/ingest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(envelope) }),
   process: processMessage,
   getExtraction: id => request(`/v1/messages/${encodeURIComponent(id)}/extraction`),
@@ -198,3 +210,16 @@ export const operationalApi: OperationalApi = {
     request(`/v1/attachments/${encodeURIComponent(evidenceRef)}/page-count`),
 };
 
+
+}
+
+export const operationalApi = createOperationalApi(request);
+
+export function createScopedOperationalApi(auth: RequestAuthHeaders): OperationalApi {
+  const identity = authHeaders(auth);
+  return createOperationalApi(<T,>(path: string, options?: RequestInit) => {
+    const headers = new Headers(options?.headers);
+    for (const [name, value] of Object.entries(identity)) headers.set(name, value);
+    return request<T>(path, { ...options, headers });
+  });
+}

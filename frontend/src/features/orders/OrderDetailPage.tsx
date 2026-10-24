@@ -10,10 +10,17 @@ import type { OrderDecisionSource } from './decisionTypes';
 import { OrderDetailWorkspace } from './OrderDetailWorkspace';
 import './orderDetail.css';
 import { demoOrderDetailSource, ordersDemoEnabled } from './demoSource';
+import { dbOrderDetailSource, ordersPersistedEnabled } from './dbSource';
+
+const defaultOrderDetailSource = (): OrderDetailSource | undefined => {
+  if (ordersPersistedEnabled()) return dbOrderDetailSource;
+  if (ordersDemoEnabled()) return demoOrderDetailSource;
+  return undefined;
+};
 
 export interface OrderDetailPageProps { orderId?: string; source?: OrderDetailSource; decisionSource?: OrderDecisionSource }
 
-export function OrderDetailPage({ orderId, source = ordersDemoEnabled() ? demoOrderDetailSource : undefined, decisionSource }: OrderDetailPageProps = {}) {
+export function OrderDetailPage({ orderId, source = defaultOrderDetailSource(), decisionSource }: OrderDetailPageProps = {}) {
   const params = useParams<{ id: string }>(); const id = orderId ?? params.id ?? '';
   const { authHeaders: auth } = useAuth();
   const legacyHeaders = useMemo(() => authHeaders(auth), [auth]);

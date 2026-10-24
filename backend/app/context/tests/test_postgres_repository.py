@@ -73,7 +73,10 @@ def test_database_constraint_cannot_be_bypassed(pg_engine):
         with pg_engine.begin() as connection:
             connection.execute(InboundMessage.__table__.insert().values(**values))
     schema = pg_engine.get_execution_options()["schema_translate_map"]["p1_dev"]
-    assert any(c["column_names"] == ["tenant_id", "channel", "provider_message_id"] for c in inspect(pg_engine).get_unique_constraints("inbound_messages", schema=schema))
+    assert any(
+        index["name"] == "uq_p1_delivery_legacy" and index["unique"]
+        for index in inspect(pg_engine).get_indexes("inbound_messages", schema=schema)
+    )
 
 
 def test_concurrent_identical_delivery_has_one_winner(pg_engine):

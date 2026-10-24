@@ -10,7 +10,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
 from .manager import ChannelManager, get_channel_manager
-from .resend import ResendProviderUnavailable, ResendWebhookError
+from .reply_framing import FramingError, verify_telegram_secret
+from .resend import (
+    ResendCanonicalContractUnavailable,
+    ResendProviderUnavailable,
+    ResendWebhookError,
+)
 from .whatsapp import InvalidSignatureError, WebhookVerificationError, WhatsAppWebhookError
 
 logger = logging.getLogger(__name__)
@@ -69,8 +74,11 @@ async def telegram_webhook(
     """Receive Telegram Bot API webhook updates."""
     if not manager.telegram.config.has_tenant_assignment:
         raise HTTPException(status_code=503, detail="Telegram tenant assignment is not configured")
-    if not manager.telegram.validate_webhook_secret(x_telegram_bot_api_secret_token):
-        raise HTTPException(status_code=403, detail="Invalid Telegram webhook authentication")
+    expected_secret = manager.config.telegram.webhook_secret
+    try:
+        verify_telegram_secret(expected_secret, x_telegram_bot_api_secret_token)
+    except FramingError:
+        raise HTTPException(status_code=403, detail="Invalid Telegram secret token")
 
     raw_body = await _read_bounded_body(request, MAX_WEBHOOK_BODY_BYTES)
 
@@ -82,7 +90,7 @@ async def telegram_webhook(
     if not isinstance(update, dict):
         raise HTTPException(status_code=422, detail="Update must be a JSON object")
 
-    result = manager.telegram.process_update(update)
+    result = manager.telegram.process_update(update, source_verified=True)
     return {
         "ok": True,
         "processed": result is not None,
@@ -191,6 +199,8 @@ async def resend_webhook(
                     "provider_message_id": status_receipt.provider_message_id,
                     "persisted": False}
         return {"status": "ignored", "reason": "unsupported_event"}
+    except ResendCanonicalContractUnavailable:
+        raise HTTPException(status_code=503, detail="RESEND_CANONICAL_PROVIDER_CONTRACT_UNAPPROVED")
     except ResendProviderUnavailable:
         logger.warning("Resend API retrieval failed")
         raise HTTPException(status_code=503, detail="Resend inbound retrieval is temporarily unavailable")
@@ -244,6 +254,9 @@ def gmail_oauth_callback(
 
     try:
         token_data = manager.gmail.exchange_code(code)
+        verification = manager.gmail.verify_connection()
+        if not verification.get("authenticated"):
+            raise HTTPException(status_code=403, detail="Authenticated Gmail account could not be verified")
         try:
             manager.gmail.start_polling()
         except Exception as poll_exc:
@@ -253,6 +266,8 @@ def gmail_oauth_callback(
             "message": "Gmail OAuth credentials successfully configured and saved.",
             "has_refresh_token": "refresh_token" in token_data,
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("Gmail OAuth token exchange failed (%s)", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Gmail OAuth token exchange failed")

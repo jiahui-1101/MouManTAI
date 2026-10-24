@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +57,26 @@ class TelegramChannelConfig(ChannelConfigBase):
     api_base_url: str = "https://api.telegram.org"
     auto_start: bool = True
 
+    @model_validator(mode="after")
+    def consistent_bot_account(self):
+        prefix = (self.bot_token or "").partition(":")[0]
+        if prefix.isdigit() and self.bot_account_id and self.bot_account_id.strip() != prefix:
+            raise ValueError("Telegram bot account does not match its token account")
+        return self
+
     @property
     def is_configured(self) -> bool:
         return bool(self.bot_token and len(self.bot_token.strip()) > 5 and self.has_tenant_assignment)
+
+    @property
+    def provider_account_id(self) -> str | None:
+        if self.bot_account_id and self.bot_account_id.strip():
+            return self.bot_account_id.strip()
+        if self.bot_token:
+            token_prefix = self.bot_token.partition(":")[0]
+            if token_prefix.isdigit():
+                return token_prefix
+        return None
 
 
 class GmailChannelConfig(ChannelConfigBase):
@@ -67,6 +84,7 @@ class GmailChannelConfig(ChannelConfigBase):
     client_id: str | None = None
     client_secret: str | None = None
     refresh_token: str | None = None
+    mailbox_account_id: str | None = None
     access_token: str | None = None
     token_expiry: datetime | None = None
     redirect_uri: str = "http://localhost:8000/v1/channels/gmail/oauth/callback"
@@ -110,6 +128,8 @@ class ResendChannelConfig(ChannelConfigBase):
     """Resend inbound webhook and restricted outbound transport settings."""
     api_key: str | None = None
     webhook_secret: str | None = None
+    # Operator-bound receiving mailbox; never inferred from an incoming sender.
+    account_id: str | None = None
     tenant_id: str = "synthetic_tenant_a"
     api_base_url: str = "https://api.resend.com"
     inbound_addresses: list[str] = Field(default_factory=list)
@@ -121,7 +141,9 @@ class ResendChannelConfig(ChannelConfigBase):
 
     @property
     def is_inbound_configured(self) -> bool:
-        return bool(self.api_key and self.webhook_secret and self.inbound_addresses and self.has_tenant_assignment)
+        return bool(self.api_key and self.webhook_secret and self.account_id
+                    and self.account_id.strip().casefold() in {a.strip().casefold() for a in self.inbound_addresses}
+                    and self.has_tenant_assignment)
 
     @property
     def is_outbound_configured(self) -> bool:
@@ -166,13 +188,17 @@ class ChannelsConfig(ChannelConfigBase):
     @classmethod
     def load_from_env(cls) -> ChannelsConfig:
         tenant_id = os.environ.get("P1_DEV_TENANT_ID", "synthetic_tenant_a")
+        c1_bot_id = os.environ.get("TELEGRAM_BOT_ID")
+        c2_bot_id = os.environ.get("TELEGRAM_BOT_ACCOUNT_ID")
+        if c1_bot_id and c2_bot_id and c1_bot_id.strip() != c2_bot_id.strip():
+            raise ValueError("Telegram account configuration aliases disagree")
 
         telegram = TelegramChannelConfig(
             bot_token=os.environ.get("TELEGRAM_BOT_TOKEN"),
             mode=os.environ.get("TELEGRAM_MODE", "polling").lower(),  # type: ignore[arg-type]
             webhook_url=os.environ.get("TELEGRAM_WEBHOOK_URL"),
             webhook_secret=os.environ.get("TELEGRAM_WEBHOOK_SECRET"),
-            bot_account_id=os.environ.get("TELEGRAM_BOT_ACCOUNT_ID"),
+            bot_account_id=os.environ.get("TELEGRAM_BOT_ID") or os.environ.get("TELEGRAM_BOT_ACCOUNT_ID"),
             outbound_enabled=os.environ.get("TELEGRAM_OUTBOUND_ENABLED", "false").lower() == "true",
             test_recipient_ids=[v.strip() for v in os.environ.get("TELEGRAM_TEST_RECIPIENT_IDS", "").split(",") if v.strip()],
             request_timeout_seconds=float(os.environ.get("CHANNEL_REQUEST_TIMEOUT_SECONDS", "10")),
@@ -218,6 +244,7 @@ class ChannelsConfig(ChannelConfigBase):
             client_id=os.environ.get("GMAIL_CLIENT_ID") or file_client_id,
             client_secret=os.environ.get("GMAIL_CLIENT_SECRET") or file_client_secret,
             refresh_token=os.environ.get("GMAIL_REFRESH_TOKEN"),
+            mailbox_account_id=os.environ.get("GMAIL_ACCOUNT_EMAIL"),
             access_token=os.environ.get("GMAIL_ACCESS_TOKEN"),
             redirect_uri=os.environ.get("GMAIL_REDIRECT_URI") or file_redirect_uri or "http://localhost:8000/v1/channels/gmail/oauth/callback",
             poll_interval_seconds=float(os.environ.get("GMAIL_POLL_INTERVAL", "30.0")),
@@ -245,6 +272,7 @@ class ChannelsConfig(ChannelConfigBase):
         )
 
         resend = ResendChannelConfig(
+            account_id=os.environ.get("RESEND_ACCOUNT_ID"),
             api_key=os.environ.get("RESEND_API_KEY"),
             webhook_secret=os.environ.get("RESEND_WEBHOOK_SECRET"),
             tenant_id=os.environ.get("RESEND_TENANT_ID", tenant_id),

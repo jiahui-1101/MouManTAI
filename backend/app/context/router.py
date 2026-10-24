@@ -67,8 +67,10 @@ def _check_review_items(tenant_id, items, repository):
 def ingest_message(envelope: RawMessageEnvelope, response: Response, tenant: Tenant, repository: Repository) -> IngestResponse:
     # Anti-spoofing guard: External HTTP ingest endpoint is strictly for synthetic/test messages.
     # Real channel provenance is exclusively asserted by authorized internal channel adapters.
-    if envelope.adapter_mode != "SYNTHETIC":
-        envelope = envelope.model_copy(update={"adapter_mode": "SYNTHETIC"})
+    envelope = envelope.model_copy(update={
+        "adapter_mode": "SYNTHETIC",
+        "source_authenticity": "SYNTHETIC",
+    })
     result = IngestionService(repository).ingest(envelope, tenant.tenant_id)
     response.status_code = 200 if result.duplicate else 201
     return result
@@ -91,6 +93,15 @@ def get_message(message_id: str, tenant: Tenant, repository: Repository) -> Stor
     if message is None:
         raise HTTPException(status_code=404, detail="Message not found")
     return message
+
+
+@router.delete("/v1/messages/{message_id}",
+               responses={**errors, 404: {"model": ApiError}})
+def delete_message(message_id: str, tenant: Tenant, repository: Repository):
+    success = repository.delete_message(tenant.tenant_id, message_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return {"status": "deleted", "message_id": message_id}
 
 
 @router.post("/v1/messages/{message_id}/process", response_model=ProcessResponse,

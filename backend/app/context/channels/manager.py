@@ -166,6 +166,8 @@ class ChannelManager:
             },
             "resend": {
                 "inbound_configured": self.config.resend.is_inbound_configured,
+                "inbound_available": False,
+                "blocked_reason": "RESEND_CANONICAL_PROVIDER_CONTRACT_UNAPPROVED",
                 "outbound_configured": self.config.resend.is_outbound_configured,
                 "tenant_id": self.config.resend.tenant_id,
                 "mode": "REAL_PROVIDER_TRANSPORT_PENDING_P4_AUTHORIZATION",

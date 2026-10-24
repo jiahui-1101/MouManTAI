@@ -104,6 +104,7 @@ function createMockApi(overrides: Partial<OperationalApi> = {}): OperationalApi 
     config: vi.fn(),
     list: vi.fn(),
     detail: vi.fn(),
+    deleteMessage: vi.fn(),
     ingest: vi.fn(),
     process: vi.fn(),
     getExtraction: vi.fn(),

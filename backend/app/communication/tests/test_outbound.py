@@ -88,7 +88,7 @@ def test_local_provider_contract_channels_are_deterministic_and_network_free(app
     assert LocalMockProvider().submit(envelope).status == "SENT"
 
 
-def test_authorized_send_persists_history_without_core_changes(sending, approved, db):
+def test_authorized_send_persists_history_without_core_changes(sending, approved, db, monkeypatch):
     core = db.get(CommitmentRecord, ("tenant_a", "com_001"))
     before = (core.commitment_version, core.agreement_state, core.fulfilment_state, core.terms)
     result = send(sending, approved)
@@ -99,6 +99,43 @@ def test_authorized_send_persists_history_without_core_changes(sending, approved
     db.refresh(core)
     assert (core.commitment_version, core.agreement_state, core.fulfilment_state, core.terms) == before
     assert sending.provider.calls == 1
+    key = "synthetic-p4-projection-" + "s" * 32
+    monkeypatch.setenv("MOUMANTAI_SYNTHETIC_MODE", "1")
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E", "1")
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E_KEY", key)
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E_MANAGER_ID", MANAGER.actor_id)
+    monkeypatch.setenv("MOUMANTAI_ISOLATED_E2E_TENANT_ID", "tenant_a")
+    previous = app.dependency_overrides.copy()
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        with TestClient(app) as client:
+            path = "/v1/backend-v2/commitments/com_001/operational-evidence"
+            headers = {"X-Tenant-ID": "tenant_a", "X-Actor-ID": MANAGER.actor_id,
+                       "X-Isolated-E2E-Key": key}
+            projection = client.get(path, headers=headers)
+            assert client.get(path, headers=headers | {"X-Tenant-ID": "tenant_b"}).status_code == 403
+            assert client.get(path, headers=headers | {"X-Actor-ID": "user_staff_01"}).status_code == 403
+            audit = db.scalar(select(AuditEventRecord).where(
+                AuditEventRecord.tenant_id == "tenant_a",
+                AuditEventRecord.event_type == "communication.mock_sent",
+            ))
+            assert audit is not None
+            audit.new_state = {**audit.new_state, "provider_reference": "forged"}
+            db.commit()
+            unverified = client.get(path, headers=headers)
+            assert unverified.status_code == 200
+            assert unverified.json()["communications"][0]["outbound_status"] == "UNVERIFIED"
+            assert unverified.json()["communications"][0]["provider_receipt_ref"] is None
+        assert projection.status_code == 200, projection.text
+        outbound = projection.json()["communications"][0]
+        assert outbound["outbound_status"] == "MOCK_PROVIDER_SENT"
+        assert outbound["provider_receipt_ref"] == result.provider_reference
+        assert outbound["customer_delivery"] == "NOT_AVAILABLE"
+        assert outbound["customer_agreement"] == "NOT_AVAILABLE"
+        assert projection.json()["core"]["customer_status"] == "CHANGE_PROPOSED"
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(previous)
 
 
 @pytest.mark.parametrize("outcome,status,code", [

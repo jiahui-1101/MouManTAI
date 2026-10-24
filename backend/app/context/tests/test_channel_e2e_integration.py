@@ -39,6 +39,7 @@ def test_channel_to_inbox_to_core_full_flow(repo, state_mgr):
     tenant_id = "tenant_telegram_e2e"
     config = TelegramChannelConfig(
         bot_token="test_token_999",
+        bot_account_id="e2e-telegram-account",
         tenant_id=tenant_id,
     )
     adapter = TelegramAdapter(config=config, repository=repo, state_manager=state_mgr)
@@ -56,7 +57,7 @@ def test_channel_to_inbox_to_core_full_flow(repo, state_mgr):
     }
 
     # 2. Channel Adapter normalizes and ingests
-    ingest_res = adapter.process_update(update)
+    ingest_res = adapter.process_update(update, source_verified=True)
     assert ingest_res is not None
     assert ingest_res.duplicate is False
     msg_id = ingest_res.message.message_id
@@ -68,7 +69,7 @@ def test_channel_to_inbox_to_core_full_flow(repo, state_mgr):
     assert stored.processing_status == "PROCESSED"
 
     # 4. Idempotency: duplicate update delivery does not create duplicate message
-    dup_res = adapter.process_update(update)
+    dup_res = adapter.process_update(update, source_verified=True)
     assert dup_res is not None
     assert dup_res.duplicate is True
     assert dup_res.message.message_id == msg_id
@@ -123,7 +124,7 @@ def test_channel_tenant_isolation_enforced(repo, state_mgr):
     tenant_a = "tenant_telegram_isolation_a"
     tenant_b = "tenant_telegram_isolation_b"
 
-    config_a = TelegramChannelConfig(bot_token="token_a", tenant_id=tenant_a)
+    config_a = TelegramChannelConfig(bot_token="token_a", bot_account_id="account-a", tenant_id=tenant_a)
     adapter_a = TelegramAdapter(config=config_a, repository=repo, state_manager=state_mgr)
 
     # Inbound message for tenant A
@@ -131,7 +132,7 @@ def test_channel_tenant_isolation_enforced(repo, state_mgr):
         "update_id": 9001,
         "message": {"message_id": 1, "from": {"id": 1}, "chat": {"id": 1}, "date": 1729700000, "text": "Tenant A Order"},
     }
-    res = adapter_a.process_update(update)
+    res = adapter_a.process_update(update, source_verified=True)
     assert res is not None
     msg_id = res.message.message_id
 

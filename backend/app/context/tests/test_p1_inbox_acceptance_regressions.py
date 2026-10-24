@@ -136,6 +136,42 @@ def test_p0_ambiguous_followup_across_multiple_open_contexts_fails_safely(pg_eng
     assert any("Ambiguous" in msg and "association" in msg for msg in c3.conflicts)
 
 
+def test_unresolved_exact_parent_never_falls_back_to_same_sender_context(pg_engine):
+    repo = PostgresMessageRepository(pg_engine, catalog=CATALOG)
+    ctx_svc = ContextService(repo)
+    tenant = f"tenant_exact_parent_{uuid4().hex[:6]}"
+    repo.catalog = tuple(
+        ProductAlias(tenant_id=tenant, sku=p.sku, aliases=p.aliases, unit=p.unit)
+        for p in CATALOG
+    )
+    sender = "+60198887733"
+
+    original = repo.ingest(
+        _env("Can we book 50 burgers for 29 October 2026 at 4pm?", tenant_id=tenant, sender_ref=sender),
+        ACCEPTANCE_NOW,
+    ).message
+    repo.process(tenant, original.message_id, now=ACCEPTANCE_NOW)
+    original_context = ctx_svc.create_or_update_from_message(tenant, original.message_id)
+
+    reply = repo.ingest(
+        _env(
+            "For that order, the unit is pcs.",
+            tenant_id=tenant,
+            sender_ref=sender,
+            reply_to_provider_message_id="unknown-native-parent",
+            thread_ref="shared-thread",
+        ),
+        ACCEPTANCE_NOW,
+    ).message
+    repo.process(tenant, reply.message_id, now=ACCEPTANCE_NOW)
+    reply_context = ctx_svc.create_or_update_from_message(tenant, reply.message_id)
+
+    assert repo.resolve_exact_parent(tenant, reply.message_id).state == "UNRESOLVED"
+    assert reply_context.context_id != original_context.context_id
+    assert reply_context.source_message_ids == [reply.message_id]
+    assert repo.get_order_context(tenant, original_context.context_id).source_message_ids == [original.message_id]
+
+
 def test_p0_multi_item_unknown_and_jar_units_preserved_without_conversational_false_positives(pg_engine):
     """Priority 0: Preserve multi-item unknown products, 'jars of sambal belacan', and filter 'boleh'."""
     repo = PostgresMessageRepository(pg_engine, catalog=CATALOG)

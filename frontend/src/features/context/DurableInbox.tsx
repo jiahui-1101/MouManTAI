@@ -1,3 +1,5 @@
+import { useOptionalAuth } from '../../shared/auth';
+import { useScopedOperationalApi } from './useScopedOperationalApi';
 import { useEffect, useRef, useState } from 'react';
 
 import { createPortal } from 'react-dom';
@@ -6,7 +8,7 @@ import type { ReactNode } from 'react';
 
 import { PreviewError } from './api';
 
-import { getResolvedTaskIds, operationalApi } from './operationalApi';
+import { getResolvedTaskIds } from './operationalApi';
 
 import type { OperationalApi } from './operationalApi';
 
@@ -186,15 +188,21 @@ function sortMessages(items: StoredMessage[], by: SortKey, dir: SortDir): Stored
 
 }
 
-function MessageRow({ message, onOpen, onProcess, processing }: {
+function MessageRow({
+  message,
+  onOpen,
+  onProcess,
+  onDelete,
+  processing,
+  deleting,
+}: {
   message: StoredMessage;
-
   onOpen: (button: HTMLButtonElement) => void;
   onProcess: () => void;
+  onDelete: () => void;
   processing: boolean;
+  deleting: boolean;
 }) {
-
-
   return <tr className="p1-inbox-row">
     <td className="p1-date"><time dateTime={message.raw.received_at}>{formatTime(message.raw.received_at)}</time></td>
     <td className="p1-message-cell"><button type="button" className="p1-title-button" onClick={event => onOpen(event.currentTarget)}>{message.raw.sender_alias}</button><span className="p1-row-secondary">{message.raw.text}</span><span className="p1-row-secondary p1-subtle-id">{message.raw.provider_message_id}{message.raw.attachments?.length ? ` · ${message.raw.attachments.length} attachment${message.raw.attachments.length === 1 ? '' : 's'}` : ''}</span></td>
@@ -202,15 +210,66 @@ function MessageRow({ message, onOpen, onProcess, processing }: {
     <td><span className={`p1-orbyte-status-badge is-${message.processing_status === 'PROCESSED' ? 'valid' : message.processing_status === 'PROCESSING' ? 'attention' : message.processing_status === 'PROCESSING_FAILED' ? 'conflict' : 'neutral'}`}>{message.processing_status}</span></td>
     <td>{message.processing_status === 'PROCESSED' ? (message.extractor_version?.startsWith('p1-ai-pipeline-') ? <span className="p1-orbyte-status-badge is-model">Model-assisted</span> : <span className="p1-orbyte-status-badge is-valid">Extracted</span>) : <span className="p1-subtle-text">Not available</span>}</td>
 
-
     <td className="p1-subtle-text" title="The message API does not provide generated, queued, sent, or failed reply state">Not reported</td>
-    <td className="p1-actions-cell"><div className="p1-orbyte-actions-group"><button type="button" className="p1-orbyte-action-icon-btn" aria-label={`View message ${message.raw.provider_message_id}`} title="Inspect message details" onClick={event => onOpen(event.currentTarget)}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button type="button" className="p1-orbyte-action-icon-btn is-sync" disabled={processing} aria-label={`Reprocess message ${message.raw.provider_message_id}`} title={message.processing_status === 'PROCESSED' ? 'Reprocess extraction' : 'Run extraction'} onClick={onProcess}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={processing ? 'p1-spin' : ''}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button></div></td>
+    <td className="p1-actions-cell">
+      <div className="p1-orbyte-actions-group">
+        <button
+          type="button"
+          className="p1-orbyte-action-icon-btn"
+          aria-label={`View message ${message.raw.provider_message_id}`}
+          title="Inspect message details"
+          onClick={event => onOpen(event.currentTarget)}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="p1-orbyte-action-icon-btn is-sync"
+          disabled={processing || deleting}
+          aria-label={`Reprocess message ${message.raw.provider_message_id}`}
+          title={message.processing_status === 'PROCESSED' ? 'Reprocess extraction' : 'Run extraction'}
+          onClick={onProcess}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={processing ? 'p1-spin' : ''}>
+            <polyline points="23 4 23 10 17 10"/>
+            <polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="p1-orbyte-action-icon-btn is-delete"
+          disabled={processing || deleting}
+          aria-label={`Delete message ${message.raw.provider_message_id}`}
+          title="Delete message"
+          onClick={onDelete}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18"/>
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+            <line x1="10" y1="11" x2="10" y2="17"/>
+            <line x1="14" y1="11" x2="14" y2="17"/>
+          </svg>
+        </button>
+      </div>
+    </td>
   </tr>;
 }
 
 
 
-export function DurableInbox({ api = operationalApi }: { api?: OperationalApi }) {
+export function DurableInbox({ api }: { api?: OperationalApi }) {
+  const auth = useOptionalAuth();
+  const scopedApi = useScopedOperationalApi();
+  const identity = JSON.stringify([auth?.tenantId, auth?.actorId]);
+  return <DurableInboxContents key={identity} api={api ?? scopedApi} />;
+}
+
+function DurableInboxContents({ api }: { api: OperationalApi }) {
 
   const [resource, setResource] = useState<Resource>({ state: 'loading' });
 
@@ -241,6 +300,9 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
   const [saved, setSaved] = useState<IngestResponse | null>(null);
 
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<StoredMessage | null>(null);
+  const [inboxToast, setInboxToast] = useState<string | null>(null);
 
   const [sortBy, setSortBy] = useState<SortKey>('ingested_at');
 
@@ -351,11 +413,26 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
     } finally {
 
       processLock.current = false;
-
       setProcessingId(null);
-
     }
+  }
 
+  async function handleDeleteMessage(target: StoredMessage) {
+    setDeletingId(target.message_id);
+    try {
+      await api.deleteMessage(target.message_id);
+      setDeleteTarget(null);
+      if (selected === target.message_id) {
+        setSelected(null);
+      }
+      setInboxToast('Message deleted successfully.');
+      setTimeout(() => setInboxToast(null), 3000);
+      setAttempt(n => n + 1);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete message');
+    } finally {
+      setDeletingId(null);
+    }
   }
 
 
@@ -398,13 +475,63 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
           <th scope="col" className={`p1-th-sortable${sortBy === 'processing_status' ? ' is-active' : ''}`} aria-sort={sortBy === 'processing_status' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" className="p1-sort-button" onClick={() => handleSort('processing_status')}>Processing <span className="p1-th-arrows" aria-hidden="true">{sortBy === 'processing_status' ? (sortDir === 'asc' ? '↑' : '↓') : '↑↓'}</span></button></th>
           <th scope="col">Extraction</th><th scope="col">Reply</th><th scope="col" className="p1-th-actions">Actions</th>
         </tr></thead>
-        <tbody>{sortMessages(resource.page.items, sortBy, sortDir).map(message => <MessageRow key={message.message_id} message={message} processing={processingId === message.message_id} onOpen={button => select(message.message_id, button)} onProcess={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')} />)}</tbody></table>
+        <tbody>{sortMessages(resource.page.items, sortBy, sortDir).map(message => (
+          <MessageRow
+            key={message.message_id}
+            message={message}
+            processing={processingId === message.message_id}
+            deleting={deletingId === message.message_id}
+            onOpen={button => select(message.message_id, button)}
+            onProcess={() => handleInlineProcess(message.message_id, message.processing_status === 'PROCESSED')}
+            onDelete={() => setDeleteTarget(message)}
+          />
+        ))}</tbody></table>
       </div>{resource.page.items.length === 0 && <p role="status" className="p1-empty">No persisted messages match this view. Submit a synthetic message to begin.</p>}
         <footer className="p1-table-footer"><span className="p1-footer-count">Showing {resource.page.items.length ? offset + 1 : 0} to {Math.min(offset + resource.page.items.length, resource.page.total)} of {resource.page.total} entries</span><div className="p1-orbyte-pagination"><div className="p1-rows-per-page"><span>Rows per page:</span><span className="p1-rows-badge">15</span></div><div className="p1-pagination-controls"><button type="button" className="p1-page-btn" disabled={offset === 0} aria-label="Previous" onClick={() => setOffset(n => Math.max(0, n - PAGE_SIZE))}>‹</button><span className="p1-page-active">{Math.floor(offset / PAGE_SIZE) + 1}</span><button type="button" className="p1-page-btn" disabled={offset + PAGE_SIZE >= resource.page.total || offset + PAGE_SIZE > 10_000} aria-label="Next" onClick={() => setOffset(n => n + PAGE_SIZE)}>›</button></div></div></footer>
       </section>}
 
       <p className="p1-preview-note">Local development tenant only · no production authentication. The composer creates synthetic test messages; provider-backed records retain their own source labels. Extraction evidence is persisted with exact Unicode spans.</p>
     </div>
+
+    {deleteTarget && (
+      <div className="p1-confirm-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
+        <div className="p1-confirm-modal">
+          <h3 id="delete-dialog-title">Delete message</h3>
+          <p>
+            Are you sure you want to delete this message from <strong>{deleteTarget.raw.sender_alias || 'sender'}</strong>?
+            <br />
+            <span style={{ fontSize: '12px', color: '#64748b', marginTop: '6px', display: 'block', wordBreak: 'break-all' }}>
+              ID: {deleteTarget.raw.provider_message_id}
+            </span>
+            This will remove the message and permanently prevent it from appearing again.
+          </p>
+          <div className="p1-confirm-actions">
+            <button
+              type="button"
+              className="p1-btn p1-btn-secondary"
+              disabled={deletingId !== null}
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="p1-btn p1-btn-danger"
+              disabled={deletingId !== null}
+              onClick={() => handleDeleteMessage(deleteTarget)}
+            >
+              {deletingId ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {inboxToast && (
+      <div className="p1-toast" role="status">
+        {inboxToast}
+      </div>
+    )}
 
     {selected && <StoredMessageDetail id={selected} api={api} onUpdated={() => setAttempt(n => n + 1)} onClose={closeDetail} />}
   </div>;
@@ -414,6 +541,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
 
 function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api: OperationalApi; onUpdated?: () => void; onClose: () => void }) {
+  const auth = useOptionalAuth();
   const [data, setData] = useState<StoredMessage | null>(null);
   const [extraction, setExtraction] = useState<ExtractionAttemptRecord | null>(null);
   const [attempts, setAttempts] = useState<ExtractionAttemptRecord[]>([]);
@@ -433,6 +561,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
   const [uploadedAttachments, setUploadedAttachments] = useState<AttachmentRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'message' | 'extraction' | 'identity' | 'attachments' | 'metadata'>('message');
   const [confirmAction, setConfirmAction] = useState<{ title: string; description: string; onConfirm: () => void } | null>(null);
+  const [reviewDecision, setReviewDecision] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const panel = useRef<HTMLElement>(null);
@@ -465,6 +594,27 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
     setActiveContext(null); setShowContextModal(false); setShowReviewDrawer(false); setContextLoading(false); setContextError(null);
     setSelectedEvidenceRef(null); setUploadedAttachments([]); setConfirmAction(null);
 
+    setReviewDecision(null);
+    if (getResolvedTaskIds().has(id)) {
+      setReviewDecision('Accepted');
+    }
+    api.createContextFromMessage(id).then(ctx => {
+      if (active) {
+        setActiveContext(ctx);
+        if (getResolvedTaskIds().has(id) || getResolvedTaskIds().has(ctx.context_id)) {
+          setReviewDecision('Accepted');
+        } else if (ctx.last_reviewed_at) {
+          if (ctx.status === 'UNRESOLVED') {
+            setReviewDecision('Unresolved');
+          } else if (ctx.status === 'INFORMATION_READY') {
+            setReviewDecision('Accepted');
+          } else {
+            setReviewDecision('In progress');
+          }
+        }
+      }
+    }).catch(() => { /* context not created yet */ });
+
     api.detail(id).then(message => {
       if (active) {
         setData(message);
@@ -475,6 +625,18 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
     }).catch(failure => { if (active) setError(failure instanceof Error ? failure.message : 'Message unavailable'); });
     return () => { active = false; };
   }, [id, api, attempt]);
+
+  useEffect(() => {
+    const handleSaved = () => {
+      if (!data?.message_id) return;
+      const resolved = getResolvedTaskIds();
+      if (resolved.has(data.message_id)) {
+        setReviewDecision('Accepted');
+      }
+    };
+    window.addEventListener('moumantai:review-context-saved', handleSaved);
+    return () => window.removeEventListener('moumantai:review-context-saved', handleSaved);
+  }, [data?.message_id]);
 
   async function handleDirectReview() {
     setContextLoading(true);
@@ -548,6 +710,12 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
   const allAtts = [...rawAtts, ...uploadedAttachments];
 
   const isExplicitlyResolved = Boolean(data?.message_id && getResolvedTaskIds().has(data.message_id)) || activeContext?.status === 'INFORMATION_READY';
+  const currentReviewStatus = reviewDecision || (
+    isExplicitlyResolved ? 'Accepted' :
+    (activeContext?.last_reviewed_at
+      ? (activeContext.status === 'UNRESOLVED' ? 'Unresolved' : activeContext.status === 'INFORMATION_READY' ? 'Accepted' : 'In progress')
+      : (association?.last_decision ? association.last_decision.decision : 'Not started'))
+  );
   const hasManualReview = !isExplicitlyResolved && Boolean(
     unresolvedCount > 0 ||
     data?.processing_status === 'PROCESSING_FAILED' ||
@@ -688,7 +856,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
               <div className="p1-fp-stat-card">
                 <div className="p1-fp-stat-label">REVIEW</div>
                 <div className="p1-fp-stat-val">
-                  {association?.last_decision ? association.last_decision.decision : 'Not started'}
+                  {currentReviewStatus}
                 </div>
               </div>
             </div>
@@ -1271,7 +1439,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
           <div className="p1-modal-backdrop" role="dialog" aria-modal="true" aria-label="Order Context Details">
             <div className="p1-modal-card">
               <OrderContextDetail
-                requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id }}
+                requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id, ...(auth ? { 'X-Actor-ID': auth.actorId } : {}) }}
                 contextId={activeContext.context_id}
                 onClose={() => setShowContextModal(false)}
                 onContextUpdated={updated => setActiveContext(updated)}
@@ -1283,7 +1451,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
           <div className="p1-modal-backdrop" role="dialog" aria-modal="true" aria-label="Order Context Details">
             <div className="p1-modal-card">
               <OrderContextDetail
-                requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id }}
+                requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id, ...(auth ? { 'X-Actor-ID': auth.actorId } : {}) }}
                 contextId={activeContext.context_id}
                 onClose={() => setShowContextModal(false)}
                 onContextUpdated={updated => setActiveContext(updated)}
@@ -1294,7 +1462,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
         {showReviewDrawer && activeContext && (
           <ReviewDrawer
-            requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id }}
+            requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id, ...(auth ? { 'X-Actor-ID': auth.actorId } : {}) }}
             context={activeContext}
             sourceMessage={data && activeContext.source_message_ids?.includes(data.message_id) ? data.raw.text : undefined}
             message={data}
@@ -1303,6 +1471,13 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
             onClose={() => setShowReviewDrawer(false)}
             onUpdated={(updated) => {
               setActiveContext(updated);
+              if (updated.status === 'UNRESOLVED') {
+                setReviewDecision('Unresolved');
+              } else if (getResolvedTaskIds().has(id) || getResolvedTaskIds().has(updated.context_id) || updated.status === 'INFORMATION_READY') {
+                setReviewDecision('Accepted');
+              } else if (updated.last_reviewed_at) {
+                setReviewDecision('In progress');
+              }
               onUpdated?.();
             }}
           />

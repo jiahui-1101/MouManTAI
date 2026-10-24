@@ -1,5 +1,18 @@
 # C2 Real Provider Adapters Implementation Plan
 
+## Final C1 integration pass — 2026-10-25
+
+Frozen Main: `1c34b8dbcdd944b60c856ceb7a5dd7ada890564f`; C2 start: `ef27d8a61263a3ebe26399d40ea0371d88eb7769`. Existing C2 worktree clean and no other active local task/process using it. C1 #90 is merged. #95, #102 and #103 remain separate Draft workstreams. Root requirements were removed upstream; consult `docs/requirements/v2.2/` and preserve Main's removals.
+
+- [x] Audit actual source tables, routes, graph, reviews, worktrees and ownership. Reuse `p1_dev.inbound_messages`, `attachments`, source/context history and `/v1/messages` / `/v1/channels` routes. Main's single head is `0024_merge_c1_ah`.
+- [x] Reproduce five conflicts in channel config/Gmail/router/Telegram/WhatsApp. Resolve blocks individually: preserve C1 framing/auth/account checks and C2 bounded retrieval, transport and outbound-disabled defaults.
+- [ ] Test canonical native parent IDs, verified mailbox identity and account mismatch; repair adapter integration with red/green coverage.
+- [ ] Obtain Jiahui approval for additive Resend provenance contract before changing shared envelope/repository/constraint. If absent, block Resend ingress explicitly, never mislabel Gmail. Record entity-level mapping before any approved migration source change.
+- [ ] Exercise canonical PostgreSQL persistence, late/ambiguous parents, tenant/account boundaries, attachments, provider auth, duplicate events and UNKNOWN send cases.
+- [ ] Document P4 authorized-envelope/receipt proposal, exact provider setup/readback/manual E2E procedures and missing credentials. No P4 or #95 implementation changes; no real sends.
+- [ ] Run focused C1/C2/channel/PG, v2.2 and P4 regressions, scoped static checks, compile and whitespace checks. Compare inherited failures with frozen Main; no weakened tests.
+- [ ] Normal commit/push to existing branch, update #96/docs, verify exact-head CI and request review only from Jiahui. Keep Draft until required gates. Merge commit only after explicit final-head owner authorization and protection/check gates.
+
 > **For agentic workers:** This plan is being executed inline under the user's explicit instruction to work autonomously. Keep each provider slice fixture-testable and preserve provider and business authority boundaries.
 
 **Goal:** Add secure, bounded Telegram, WhatsApp Cloud API, Resend email and existing Gmail provider capabilities on a separate C2 branch without copying C1 persistence code or changing shared canonical schemas/migrations.

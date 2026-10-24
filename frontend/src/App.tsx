@@ -24,6 +24,7 @@ import { ImpactDetailPage } from "./features/feasibility/ImpactDetailPage";
 import { RecoveryCaseRoutePage } from "./features/recovery/RecoveryCaseRoutePage";
 import { RecoveryPage } from "./features/recovery/RecoveryPage";
 import { SupplierComparisonPage, SupplierDetailPage, SupplierDirectoryPage } from "./features/suppliers/SupplierWorkspace";
+import { ForecastPage } from "./features/forecast/ForecastPage";
 
 export function CommitmentFeasibilityRoute() {
   const { authHeaders: auth } = useAuth();
@@ -127,6 +128,7 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               {/* AZ-01: /planning/portfolio alias -> Developer B PortfolioComparisonPage */}
               <Route path="/planning/portfolio" element={<PortfolioComparisonPage />} />
               <Route path="/planning/forecasts" element={<FeaturePlaceholder owner="Planning" title="Forecasts" />} />
+              <Route path="/forecasts" element={<ForecastPage />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
               <Route path="/suppliers" element={<SupplierDirectoryPage />} />

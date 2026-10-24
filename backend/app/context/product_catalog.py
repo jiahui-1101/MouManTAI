@@ -25,7 +25,12 @@ def load_product_catalog() -> tuple[ProductAlias, ...]:
             raise PersistenceUnavailable('Configure a trusted P1 product catalog before production use')
         return PROVISIONAL_PRODUCTS
     try:
-        data = Path(path).read_bytes()
+        catalog_path = Path(path)
+        # Root .env paths must also work when Uvicorn starts in backend/.
+        # Preserve existing CWD-relative configuration when it is present.
+        if not catalog_path.is_absolute() and not catalog_path.exists():
+            catalog_path = Path(__file__).resolve().parents[3] / catalog_path
+        data = catalog_path.read_bytes()
         if len(data) > 1_048_576:
             raise ValueError('Catalog too large')
         rows = json.loads(data)
