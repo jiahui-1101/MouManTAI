@@ -244,6 +244,9 @@ def test_migration_parent_rollback_preserves_all_other_tables(graph):
     heads = scripts.get_heads()
     assert len(heads) == 1 and "0015_p4_followup" in {r.revision for r in scripts.iterate_revisions(heads[0], "base")}
     assert scripts.get_revision("0015_p4_followup").down_revision == "0014_merge_p3_p4_confirmations"
+    # Exercise the follow-up migration's own parent boundary. Later additive
+    # migrations have their own tables and are outside this rollback assertion.
+    alembic_command.downgrade(cfg, "0015_p4_followup")
     before = set(inspect(engine).get_table_names())
     alembic_command.downgrade(cfg, "0014_merge_p3_p4_confirmations")
     assert set(inspect(engine).get_table_names()) == before - {"communication_followup_tasks", "communication_reminder_attempts"}
