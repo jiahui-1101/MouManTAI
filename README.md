@@ -91,7 +91,7 @@
 
 ### Problem
 
-In 2025, Malaysia had 1,292,580 MSMEs, 96.2% of all establishments, and MSMEs contributed 39.7% of GDP, according to SME Corp Malaysia and DOSM's 2025 statistics. A separate historical estimate said about 77% of MSMEs remained at a basic digitalisation stage; the 2021 source attributes this figure to consulting-firm estimates but does not identify the underlying firm or method, so it should not be read as a 2026 measurement. [SME Corp Malaysia, Profile of MSMEs in 2015–2025](https://smecorp.gov.my/index.php/en/policies/2020-02-11-08-01-24/profile-and-importance-to-the-economy) · [DOSM, MSMEs Performance 2025](https://www.dosm.gov.my/site/downloadrelease?id=micro-small--medium-enterprises-msmes-performance-2025&lang=English) · [SME Corp Malaysia, Challenges in Digital Adoption (2021)](https://www.smecorp.gov.my/index.php/en/resources/2015-12-21-10-55-22/news/4461-challenges-in-digital-adoption) · [UN SDG 9, Target 9.3](https://sdgs.un.org/goals/goal9).
+In 2025, Malaysia had 1,292,580 MSMEs, 96.2% of all establishments, and MSMEs contributed 39.7% of GDP, according to SME Corp Malaysia and DOSM's 2025 statistics. [SME Corp Malaysia, Profile of MSMEs in 2015–2025](https://smecorp.gov.my/index.php/en/policies/2020-02-11-08-01-24/profile-and-importance-to-the-economy) · [DOSM, MSMEs Performance 2025](https://www.dosm.gov.my/site/downloadrelease?id=micro-small--medium-enterprises-msmes-performance-2025&lang=English) · [UN SDG 9, Target 9.3](https://sdgs.un.org/goals/goal9).
 
 In a typical catering SME, one customer promise is spread across a WhatsApp chat, a stock spreadsheet and a separate supplier conversation. Owners rebuild orders by hand, accept orders they cannot fulfil, and scramble when a supplier is late. MouManTAI addresses this operational problem; its business outcomes remain a value hypothesis until measured with real SMEs.
 
@@ -1280,4 +1280,4 @@ Prepared for the **SDC Hackathon 2026 Domain 2 — Orbyte Smart SME Challenge**,
 
 ## License
 
-The project declares Apache License 2.0; the license text file is not present in the current `main` snapshot.
+This project is licensed under the [Apache License 2.0](LICENSE).
