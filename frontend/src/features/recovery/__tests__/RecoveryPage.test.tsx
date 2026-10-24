@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -21,7 +21,8 @@ function plan(overrides: Partial<RecoveryPlanVersion> = {}): RecoveryPlanVersion
     currency: "MYR",
     estimated_delay_minutes: 0,
     risks: ["ALTERNATIVE_SUPPLY_PENDING"],
-    actions: [],
+    actions: [{ action_id: "action_review_1", type: "CREATE_INTERNAL_REVIEW_TASK", requires_approval: true,
+      idempotency_key: "action_review_1", parameters: {}, preconditions: ["Current plan and snapshot must remain valid"] }],
     approval_state: "PENDING",
     execution_state: "NOT_STARTED",
     option_id: "option_a",
@@ -137,7 +138,7 @@ function response(body: unknown, status = 200) {
 }
 
 describe("P3 recovery page", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); sessionStorage.clear(); });
 
   it("renders actual API options, conditional status, evidence, and no fake execution", async () => {
     const caseData = recoveryCase();
@@ -282,7 +283,6 @@ describe("P3 recovery page", () => {
     const caseData = { ...recoveryCase(), storage_mode: "DURABLE_DATABASE" as const };
     const livePlan = plan({ core_commitment_version: 3, snapshot_id: "snap_142", strategy: "RESCHEDULE_PARTIAL_FULFILMENT" });
     const requests: string[] = [];
-    vi.stubGlobal("prompt", vi.fn(() => "Review partial delivery"));
     vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, init?: RequestInit) => {
       const path = url.toString();
       requests.push(`${init?.method ?? "GET"} ${path}`);
@@ -296,14 +296,17 @@ describe("P3 recovery page", () => {
     fireEvent.click(await screen.findByTestId("select-plan_a"));
     expect(screen.getByRole("button", { name: "Manager approve" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Manager approve" }));
+    expect(screen.getByRole("dialog", { name: "Approve this recovery plan?" })).toHaveTextContent("CREATE INTERNAL REVIEW TASK");
+    fireEvent.change(screen.getByLabelText("Reason for this decision"), { target: { value: "Review partial delivery" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /I have reviewed this plan version/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm approval" }));
     await waitFor(() => expect(requests.some((request) => request.includes("POST /v1/recovery/plans/plan_a/approve"))).toBe(true));
     await waitFor(() => expect(requests.filter((request) => request.endsWith("/approvals")).length).toBeGreaterThan(1));
-    expect(screen.getByRole("button", { name: "Create internal review task" })).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Create internal review task" }).every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
   });
 
   it("shows a 403 mutation error without claiming approval", async () => {
     const caseData = { ...recoveryCase(), storage_mode: "DURABLE_DATABASE" as const };
-    vi.stubGlobal("prompt", vi.fn(() => "Review"));
     vi.stubGlobal("fetch", vi.fn((url: string | URL | Request) => {
       const path = url.toString();
       if (path.endsWith("/plans")) return response({ tenant_id: caseData.tenant_id, commitment_id: caseData.commitment_id, case_id: caseData.case_id, plans: [plan({ core_commitment_version: 3 })] });
@@ -314,6 +317,9 @@ describe("P3 recovery page", () => {
     renderPage("/recovery/com_001", "user_manager_01");
     fireEvent.click(await screen.findByTestId("select-plan_a"));
     fireEvent.click(screen.getByRole("button", { name: "Manager approve" }));
+    fireEvent.change(screen.getByLabelText("Reason for this decision"), { target: { value: "Review" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /I have reviewed this plan version/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm approval" }));
     expect(await screen.findByText("Verified manager required")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create internal review task" })).toBeDisabled();
   });
@@ -344,9 +350,58 @@ describe("P3 recovery page", () => {
     const button = screen.getByRole("button", { name: "Create internal review task" });
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
+    expect(screen.getByRole("dialog", { name: "Create an internal review task?" })).toHaveTextContent("CREATE INTERNAL REVIEW TASK");
+    fireEvent.click(screen.getByRole("checkbox", { name: /I have reviewed the approved plan/i }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Create internal review task$/ }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => url.toString().endsWith("/execute") && init?.method === "POST")).toBe(true));
     expect(await screen.findByText(/Verified internal review task: task_1/)).toBeInTheDocument();
     expect(screen.queryByText(/commitment fulfilled/i)).not.toBeInTheDocument();
+  });
+
+  it("canceling a decision confirmation sends no mutation", async () => {
+    const caseData = { ...recoveryCase(), storage_mode: "DURABLE_DATABASE" as const };
+    const fetchMock = vi.fn((url: string | URL | Request) => {
+      const path = url.toString();
+      if (path.endsWith("/plans")) return response({ tenant_id: caseData.tenant_id, commitment_id: caseData.commitment_id, case_id: caseData.case_id, plans: [plan({ core_commitment_version: 3 })] });
+      if (path.endsWith("/approvals") || path.endsWith("/actions")) return response([]);
+      return response(caseData);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage("/recovery/com_001", "user_manager_01");
+    fireEvent.click(await screen.findByTestId("select-plan_a"));
+    fireEvent.click(screen.getByRole("button", { name: "Manager approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(fetchMock.mock.calls.some(([url]) => url.toString().includes("/plans/plan_a/approve"))).toBe(false);
+  });
+
+  it("blocks a duplicate execute after a network-unknown outcome and offers only status refresh", async () => {
+    const caseData = { ...recoveryCase(), storage_mode: "DURABLE_DATABASE" as const };
+    const approved = { approval_id: "approval_1", tenant_id: caseData.tenant_id, commitment_id: caseData.commitment_id,
+      plan_id: "plan_a", plan_version: 1, snapshot_version: 142, actor_id: "user_manager_01", actor_role: "MANAGER",
+      action_scope: ["CREATE_INTERNAL_REVIEW_TASK"], decision: "APPROVED", reason: "Review", evidence_refs: [], audit_refs: [],
+      persistence_mode: "DURABLE_DATABASE", expires_at: "2099-01-01T00:00:00Z" };
+    const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      const path = url.toString();
+      if (path.endsWith("/plans")) return response({ tenant_id: caseData.tenant_id, commitment_id: caseData.commitment_id, case_id: caseData.case_id, plans: [plan({ core_commitment_version: 3, snapshot_id: "snap_142", strategy: "RESCHEDULE_PARTIAL_FULFILMENT" })] });
+      if (path.endsWith("/approvals")) return response([approved]);
+      if (path.endsWith("/actions")) return response([]);
+      if (path.endsWith("/execute") && init?.method === "POST") return Promise.reject(new TypeError("network disconnected"));
+      return response(caseData);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderPage("/recovery/com_001", "user_manager_01");
+    fireEvent.click(await screen.findByTestId("select-plan_a"));
+    const executeButton = await screen.findByRole("button", { name: "Create internal review task" });
+    await waitFor(() => expect(executeButton).toBeEnabled());
+    fireEvent.click(executeButton);
+    fireEvent.click(screen.getByRole("checkbox", { name: /I have reviewed the approved plan/i }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Create internal review task$/ }));
+    expect(await screen.findByText("Execution outcome is unknown.")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Create internal review task" }).every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
+    expect(screen.getByRole("button", { name: "Refresh action status" })).toBeEnabled();
+    expect(fetchMock.mock.calls.filter(([url, init]) => url.toString().endsWith("/execute") && init?.method === "POST")).toHaveLength(1);
+    expect(sessionStorage.getItem("moumantai:recovery-execute:tenant_demo_01:plan_a:1")).toContain('"state":"UNKNOWN"');
   });
 
   it("requests a revised-terms handoff and shows pending verification after reloading", async () => {

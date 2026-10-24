@@ -154,3 +154,5 @@ Request-version regression checkpoint (PR #50 follow-up, 2026-10-24; local workt
 - Full v2.2 suite → **268 passed, 5 warnings**.
 - Adjacent P1/Core contract suite → **21 passed, 22 skipped** because `P1_TEST_DATABASE_URL` was unset. **BLOCKED — REAL POSTGRESQL VALIDATION NOT PERFORMED.**
 - Ruff check and format, Python compileall, and `git diff --check` passed. These are local results; GitHub exact-head CI has not run for the follow-up yet.
+
+PR #50 post-retarget validation against fetched `main` `eaa5097452f17f5c4f1c9ccc6c0a5b9f5678c86a` (2026-10-24): full v2.2 **268 passed / 5 warnings**; selected adjacent P1/Core suite **21 passed / 22 skipped**, all explicitly skipped because `P1_TEST_DATABASE_URL` is unset. These runs are local and do not substitute for exact-head Actions. The P1 database-backed cases remain NOT_RUN.

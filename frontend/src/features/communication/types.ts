@@ -40,7 +40,12 @@ export interface CommunicationRequestView {
   created_by: string;
   created_at: ISO8601;
   outbound_status?: OutboundStatus | null;
+  source_origin?: CaseOrigin | string | null;
+  delivery_mode?: DeliveryMode | string | null;
 }
+
+export type CaseOrigin = "GMAIL" | "TELEGRAM" | "WHATSAPP" | "SYNTHETIC";
+export type DeliveryMode = "REAL" | "SIMULATED";
 
 export type DraftLanguage = "en" | "ms" | "zh";
 
