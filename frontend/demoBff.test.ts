@@ -52,6 +52,13 @@ describe('isolated OrderRequest facade', () => {
     const good = await call('/order-requests', 'GET', { Cookie: cookie });
     expect(good.status).toBe(200);
     expect(observed.at(-1)).toEqual({ path: '/v1/backend-v2/order-requests', tenant: 'tenant_a', actor: 'manager_01', key: isolatedKey });
+    expect((await call('/c3-reviews', 'GET', { Cookie: cookie })).status).toBe(200);
+    expect(observed.at(-1)).toEqual({ path: '/v1/c3/reviews', tenant: 'tenant_a', actor: 'manager_01', key: isolatedKey });
+    expect((await call('/c3-reviews/review_01', 'GET', { Cookie: cookie })).status).toBe(200);
+    expect(observed.at(-1)?.path).toBe('/v1/c3/reviews/review_01');
+    expect((await call('/c3-reviews/decided', 'GET', { Cookie: cookie })).status).toBe(200);
+    expect(observed.at(-1)?.path).toBe('/v1/c3/reviews?state=DECIDED');
+    expect((await call('/c3-reviews/review_01/decide', 'POST', { Cookie: cookie, 'X-CSRF-Token': csrf }, {})).status).toBe(404);
     expect((await call('/order-requests', 'GET', { Cookie: cookie, 'X-Tenant-ID': 'tenant_b' })).status).toBe(403);
     expect((await call('/order-requests', 'GET', { Cookie: cookie, 'X-Actor-ID': 'staff_01' })).status).toBe(403);
     expect((await call('/order-requests/req_01/review', 'POST', { Cookie: cookie },
