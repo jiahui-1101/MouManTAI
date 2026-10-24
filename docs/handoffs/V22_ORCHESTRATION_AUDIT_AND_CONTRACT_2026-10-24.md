@@ -41,7 +41,7 @@ Once the release baseline and C1 #90 are both merged, add a merge-only Alembic r
 
 PR #92 resolves the previously recorded optional OCR-runtime failure on refreshed main: its dedicated latest-main PostgreSQL image/PDF acceptance run reports 24 passed and zero skipped, and its Docker OCR smoke passed. The OCR item remains stale text in open PR #88's body; that does not make OCR an active blocker on current main. It does not replace the need to rerun release CI and migrated E2E after the A–H baseline lands.
 
-At the 2026-10-25 refresh, #81 and #82 were closed as merged to main (`ca66561` and `7c5ac15` respectively); #83–85 and #88 remained open and mergeable. C1 PR #90 remained open Draft, with a stale base SHA `f6eca1a` and GitHub reporting it non-mergeable against refreshed main; it needs its own owner-led refresh/reconciliation. PR #95 remained open Draft, mergeable against #88, and based on #88's head. Keep #95 stacked on #88 until the remaining A–H dependencies have merged in order. Do not reconcile #95 directly onto main before that baseline settles.
+At the latest 2026-10-25 refresh, #81 and #82 were merged to main (`ca66561` and `7c5ac15`). PR #83 was open against main with GitHub `mergeable_state=dirty`; a read-only merge-tree confirmed a content conflict in `backend/app/main.py`. No resolution was applied to that shared dependency branch. PRs #84, #85 and #88 remained open and stacked behind #83. C1 PR #90 remained open Draft. PR #95 remained open Draft, based on #88's head `d2fa4da975a3d7e939cd1bca2e8f6a0732eec8b6`. Keep #95 stacked on #88 until the remaining A–H dependencies have merged in order. Do not reconcile #95 directly onto main before that baseline settles.
 
 ## Entity reuse / extend / add / deprecate mapping
 
