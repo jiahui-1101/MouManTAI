@@ -773,7 +773,7 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
                   setSubmitting(true);
                   try {
                     const msgId = record.source_message_ids?.[0] || record.context_id;
-                    await operationalApi.process(msgId, true);
+                    await operationalApi.process(msgId, true, headers);
                     const fresh = await operationalApi.getContext(record.context_id, headers).catch(() => null);
                     if (fresh) {
                       setRecord(fresh);
