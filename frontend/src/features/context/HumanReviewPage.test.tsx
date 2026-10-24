@@ -24,7 +24,7 @@ const mockMessage: StoredMessage = {
   provider: 'GMAIL_API',
   source_label: 'Gmail',
   content_sha256: 'sha256_mock_hash_1234567890',
-  processing_status: 'RECEIVED',
+  processing_status: 'PROCESSED',
   extractor_version: 'p1-deterministic-v6',
   ingested_at: '2026-10-24T10:00:00Z',
   updated_at: '2026-10-24T10:00:00Z',
@@ -35,7 +35,7 @@ const mockContext: OrderContextRecord = {
   tenant_id: 'synthetic_tenant_a',
   order_id: 'ORD-HR-1',
   customer_id: 'cust_hr_1',
-  customer_identity_status: 'LINK_CANDIDATE',
+  customer_identity_status: 'LINK_VERIFIED',
   status: 'INFORMATION_PARTIAL',
   requested_items: [{ sku: 'CROISSANT', quantity: '20', unit: 'box' }],
   requested_delivery_at: '2026-10-25T15:00:00+08:00',
@@ -100,7 +100,7 @@ const mockAssociation: MessageAssociationRecord = {
   association_id: 'asc_1',
   message_id: 'msg_hr_1',
   tenant_id: 'synthetic_tenant_a',
-  status: 'LINK_CANDIDATE',
+  status: 'LINK_VERIFIED',
   verified_order: {
     order_id: 'ORD-HR-1',
     customer_id: 'cust_1',
@@ -143,11 +143,11 @@ describe('HumanReviewPage component', () => {
     });
   });
 
-  it('renders workspace with header, architecture banner, and queue items', async () => {
+  it('renders a compact review workspace without implementation notes', async () => {
     renderPage(<HumanReviewPage />);
 
     expect(screen.getByText('Human Review Workspace')).toBeInTheDocument();
-    expect(screen.getByRole('note')).toHaveTextContent(/Inquiry Review Workspace · Evidenced & Audited/i);
+    expect(screen.queryByText(/Inquiry Review Workspace · Evidenced & Audited/i)).not.toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText('Alice Baker')).toBeInTheDocument();
       expect(screen.getByText(/Please send 20 boxes of croissants/i)).toBeInTheDocument();
@@ -176,11 +176,20 @@ describe('HumanReviewPage component', () => {
     expect(screen.getByDisplayValue('SOURDOUGH')).toBeInTheDocument();
   });
 
+  it('keeps unsaved amendment values when the queue is refreshed', async () => {
+    renderPage(<HumanReviewPage />);
+    await waitFor(() => expect(screen.getByDisplayValue('CROISSANT')).toBeInTheDocument());
+    fireEvent.change(screen.getByDisplayValue('CROISSANT'), { target: { value: 'SOURDOUGH' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(operationalApi.list).toHaveBeenCalledTimes(2));
+    expect(screen.getByDisplayValue('SOURDOUGH')).toBeInTheDocument();
+  });
+
   it('adopts suggested clarification preview into the reviewer note', async () => {
     renderPage(<HumanReviewPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/AI Suggested Clarification/i)).toBeInTheDocument();
+      expect(screen.getByText(/Suggested clarification wording/i)).toBeInTheDocument();
     });
 
     const adoptBtn = screen.getByRole('button', { name: /Adopt as Clarification Note/i });
@@ -239,28 +248,40 @@ describe('HumanReviewPage component', () => {
     });
   });
 
-  it('renders backend operational capability pill and clarification issues timeline', async () => {
+  it('shows the evidenced conflict route without invented clarification counts', async () => {
     renderPage(<HumanReviewPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Direct Review \(v2\.1\)/i)).toBeInTheDocument();
-      expect(screen.getByText(/Clarification Issues/i)).toBeInTheDocument();
-      expect(screen.getByText(/Turns: 0 \/ 2 max/i)).toBeInTheDocument();
+      expect(screen.getByText('Conflicting order information')).toBeInTheDocument();
+      expect(screen.getByText(/Information requiring review/i)).toBeInTheDocument();
+      expect(screen.queryByText(/Turns: 0 \/ 2 max/i)).not.toBeInTheDocument();
     });
   });
 
-  it('handles dispatch clarification draft with safe preview non-simulation feedback', async () => {
+  it('keeps customer sending unavailable without a verified conversation route', async () => {
     renderPage(<HumanReviewPage />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Dispatch Clarification Draft/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Send customer update unavailable/i })).toBeDisabled();
     });
+    expect(screen.queryByRole('button', { name: /Dispatch Clarification Draft/i })).not.toBeInTheDocument();
+  });
 
-    const dispatchBtn = screen.getByRole('button', { name: /Dispatch Clarification Draft/i });
-    fireEvent.click(dispatchBtn);
+  it('keeps compact queue and item actions usable', async () => {
+    renderPage(<HumanReviewPage />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /Add item/i })).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Refresh' })).toHaveClass('hr-compact-action');
+    const addItem = screen.getByRole('button', { name: /Add item/i });
+    expect(addItem).toHaveClass('hr-compact-action');
+    fireEvent.click(addItem);
+    expect(screen.getByText('Order Line Items (2)')).toBeInTheDocument();
+  });
 
-    await waitFor(() => {
-      expect(screen.getByText(/Preview Retained: Outbound endpoint is pending backend release/i)).toBeInTheDocument();
-    });
+  it('requires an audit reason before recording a need for more information', async () => {
+    renderPage(<HumanReviewPage />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Record Need for More Info' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Record Need for More Info' }));
+    expect(await screen.findByText(/Add a reviewer reason before recording this outcome/i)).toBeInTheDocument();
+    expect(operationalApi.reviewContext).not.toHaveBeenCalled();
   });
 });

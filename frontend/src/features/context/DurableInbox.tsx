@@ -229,7 +229,7 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
   const [composing, setComposing] = useState(false);
 
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => new URLSearchParams(window.location.search).get('message'));
 
   const [saved, setSaved] = useState<IngestResponse | null>(null);
 
@@ -295,9 +295,21 @@ export function DurableInbox({ api = operationalApi }: { api?: OperationalApi })
 
 
 
-  function select(id: string, button: HTMLButtonElement) { returnFocus.current = button; setSelected(id); }
+  function select(id: string, button: HTMLButtonElement) {
+    returnFocus.current = button;
+    const url = new URL(window.location.href);
+    url.searchParams.set('message', id);
+    window.history.replaceState(window.history.state, '', url);
+    setSelected(id);
+  }
 
-  function closeDetail() { setSelected(null); returnFocus.current?.focus(); }
+  function closeDetail() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('message');
+    window.history.replaceState(window.history.state, '', url);
+    setSelected(null);
+    returnFocus.current?.focus();
+  }
 
   function submitted(result: IngestResponse) {
 

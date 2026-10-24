@@ -1,5 +1,6 @@
 /* Human Review Workspace — Orbyte Design System aligned */
 .human-review-page {
+  container-type: inline-size;
   --hr-accent: #0767e8;
   --hr-accent-hover: #065cd0;
   --hr-text: #1c3153;
@@ -51,22 +52,6 @@
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.hr-architecture-banner {
-  background: #f8fafc;
-  border: 1px solid #cbd5e1;
-  border-left: 4px solid var(--hr-accent);
-  border-radius: 6px;
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #334155;
-}
-
-.hr-architecture-banner strong {
-  color: #0f172a;
 }
 
 .hr-filter-toolbar {
@@ -134,7 +119,7 @@
 
 .hr-workspace-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 380px) minmax(500px, 1fr);
+  grid-template-columns: minmax(240px, 32%) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -161,7 +146,24 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
 }
+.hr-queue-header > span { min-width: 0; }
+.hr-compact-action { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-height: 34px; padding: 6px 12px; border: 1px solid rgba(28,49,83,.22); border-radius: 6px; background: #fff; color: #0767e8; font: inherit; font-size: 12px; font-weight: 600; line-height: 18px; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.hr-compact-action:hover:not(:disabled) { background: rgba(7,103,232,.094); border-color: #0767e8; }
+.hr-compact-action:disabled { opacity: .55; cursor: not-allowed; }
+.hr-compact-action:focus-visible { outline: 2px solid #0767e8; outline-offset: 2px; }
+.hr-line-items-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.hr-line-items-heading > span { min-width: 0; }
+.hr-line-item-fields { display: grid; grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto; gap: 8px; align-items: end; margin-bottom: 8px; padding: 8px; background: #f8fafc; border: 1px solid rgba(28,49,83,.12); border-radius: 6px; }
+.hr-line-item-fields > div { min-width: 0; }
+.hr-delivery-fields { display: grid; grid-template-columns: minmax(0,2fr) minmax(0,1fr); gap: 10px; margin-bottom: 14px; }
+.hr-case-guidance { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 8px; background: #f4f8ff; border: 1px solid rgba(7,103,232,.22); border-radius: 6px; }
+.hr-case-guidance strong { color: #1c3153; font-size: 13px; }
+.hr-case-guidance p, .hr-send-availability p, .hr-route-limit { margin: 4px 0 0; color: rgba(28,49,83,.7); font-size: 12px; line-height: 1.45; }
+.hr-send-availability { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 0; border-top: 1px solid rgba(28,49,83,.12); }
+.hr-route-limit { margin: 8px 0 12px; }
+@media (max-width: 680px) { .hr-case-guidance { flex-direction: column; align-items: flex-start; } .hr-line-item-fields { grid-template-columns: repeat(2,minmax(0,1fr)); } .hr-line-item-fields > div:first-child { grid-column: 1 / -1; } .hr-delivery-fields { grid-template-columns: minmax(0,1fr); } }
 
 .hr-queue-items {
   overflow-y: auto;
@@ -449,6 +451,7 @@
 .human-review-page .extraction-diagnostic,
 .human-review-page .p1-prov-dot.is-amber { background: rgba(7,103,232,.094); color: #0767e8; border-color: rgba(7,103,232,.25); }
 @media (max-width: 980px) { .hr-workspace-grid { grid-template-columns: minmax(0,1fr); } .hr-queue-panel { min-height: 0; max-height: 280px; } .hr-detail-panel { max-height: none; min-height: 500px; } .hr-stage-content { max-height: 60vh; } }
+@container (max-width: 760px) { .hr-workspace-grid { grid-template-columns: minmax(0,1fr); } .hr-queue-panel { min-height: 0; max-height: 280px; } .hr-detail-panel { max-height: none; min-height: 500px; } .hr-stage-content { max-height: 60vh; } }
 
 .hr-btn-red {
   background: #fef2f2;
@@ -476,30 +479,6 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-/* Capability Pill & Task Badges */
-.hr-capability-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 600;
-  border: 1px solid transparent;
-}
-
-.hr-capability-badge.is-provisional {
-  background: #f8fafc;
-  color: #475569;
-  border-color: #cbd5e1;
-}
-
-.hr-capability-badge.is-authoritative {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border-color: #93c5fd;
 }
 
 /* Clarification Issues Timeline Panel */

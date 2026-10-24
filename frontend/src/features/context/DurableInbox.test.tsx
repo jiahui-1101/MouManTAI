@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DurableInbox } from './DurableInbox';
 import { operationalApi } from './operationalApi';
 import type { OperationalApi } from './operationalApi';
@@ -245,6 +245,16 @@ async function openComposer(api: OperationalApi) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('durable synthetic Inbox', () => {
+  beforeEach(() => window.history.replaceState(window.history.state, '', '/inbox'));
+  it('opens a customer message from a review deep link', async () => {
+    const api = fakeApi();
+    window.history.replaceState(window.history.state, '', '/inbox?message=stored_message_1');
+    render(<DurableInbox api={api} />);
+    const detail = await screen.findByRole('region', { name: 'Persisted message details' });
+    expect(api.detail).toHaveBeenCalledWith('stored_message_1');
+    fireEvent.click(within(detail).getByRole('button', { name: 'Close message details' }));
+    expect(window.location.search).toBe('');
+  });
   it('submits to the API, refreshes the list and presents truthful awaiting-processing details', async () => {
     const api = fakeApi();
     vi.mocked(api.ingest).mockImplementation(async payload => {

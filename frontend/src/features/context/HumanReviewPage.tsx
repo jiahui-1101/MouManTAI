@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../shared/auth';
 import { operationalApi } from './operationalApi';
-import { detectReviewTaskCapability } from './reviewTaskApi';
-import { getConversationIssues, sendClarification } from './clarificationApi';
-import type { ConversationIssuesResponse } from './clarificationModels';
 import type {
   ContextReviewRequest,
   ExtractionAttemptRecord,
@@ -16,6 +13,7 @@ import { extractEvidenceItemGroups, reviewCandidates } from './reviewCandidates'
 import { getSuggestedClarification } from './ReviewDrawer';
 import { ExtractionProvenance } from './ExtractionProvenance';
 import { WorkflowTabs } from '../../shared/WorkflowTabs';
+import { determineHumanReviewCase } from './humanReviewCase';
 import './humanReview.css';
 
 export type ReviewFilterCategory = 'ALL' | 'UNRESOLVED' | 'FAILED_EXTRACTION';
@@ -43,12 +41,6 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
   const [reviewStage, setReviewStage] = useState<ReviewStage>('evidence');
   const [pendingSelection, setPendingSelection] = useState<string | null>(null);
   const [savedForm, setSavedForm] = useState('');
-
-  // Capability detection & v2.2 task integration state
-  const [taskCapability, setTaskCapability] = useState<'AUTHORITATIVE' | 'PROVISIONAL'>('PROVISIONAL');
-  const [issuesData, setIssuesData] = useState<ConversationIssuesResponse | null>(null);
-  const [dispatching, setDispatching] = useState(false);
-  const [dispatchFeedback, setDispatchFeedback] = useState<string | null>(null);
 
   // Selected item state
   const [selectedMessage, setSelectedMessage] = useState<StoredMessage | null>(null);
@@ -78,23 +70,10 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
     setSelectedId(id); setReviewStage('evidence'); setReviewerNote(''); setPendingSelection(null);
   };
 
-  // Load catalog and detect backend v2.2 task queue capability on mount
+  // The deployed context API supplies catalog validation; standalone v2.2 review tasks are not available here.
   useEffect(() => {
     operationalApi.getCatalog().then(cat => setCatalog(cat)).catch(() => setCatalog([]));
-    detectReviewTaskCapability().then(setTaskCapability).catch(() => setTaskCapability('PROVISIONAL'));
   }, []);
-
-  // Track clarification issues whenever selection or context changes
-  useEffect(() => {
-    if (!selectedId) {
-      setIssuesData(null);
-      return;
-    }
-    setDispatchFeedback(null);
-    getConversationIssues(selectedId, selectedContext)
-      .then(setIssuesData)
-      .catch(() => setIssuesData(null));
-  }, [selectedId, selectedContext]);
 
   // Load review-relevant messages
   const loadMessages = async () => {
@@ -109,6 +88,8 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
         limit: 50,
       });
       setMessages(page.items);
+      const selected = page.items.find(item => item.message_id === selectedId);
+      if (selected) setSelectedMessage(selected);
       if (page.items.length > 0 && !selectedId) {
         setSelectedId(page.items[0].message_id);
       }
@@ -168,7 +149,7 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
     });
 
     return () => { active = false; };
-  }, [selectedId, messages]);
+  }, [selectedId]);
 
   const initFormFromContext = (ctx: OrderContextRecord) => {
     const evidenceItemGroups = extractEvidenceItemGroups(ctx);
@@ -191,7 +172,7 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
   };
 
   const handleCreateContext = async () => {
-    if (!selectedId) return;
+    if (!selectedId || selectedMessage?.processing_status !== 'PROCESSED' || selectedAssociation?.status !== 'LINK_VERIFIED' || !selectedAssociation.verified_order?.order_id) return;
     setContextLoading(true);
     setContextError(null);
     try {
@@ -260,6 +241,9 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
 
   const suggestedClarification = selectedContext ? getSuggestedClarification(selectedContext) : null;
   const candidateProposals = selectedContext ? reviewCandidates(selectedContext) : [];
+  const reviewCase = determineHumanReviewCase(selectedMessage, selectedAssociation, selectedContext);
+  const canInitializeContext = selectedMessage?.processing_status === 'PROCESSED' && selectedAssociation?.status === 'LINK_VERIFIED' && !!selectedAssociation.verified_order?.order_id;
+  const messageUrl = selectedId ? `/inbox?message=${encodeURIComponent(selectedId)}` : '/inbox';
 
   const handleReviewAction = async (action: 'EDIT_FIELD' | 'ACCEPT_EXTRACTION' | 'REQUEST_MORE_INFO' | 'MARK_UNRESOLVED') => {
     if (!selectedContext) return;
@@ -270,6 +254,9 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
 
     try {
       const fieldEdits: Record<string, unknown> = {};
+      if ((action === 'REQUEST_MORE_INFO' || action === 'MARK_UNRESOLVED') && !reviewerNote.trim()) {
+        throw new Error('Add a reviewer reason before recording this outcome.');
+      }
 
       if (action === 'EDIT_FIELD') {
         for (let i = 0; i < items.length; i++) {
@@ -326,39 +313,6 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
     }
   };
 
-  const handleDispatchClarification = async () => {
-    if (!selectedId) return;
-    setDispatching(true);
-    setDispatchFeedback(null);
-    try {
-      const res = await sendClarification({
-        conversation_id: selectedId,
-        context_id: selectedContext?.context_id,
-        order_id: selectedContext?.order_id || undefined,
-        issue_ids: issuesData?.issues.map(i => i.issue_id) || [],
-        draft_text: suggestedClarification || reviewerNote || 'Please clarify your order details.',
-        channel: selectedMessage?.raw?.channel || 'EMAIL',
-        recipient_identity_id: selectedMessage?.raw?.sender_identity_id || selectedMessage?.raw?.sender_alias || 'customer',
-        approval_note: reviewerNote || undefined,
-      }, {
-        'X-Actor-ID': actorId || 'user_staff_01',
-        'X-Actor-Role': actorRole || 'STAFF',
-      });
-
-      if (res.delivery_status === 'PREVIEW_NOT_SENT') {
-        setDispatchFeedback(
-          `Preview Retained: Outbound endpoint is pending backend release. Clarification remains PREVIEW ONLY · NOT SENT. (${res.error_reason || 'Pending route deployment'})`
-        );
-      } else {
-        setDispatchFeedback(`Clarification dispatched successfully via ${res.delivery_status}.`);
-      }
-    } catch (err) {
-      setDispatchFeedback(err instanceof Error ? err.message : 'Clarification dispatch failed');
-    } finally {
-      setDispatching(false);
-    }
-  };
-
   return (
     <div className="human-review-page" data-testid="human-review-workspace">
       <header className="hr-header">
@@ -367,22 +321,10 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
           <p>Review customer inquiries, unverified model candidates, and context conflicts with full audit protection.</p>
         </div>
         <div className="hr-meta-badges">
-          <span className={`hr-capability-badge is-${taskCapability.toLowerCase()}`}>
-            {taskCapability === 'AUTHORITATIVE' ? 'Backend Queue (v2.2)' : 'Direct Review (v2.1)'}
-          </span>
           <span className="p1-dim-badge">{tenantId}</span>
           <span className="p1-dim-badge">{actorId} · {actorRole}</span>
         </div>
       </header>
-
-      {/* Architecture distinction notice */}
-      <div className="hr-architecture-banner" role="note">
-        <strong>Inquiry Review Workspace · Evidenced & Audited</strong>
-        <p style={{ margin: '4px 0 0 0' }}>
-          This workspace reviews incoming customer inquiries and extracted order contexts via <code>/v1/contexts/{'{id}'}/review</code>.
-          This is an operational message review interface, not an authoritative review-task queue, as the backend provides per-context review actions.
-        </p>
-      </div>
 
       {error && (
         <div className="p1-error-banner" role="alert" style={{ marginBottom: '16px' }}>
@@ -404,11 +346,11 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
             <span>Inquiry Queue ({filteredItems.length})</span>
             <button
               type="button"
-              className="p1-btn-subtle"
-              style={{ fontSize: '11px', cursor: 'pointer' }}
+              className="hr-compact-action"
               onClick={() => void loadMessages()}
+              disabled={loading}
             >
-              Refresh
+              {loading ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
           <div className="hr-queue-items" role="list">
@@ -456,6 +398,7 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
           ) : (
             <div>
               <div className="hr-detail-intro"><strong>{selectedMessage.raw?.sender_alias || 'Customer inquiry'}</strong><span>{selectedMessage.processing_status} · {selectedContext?.status || 'Context pending'}</span></div>
+              <div className="hr-case-guidance" role="status"><div><strong>{reviewCase.title}</strong><p>{reviewCase.nextStep}</p></div><a className="hr-compact-action" href={messageUrl}>Open customer message</a></div>
               <WorkflowTabs stages={reviewStages} active={reviewStage} onChange={setReviewStage} label="Review stages" className="hr-review-tabs" />
               <div className="hr-stage-content">
               {/* Evidence Section */}
@@ -537,18 +480,21 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
                   </div>
                 )}
 
+                <div className="hr-stage" data-active={reviewStage === 'resolution'}><div className="hr-send-availability"><button type="button" className="hr-compact-action" disabled>Send customer update unavailable</button><p>A verified conversation, authorized reply and supported channel are required. Recording a need for information does not send a message.</p></div></div>
+
                 {contextLoading ? (
                   <div style={{ padding: '16px', color: '#64748b' }}>Loading context data…</div>
                 ) : !selectedContext ? (
                   <div style={{ padding: '16px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '6px', textAlign: 'center' }}>
-                    <p style={{ margin: '0 0 8px 0', color: '#64748b' }}>No order context created for this inquiry yet.</p>
-                    <button
+                    <p style={{ margin: '0 0 8px 0', color: '#64748b' }}>{canInitializeContext ? 'This verified order has no context yet.' : 'A processed message and verified order link are required to initialize an order context.'}</p>
+                    {canInitializeContext && <button
                       type="button"
                       className="p1-primary"
                       onClick={() => void handleCreateContext()}
                     >
                       Initialize Order Context from Message
-                    </button>
+                    </button>}
+                    {!canInitializeContext && <a className="hr-compact-action" href={messageUrl}>Review message and identity link</a>}
                   </div>
                 ) : (
                   <div>
@@ -632,16 +578,9 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
 
                     {/* Line Items List */}
                     <div style={{ marginBottom: '14px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <div className="hr-line-items-heading">
                         <span style={{ fontSize: '13px', fontWeight: 700 }}>Order Line Items ({items.length})</span>
-                        <button
-                          type="button"
-                          className="p1-btn-subtle"
-                          style={{ fontSize: '11px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '2px 8px' }}
-                          onClick={addItem}
-                        >
-                          + Add Item
-                        </button>
+                        <button type="button" className="hr-compact-action" onClick={addItem}>+ Add item</button>
                       </div>
                       <datalist id="hr-approved-skus">
                         {[...new Set(catalog.map(p => p.sku))].map(sku => (
@@ -652,17 +591,7 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
                       {items.map((it, idx) => (
                         <div
                           key={idx}
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: '2fr 1fr 1fr auto',
-                            gap: '8px',
-                            alignItems: 'end',
-                            marginBottom: '8px',
-                            padding: '8px',
-                            background: '#f8fafc',
-                            borderRadius: '6px',
-                            border: '1px solid #e2e8f0',
-                          }}
+                          className="hr-line-item-fields"
                         >
                           <div>
                             <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
@@ -720,7 +649,7 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
                     </div>
 
                     {/* Delivery & Special Instructions */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px', marginBottom: '14px' }}>
+                    <div className="hr-delivery-fields">
                       <div>
                         <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
                           Requested Delivery (ISO 8601 with offset)
@@ -766,45 +695,19 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
                     </div>
                     <div className="hr-stage" data-active={reviewStage === 'resolution'}>
                     <p className="muted">Review the current context and resolve any remaining questions before recording an outcome.</p>
-                    {/* Issues Timeline & Clarification Lane */}
-                    {issuesData && issuesData.issues.length > 0 && (
-                      <div className="hr-issues-timeline-card" aria-label="Clarification Issues Timeline">
-                        <div className="hr-issues-header">
-                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>
-                            Clarification Issues ({issuesData.issues.length})
-                          </span>
-                          <span style={{ fontSize: '11px', color: '#64748b' }}>
-                            Turns: {issuesData.total_turns_used} / {issuesData.max_turns_allowed} max
-                          </span>
-                        </div>
-                        {issuesData.has_escalated_issues && (
-                          <div className="hr-escalation-alert" role="alert">
-                            ⚠️ Escalated to Human Review: 2 consecutive answered attempts without progress.
-                          </div>
-                        )}
-                        <div style={{ marginTop: '8px' }}>
-                          {issuesData.issues.map(issue => (
-                            <div key={issue.issue_id} className="hr-issue-item">
-                              <div>
-                                <strong style={{ color: '#0f172a' }}>{issue.field_name}: </strong>
-                                <span style={{ color: '#475569' }}>{issue.original_problem}</span>
-                              </div>
-                              <span className="p1-dim-badge" style={{ fontSize: '10px' }}>
-                                {issue.status} (no-progress: {issue.consecutive_no_progress_count})
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    {(selectedContext.missing_fields?.length || selectedContext.conflicts?.length) ?
+                      <div className="hr-issues-timeline-card" aria-label="Order context gaps">
+                        <strong>Information requiring review</strong>
+                        {!!selectedContext.missing_fields?.length && <p>Missing: {selectedContext.missing_fields.join(', ')}</p>}
+                        {!!selectedContext.conflicts?.length && <ul>{selectedContext.conflicts.map((conflict, index) => <li key={index}>{conflict}</li>)}</ul>}
+                      </div> : null}
+                    <p className="hr-route-limit">Issue-by-issue clarification history, reminder counts and escalation status are unavailable without a linked conversation record. This message API supplies no conversation ID.</p>
 
                     {/* Clarification Preview & Note Adoption */}
                     {suggestedClarification && (
                       <div className="hr-clarification-card">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e40af' }}>
-                            AI Suggested Clarification (P4 Draft Preview)
-                          </span>
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e40af' }}>Suggested clarification wording</span>
                           <span style={{ fontSize: '10px', background: '#dbeafe', color: '#1d4ed8', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
                             Preview Only · Not Sent
                           </span>
@@ -818,31 +721,7 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
                           >
                             Adopt as Clarification Note
                           </button>
-                          <button
-                            type="button"
-                            className="hr-adopt-btn"
-                            style={{ background: '#f8fafc', borderColor: '#cbd5e1', color: '#334155' }}
-                            disabled={dispatching}
-                            onClick={() => void handleDispatchClarification()}
-                          >
-                            {dispatching ? 'Checking route…' : 'Dispatch Clarification Draft'}
-                          </button>
                         </div>
-                        {dispatchFeedback && (
-                          <div
-                            style={{
-                              marginTop: '8px',
-                              padding: '6px 10px',
-                              background: '#f8fafc',
-                              border: '1px solid #cbd5e1',
-                              borderRadius: '4px',
-                              fontSize: '11px',
-                              color: '#334155',
-                            }}
-                          >
-                            ℹ️ {dispatchFeedback}
-                          </div>
-                        )}
                       </div>
                     )}
 
@@ -875,21 +754,21 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
                         <button
                           type="button"
                           className="hr-btn-secondary"
-                          disabled={submitting}
+                          disabled={submitting || !reviewCase.canAcceptExtraction || currentForm !== savedForm}
                           onClick={() => void handleReviewAction('ACCEPT_EXTRACTION')}
                         >
                           Accept Extraction
                         </button>
                       </div>
                       <div className="hr-btn-group">
-                        <button
+                        {(reviewCase.kind === 'information_missing' || reviewCase.kind === 'context_conflict') && <button
                           type="button"
                           className="hr-btn-amber"
                           disabled={submitting}
                           onClick={() => void handleReviewAction('REQUEST_MORE_INFO')}
                         >
-                          Request More Info
-                        </button>
+                          Record Need for More Info
+                        </button>}
                         <button
                           type="button"
                           className="hr-btn-red"
