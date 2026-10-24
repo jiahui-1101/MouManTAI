@@ -1,0 +1,95 @@
+name: moumantai-staging
+
+services:
+  db:
+    image: postgres:16-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: moumantai_staging
+      POSTGRES_USER: ${STAGING_DB_USER:?Set a dedicated staging database user}
+      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD:?Set a dedicated staging database password}
+    volumes:
+      - staging-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.staging
+    restart: "no"
+    working_dir: /app
+    environment: &backend-env
+      DATABASE_URL: ${STAGING_DATABASE_URL:?Set the staging PostgreSQL connection URL}
+      P1_DATABASE_URL: ${STAGING_DATABASE_URL:?Set the staging PostgreSQL connection URL}
+      STAGING_DB_USER: ${STAGING_DB_USER:?Set a dedicated staging database user}
+      ENVIRONMENT: staging
+      APP_ENV: synthetic
+      P4_RUNTIME_MODE: SYNTHETIC
+      P4_SYNTHETIC_TENANTS: synthetic_tenant_a
+      MOUMANTAI_SYNTHETIC_MODE: "1"
+      MOUMANTAI_ISOLATED_E2E: "0"
+      P1_STRICT_AUTH: "true"
+      P1_DEV_TENANT_ID: synthetic_tenant_a
+      P1_AI_ENABLED: "false"
+      TELEGRAM_AUTO_START: "false"
+      GMAIL_AUTO_START: "false"
+      TELEGRAM_OUTBOUND_ENABLED: "false"
+      WHATSAPP_OUTBOUND_ENABLED: "false"
+      RESEND_OUTBOUND_ENABLED: "false"
+      CORS_ORIGINS: ${STAGING_ORIGIN:?Set the HTTPS staging origin}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "-c", "python /app/scripts/staging_preflight.py && alembic -c alembic.ini upgrade head && alembic -c alembic.ini current --check-heads"]
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.staging
+    restart: unless-stopped
+    environment: *backend-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["sh", "-c", "python /app/scripts/staging_preflight.py && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.staging
+    restart: unless-stopped
+    environment: *backend-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    command: ["sh", "-c", "python /app/scripts/staging_preflight.py && exec python -m app.worker"]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.staging
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${STAGING_LOCAL_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  staging-postgres:
