@@ -75,11 +75,10 @@
 | Resource          | Link                                         |
 | ----------------- | -------------------------------------------- |
 | GitHub Repository | https://github.com/jiahui-1101/MouManTAI     |
-| Replit Project    | Pending verified URL                         |
-| Live Prototype    | [to be filled]                               |
+| Live Demo    | [to be filled]                               |
 | RunPod Endpoint   | Live Serverless endpoint (URL and key are private, never committed) |
 | Slide Deck        | Pending verified URL                         |
-| Pitching Video    | Pending verified URL                         |
+| Demo Video    | Pending verified URL                         |
 
 ---
 
