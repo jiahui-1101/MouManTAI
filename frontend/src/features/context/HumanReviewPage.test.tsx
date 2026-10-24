@@ -11,6 +11,8 @@ import type {
   StoredMessage,
 } from './types';
 
+vi.mock('./useScopedOperationalApi', () => ({ useScopedOperationalApi: () => operationalApi }));
+
 const mockMessage: StoredMessage = {
   message_id: 'msg_hr_1',
   raw: {

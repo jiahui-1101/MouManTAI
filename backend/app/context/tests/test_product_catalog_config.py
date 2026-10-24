@@ -34,3 +34,30 @@ def test_production_without_catalog_fails_closed(monkeypatch):
     monkeypatch.setenv('ENVIRONMENT', 'production')
     with pytest.raises(PersistenceUnavailable):
         load_product_catalog()
+
+
+@pytest.mark.parametrize('cwd_file', [None, 'valid', 'invalid'])
+def test_repository_relative_catalog_from_backend(tmp_path, monkeypatch, cwd_file):
+    import app.context.product_catalog as module
+    root = tmp_path / 'repo'
+    backend = root / 'backend'
+    backend.mkdir(parents=True)
+    monkeypatch.chdir(backend)
+    monkeypatch.setattr(module, '__file__', str(backend / 'app/context/product_catalog.py'))
+    row = dict(tenant_id='a', sku='ROOT', aliases=['bread'], unit='pcs', source_ref='master:1')
+    (root / 'catalog.json').write_text(json.dumps([row]))
+    if cwd_file:
+        row['sku'] = 'CWD'
+        (backend / 'catalog.json').write_text(json.dumps([row]) if cwd_file == 'valid' else '{}')
+    monkeypatch.setenv('P1_PRODUCT_CATALOG_PATH', 'catalog.json')
+    if cwd_file == 'invalid':
+        with pytest.raises(PersistenceUnavailable):
+            load_product_catalog()
+    else:
+        assert load_product_catalog()[0].sku == ('CWD' if cwd_file else 'ROOT')
+
+
+def test_missing_configured_catalog_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.setenv('P1_PRODUCT_CATALOG_PATH', str(tmp_path / 'missing.json'))
+    with pytest.raises(PersistenceUnavailable):
+        load_product_catalog()
