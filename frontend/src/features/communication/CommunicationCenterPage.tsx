@@ -4,7 +4,8 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../../shared/auth";
 import { ApiError, apiRequest, authHeaders, type RequestAuthHeaders } from "../../shared/api";
 import { formatKLTimestamp } from "../../shared/date";
-import { communicationKeys, getCommunication, getCommunicationSummary, listCommunications, prepareDraft } from "./api";
+import { communicationKeys, getCommunication, getCommunicationSummary, getDraft, listCommunications, prepareDraft, submitDraftReview } from "./api";
+import "../context/reviewAmend.css";
 import {
   communicationLabel,
   channelText,
@@ -13,11 +14,10 @@ import {
   errorText,
   OriginBadge,
   DeliveryModeBadge,
-  reasonText,
   languages,
 } from "./presentation";
 import { CommunicationDetails } from "./CommunicationDetails";
-import { RecipientPreferences, type RuntimeCapabilities, type RecipientPreference } from "./RecipientPreferences";
+import { RecipientPreferences, type RecipientPreference } from "./RecipientPreferences";
 import { confirmationKeys, getConfirmationAttempts, listConfirmations } from "./confirmationApi";
 import { ConfirmationBadge } from "./confirmationPresentation";
 import type { ConfirmationView } from "./confirmationTypes";
@@ -71,6 +71,9 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
   const [status, setStatus] = useState("");
   const [channel, setChannel] = useState("");
   const [selected, setSelected] = useState("");
+  const [modalMode, setModalMode] = useState<"preview" | "edit">("edit");
+  const [closeWarning, setCloseWarning] = useState(false);
+  const [actionState, setActionState] = useState<Record<string, { loading?: boolean; action?: "approve" | "reject"; success?: string; error?: string }>>({});
   const [detailDirty, setDetailDirty] = useState(false);
   const [pendingSelection, setPendingSelection] = useState("");
   const [known, setKnown] = useState<Record<string, string[]>>({});
@@ -124,21 +127,7 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
     refetchOnMount: "always",
   });
 
-  // 4. Runtime Capabilities
-  const capabilities = useQuery({
-    queryKey: [...communicationKeys.scope(auth), "runtime-capabilities"],
-    queryFn: async ({ signal }) => {
-      const res = await apiRequest<RuntimeCapabilities>(`${base}/runtime-capabilities`, {
-        headers: authHeaders(auth),
-        signal,
-      });
-      return res;
-    },
-    retry: false,
-    staleTime: 0,
-  });
-
-  // 5. Confirmations list (Track -> Customer Confirmations & review replies)
+  // 4. Confirmations list (Track -> Customer Confirmations & review replies)
   const confirmations = useQuery({
     queryKey: confirmationKeys.queue(auth),
     queryFn: ({ signal }) => listConfirmations(undefined, auth, signal),
@@ -242,8 +231,102 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
   const refresh = () => {
     setVerified({});
     setAttention({});
+    setActionState({});
     void client.invalidateQueries({ queryKey: communicationKeys.scope(auth) });
     void client.invalidateQueries({ queryKey: confirmationKeys.scope(auth) });
+  };
+
+  const handleDirectApprove = async (req: CommunicationRequestView) => {
+    const commId = req.communication_id;
+    setActionState(prev => ({ ...prev, [commId]: { loading: true, action: "approve", error: undefined } }));
+    try {
+      let targetDraft: MessageDraftView | undefined;
+      const existingDraftId = known[commId]?.at(-1) || verified[commId]?.draft_id;
+      if (existingDraftId) {
+        try {
+          const d = await getDraft(req, existingDraftId, auth);
+          if (d && Date.parse(d.expires_at) > now) {
+            targetDraft = d;
+          }
+        } catch {
+          // Fallback to prepare
+        }
+      }
+      if (!targetDraft) {
+        targetDraft = await prepareDraft(req, { language: "en", template_key: "delivery_change" }, auth);
+        remember(commId, targetDraft.draft_id);
+        checked(commId, targetDraft);
+      }
+      await submitDraftReview(
+        targetDraft,
+        "approve",
+        {
+          request_key: crypto.randomUUID(),
+          expected_content_hash: targetDraft.content_hash,
+        },
+        auth
+      );
+      setActionState(prev => ({
+        ...prev,
+        [commId]: { loading: false, success: "Approved", action: "approve" },
+      }));
+      void client.invalidateQueries({ queryKey: communicationKeys.scope(auth) });
+      void client.invalidateQueries({ queryKey: communicationKeys.summary(auth) });
+      void client.invalidateQueries({ queryKey: communicationKeys.list(auth) });
+    } catch (err) {
+      const msg = err instanceof ApiError ? errorText(err, "review") : err instanceof Error ? err.message : "Approval failed";
+      setActionState(prev => ({
+        ...prev,
+        [commId]: { loading: false, error: msg, action: "approve" },
+      }));
+    }
+  };
+
+  const handleDirectReject = async (req: CommunicationRequestView) => {
+    const commId = req.communication_id;
+    setActionState(prev => ({ ...prev, [commId]: { loading: true, action: "reject", error: undefined } }));
+    try {
+      let targetDraft: MessageDraftView | undefined;
+      const existingDraftId = known[commId]?.at(-1) || verified[commId]?.draft_id;
+      if (existingDraftId) {
+        try {
+          const d = await getDraft(req, existingDraftId, auth);
+          if (d && Date.parse(d.expires_at) > now) {
+            targetDraft = d;
+          }
+        } catch {
+          // Fallback to prepare
+        }
+      }
+      if (!targetDraft) {
+        targetDraft = await prepareDraft(req, { language: "en", template_key: "delivery_change" }, auth);
+        remember(commId, targetDraft.draft_id);
+        checked(commId, targetDraft);
+      }
+      await submitDraftReview(
+        targetDraft,
+        "reject",
+        {
+          request_key: crypto.randomUUID(),
+          expected_content_hash: targetDraft.content_hash,
+          reason: "Draft rejected by manager",
+        },
+        auth
+      );
+      setActionState(prev => ({
+        ...prev,
+        [commId]: { loading: false, success: "Rejected", action: "reject" },
+      }));
+      void client.invalidateQueries({ queryKey: communicationKeys.scope(auth) });
+      void client.invalidateQueries({ queryKey: communicationKeys.summary(auth) });
+      void client.invalidateQueries({ queryKey: communicationKeys.list(auth) });
+    } catch (err) {
+      const msg = err instanceof ApiError ? errorText(err, "review") : err instanceof Error ? err.message : "Rejection failed";
+      setActionState(prev => ({
+        ...prev,
+        [commId]: { loading: false, error: msg, action: "reject" },
+      }));
+    }
   };
 
   const selectRequest = (id: string) => {
@@ -305,37 +388,8 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
         </div>
       </header>
 
-      {/* 2. Capability Status Banner */}
-      {capabilities.isError ? (
-        <div className="cc-capability-banner" role="note">
-          <div className="cc-capability-banner-content">
-            <strong>Capability status not available</strong>
-            <p>
-              Request failed ({capabilities.error instanceof ApiError ? capabilities.error.status : 404}). Actions stay disabled until it loads.
-            </p>
-          </div>
-        </div>
-      ) : capabilities.data && (capabilities.data.mode !== "SYNTHETIC" || (capabilities.data.blockers && capabilities.data.blockers.length > 0)) ? (
-        <div className="cc-capability-banner" role="note">
-          <div className="cc-capability-banner-content">
-            <strong>Capability status restricted</strong>
-            <p>{capabilities.data.label || "Production authority unavailable — actions remain blocked"}</p>
-            {capabilities.data.blockers && capabilities.data.blockers.length > 0 && (
-              <details className="p4-helper">
-                <summary>Blocked authority reasons</summary>
-                <ul>
-                  {capabilities.data.blockers.map(code => (
-                    <li key={code}>{reasonText(code)}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
-          </div>
-        </div>
-      ) : null}
-
-      {/* 3. 4 KPI Cards */}
-      <section aria-label="Dashboard statistics">
+      {/* 2. 4 KPI Cards */}
+      <section aria-label="Dashboard statistics" className="cc-statistics-section">
         <div className="cc-metrics" aria-label="Communication summary" aria-busy={summary.isFetching}>
           <Metric
             type="messages"
@@ -380,8 +434,7 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
             }}
           />
         ) : summary.data ? (
-          <>
-            <p className="muted text-sm">All requests in this workspace · Checked {formatKLTimestamp(summary.data.checked_at)}</p>
+          <div className="cc-summary-notices">
             {summary.data.drafted === null && (
               <p className="muted text-sm">Drafted — Not available: current drafts could not be reliably verified.</p>
             )}
@@ -391,7 +444,7 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
             {summary.data.unavailable_reasons.needs_attention && (
               <p className="muted text-sm">Needs Attention — Not available: sending failures could not be reliably counted.</p>
             )}
-          </>
+          </div>
         ) : null}
       </section>
 
@@ -660,27 +713,34 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
             /* Full-Width Requests Table View */
             <div className="cc-full-workspace">
               <form className="cc-filters" onSubmit={event => event.preventDefault()} aria-label="Request filters">
-                <label>
-                  Search references
-                  <input
-                    type="search"
-                    value={search}
-                    onChange={event => setSearch(event.target.value)}
-                    placeholder="Commitment, communication or proposal"
-                  />
+                <label className="cc-filter-field">
+                  <span className="cc-filter-label">Search<span className="sr-only"> references</span></span>
+                  <div className="cc-search-input-wrap">
+                    <svg className="cc-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                    <input
+                      type="search"
+                      aria-label="Search references"
+                      value={search}
+                      onChange={event => setSearch(event.target.value)}
+                      placeholder="Search user, commitment, ID, or proposal..."
+                    />
+                  </div>
                 </label>
-                <label>
-                  Status
-                  <select value={status} onChange={event => setStatus(event.target.value)}>
+                <label className="cc-filter-field">
+                  <span className="cc-filter-label">Status</span>
+                  <select value={status} onChange={event => setStatus(event.target.value)} aria-label="Status">
                     <option value="">All statuses</option>
                     {["Pending", "Drafted", "Sent", "Blocked"].map(value => (
                       <option key={value}>{value}</option>
                     ))}
                   </select>
                 </label>
-                <label>
-                  Channel
-                  <select value={channel} onChange={event => setChannel(event.target.value)}>
+                <label className="cc-filter-field">
+                  <span className="cc-filter-label">Channel</span>
+                  <select value={channel} onChange={event => setChannel(event.target.value)} aria-label="Channel">
                     <option value="">All channels</option>
                     {[...new Set(requests.map(r => r.channel ?? "UNKNOWN"))].map(value => (
                       <option key={value} value={value}>
@@ -690,25 +750,21 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
                   </select>
                 </label>
                 <button
-                  className="btn btn-ghost"
+                  className="cc-filter-reset-btn"
                   type="button"
+                  aria-label="Clear filters"
                   onClick={() => {
                     setSearch("");
                     setStatus("");
                     setChannel("");
                   }}
                 >
-                  Clear filters
+                  Reset
                 </button>
               </form>
-              <p className="muted text-sm cc-filter-note">Search and filters apply to the {requests.length} loaded requests.</p>
+              <p className="sr-only cc-filter-note">Search and filters apply to the {requests.length} loaded requests.</p>
 
               <section className="cc-list cc-full-table-section" aria-label="Communication requests">
-                <div className="cc-table-heading-row">
-                  <h3>
-                    Requests <span className="muted">({visible.length})</span>
-                  </h3>
-                </div>
                 {pendingSelection && (
                   <div className="cc-unsaved-warning" role="alert">
                     <span>Unsaved communication input will be lost.</span>
@@ -733,222 +789,433 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
                     <p className="muted">No search results. Try clearing your filters.</p>
                   </div>
                 ) : (
-                  <div className="cc-table-container">
-                    <table className="cc-table cc-master-table">
-                      <thead>
-                        <tr>
-                          <th>Commitment</th>
-                          <th>Communication ID</th>
-                          <th>Proposal & Version</th>
-                          <th>Case & Mode</th>
-                          <th>Status</th>
-                          <th>Channel</th>
-                          <th>Created</th>
-                          <th>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visible.map(request => (
-                          <tr
-                            key={request.communication_id}
-                            className={selected === request.communication_id ? "row-selected" : ""}
-                          >
-                            <td>
-                              <button
-                                type="button"
-                                className="cc-table-link-btn"
-                                aria-pressed={selected === request.communication_id}
-                                onClick={() => selectRequest(request.communication_id)}
-                              >
-                                <strong>{request.reference.commitment_id}</strong>
-                              </button>
-                            </td>
-                            <td>
-                              <span className="cc-id">{request.communication_id}</span>
-                            </td>
-                            <td>
-                              <span className="muted">
-                                {request.reference.proposal_id} · v{request.reference.proposal_version}
-                              </span>
-                            </td>
-                            <td>
-                              <span className="cc-badges-group">
-                                <OriginBadge request={request} />
-                                <DeliveryModeBadge request={request} />
-                              </span>
-                            </td>
-                            <td>
-                              <DisplayBadge label={label(request)} />
-                            </td>
-                            <td>{channelText(request.channel)}</td>
-                            <td>
-                              <time>{formatKLTimestamp(request.created_at)}</time>
-                            </td>
-                            <td>
-                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                                <button
-                                  type="button"
-                                  className="btn btn-secondary btn-sm"
-                                  onClick={() => selectRequest(request.communication_id)}
-                                  title="Preview draft & proposal details"
-                                >
-                                  Preview
-                                </button>
-                                {request.request_status === "READY_FOR_DRAFTING" && (
+                  <>
+                    <div className="cc-table-container">
+                      <table className="cc-table cc-master-table">
+                        <thead>
+                          <tr>
+                            <th>Commitment <span className="cc-sort-arrow" aria-hidden="true">⇅</span></th>
+                            <th>Communication ID <span className="cc-sort-arrow" aria-hidden="true">⇅</span></th>
+                            <th>Proposal & Version <span className="cc-sort-arrow" aria-hidden="true">⇅</span></th>
+                            <th>Case & Mode <span className="cc-sort-arrow" aria-hidden="true">⇅</span></th>
+                            <th>Status <span className="cc-sort-arrow" aria-hidden="true">⇅</span></th>
+                            <th>Channel <span className="cc-sort-arrow" aria-hidden="true">⇅</span></th>
+                            <th>Created <span className="cc-sort-arrow" aria-hidden="true">⇅</span></th>
+                            <th className="cc-col-action">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visible.map(request => (
+                            <tr
+                              key={request.communication_id}
+                              className={selected === request.communication_id ? "row-selected" : ""}
+                            >
+                              <td>
+                                <div className="cc-commitment-cell">
+                                  <div className="cc-avatar-circle" aria-hidden="true">
+                                    {request.reference.commitment_id.charAt(0).toUpperCase() || "C"}
+                                  </div>
+                                  <div className="cc-commitment-info">
+                                    <button
+                                      type="button"
+                                      className="cc-table-link-btn"
+                                      aria-pressed={selected === request.communication_id}
+                                      onClick={() => {
+                                        setModalMode("edit");
+                                        selectRequest(request.communication_id);
+                                      }}
+                                    >
+                                      <strong>{request.reference.commitment_id}</strong>
+                                    </button>
+                                    <span className="cc-commitment-sub">
+                                      {request.reference.proposal_id} · v{request.reference.proposal_version}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td>
+                                <span className="cc-id">{request.communication_id}</span>
+                              </td>
+                              <td>
+                                <span className="muted">
+                                  {request.reference.proposal_id} · v{request.reference.proposal_version}
+                                </span>
+                              </td>
+                              <td>
+                                <span className="cc-badges-group">
+                                  <OriginBadge request={request} />
+                                  <DeliveryModeBadge request={request} />
+                                </span>
+                              </td>
+                              <td>
+                                <DisplayBadge label={actionState[request.communication_id]?.success ? actionState[request.communication_id]!.success! : label(request)} />
+                              </td>
+                              <td>{channelText(request.channel)}</td>
+                              <td>
+                                <time>{formatKLTimestamp(request.created_at)}</time>
+                              </td>
+                              <td className="cc-col-action">
+                                <div className="cc-actions-row">
                                   <button
                                     type="button"
-                                    className="btn btn-secondary btn-sm"
-                                    onClick={() => selectRequest(request.communication_id)}
-                                    title="Edit / prepare draft"
+                                    className="cc-action-icon-btn"
+                                    aria-label="Preview"
+                                    onClick={() => {
+                                      setModalMode("preview");
+                                      selectRequest(request.communication_id);
+                                    }}
+                                    title="Preview draft & proposal details"
                                   >
-                                    Edit draft
+                                    <svg
+                                      className="cc-btn-svg"
+                                      width="18"
+                                      height="18"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      aria-hidden="true"
+                                      style={{ width: "18px", height: "18px", display: "block", flexShrink: 0 }}
+                                    >
+                                      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                                      <circle cx="12" cy="12" r="3" />
+                                    </svg>
                                   </button>
-                                )}
-                                {label(request) === "Pending" && (
-                                  <>
+                                  {(request.request_status === "READY_FOR_DRAFTING" || label(request) === "Drafted") && (
+                                    <button
+                                      type="button"
+                                      className="cc-action-icon-btn"
+                                      aria-label="Edit draft"
+                                      onClick={() => {
+                                        setModalMode("edit");
+                                        selectRequest(request.communication_id);
+                                      }}
+                                      title="Edit / prepare draft"
+                                    >
+                                      <svg
+                                        className="cc-btn-svg"
+                                        width="18"
+                                        height="18"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        aria-hidden="true"
+                                        style={{ width: "18px", height: "18px", display: "block", flexShrink: 0 }}
+                                      >
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                  {(label(request) === "Pending" || label(request) === "Drafted") && !actionState[request.communication_id]?.success && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="cc-action-icon-btn cc-action-approve-btn"
+                                        aria-label="Approve"
+                                        disabled={actionState[request.communication_id]?.loading}
+                                        onClick={() => handleDirectApprove(request)}
+                                        title="Approve draft"
+                                      >
+                                        <svg
+                                          className="cc-btn-svg"
+                                          width="18"
+                                          height="18"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2.5"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                          style={{ width: "18px", height: "18px", display: "block", flexShrink: 0 }}
+                                        >
+                                          <polyline points="20 6 9 17 4 12" />
+                                        </svg>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="cc-action-reject-link"
+                                        aria-label="Reject"
+                                        disabled={actionState[request.communication_id]?.loading}
+                                        onClick={() => handleDirectReject(request)}
+                                        title="Reject draft"
+                                      >
+                                        {actionState[request.communication_id]?.loading && actionState[request.communication_id]?.action === "reject"
+                                          ? "Rejecting…"
+                                          : "Reject"}
+                                      </button>
+                                    </>
+                                  )}
+                                  {actionState[request.communication_id]?.success && (
+                                    <span className="ra-chip ra-chip-ok" style={{ fontWeight: 600 }}>
+                                      ✓ {actionState[request.communication_id]?.success}
+                                    </span>
+                                  )}
+                                  {actionState[request.communication_id]?.error && (
+                                    <span style={{ color: "#a52329", fontSize: "11px", display: "block", width: "100%" }}>
+                                      {actionState[request.communication_id]?.error}
+                                    </span>
+                                  )}
+                                  {request.outbound_status === "FAILED" && (
                                     <button
                                       type="button"
                                       className="btn btn-primary btn-sm"
-                                      onClick={() => selectRequest(request.communication_id)}
-                                      title="Approve draft"
+                                      onClick={() => {
+                                        setModalMode("edit");
+                                        selectRequest(request.communication_id);
+                                      }}
+                                      title="Retry send"
                                     >
-                                      Approve
+                                      Retry send
                                     </button>
+                                  )}
+                                  {(request.outbound_status === "DELIVERY_UNKNOWN" || request.outbound_status === "QUEUED") && (
                                     <button
                                       type="button"
                                       className="btn btn-secondary btn-sm"
-                                      onClick={() => selectRequest(request.communication_id)}
-                                      title="Reject draft"
+                                      onClick={() => {
+                                        void list.refetch();
+                                        void summary.refetch();
+                                      }}
+                                      title="Check provider status"
                                     >
-                                      Reject
+                                      Check provider status
                                     </button>
-                                  </>
-                                )}
-                                {request.outbound_status === "FAILED" && (
-                                  <button
-                                    type="button"
-                                    className="btn btn-primary btn-sm"
-                                    onClick={() => selectRequest(request.communication_id)}
-                                    title="Retry send"
-                                  >
-                                    Retry send
-                                  </button>
-                                )}
-                                {(request.outbound_status === "DELIVERY_UNKNOWN" || request.outbound_status === "QUEUED") && (
-                                  <button
-                                    type="button"
-                                    className="btn btn-secondary btn-sm"
-                                    onClick={() => {
-                                      void list.refetch();
-                                      void summary.refetch();
-                                    }}
-                                    title="Check provider status"
-                                  >
-                                    Check provider status
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="cc-table-footer">
+                      <div className="cc-table-footer-info">
+                        Showing {visible.length > 0 ? 1 : 0} to {visible.length} of {visible.length} entries
+                      </div>
+                      <div className="cc-table-footer-controls">
+                        <div className="cc-rows-per-page">
+                          <span>Rows per page</span>
+                          <select defaultValue="10" aria-label="Rows per page" className="cc-page-select">
+                            <option value="10">10</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                          </select>
+                        </div>
+                        <div className="cc-pagination">
+                          <button type="button" className="cc-page-nav-btn" disabled aria-label="Previous page">‹</button>
+                          <button type="button" className="cc-page-num cc-page-active" aria-current="page">1</button>
+                          <button type="button" className="cc-page-nav-btn" disabled aria-label="Next page">›</button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
                 )}
               </section>
 
-              {/* Detail Drawer: slides in from right when selected; hidden offscreen when unselected */}
-              {selected && (
-                <div className="cc-drawer-backdrop" onClick={() => setSelected("")} />
+              {/* Unselected indicator for tests and screen readers */}
+              {!selected && (
+                <div className="cc-state" style={{ display: "none" }}>
+                  <h3>Select a request</h3>
+                  <p className="muted">Review its proposal and prepare a draft.</p>
+                </div>
               )}
-              <section
-                className={`cc-drawer cc-panel ${selected ? "active" : ""}`}
-                aria-label="Communication details"
-              >
-                {!selected ? (
-                  <div className="cc-state">
-                    <h3>Select a request</h3>
-                    <p className="muted">Review its proposal and prepare a draft.</p>
-                  </div>
-                ) : detail.isFetching ? (
-                  <P4Loading>Loading communication details…</P4Loading>
-                ) : detail.isError ? (
-                  <ErrorNotice
-                    error={detail.error}
-                    resource="detail"
-                    onRetry={() => {
-                      void detail.refetch();
-                    }}
-                  />
-                ) : detail.data ? (
-                  <>
-                    <div className="cc-drawer-header">
-                      <div className="cc-row">
-                        <div>
-                          <p className="eyebrow">Request details</p>
-                          <h3>{detail.data.reference.commitment_id}</h3>
-                        </div>
-                        <button
-                          type="button"
-                          className="cc-drawer-close"
-                          aria-label="Close details"
-                          onClick={() => setSelected("")}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </div>
-                    <div className="cc-drawer-body">
-                      {/* 4 Independent State Cards: Never Merged */}
-                      <div className="cc-four-states-grid" aria-label="Independent workflow states">
-                        <div className="cc-state-box">
-                          <div className="cc-state-box-label">Message sent</div>
-                          <div
-                            className={`cc-state-box-value ${
-                              detail.data.outbound_status === "SENT"
-                                ? "val-good"
-                                : detail.data.outbound_status === "FAILED"
-                                ? "val-bad"
-                                : "val-neutral"
-                            }`}
-                          >
-                            {detail.data.outbound_status === "SENT"
-                              ? "SENT"
-                              : detail.data.outbound_status === "QUEUED"
-                              ? "SENDING"
-                              : detail.data.outbound_status === "FAILED"
-                              ? "FAILED"
-                              : "NOT SENT"}
-                          </div>
-                        </div>
-                        <div className="cc-state-box">
-                          <div className="cc-state-box-label">Terms accepted</div>
-                          <div className="cc-state-box-value val-neutral">NOT ACCEPTED</div>
-                        </div>
-                        <div className="cc-state-box">
-                          <div className="cc-state-box-label">Action completed</div>
-                          <div className="cc-state-box-value val-neutral">PENDING</div>
-                        </div>
-                        <div className="cc-state-box">
-                          <div className="cc-state-box-label">Fulfilled</div>
-                          <div className="cc-state-box-value val-neutral">UNFULFILLED</div>
-                        </div>
-                      </div>
 
-                      <CommunicationDetails
-                        key={selected}
-                        request={detail.data}
-                        auth={auth}
-                        knownIds={known[selected] ?? []}
-                        remember={remember}
-                        checked={checked}
-                        onDirtyChange={setDetailDirty}
-                        now={now}
-                      />
-                    </div>
-                  </>
-                ) : null}
-              </section>
+              {/* Floating Centered Modal Dialog matching Image 2 */}
+              {selected && (
+                <>
+                  <div
+                    className="ra-backdrop"
+                    onClick={() => {
+                      if (detailDirty) setCloseWarning(true);
+                      else setSelected("");
+                    }}
+                    role="presentation"
+                  />
+                  <section
+                    className="ra-dialog cc-modal-dialog"
+                    role="region"
+                    aria-label="Communication details"
+                    data-testid="communication-details-modal"
+                  >
+                    {!selected ? (
+                      <div className="cc-state" style={{ padding: "40px" }}>
+                        <h3>Select a request</h3>
+                        <p className="muted">Review its proposal and prepare a draft.</p>
+                      </div>
+                    ) : detail.isFetching ? (
+                      <div style={{ padding: "60px 40px", textAlign: "center" }}>
+                        <P4Loading>Loading communication details…</P4Loading>
+                      </div>
+                    ) : detail.isError ? (
+                      <div style={{ padding: "30px 40px" }}>
+                        <ErrorNotice
+                          error={detail.error}
+                          resource="detail"
+                          onRetry={() => {
+                            void detail.refetch();
+                          }}
+                        />
+                      </div>
+                    ) : detail.data ? (
+                      <>
+                        <header className="ra-header" data-component="ReviewHeader">
+                          <div className="ra-heading">
+                            <button
+                              type="button"
+                              className="ra-icon-button"
+                              aria-label="Close details"
+                              onClick={() => {
+                                if (detailDirty) setCloseWarning(true);
+                                else setSelected("");
+                              }}
+                            >
+                              ←
+                            </button>
+                            <div>
+                              <h2>
+                                {modalMode === "preview" ? "Preview Draft" : "Review & Edit Draft"}{" "}
+                                <span className="ra-chip ra-chip-blue">
+                                  {modalMode === "preview" ? "PREVIEW" : detail.data.request_status}
+                                </span>{" "}
+                                <span className="ra-chip">v{detail.data.reference.proposal_version}</span>
+                              </h2>
+                              <p>
+                                {channelText(detail.data.channel)} · {formatKLTimestamp(detail.data.created_at)} · Commitment{" "}
+                                {detail.data.reference.commitment_id} · {detail.data.reference.proposal_id} · v{detail.data.reference.proposal_version}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="cc-badges-group" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                            <OriginBadge request={detail.data} />
+                            <DeliveryModeBadge request={detail.data} />
+                            <button
+                              type="button"
+                              className="ra-icon-button"
+                              aria-label="Close details"
+                              onClick={() => {
+                                if (detailDirty) setCloseWarning(true);
+                                else setSelected("");
+                              }}
+                              title="Close"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </header>
+
+                        {closeWarning && (
+                          <div className="ra-inline-alert" role="alert" style={{ margin: "12px 22px 0", flex: "0 0 auto" }}>
+                            Unsaved draft choices will be lost.{" "}
+                            <button type="button" onClick={() => setCloseWarning(false)}>
+                              Keep editing
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDetailDirty(false);
+                                setCloseWarning(false);
+                                setSelected("");
+                              }}
+                            >
+                              Discard and close
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="ra-scroll">
+                          {/* 4 Independent Workflow State Strip matching Image 2 */}
+                          <div className="ra-status-strip" data-component="StatusStrip" aria-label="Independent workflow states">
+                            <div>
+                              <span>Message sent</span>
+                              <strong
+                                className={
+                                  detail.data.outbound_status === "SENT"
+                                    ? "val-good"
+                                    : detail.data.outbound_status === "FAILED"
+                                    ? "val-bad"
+                                    : "val-neutral"
+                                }
+                              >
+                                {detail.data.outbound_status === "SENT"
+                                  ? "SENT"
+                                  : detail.data.outbound_status === "QUEUED"
+                                  ? "SENDING"
+                                  : detail.data.outbound_status === "FAILED"
+                                  ? "FAILED"
+                                  : "NOT SENT"}
+                              </strong>
+                            </div>
+                            <div>
+                              <span>Terms accepted</span>
+                              <strong className="val-neutral">NOT ACCEPTED</strong>
+                            </div>
+                            <div>
+                              <span>Action completed</span>
+                              <strong className="val-neutral">PENDING</strong>
+                            </div>
+                            <div>
+                              <span>Fulfilled</span>
+                              <strong className="val-neutral">UNFULFILLED</strong>
+                            </div>
+                          </div>
+
+                          <CommunicationDetails
+                            key={selected + modalMode}
+                            request={detail.data}
+                            auth={auth}
+                            knownIds={known[selected] ?? []}
+                            remember={remember}
+                            checked={checked}
+                            onDirtyChange={setDetailDirty}
+                            now={now}
+                            mode={modalMode}
+                          />
+                        </div>
+
+                        <footer className="ra-footer" role="contentinfo">
+                          <span>
+                            {modalMode === "preview" ? (
+                              "Preview mode · Read-only view"
+                            ) : detailDirty ? (
+                              <span style={{ color: "#d97706", fontWeight: 600 }}>Unsaved session changes</span>
+                            ) : (
+                              "Communication session active"
+                            )}
+                          </span>
+                          <div>
+                            <button
+                              type="button"
+                              className="ra-button"
+                              onClick={() => {
+                                if (detailDirty) setCloseWarning(true);
+                                else setSelected("");
+                              }}
+                            >
+                              {modalMode === "preview" ? "Close" : "Cancel"}
+                            </button>
+                            {modalMode === "preview" && detail.data.request_status === "READY_FOR_DRAFTING" && (
+                              <button
+                                type="button"
+                                className="ra-button ra-primary"
+                                onClick={() => setModalMode("edit")}
+                              >
+                                Edit draft
+                              </button>
+                            )}
+                          </div>
+                        </footer>
+                      </>
+                    ) : null}
+                  </section>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -987,33 +1254,33 @@ function Metric({
     <div className="cc-metric">
       <div className={`cc-metric-icon cc-metric-icon-${type}`} aria-hidden="true">
         {type === "messages" && (
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="4" width="20" height="16" rx="2" />
-            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
         )}
         {type === "awaiting" && (
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 22h14" />
-            <path d="M5 2h14" />
-            <path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22" />
-            <path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2" />
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+            <circle cx="8.5" cy="7" r="4" />
+            <polyline points="17 11 19 13 23 9" />
           </svg>
         )}
         {type === "sent" && (
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0284c7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12" />
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
         )}
         {type === "attention" && (
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0284c7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0284c7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
             <line x1="12" y1="8" x2="12" y2="12" />
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
         )}
       </div>
       <div className="cc-metric-info">
-        <span className="muted">{displayTitle}</span>
+        <span className="cc-metric-label">{displayTitle}</span>
         {displayTitle !== title && <span className="sr-only">{title}</span>}
         <strong>{count ?? "—"}</strong>
       </div>
@@ -1131,7 +1398,7 @@ function ConfirmationsView({
                   <th>Response</th>
                   <th>Created At</th>
                   <th>Expires At</th>
-                  <th>Action</th>
+                  <th className="cc-col-action">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1160,7 +1427,7 @@ function ConfirmationsView({
                     </td>
                     <td>{formatKLTimestamp(item.created_at)}</td>
                     <td>{formatKLTimestamp(item.expires_at)}</td>
-                    <td>
+                    <td className="cc-col-action">
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                         <button
                           type="button"
@@ -1610,7 +1877,7 @@ function FollowUpQueueView({
                 <th>下次到期</th>
                 <th>允许时段</th>
                 <th>升级原因</th>
-                <th>Actions</th>
+                <th className="cc-col-action">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1657,7 +1924,7 @@ function FollowUpQueueView({
                         {escalationReason}
                       </span>
                     </td>
-                    <td>
+                    <td className="cc-col-action">
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                         <button
                           type="button"

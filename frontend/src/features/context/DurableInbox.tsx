@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 
 import { PreviewError } from './api';
 
-import { operationalApi } from './operationalApi';
+import { getResolvedTaskIds, operationalApi } from './operationalApi';
 
 import type { OperationalApi } from './operationalApi';
 
@@ -547,7 +547,8 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
   const rawAtts = (data?.raw.attachments as AttachmentRecord[] | undefined) || [];
   const allAtts = [...rawAtts, ...uploadedAttachments];
 
-  const hasManualReview = Boolean(
+  const isExplicitlyResolved = Boolean(data?.message_id && getResolvedTaskIds().has(data.message_id)) || activeContext?.status === 'INFORMATION_READY';
+  const hasManualReview = !isExplicitlyResolved && Boolean(
     unresolvedCount > 0 ||
     data?.processing_status === 'PROCESSING_FAILED' ||
     association?.status === 'CONFLICT' ||
@@ -1270,6 +1271,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
           <div className="p1-modal-backdrop" role="dialog" aria-modal="true" aria-label="Order Context Details">
             <div className="p1-modal-card">
               <OrderContextDetail
+                requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id }}
                 contextId={activeContext.context_id}
                 onClose={() => setShowContextModal(false)}
                 onContextUpdated={updated => setActiveContext(updated)}
@@ -1281,6 +1283,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
           <div className="p1-modal-backdrop" role="dialog" aria-modal="true" aria-label="Order Context Details">
             <div className="p1-modal-card">
               <OrderContextDetail
+                requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id }}
                 contextId={activeContext.context_id}
                 onClose={() => setShowContextModal(false)}
                 onContextUpdated={updated => setActiveContext(updated)}
@@ -1291,6 +1294,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
         {showReviewDrawer && activeContext && (
           <ReviewDrawer
+            requestHeaders={{ 'X-Tenant-ID': activeContext.tenant_id }}
             context={activeContext}
             sourceMessage={data && activeContext.source_message_ids?.includes(data.message_id) ? data.raw.text : undefined}
             message={data}

@@ -33,7 +33,19 @@ class ProductAlias:
 
 PROVISIONAL_PRODUCTS = tuple(
     ProductAlias(tenant, "BURGER", ("burger", "burgers", "beef burger", "beef burgers", "chicken burger", "chicken burgers", "汉堡", "汉堡包", "roti burger", "bgr", "bgrs", "hbg", "buhger", "漢堡", "漢堡包"), "pcs")
-    for tenant in ("synthetic_tenant_a", "synthetic_tenant_b")
+    for tenant in ("synthetic_tenant_a", "synthetic_tenant_b", "tenant_demo_01")
+) + tuple(
+    ProductAlias(tenant, "CHICKEN_NUGGETS", ("chicken nuggets", "chicken nugget", "nuggets", "nugget", "炸鸡块", "鸡块", "雞塊", "box of chicken nuggets", "boxes of chicken nuggets"), "box")
+    for tenant in ("synthetic_tenant_a", "synthetic_tenant_b", "tenant_demo_01")
+) + tuple(
+    ProductAlias(tenant, "CHICKEN_NUGGETS", ("chicken nuggets", "chicken nugget", "nuggets", "nugget", "炸鸡块", "鸡块", "雞塊"), "pcs")
+    for tenant in ("synthetic_tenant_a", "synthetic_tenant_b", "tenant_demo_01")
+) + tuple(
+    ProductAlias(tenant, "chicken nuggets", ("chicken nuggets", "chicken nugget", "nuggets", "nugget", "炸鸡块", "鸡块", "雞塊", "box of chicken nuggets", "boxes of chicken nuggets"), "box")
+    for tenant in ("synthetic_tenant_a", "synthetic_tenant_b", "tenant_demo_01")
+) + tuple(
+    ProductAlias(tenant, "chicken nuggets", ("chicken nuggets", "chicken nugget", "nuggets", "nugget", "炸鸡块", "鸡块", "雞塊"), "pcs")
+    for tenant in ("synthetic_tenant_a", "synthetic_tenant_b", "tenant_demo_01")
 )
 
 UNIT_NORMALIZATION: dict[str, str] = {

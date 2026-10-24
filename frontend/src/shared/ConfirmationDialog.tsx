@@ -10,6 +10,8 @@ export interface ConfirmationDialogProps {
   consequence?: ReactNode;
   requiredAcknowledgement?: string;
   pending?: boolean;
+  confirmDisabled?: boolean;
+  children?: ReactNode;
   onConfirm: () => void | Promise<void>;
   onConfirmError?: (error: unknown) => void;
   onOpenChange: (open: boolean) => void;
@@ -27,6 +29,8 @@ export function ConfirmationDialog({
   consequence,
   requiredAcknowledgement,
   pending = false,
+  confirmDisabled = false,
+  children,
   onConfirm,
   onConfirmError,
   onOpenChange,
@@ -88,7 +92,7 @@ export function ConfirmationDialog({
   };
 
   const confirm = async () => {
-    if (isBusy || confirmationError || submitting.current || (requiredAcknowledgement && !acknowledged)) return;
+    if (isBusy || confirmationError || submitting.current || (requiredAcknowledgement && !acknowledged) || confirmDisabled) return;
     submitting.current = true;
     setSubmittingState(true);
     try {
@@ -119,6 +123,7 @@ export function ConfirmationDialog({
         <p id={descriptionId}>{description}</p>
         {scope && <div className="foundation-dialog-scope"><h3>Scope</h3>{scope}</div>}
         {consequence && <div className="foundation-dialog-consequence"><h3>Consequences</h3>{consequence}</div>}
+        {children}
         {requiredAcknowledgement && (
           <label className="foundation-acknowledgement">
             <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} disabled={isBusy} />
@@ -138,7 +143,7 @@ export function ConfirmationDialog({
             type="button"
             className="foundation-button foundation-button-primary"
             onClick={() => void confirm()}
-            disabled={isBusy || confirmationError || (!!requiredAcknowledgement && !acknowledged)}
+            disabled={isBusy || confirmationError || (!!requiredAcknowledgement && !acknowledged) || confirmDisabled}
           >
             {isBusy ? "Working…" : confirmLabel}
           </button>

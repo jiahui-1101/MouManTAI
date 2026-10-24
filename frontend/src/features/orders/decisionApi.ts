@@ -1,3 +1,4 @@
+import type { FulfilmentState } from '../../shared/types';
 import { apiRequest, authHeaders } from '../../shared/api';
 import { record } from './detailApi';
 import type { OrderDetail } from './detailTypes';
@@ -20,8 +21,9 @@ const versionText = (value: unknown) => {
 /** Exact existing Core DTO: no price, terms hash, assent, reservation or request-version promotion. */
 export function mapCoreDecision(raw: unknown, order: OrderDetail, tenant: string): OrderDecisionSnapshot {
   const c = record(raw);
+  const customerIdentity = order.customerId?.trim() || order.customer;
   if (!order.commitmentId || c.commitment_id !== order.commitmentId || c.order_id !== order.id || c.tenant_id !== tenant ||
-      (order.customer && c.customer_id !== order.customer)) throw new Error('Core/order binding mismatch');
+      (customerIdentity && c.customer_id !== customerIdentity)) throw new Error('Core/order binding mismatch');
   const terms = record(c.terms);
   const lines = terms.items == null ? [terms] : terms.items;
   if (!Array.isArray(lines)) throw new Error('Invalid Core terms');
@@ -29,8 +31,12 @@ export function mapCoreDecision(raw: unknown, order: OrderDetail, tenant: string
     lines: lines.map(rawLine => { const line = record(rawLine); return { sku: requiredText(line.sku), quantity: requiredText(line.quantity), unit: requiredText(line.unit) }; }),
     deadline: maybeText(terms.deadline), instructions: maybeText(terms.special_instructions), evidence: refs(c.evidence_refs) };
   const state = requiredText(c.agreement_state); const version = versionText(c.commitment_version);
+  const fulfilment = requiredText(c.fulfilment_state);
+  const fulfilmentStates: readonly FulfilmentState[] = ['NOT_STARTED', 'IN_PROGRESS', 'PARTIALLY_FULFILLED', 'FULFILLED', 'UNVERIFIED'];
+  if (!fulfilmentStates.includes(fulfilment as FulfilmentState)) throw new Error('Invalid Core fulfilment state');
   return { tenantId: tenant, orderId: order.id, sourceLabel: 'Existing Core commitment read (development identity)',
     financialAccess: 'UNKNOWN', currentAgreement: state === 'CONFIRMED' ? { version, terms: view, evidence: view.evidence } : null,
+    legacyFulfilment: { state: fulfilment as FulfilmentState, commitmentId: requiredText(c.commitment_id), commitmentVersion: version, sourceAt: maybeText(c.updated_at), evidence: refs(c.evidence_refs) },
     legacyCommitmentState: state, events: [], warnings: [
       `Core commitment ${order.commitmentId} reports ${state} at commitment version ${version}. This does not establish v2.2 order acceptance, canonical terms identity, price disclosure, exact customer assent or reservation.`,
     ] };

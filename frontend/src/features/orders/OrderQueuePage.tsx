@@ -10,6 +10,7 @@ import { useQueuePreferences } from './useQueuePreferences';
 import { OrderQueueSummary } from './OrderQueueSummary';
 import { OrderQueueIcon } from './OrderQueueIcon';
 import './orders.css';
+import { demoOrderQueueSource, ordersDemoEnabled } from './demoSource';
 
 const statusViews: { value: StatusView; label: string }[] = [
   { value: 'ALL', label: 'All Statuses' },
@@ -57,7 +58,7 @@ function OrderRow({ order }: { order: OrderQueueItem }) {
 export interface OrderQueuePageProps { source?: OrderQueueSource }
 
 /** Presentation-only dashboard. Source authorization and identity-scoped query isolation are unchanged. */
-export function OrderQueuePage({ source = unavailableOrderQueueSource }: OrderQueuePageProps = {}) {
+export function OrderQueuePage({ source = ordersDemoEnabled() ? demoOrderQueueSource : unavailableOrderQueueSource }: OrderQueuePageProps = {}) {
   const { authHeaders: auth } = useAuth();
   const { filters, setFilters, analysis, setAnalysis, resetFilters } = useQueuePreferences(auth);
   const query = useQuery({

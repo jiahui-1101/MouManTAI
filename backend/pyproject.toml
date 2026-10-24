@@ -21,6 +21,13 @@ dependencies = [
 
 [project.optional-dependencies]
 optimization = ["ortools>=9.10,<10"]
+ocr = [
+  "numpy>=1.26,<3",
+  "paddleocr>=3.7,<3.8",
+  "paddlepaddle>=3.3,<3.4",
+  "Pillow>=10.1,<14",
+  "PyMuPDF>=1.24,<2",
+]
 dev = [
   "httpx>=0.27,<1",
   "pytest>=8.3,<10",
@@ -37,6 +44,7 @@ include = ["app*"]
 
 [tool.setuptools.package-data]
 "app.context" = ["fixtures/*.json"]
+"app.orders" = ["fixtures/*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
