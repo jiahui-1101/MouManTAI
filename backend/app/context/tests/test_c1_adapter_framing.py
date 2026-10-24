@@ -1,8 +1,12 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
-from app.context.channels.config import GmailChannelConfig, TelegramChannelConfig, WhatsAppChannelConfig
+from app.context.channels.config import (
+    GmailChannelConfig,
+    TelegramChannelConfig,
+    WhatsAppChannelConfig,
+)
 from app.context.channels.gmail import GmailAdapter
 from app.context.channels.state import ChannelStateManager
 from app.context.channels.telegram import TelegramAdapter, TelegramApiError
@@ -18,7 +22,7 @@ def test_telegram_native_quote_and_account_scope_are_wired(tmp_path):
         ),
         InMemoryMessageRepository(),
         state_manager=ChannelStateManager(storage_path=tmp_path / "telegram.json"),
-        clock=lambda: datetime(2026, 10, 24, tzinfo=timezone.utc),
+        clock=lambda: datetime(2026, 10, 24, tzinfo=UTC),
     )
     update = {
         "update_id": 91,
@@ -56,26 +60,32 @@ def test_whatsapp_context_parent_and_authenticated_business_account_are_wired(tm
         config,
         InMemoryMessageRepository(),
         state_manager=ChannelStateManager(storage_path=tmp_path / "whatsapp.json"),
-        clock=lambda: datetime(2026, 10, 24, tzinfo=timezone.utc),
+        clock=lambda: datetime(2026, 10, 24, tzinfo=UTC),
     )
     payload = {
-        "entry": [{
-            "changes": [{
-                "field": "messages",
-                "value": {
-                    "metadata": {"phone_number_id": "business-phone-9"},
-                    "contacts": [{"wa_id": "601000", "profile": {"name": "Buyer"}}],
-                    "messages": [{
-                        "id": "wamid.child",
-                        "from": "601000",
-                        "timestamp": "1792756800",
-                        "type": "text",
-                        "context": {"id": "wamid.parent"},
-                        "text": {"body": "That date works"},
-                    }],
-                },
-            }],
-        }],
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "metadata": {"phone_number_id": "business-phone-9"},
+                            "contacts": [{"wa_id": "601000", "profile": {"name": "Buyer"}}],
+                            "messages": [
+                                {
+                                    "id": "wamid.child",
+                                    "from": "601000",
+                                    "timestamp": "1792756800",
+                                    "type": "text",
+                                    "context": {"id": "wamid.parent"},
+                                    "text": {"body": "That date works"},
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
     }
 
     envelopes = adapter.parse_webhook_payload(payload, correlation_id="callback:test")
@@ -159,9 +169,20 @@ def test_whatsapp_signed_payload_account_must_match_configured_phone(tmp_path):
     )
 
     with pytest.raises(InvalidWhatsAppAccountError):
-        adapter.parse_webhook_payload({
-            "entry": [{"changes": [{"field": "messages", "value": {
-                "metadata": {"phone_number_id": "other-phone"},
-                "messages": [],
-            }}]}],
-        })
+        adapter.parse_webhook_payload(
+            {
+                "entry": [
+                    {
+                        "changes": [
+                            {
+                                "field": "messages",
+                                "value": {
+                                    "metadata": {"phone_number_id": "other-phone"},
+                                    "messages": [],
+                                },
+                            }
+                        ]
+                    }
+                ],
+            }
+        )

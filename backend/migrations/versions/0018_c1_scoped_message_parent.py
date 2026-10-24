@@ -4,8 +4,8 @@ Legacy messages keep NULL account/native identifiers and are explicitly marked
 LEGACY_UNKNOWN. No historical account or parent is inferred during upgrade.
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0018_c1_scoped_message_parent"
 down_revision = "0017_p1_real_channel_provenance"
@@ -17,20 +17,48 @@ def upgrade() -> None:
     if op.get_bind().dialect.name != "postgresql":
         return
 
-    op.add_column("inbound_messages", sa.Column("provider_account_id", sa.String(200), nullable=True), schema="p1_dev")
-    op.add_column("inbound_messages", sa.Column("provider_native_message_id", sa.String(998), nullable=True), schema="p1_dev")
-    op.add_column("inbound_messages", sa.Column("conversation_id", sa.String(998), nullable=True), schema="p1_dev")
-    op.add_column("inbound_messages", sa.Column("rfc_message_id", sa.String(998), nullable=True), schema="p1_dev")
-    op.add_column("inbound_messages", sa.Column("exact_parent_reference", sa.String(998), nullable=True), schema="p1_dev")
     op.add_column(
         "inbound_messages",
-        sa.Column("parent_resolution", sa.String(24), nullable=False, server_default="LEGACY_UNKNOWN"),
+        sa.Column("provider_account_id", sa.String(200), nullable=True),
         schema="p1_dev",
     )
-    op.add_column("inbound_messages", sa.Column("resolved_parent_message_id", sa.String(36), nullable=True), schema="p1_dev")
     op.add_column(
         "inbound_messages",
-        sa.Column("source_authenticity", sa.String(20), nullable=False, server_default="UNVERIFIED"),
+        sa.Column("provider_native_message_id", sa.String(998), nullable=True),
+        schema="p1_dev",
+    )
+    op.add_column(
+        "inbound_messages",
+        sa.Column("conversation_id", sa.String(998), nullable=True),
+        schema="p1_dev",
+    )
+    op.add_column(
+        "inbound_messages",
+        sa.Column("rfc_message_id", sa.String(998), nullable=True),
+        schema="p1_dev",
+    )
+    op.add_column(
+        "inbound_messages",
+        sa.Column("exact_parent_reference", sa.String(998), nullable=True),
+        schema="p1_dev",
+    )
+    op.add_column(
+        "inbound_messages",
+        sa.Column(
+            "parent_resolution", sa.String(24), nullable=False, server_default="LEGACY_UNKNOWN"
+        ),
+        schema="p1_dev",
+    )
+    op.add_column(
+        "inbound_messages",
+        sa.Column("resolved_parent_message_id", sa.String(36), nullable=True),
+        schema="p1_dev",
+    )
+    op.add_column(
+        "inbound_messages",
+        sa.Column(
+            "source_authenticity", sa.String(20), nullable=False, server_default="UNVERIFIED"
+        ),
         schema="p1_dev",
     )
 
@@ -55,7 +83,13 @@ def upgrade() -> None:
     op.create_index(
         "uq_p1_delivery_telegram_scoped",
         "inbound_messages",
-        ["tenant_id", "provider", "provider_account_id", "conversation_id", "provider_native_message_id"],
+        [
+            "tenant_id",
+            "provider",
+            "provider_account_id",
+            "conversation_id",
+            "provider_native_message_id",
+        ],
         unique=True,
         schema="p1_dev",
         postgresql_where=sa.text("provider_account_id IS NOT NULL AND channel = 'TELEGRAM'"),
@@ -81,7 +115,13 @@ def upgrade() -> None:
     op.create_index(
         "ix_p1_parent_native_scope",
         "inbound_messages",
-        ["tenant_id", "provider", "provider_account_id", "conversation_id", "provider_native_message_id"],
+        [
+            "tenant_id",
+            "provider",
+            "provider_account_id",
+            "conversation_id",
+            "provider_native_message_id",
+        ],
         schema="p1_dev",
         postgresql_where=sa.text("provider_account_id IS NOT NULL"),
     )
@@ -95,9 +135,17 @@ def upgrade() -> None:
     op.create_index(
         "ix_p1_pending_parent_scope",
         "inbound_messages",
-        ["tenant_id", "provider", "provider_account_id", "conversation_id", "exact_parent_reference"],
+        [
+            "tenant_id",
+            "provider",
+            "provider_account_id",
+            "conversation_id",
+            "exact_parent_reference",
+        ],
         schema="p1_dev",
-        postgresql_where=sa.text("parent_resolution = 'UNRESOLVED' AND provider_account_id IS NOT NULL"),
+        postgresql_where=sa.text(
+            "parent_resolution = 'UNRESOLVED' AND provider_account_id IS NOT NULL"
+        ),
     )
 
 
@@ -111,9 +159,15 @@ def downgrade() -> None:
     op.drop_index("ix_p1_pending_parent_scope", table_name="inbound_messages", schema="p1_dev")
     op.drop_index("ix_p1_parent_rfc_scope", table_name="inbound_messages", schema="p1_dev")
     op.drop_index("ix_p1_parent_native_scope", table_name="inbound_messages", schema="p1_dev")
-    op.drop_constraint("ck_p1_source_authenticity", "inbound_messages", schema="p1_dev", type_="check")
-    op.drop_constraint("ck_p1_parent_resolution", "inbound_messages", schema="p1_dev", type_="check")
-    op.drop_constraint("ck_p1_provider_identity_pair", "inbound_messages", schema="p1_dev", type_="check")
+    op.drop_constraint(
+        "ck_p1_source_authenticity", "inbound_messages", schema="p1_dev", type_="check"
+    )
+    op.drop_constraint(
+        "ck_p1_parent_resolution", "inbound_messages", schema="p1_dev", type_="check"
+    )
+    op.drop_constraint(
+        "ck_p1_provider_identity_pair", "inbound_messages", schema="p1_dev", type_="check"
+    )
     op.drop_index("uq_p1_delivery_scoped", table_name="inbound_messages", schema="p1_dev")
     op.drop_index("uq_p1_delivery_telegram_scoped", table_name="inbound_messages", schema="p1_dev")
     op.drop_index("uq_p1_delivery_legacy", table_name="inbound_messages", schema="p1_dev")

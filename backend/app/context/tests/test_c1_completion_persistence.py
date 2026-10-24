@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -8,7 +8,7 @@ from app.context.postgres_repository import PostgresMessageRepository
 from app.context.schemas import RawMessageEnvelope
 from app.context.tests.in_memory_repository import InMemoryMessageRepository
 
-NOW = datetime(2026, 10, 24, 5, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 24, 5, 0, tzinfo=UTC)
 
 
 def real_message(
@@ -42,9 +42,11 @@ def real_message(
         rfc_in_reply_to=in_reply_to or [],
         rfc_references=references or [],
         native_attachment_source_ids=attachment_sources or [],
-        relationship_source=("SENDER_HEADER" if channel == "EMAIL" and parent else (
-            "PROVIDER_QUOTE" if parent else "NONE"
-        )),
+        relationship_source=(
+            "SENDER_HEADER"
+            if channel == "EMAIL" and parent
+            else ("PROVIDER_QUOTE" if parent else "NONE")
+        ),
         adapter_mode="REAL",
         source_authenticity="VERIFIED",
     )
@@ -75,8 +77,12 @@ def test_exact_parent_uses_provider_account_and_conversation_scope(pg_engine):
     repo = PostgresMessageRepository(pg_engine)
     repo.ingest(real_message("parent", conversation="chat-a"), NOW)
     child = repo.ingest(real_message("child", conversation="chat-a", parent="parent"), NOW)
-    wrong_chat = repo.ingest(real_message("other-chat-parent", conversation="chat-b", parent="parent"), NOW)
-    wrong_account = repo.ingest(real_message("other-account-child", account="bot-b", parent="parent"), NOW)
+    wrong_chat = repo.ingest(
+        real_message("other-chat-parent", conversation="chat-b", parent="parent"), NOW
+    )
+    wrong_account = repo.ingest(
+        real_message("other-account-child", account="bot-b", parent="parent"), NOW
+    )
 
     assert repo.resolve_exact_parent("tenant-a", child.message.message_id) == ParentResolution(
         "REFERENCE_MATCH", "parent"
@@ -84,9 +90,9 @@ def test_exact_parent_uses_provider_account_and_conversation_scope(pg_engine):
     assert repo.resolve_exact_parent("tenant-a", wrong_chat.message.message_id) == ParentResolution(
         "UNRESOLVED"
     )
-    assert repo.resolve_exact_parent("tenant-a", wrong_account.message.message_id) == ParentResolution(
-        "UNRESOLVED"
-    )
+    assert repo.resolve_exact_parent(
+        "tenant-a", wrong_account.message.message_id
+    ) == ParentResolution("UNRESOLVED")
 
 
 def test_parent_arriving_late_reconciles_without_rewriting_source_envelope(pg_engine):
@@ -141,24 +147,43 @@ def test_email_uses_rfc_message_ids_and_keeps_provider_ids_separate(pg_engine):
     assert repo.resolve_exact_parent("tenant-a", child.message.message_id) == ParentResolution(
         "REFERENCE_MATCH", "gmail-native-parent"
     )
-    assert repo.get("tenant-a", parent.message.message_id).raw.rfc_message_id == "<parent@example.com>"
+    assert (
+        repo.get("tenant-a", parent.message.message_id).raw.rfc_message_id == "<parent@example.com>"
+    )
 
 
 def test_ambiguous_rfc_parent_stays_unresolved_for_review(pg_engine):
     repo = PostgresMessageRepository(pg_engine)
-    repo.ingest(real_message(
-        "gmail-native-a", channel="EMAIL", account="owner@example.com",
-        rfc_id="<duplicate@example.com>",
-    ), NOW)
-    repo.ingest(real_message(
-        "gmail-native-b", channel="EMAIL", account="owner@example.com",
-        conversation="other-thread", rfc_id="<duplicate@example.com>",
-    ), NOW)
-    child = repo.ingest(real_message(
-        "gmail-native-child", channel="EMAIL", account="owner@example.com",
-        parent="<duplicate@example.com>", rfc_id="<child@example.com>",
-        in_reply_to=["<duplicate@example.com>"],
-    ), NOW)
+    repo.ingest(
+        real_message(
+            "gmail-native-a",
+            channel="EMAIL",
+            account="owner@example.com",
+            rfc_id="<duplicate@example.com>",
+        ),
+        NOW,
+    )
+    repo.ingest(
+        real_message(
+            "gmail-native-b",
+            channel="EMAIL",
+            account="owner@example.com",
+            conversation="other-thread",
+            rfc_id="<duplicate@example.com>",
+        ),
+        NOW,
+    )
+    child = repo.ingest(
+        real_message(
+            "gmail-native-child",
+            channel="EMAIL",
+            account="owner@example.com",
+            parent="<duplicate@example.com>",
+            rfc_id="<child@example.com>",
+            in_reply_to=["<duplicate@example.com>"],
+        ),
+        NOW,
+    )
 
     assert repo.resolve_exact_parent("tenant-a", child.message.message_id) == ParentResolution(
         "AMBIGUOUS"
