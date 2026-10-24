@@ -16,6 +16,7 @@ from app.context.repository import MessageRepository
 from .contracts import (
     AnalysisOutcome,
     CustomerInquiryCandidate,
+    EvidenceLink,
     SourceMessageReference,
     SupplierDelaySignalCandidate,
     VerifiedSupplierIdentity,
@@ -86,6 +87,7 @@ class CurrentP1MessageReader:
         source: SourceMessageReference,
         *,
         inquiry: CustomerInquiryCandidate | None = None,
+        evidence: tuple[EvidenceLink, ...] = (),
     ) -> None:
         message, association, records, extractions = self.read(source.message_id)
         current = MessageIntelligenceService._source_reference(
@@ -95,6 +97,30 @@ class CurrentP1MessageReader:
         )
         if current != source or source.tenant_id != message.raw.tenant_id:
             raise SourceContractError("candidate source version is stale")
+        evidence_by_id = {
+            item.evidence_id: item
+            for extraction in extractions
+            for item in extraction.evidence_items
+        }
+        for link in evidence:
+            if link.source_kind == "MESSAGE_TEXT":
+                if (
+                    link.message_id != message.message_id
+                    or link.start is None
+                    or link.end is None
+                    or message.raw.text[link.start : link.end] != link.quote
+                ):
+                    raise SourceContractError("candidate message evidence changed")
+            else:
+                item = evidence_by_id.get(link.evidence_id)
+                if (
+                    item is None
+                    or item.quote != link.quote
+                    or item.evidence_ref != link.evidence_ref
+                    or item.attachment_id != link.attachment_id
+                    or item.page_number != link.page_number
+                ):
+                    raise SourceContractError("candidate document evidence changed")
         if (
             inquiry is not None
             and inquiry.identity_status == "LINK_VERIFIED"
@@ -155,7 +181,7 @@ def draft_customer_inquiry(
         or not candidate.customer_id
     ):
         raise SourceContractError("customer identity or inquiry needs review")
-    reader.assert_current(candidate.source, inquiry=candidate)
+    reader.assert_current(candidate.source, inquiry=candidate, evidence=tuple(candidate.evidence))
     fact = facts.read_public_inquiry_fact(candidate.tenant_id, candidate.topic)
     if (
         fact is None
@@ -225,7 +251,15 @@ def validate_supplier_delay(
     """Return matching current P2 evidence for human review; do not mutate P2."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise SourceContractError("assessment time must be offset-aware")
-    reader.assert_current(candidate.source)
+    reader.assert_current(
+        candidate.source,
+        evidence=tuple(candidate.evidence)
+        + tuple(
+            link
+            for link in (candidate.delivery_reference_evidence, candidate.reported_eta_evidence)
+            if link is not None
+        ),
+    )
     if (
         candidate.supplier_identity_status != "VERIFIED"
         or not candidate.supplier_id

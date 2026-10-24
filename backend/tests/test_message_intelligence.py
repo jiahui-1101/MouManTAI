@@ -111,6 +111,10 @@ def test_current_p1_reader_drafts_only_from_verified_approved_facts():
     assert draft.business_evidence == ("catalog:v3:price",)
     assert draft.source_content_sha256 == msg.content_sha256
     assert draft.send_authorized is False
+    forged_link = outcome.customer_inquiry.evidence[0].model_copy(update={"quote": "fake"})
+    forged_candidate = outcome.customer_inquiry.model_copy(update={"evidence": [forged_link]})
+    with pytest.raises(SourceContractError, match="evidence changed"):
+        draft_customer_inquiry(forged_candidate, reader=reader, facts=Facts(), now=NOW)
     with pytest.raises(SourceContractError):
         draft_customer_inquiry(
             outcome.customer_inquiry, reader=reader, facts=Facts(), now=NOW + timedelta(minutes=6)
