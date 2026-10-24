@@ -10,6 +10,7 @@ from app.context.repository import MessageRepository
 
 from .config import ChannelsConfig
 from .gmail import GmailAdapter
+from .resend import ResendAdapter
 from .state import ChannelStateManager, get_state_manager
 from .telegram import TelegramAdapter
 from .whatsapp import WhatsAppAdapter
@@ -45,6 +46,11 @@ class ChannelManager:
             repository=self.repository,
             state_manager=self.state_manager,
         )
+        self.resend = ResendAdapter(
+            config=self.config.resend,
+            repository=self.repository,
+            state_manager=self.state_manager,
+        )
 
     def start_configured_workers(self) -> None:
         """Start background polling workers for configured channels.
@@ -56,7 +62,7 @@ class ChannelManager:
             try:
                 self.telegram.start_polling()
             except Exception as exc:
-                logger.error("Failed starting Telegram polling worker: %s", exc)
+                logger.error("Failed starting Telegram polling worker (%s)", type(exc).__name__)
         else:
             logger.info("Telegram polling worker not started (configured=%s, mode=%s)",
                         self.config.telegram.is_configured, self.config.telegram.mode)
@@ -81,8 +87,8 @@ class ChannelManager:
                     logger.warning("Gmail identity verification failed (%s); polling skipped", reason)
                     self.state_manager.set_status("EMAIL", self.config.gmail.tenant_id, "AUTH_FAILED", reason)
             except Exception as exc:
-                logger.error("Failed starting Gmail polling worker: %s", exc)
-                self.state_manager.set_status("EMAIL", self.config.gmail.tenant_id, "AUTH_FAILED", str(exc))
+                logger.error("Failed starting Gmail polling worker (%s)", type(exc).__name__)
+                self.state_manager.set_status("EMAIL", self.config.gmail.tenant_id, "AUTH_FAILED", "Provider connection failed")
         else:
             logger.info("Gmail polling worker not started (configured=%s)", self.config.gmail.is_configured)
 
@@ -91,12 +97,12 @@ class ChannelManager:
         try:
             self.telegram.stop_polling()
         except Exception as exc:
-            logger.warning("Error stopping Telegram polling: %s", exc)
+            logger.warning("Error stopping Telegram polling (%s)", type(exc).__name__)
 
         try:
             self.gmail.stop_polling()
         except Exception as exc:
-            logger.warning("Error stopping Gmail polling: %s", exc)
+            logger.warning("Error stopping Gmail polling (%s)", type(exc).__name__)
 
     def poll_all_now(self) -> dict[str, Any]:
         """Trigger an immediate synchronous poll cycle on all configured polling channels."""
@@ -106,8 +112,8 @@ class ChannelManager:
             try:
                 count = self.telegram.poll_once()
                 results["telegram"] = {"status": "ok", "processed": count}
-            except Exception as exc:
-                results["telegram"] = {"status": "error", "error": str(exc)}
+            except Exception:
+                results["telegram"] = {"status": "error", "error": "PROVIDER_ERROR"}
         else:
             results["telegram"] = {"status": "skipped", "reason": "Not configured for polling"}
 
@@ -115,8 +121,8 @@ class ChannelManager:
             try:
                 count = self.gmail.poll_inbox()
                 results["gmail"] = {"status": "ok", "processed": count}
-            except Exception as exc:
-                results["gmail"] = {"status": "error", "error": str(exc)}
+            except Exception:
+                results["gmail"] = {"status": "error", "error": "PROVIDER_ERROR"}
         else:
             results["gmail"] = {"status": "skipped", "reason": "Not configured"}
 
@@ -157,6 +163,14 @@ class ChannelManager:
                 "status": wa_summary.get("status", "UNCONFIGURED" if not self.config.whatsapp.is_configured else "WEBHOOK_READY"),
                 "last_poll_at": wa_summary.get("last_poll_at"),
                 "last_error": wa_summary.get("last_error"),
+            },
+            "resend": {
+                "inbound_configured": self.config.resend.is_inbound_configured,
+                "inbound_available": False,
+                "blocked_reason": "RESEND_CANONICAL_PROVIDER_CONTRACT_UNAPPROVED",
+                "outbound_configured": self.config.resend.is_outbound_configured,
+                "tenant_id": self.config.resend.tenant_id,
+                "mode": "REAL_PROVIDER_TRANSPORT_PENDING_P4_AUTHORIZATION",
             },
         }
 

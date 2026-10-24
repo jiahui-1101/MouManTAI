@@ -233,6 +233,8 @@ def test_gmail_incremental_polling_and_deduplication(repo, state_mgr, gmail_conf
 
     def handler(request: httpx.Request) -> httpx.Response:
         url_str = str(request.url)
+        if url_str.endswith("users/me/profile"):
+            return httpx.Response(200, json={"emailAddress": gmail_config.mailbox_account_id})
         if "users/me/messages?" in url_str or url_str.endswith("users/me/messages"):
             return httpx.Response(200, json={
                 "messages": [{"id": "msg_001"}, {"id": "msg_002"}],

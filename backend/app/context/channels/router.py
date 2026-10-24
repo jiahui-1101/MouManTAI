@@ -2,23 +2,51 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
 from .manager import ChannelManager, get_channel_manager
 from .reply_framing import FramingError, verify_telegram_secret
-from .whatsapp import InvalidSignatureError, InvalidWhatsAppAccountError, WebhookVerificationError
+from .resend import (
+    ResendCanonicalContractUnavailable,
+    ResendProviderUnavailable,
+    ResendWebhookError,
+)
+from .whatsapp import InvalidSignatureError, WebhookVerificationError, WhatsAppWebhookError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/channels", tags=["P1 Real Inbound Channels"])
+MAX_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024
 
 
 def get_manager() -> ChannelManager:
     return get_channel_manager()
+
+
+async def _read_bounded_body(request: Request, max_bytes: int) -> bytes:
+    """Read a webhook body incrementally and stop as soon as it exceeds its limit."""
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_length = int(content_length)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length")
+        if declared_length < 0:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length")
+        if declared_length > max_bytes:
+            raise HTTPException(status_code=413, detail="Webhook body exceeds the supported size")
+
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > max_bytes:
+            raise HTTPException(status_code=413, detail="Webhook body exceeds the supported size")
+        body.extend(chunk)
+    return bytes(body)
 
 
 # --- Channel Status & Trigger ---
@@ -44,14 +72,18 @@ async def telegram_webhook(
     x_telegram_bot_api_secret_token: Annotated[str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")] = None,
 ) -> dict[str, Any]:
     """Receive Telegram Bot API webhook updates."""
+    if not manager.telegram.config.has_tenant_assignment:
+        raise HTTPException(status_code=503, detail="Telegram tenant assignment is not configured")
     expected_secret = manager.config.telegram.webhook_secret
     try:
         verify_telegram_secret(expected_secret, x_telegram_bot_api_secret_token)
     except FramingError:
         raise HTTPException(status_code=403, detail="Invalid Telegram secret token")
 
+    raw_body = await _read_bounded_body(request, MAX_WEBHOOK_BODY_BYTES)
+
     try:
-        update = await request.json()
+        update = json.loads(raw_body)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
@@ -81,8 +113,8 @@ def whatsapp_webhook_verification(
         challenge = manager.whatsapp.verify_challenge(hub_mode, hub_verify_token, hub_challenge)
         return challenge
     except WebhookVerificationError as exc:
-        logger.warning("WhatsApp webhook challenge verification rejected: %s", exc)
-        raise HTTPException(status_code=403, detail=str(exc))
+        logger.warning("WhatsApp webhook challenge verification rejected (%s)", type(exc).__name__)
+        raise HTTPException(status_code=403, detail="WhatsApp webhook verification failed")
 
 
 @router.post("/whatsapp/webhook")
@@ -92,31 +124,94 @@ async def whatsapp_webhook_notification(
     x_hub_signature_256: Annotated[str | None, Header(alias="X-Hub-Signature-256")] = None,
 ) -> dict[str, Any]:
     """Receive incoming WhatsApp Cloud API webhook notifications with HMAC-SHA256 signature verification."""
-    raw_body = await request.body()
+    if not manager.whatsapp.config.has_tenant_assignment:
+        raise HTTPException(status_code=503, detail="WhatsApp tenant assignment is not configured")
+    raw_body = await _read_bounded_body(request, MAX_WEBHOOK_BODY_BYTES)
     try:
-        payload = await request.json()
-    except Exception:
+        manager.whatsapp.validate_signature(raw_body, x_hub_signature_256)
+    except InvalidSignatureError as exc:
+        logger.warning("WhatsApp webhook signature validation failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=401, detail="Invalid HMAC-SHA256 signature")
+    try:
+        payload = json.loads(raw_body)
+    except (ValueError, UnicodeDecodeError):
         raise HTTPException(status_code=400, detail="Invalid JSON body")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="WhatsApp webhook body must be a JSON object")
 
     try:
         results = manager.whatsapp.handle_webhook_event(raw_body, x_hub_signature_256, payload)
+        statuses = manager.whatsapp.parse_status_callbacks(payload)
         return {
             "status": "success",
             "received_count": len(results),
+            "provider_status_count": len(statuses),
+            "provider_statuses": [
+                {"provider_message_id": s.provider_message_id, "state": s.state,
+                 "occurred_at": s.occurred_at, "error_code": s.error_code}
+                for s in statuses
+            ],
             "processed": [
                 {"message_id": r.message.message_id, "duplicate": r.duplicate}
                 for r in results
             ],
         }
     except InvalidSignatureError as exc:
-        logger.warning("WhatsApp webhook signature validation failed: %s", exc)
+        logger.warning("WhatsApp webhook signature validation failed (%s)", type(exc).__name__)
         raise HTTPException(status_code=401, detail="Invalid HMAC-SHA256 signature")
-    except InvalidWhatsAppAccountError as exc:
-        logger.warning("WhatsApp account scope rejected: %s", exc)
-        raise HTTPException(status_code=403, detail="WhatsApp callback account does not match configuration")
+    except WhatsAppWebhookError:
+        logger.warning("WhatsApp webhook account validation failed")
+        raise HTTPException(status_code=403, detail="WhatsApp webhook account is not configured for this tenant")
     except Exception as exc:
-        logger.error("Error processing WhatsApp webhook event: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Webhook processing error: {exc}")
+        logger.error("Error processing WhatsApp webhook event (%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Webhook processing failed")
+
+
+@router.post("/resend/webhook")
+async def resend_webhook(
+    request: Request,
+    manager: ChannelManager = Depends(get_manager),
+    svix_id: Annotated[str | None, Header(alias="svix-id")] = None,
+    svix_timestamp: Annotated[str | None, Header(alias="svix-timestamp")] = None,
+    svix_signature: Annotated[str | None, Header(alias="svix-signature")] = None,
+) -> dict[str, Any]:
+    """Accept signed Resend email.received events and persist through the existing P1 repository."""
+    if not manager.resend.config.is_inbound_configured:
+        raise HTTPException(status_code=503, detail="Resend inbound channel is not configured")
+    raw_body = await _read_bounded_body(request, MAX_WEBHOOK_BODY_BYTES)
+    headers = {key: value for key, value in {
+        "svix-id": svix_id, "svix-timestamp": svix_timestamp, "svix-signature": svix_signature,
+    }.items() if value is not None}
+    try:
+        manager.resend.verify_webhook(raw_body, headers)
+        try:
+            event_preview = json.loads(raw_body)
+        except (ValueError, UnicodeDecodeError):
+            raise ResendWebhookError("Resend webhook body is invalid JSON")
+        if isinstance(event_preview, dict) and event_preview.get("type") == "email.received":
+            result = manager.resend.ingest_received_event(raw_body, headers, signature_verified=True)
+            return {"status": "accepted", "processed": result is not None,
+                    "duplicate": result.duplicate if result else False,
+                    "provider_message_id": result.message.raw.provider_message_id if result else None}
+        status_receipt = manager.resend.parse_status_event(event_preview) if isinstance(event_preview, dict) else None
+        if status_receipt:
+            return {"status": "accepted", "provider_status": status_receipt.state,
+                    "provider_message_id": status_receipt.provider_message_id,
+                    "persisted": False}
+        return {"status": "ignored", "reason": "unsupported_event"}
+    except ResendCanonicalContractUnavailable:
+        raise HTTPException(status_code=503, detail="RESEND_CANONICAL_PROVIDER_CONTRACT_UNAPPROVED")
+    except ResendProviderUnavailable:
+        logger.warning("Resend API retrieval failed")
+        raise HTTPException(status_code=503, detail="Resend inbound retrieval is temporarily unavailable")
+    except ResendWebhookError as exc:
+        detail = str(exc)
+        status = 401 if "signature" in detail or "timestamp" in detail else 403 if "tenant inboxes" in detail else 400
+        logger.warning("Resend webhook rejected (%s)", "SIGNATURE" if status == 401 else "PAYLOAD")
+        raise HTTPException(status_code=status, detail="Resend webhook could not be verified or processed")
+    except Exception as exc:
+        logger.error("Resend inbound processing failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Resend inbound processing is temporarily unavailable")
 
 
 # --- Gmail OAuth Endpoints ---
@@ -131,7 +226,8 @@ def gmail_oauth_authorize(
         url = manager.gmail.get_authorization_url(state=state)
         return {"authorization_url": url}
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        logger.warning("Gmail OAuth authorization URL generation failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=400, detail="Gmail OAuth is not configured")
 
 
 @router.get("/gmail/verify")
@@ -140,7 +236,8 @@ def gmail_verify(manager: ChannelManager = Depends(get_manager)) -> dict[str, An
     try:
         return manager.gmail.verify_connection()
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        logger.warning("Gmail verification failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Gmail provider verification failed")
 
 
 @router.get("/gmail/oauth/callback")
@@ -151,7 +248,7 @@ def gmail_oauth_callback(
 ) -> dict[str, Any]:
     """Handle Google OAuth callback, exchange code for refresh/access tokens, and persist credentials."""
     if error:
-        raise HTTPException(status_code=400, detail=f"Google OAuth authorization denied: {error}")
+        raise HTTPException(status_code=400, detail="Google OAuth authorization was denied")
     if not code:
         raise HTTPException(status_code=400, detail="Missing OAuth authorization code")
 
@@ -163,7 +260,7 @@ def gmail_oauth_callback(
         try:
             manager.gmail.start_polling()
         except Exception as poll_exc:
-            logger.warning("Could not automatically start Gmail polling worker: %s", poll_exc)
+            logger.warning("Could not automatically start Gmail polling worker (%s)", type(poll_exc).__name__)
         return {
             "status": "success",
             "message": "Gmail OAuth credentials successfully configured and saved.",
@@ -172,5 +269,5 @@ def gmail_oauth_callback(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Gmail OAuth token exchange failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Token exchange failed: {exc}")
+        logger.error("Gmail OAuth token exchange failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Gmail OAuth token exchange failed")
