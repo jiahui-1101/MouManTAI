@@ -1,10 +1,12 @@
 """Replaceable bounded HTTP transport. HTTPX is optional and imported lazily."""
 import asyncio
-from dataclasses import dataclass, field
 import json
 import os
 import re
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
+
+from pydantic import ValidationError
 
 from .protocol import InferenceFailure, InferenceInput, InferenceOutput, validate_evidence
 
@@ -101,7 +103,10 @@ class EndpointAdapter:
                 if not isinstance(body, dict) or body.get("status") != "COMPLETED":
                     raise InferenceFailure("endpoint_job_not_completed")
                 body = body.get("output")
-            self.last_output = InferenceOutput.model_validate(body)
+            try:
+                self.last_output = InferenceOutput.model_validate(body)
+            except ValidationError:
+                raise InferenceFailure("schema_validation") from None
             return validate_evidence(self.last_output, request)
         except InferenceFailure:
             raise
@@ -109,8 +114,16 @@ class EndpointAdapter:
             if job_id:
                 await self._cancel(job_id)
             raise InferenceFailure("timeout") from None
-        except Exception:
-            raise InferenceFailure("transport_or_schema_error") from None
+        except Exception as error:
+            try:
+                import httpx
+                if isinstance(error, httpx.TimeoutException):
+                    raise InferenceFailure("timeout") from None
+                if isinstance(error, httpx.TransportError):
+                    raise InferenceFailure("transport_error") from None
+            except ImportError:
+                pass
+            raise InferenceFailure("provider_internal_error") from None
         finally:
             self.busy = False
 
@@ -118,13 +131,20 @@ class EndpointAdapter:
         async with client.stream(method, url, json=payload,
                                  headers={"Authorization": "Bearer " + self.config.api_key}) as response:
             if response.status_code != 200:
-                raise InferenceFailure("endpoint_http_error")
+                if response.status_code == 429:
+                    raise InferenceFailure("rate_limited")
+                if 500 <= response.status_code < 600:
+                    raise InferenceFailure("service_unavailable")
+                raise InferenceFailure("provider_rejected")
             chunks = bytearray()
             async for chunk in response.aiter_bytes():
                 chunks.extend(chunk)
                 if len(chunks) > self.config.max_response_bytes:
                     raise InferenceFailure("response_budget_exceeded")
-        return json.loads(chunks)
+        try:
+            return json.loads(chunks)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise InferenceFailure("invalid_json") from None
 
     async def _cancel(self, job_id):
         # Best effort, additional maximum 2s. A cancel request is not proof of

@@ -903,8 +903,8 @@ class PostgresMessageRepository:
                         diagnostics_dict["source_clock_anomaly"] = "receipt_after_persistence"
 
                     svc = self.proposal_service
-                    if svc and getattr(svc, "enabled", False):
-                        diagnostics_dict["configured"] = True
+                    if svc:
+                        diagnostics_dict["configured"] = bool(getattr(svc, "enabled", False))
                         try:
                             import asyncio
                             import concurrent.futures
@@ -927,6 +927,12 @@ class PostgresMessageRepository:
                                 diagnostics_dict["routing_reasons"] = proposal_res.routing_reasons
                             diagnostics_dict["worker_request_count"] = getattr(proposal_res, "worker_request_count", 0)
                             diagnostics_dict["runtime_reported"] = getattr(proposal_res, "telemetry", {})
+                            provider_audit = getattr(proposal_res, "provider_audit", None)
+                            if provider_audit:
+                                diagnostics_dict["provider_reliability"] = provider_audit
+                                if provider_audit.get("review_required") is True:
+                                    diagnostics_dict["review_required"] = True
+                                    diagnostics_dict["review_reason_code"] = "MODEL_PROVIDER_FAILURE"
 
                             candidates = getattr(proposal_res, "candidates", [])
                             if candidates:
@@ -949,7 +955,17 @@ class PostgresMessageRepository:
                                 active_fields = reconciled_fields
                                 diagnostics_dict["accepted_model_fields"] = accepted_count
                             elif getattr(proposal_res, "outcomes", None) and any(
-                                v in ("unavailable", "timeout", "busy", "endpoint_http_error", "transport_or_schema_error", "invalid_context_or_candidate")
+                                v in (
+                                    "unavailable", "timeout", "busy", "rate_limited", "service_unavailable",
+                                    "transport_error", "retryable_provider_error", "provider_internal_error", "invalid_json",
+                                    "schema_validation", "source_evidence_invalid",
+                                    "missing_source_or_invalid_span", "evidence_mismatch",
+                                    "redacted_evidence_blocked", "endpoint_job_not_completed",
+                                    "incomplete_or_invalid_output", "response_budget_exceeded",
+                                    "model_mismatch",
+                                    "credentials_missing", "provider_disabled",
+                                    "invalid_context_or_candidate",
+                                )
                                 for v in proposal_res.outcomes.values()
                             ):
                                 diagnostics_dict["fallback"] = "rules_only"
@@ -974,6 +990,17 @@ class PostgresMessageRepository:
                     if len(diagnostic) > 1000:
                         diagnostics_dict["runtime_reported"] = {k: {"attempted": v.get("attempted", False),
                             "succeeded": v.get("succeeded", False)} for k, v in diagnostics_dict.get("runtime_reported", {}).items()}
+                        diagnostic = json.dumps(diagnostics_dict, separators=(",", ":"))
+                    if len(diagnostic) > 1000:
+                        diagnostics_dict = {
+                            "trigger": "explicit_reprocess" if reprocess else "process",
+                            "configured": diagnostics_dict.get("configured", False),
+                            "fallback": diagnostics_dict.get("fallback"),
+                            "review_required": diagnostics_dict.get("review_required", False),
+                            "review_reason_code": diagnostics_dict.get("review_reason_code"),
+                            "provider_reliability": diagnostics_dict.get("provider_reliability"),
+                            "model_outcomes": diagnostics_dict.get("model_outcomes"),
+                        }
                         diagnostic = json.dumps(diagnostics_dict, separators=(",", ":"))
                     attempt.diagnostic = diagnostic
                     completed_time = datetime.now(timezone.utc)
