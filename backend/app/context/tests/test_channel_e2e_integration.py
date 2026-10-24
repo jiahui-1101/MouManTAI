@@ -36,7 +36,7 @@ def state_mgr(tmp_path):
 
 
 def test_channel_to_inbox_to_core_full_flow(repo, state_mgr):
-    tenant_id = "synthetic_tenant_a"
+    tenant_id = "tenant_telegram_e2e"
     config = TelegramChannelConfig(
         bot_token="test_token_999",
         bot_account_id="e2e-telegram-account",
@@ -121,8 +121,8 @@ def test_channel_to_inbox_to_core_full_flow(repo, state_mgr):
 
 
 def test_channel_tenant_isolation_enforced(repo, state_mgr):
-    tenant_a = "synthetic_tenant_a"
-    tenant_b = "synthetic_tenant_b"
+    tenant_a = "tenant_telegram_isolation_a"
+    tenant_b = "tenant_telegram_isolation_b"
 
     config_a = TelegramChannelConfig(bot_token="token_a", bot_account_id="account-a", tenant_id=tenant_a)
     adapter_a = TelegramAdapter(config=config_a, repository=repo, state_manager=state_mgr)

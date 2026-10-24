@@ -1,0 +1,60 @@
+name: C2 Provider Integration
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/app/context/**'
+      - 'backend/tests/v2_2/test_c2*'
+      - 'backend/migrations/**'
+      - '.github/workflows/c2-provider-integration.yml'
+
+jobs:
+  c2-canonical-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: moumantai_c2_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d moumantai_c2_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MOUMANTAI_SYNTHETIC_MODE: '1'
+      P1_AI_ENABLED: 'false'
+      TELEGRAM_AUTO_START: 'false'
+      GMAIL_AUTO_START: 'false'
+      TELEGRAM_OUTBOUND_ENABLED: 'false'
+      WHATSAPP_OUTBOUND_ENABLED: 'false'
+      RESEND_OUTBOUND_ENABLED: 'false'
+      P1_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/moumantai_c2_test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]' ruff==0.17.2
+      - name: Check C2 source and new tests
+        run: |
+          python -m ruff check --select F,I app/context/channels/config.py app/context/channels/gmail.py app/context/channels/manager.py app/context/channels/provider_transport.py app/context/channels/resend.py app/context/channels/router.py app/context/channels/telegram.py app/context/channels/whatsapp.py tests/v2_2/test_c2_provider_adapters.py tests/v2_2/test_c2_integration_security.py app/context/tests/test_c2_canonical_integration.py
+          python -m compileall -q app/context/channels
+          python -m alembic heads
+      - name: C2 fixtures and actual HTTP to canonical PostgreSQL
+        run: >-
+          python -m pytest -q -o addopts=
+          tests/v2_2/test_c2_provider_adapters.py
+          tests/v2_2/test_c2_integration_security.py
+          app/context/tests/test_c2_canonical_integration.py
+          app/context/tests/test_c1_completion_persistence.py
+          app/context/tests/test_c1_adapter_framing.py
+          app/context/tests/test_p1_alembic_migration.py
+          app/context/tests/test_reply_framing.py
