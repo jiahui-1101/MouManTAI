@@ -151,7 +151,15 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
     return () => { active = false; };
   }, [loadCatalog]);
 
-  const requestClose = () => { if (dirty || note.trim()) setCloseRequested(true); else onClose(); };
+  const requestClose = () => {
+    if (closeRequested) {
+      onClose();
+    } else if (dirty || note.trim()) {
+      setCloseRequested(true);
+    } else {
+      onClose();
+    }
+  };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { if (menuOpen) setMenuOpen(false); else requestClose(); } };
     const onPointer = (event: PointerEvent) => { if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false); };
@@ -273,10 +281,10 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
         <div className="ra-heading"><button type="button" className="ra-icon-button" aria-label="Close drawer" onClick={requestClose}>←</button><div><h2 id="review-drawer-title">Review &amp; Amend <span className="p1-sr-only">Context Review &amp; Amendments</span> <span className="ra-chip ra-chip-blue">{record.status}</span> <span className="ra-chip">v{record.context_version}</span></h2><p>{message?.raw?.channel || 'Customer message'} · {message?.raw?.received_at || record.updated_at} · Context {record.context_id}</p></div></div>
         <div className="ra-menu" ref={menuRef} data-component="MoreActionsMenu"><button type="button" className="ra-button" aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen(open => !open)}>More actions ⋯</button>{menuOpen && <div className="ra-menu-list" role="menu"><button type="button" role="menuitem" onClick={() => void submit('REQUEST_MORE_INFO')} disabled={submitting}>Record need for more info<small>Updates context; does not send a message</small></button><button type="button" role="menuitem" onClick={() => void submit('MARK_UNRESOLVED')} disabled={submitting}>Mark unresolved<small>Keep unresolved evidence for follow-up</small></button>{record.source_message_ids?.[0] && <a role="menuitem" href={`/inbox?message=${encodeURIComponent(record.source_message_ids[0])}`}>Open message for reprocessing<small>Reprocess using the original message controls</small></a>}</div>}</div>
       </header>
+      {closeRequested && <div className="ra-inline-alert" role="alert" style={{ margin: '12px 22px 0', flex: '0 0 auto' }}>Unsaved review changes will be lost. <button type="button" onClick={() => setCloseRequested(false)}>Keep editing</button><button type="button" onClick={onClose}>Discard and close</button></div>}
       <div className="ra-scroll">
         <div className="ra-status-strip" data-component="StatusStrip" aria-label="Review status"><div><span>Processing</span><strong>{message?.processing_status || 'Not available'}</strong></div><div><span>Information</span><strong>{record.status}</strong></div><div><span>Identity</span><strong>{record.customer_identity_status}</strong></div><div><span>Review</span><strong>{record.last_reviewed_at ? `Reviewed by ${record.last_reviewed_by || 'staff'}` : 'Not recorded'}</strong></div></div>
         {!!((record.missing_fields?.length || 0) + (record.conflicts?.length || 0)) && <div className="ra-issue-banner" data-component="IssueBanner" role="status"><strong>Information needs review</strong><span>{record.missing_fields?.length || 0} missing · {record.conflicts?.length || 0} conflicts</span>{!!record.missing_fields?.length && <p>Missing: {record.missing_fields.join(', ')}</p>}{!!record.conflicts?.length && <ul>{record.conflicts.map((conflict, index) => <li key={index}>{conflict}</li>)}</ul>}</div>}
-        {closeRequested && <div className="ra-inline-alert" role="alert">Unsaved review changes will be lost. <button type="button" onClick={() => setCloseRequested(false)}>Keep editing</button><button type="button" onClick={onClose}>Discard and close</button></div>}
         <div className="ra-columns">
           <section className="ra-card ra-source" ref={sourceRef} data-component="SourceMessagePanel"><h3>Original message</h3><p className="ra-hint">Select a field to locate its source evidence.</p><p className="ra-context-warning">Extraction evidence does not authorize a price, discount, or delivery promise.</p>{original ? <MarkedMessage text={original} context={record} activeField={activeField} /> : <p>Original text is not available in this context. Open the linked customer message to inspect it.</p>}<dl className="ra-source-meta"><div><dt>Source messages</dt><dd>{record.source_message_ids?.join(', ') || 'None linked'}</dd></div><div><dt>Order</dt><dd>{record.order_id || 'No verified order'}</dd></div></dl></section>
           <div className="ra-form" data-component="AmendForm">
@@ -295,7 +303,7 @@ function ReviewAmendWorkspace({ context, sourceMessage, message, extraction, onC
           </div>
         </div>
       </div>
-      <footer className="ra-footer" role="contentinfo" data-component="StickyActionBar"><span>{error ? <span role="alert">{error}</span> : saveNotice ? <span role="status">{saveNotice}</span> : !dirty ? 'No field changes yet' : !noteReady ? 'Unsaved changes · reviewer note required' : 'Unsaved changes'}</span><div><button type="button" className="ra-button" onClick={requestClose}>Cancel</button><button type="button" className="ra-button ra-primary" disabled={submitting || !dirty || !noteReady || (majorFieldDirty && !majorFieldConfirmed)} onClick={() => void submit('EDIT_FIELD')}>Save changes</button><button type="button" className="ra-button ra-primary" disabled={submitting || !acceptReady} onClick={() => void submit('ACCEPT_EXTRACTION')}>Save &amp; Accept</button></div></footer>
+      <footer className="ra-footer" role="contentinfo" data-component="StickyActionBar"><span>{error ? <span role="alert">{error}</span> : saveNotice ? <span role="status">{saveNotice}</span> : closeRequested ? <span role="alert" style={{ color: '#a52329', fontWeight: 600 }}>Unsaved changes will be lost. Click Cancel again or Discard to exit.</span> : !dirty ? 'No field changes yet' : !noteReady ? 'Unsaved changes · reviewer note required' : 'Unsaved changes'}</span><div><button type="button" className="ra-button" onClick={requestClose}>Cancel</button><button type="button" className="ra-button ra-primary" disabled={submitting || !dirty || !noteReady || (majorFieldDirty && !majorFieldConfirmed)} onClick={() => void submit('EDIT_FIELD')}>Save changes</button><button type="button" className="ra-button ra-primary" disabled={submitting || !acceptReady} onClick={() => void submit('ACCEPT_EXTRACTION')}>Save &amp; Accept</button></div></footer>
     </section>
   </>;
   return typeof document !== 'undefined' ? createPortal(content, document.body) : content;

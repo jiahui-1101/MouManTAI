@@ -124,6 +124,24 @@ describe('Review & Amend workspace', () => {
     expect(screen.getByLabelText('SKU / Product')).toHaveValue('CROISSANT');
   });
 
+  it('closes the drawer when Cancel or back arrow is clicked a second time', () => {
+    const { unmount } = render(<ReviewDrawer {...props} />);
+    fireEvent.change(screen.getByLabelText('SKU / Product'), { target: { value: 'CROISSANT' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    unmount();
+    onClose.mockReset();
+    render(<ReviewDrawer {...props} />);
+    fireEvent.change(screen.getByLabelText('SKU / Product'), { target: { value: 'CROISSANT' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Close drawer' }));
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Close drawer' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('saves audited field edits with the current actor and version', async () => {
     vi.spyOn(operationalApi, 'reviewContext').mockResolvedValue({ ...context, context_version: 2, requested_items: [{ sku: 'CROISSANT', quantity: '25', unit: 'box' }] });
     render(<ReviewDrawer {...props} actorId="user_manager_01" actorRole="MANAGER" />);
