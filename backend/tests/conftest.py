@@ -58,6 +58,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.dependencies import get_db
 from app.db.base import Base
+from app.orders import models as _order_models  # noqa: F401 - register OrderRequest tables
 from app.main import app
 
 

@@ -297,39 +297,85 @@
   gap: 0.65rem;
   margin: 0.75rem 0;
   padding: 0.65rem 0.95rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
   border-radius: 6px;
-  color: #334155;
+  color: #0f172a;
 }
 
 .transitions-label {
   font-size: 0.74rem;
   font-weight: 700;
   text-transform: uppercase;
-  color: #64748b;
+  color: #0f172a;
   letter-spacing: 0.05em;
 }
 
 .transition-diff-pill {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
   background: #ffffff;
-  padding: 0.25rem 0.5rem;
+  padding: 0.25rem 0.55rem;
   border-radius: 6px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #cbd5e1;
+}
+
+.state-transitions-container .from-state {
+  color: #1e293b !important;
+  font-weight: 600;
+}
+
+.state-transitions-container .to-state {
+  color: #0f172a !important;
+  font-weight: 700;
+}
+
+.state-transitions-container .status-badge {
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.state-transitions-container .status-badge.badge-neutral {
+  background: #e2e8f0;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+}
+
+.state-transitions-container .status-badge.badge-success {
+  background: #dcfce7;
+  color: #14532d;
+  border: 1px solid #86efac;
+}
+
+.state-transitions-container .status-badge.badge-danger {
+  background: #fee2e2;
+  color: #7f1d1d;
+  border: 1px solid #fca5a5;
+}
+
+.state-transitions-container .status-badge.badge-warning {
+  background: #fef3c7;
+  color: #78350f;
+  border: 1px solid #fcd34d;
+}
+
+.state-transitions-container .status-badge.badge-info {
+  background: #e0f2fe;
+  color: #0c4a6e;
+  border: 1px solid #7dd3fc;
 }
 
 .arrow-separator {
   color: #0284c7;
-  font-weight: 700;
-  font-size: 0.9rem;
+  font-weight: 800;
+  font-size: 0.95rem;
 }
 
 .dimension-tag {
-  font-size: 0.68rem;
-  color: #64748b;
+  font-size: 0.72rem;
+  color: #334155;
   font-weight: 600;
 }
 
@@ -338,6 +384,7 @@
   margin: 0.85rem 0;
   padding: 0.85rem 1rem;
   background: #f0f9ff;
+  border: 1px solid #bae6fd;
   border-left: 3px solid #0284c7;
   border-radius: 0 6px 6px 0;
   display: flex;
@@ -362,23 +409,29 @@
 
 .gov-actor {
   font-size: 0.78rem;
-  color: #475569;
+  color: #1e293b;
 }
 
 .gov-reason {
   font-size: 0.85rem;
   color: #1e293b;
   line-height: 1.5;
+  font-weight: 500;
 }
 
 .gov-reason-label {
   font-weight: 700;
-  color: #475569;
+  color: #1e293b;
+}
+
+.gov-reason-text {
+  color: #1e293b;
+  font-weight: 600;
 }
 
 .gov-detail {
   font-size: 0.78rem;
-  color: #475569;
+  color: #1e293b;
 }
 
 /* Correlation & Causation */
@@ -435,10 +488,17 @@
   margin-top: 0.5rem;
 }
 
-.deep-links-label, .evidence-label {
+.deep-links-label {
   font-size: 0.74rem;
   font-weight: 700;
   color: #64748b;
+  text-transform: uppercase;
+}
+
+.evidence-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #0f172a;
   text-transform: uppercase;
 }
 
@@ -480,12 +540,22 @@
 
 .evidence-chip {
   font-family: monospace;
-  font-size: 0.72rem;
-  padding: 0.15rem 0.45rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
   border-radius: 4px;
-  background: #f1f5f9;
-  color: #334155;
-  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #1e293b;
+  border: 1px solid #cbd5e1;
+  display: inline-flex;
+  align-items: center;
+  transition: all 0.15s ease;
+}
+
+.evidence-chip:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0767e8;
 }
 
 /* Correlation Group Card */
