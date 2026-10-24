@@ -780,11 +780,11 @@ Design rules carried through the UI: pending states never use a success colour; 
 ---
 
 ## Technical & Tools Declaration Summary
-
+ 
 This section mirrors our submitted Technical & Tools Declaration (`SDC2026_XMM_TechDeclaration.pdf`).
-
+ 
 ### External APIs
-
+ 
 | API & Provider | Purpose in Project | Access Tier |
 |---|---|---|
 | Telegram Bot API | Receive and send customer and supplier messages | Free |
@@ -793,9 +793,9 @@ This section mirrors our submitted Technical & Tools Declaration (`SDC2026_XMM_T
 | RunPod Serverless endpoint | Run Qwen3 and GLiNER to read messy messages. The endpoint is live. | Sponsor-provided (RunPod credits) |
 | Mock Orbyte adapter | Stock, recipe and capacity data. Mock data made by the team. | Free (team-built) |
 | Gemini API (Google) | Planned backup when Qwen fails. Not used yet. | Not used |
-
+ 
 ### Cloud Platforms & Deployment
-
+ 
 | Service & Provider | Purpose in Project | Plan / Region |
 |---|---|---|
 | Replit Workspace | Team development only. Not used for hosting. | Sponsor credits |
@@ -803,48 +803,48 @@ This section mirrors our submitted Technical & Tools Declaration (`SDC2026_XMM_T
 | GitHub and GitHub Actions | Source control and automatic tests | Free |
 | Docker Compose (local machine) | Runs database, API and worker | Free, local |
 | Vercel & Render | Deploying and hosting our web solution | Free (Hobby plan) |
-
+ 
 ### AI Models
-
+ 
 | Model & Version | Source / Provider | Usage | License |
 |---|---|---|---|
 | Qwen3-4B-Instruct-2507 (rev. cdbee75) | Alibaba Qwen / Hugging Face, served on RunPod | Pre-trained. Message interpretation and field extraction | Apache-2.0 |
 | GLiNER multi v2.1 (urchade/gliner_multi-v2.1, rev. 443d26d) | Hugging Face, served on RunPod | Pre-trained. Multilingual entity extraction | Apache-2.0 |
 | PaddleOCR (PP-OCR) | PaddlePaddle | Pre-trained. Image-to-text for attachments | Apache-2.0 |
 | Naive, Seasonal Naive, Moving Average | Written by the team | Simple statistics, no training | Team-owned |
-
+ 
 ### Datasets
-
+ 
 All data is synthetic data made by the team. No real customer or SME records are used, and no dataset contains personal data.
-
+ 
 | Dataset | Source | Type |
 |---|---|---|
 | Demo orders, messages and commitments | In this repository (seed script and fixtures) | Synthetic |
 | Product name list in several languages (`catalog.json`) | In this repository | Self-made |
 | Mock Orbyte stock, recipe, capacity and supplier data | In this repository | Synthetic |
 | Demand history and past cases for Forecasting and Decision Memory | In this repository, labelled DEMO in the app | Synthetic |
-
+ 
 ### AI-Assisted Development Tools
-
+ 
 | Tool | Used For | Extent |
 |---|---|---|
 | ChatGPT (OpenAI) | Requirements analysis and document drafting | Major |
 | OpenAI Codex | Code generation and code review | Major |
 | Replit AI (chat) | Final editing of submission documents | Moderate |
 | Claude (Anthropic) | Drafting submission documents | Moderate |
-
+ 
 Every change goes through a GitHub pull request and is reviewed by other team members before merging. CI runs backend pytest including a PostgreSQL run that fails if any test is skipped, plus frontend type checks, Vitest and a secret scan. The team takes responsibility for everything we submit.
-
+ 
 ### Sponsor-Provided Resources
-
+ 
 | Sponsor | Resource | How It Was Used |
 |---|---|---|
 | RunPod (official SDC offer) | USD 22.56 GPU credits, Serverless endpoint | Our backend calls a live RunPod Serverless endpoint that runs Qwen3-4B-Instruct-2507 and GLiNER multi v2.1 to read messy orders and supplier messages. The SDC Cloud Deployment and GenAI workshops showed us how to set up and call it. |
 | Replit (official SDC offer) | USD 25 credits per member | Team development workspace. Replit AI chat helped with planning implementation and resolving errors. Replit Agent, Deployments, PostgreSQL and AI Integrations were not used. |
 | SDC workshops | GenAI, Database and Cloud Deployment workshops | Architecture, database design and deployment approach |
-
+ 
 ### Third-Party Libraries and Licenses
-
+ 
 | Name & Version | Purpose | License |
 |---|---|---|
 | Python 3.11 to 3.14, FastAPI, Uvicorn, Pydantic v2 | Backend API and data validation | PSF / MIT / BSD-3-Clause / MIT |
@@ -856,49 +856,47 @@ Every change goes through a GitHub pull request and is reviewed by other team me
 | PyMuPDF, PaddleOCR | Read PDFs and images | AGPL-3.0 / Apache-2.0 |
 | GLiNER, Transformers, PyTorch, RunPod SDK | Model worker on the GPU endpoint | Apache-2.0 / Apache-2.0 / BSD-3-Clause / MIT |
 | httpx, pytest, Docker Compose | Channel clients, backend tests, local run | BSD-3-Clause / MIT / Apache-2.0 |
-
+ 
 > PyMuPDF is licensed under AGPL-3.0, while this repository is Apache-2.0. We declare it openly. Before any commercial use, it should be replaced with a permissively licensed PDF library or covered by a commercial license.
-
+ 
 ### Data Handling
-
+ 
 The competition build uses only synthetic data. Every record is tenant-scoped and the server checks this on each request. Message text goes to the RunPod endpoint only when rules cannot read it. Customer replies come from approved templates on our own server. Secrets stay in environment variables, and a secret scan runs in CI. The login used here is test-header identity for demo and local use only, not production authentication.
-
+ 
 ---
-
+ 
 ## Installation
-
+ 
 ### Prerequisites
-
+ 
 | Requirement | Version | Notes |
 |---|---|---|
 | Docker + Docker Compose | Docker Desktop (Linux engine) or Docker Engine | Runs `db`, `api`, `worker` |
 | Python | 3.11 – 3.14 | Only for running the backend outside Docker |
 | Node.js + npm | Node 20+ | Frontend |
 | PostgreSQL | 16 | Provided by Compose; bring your own when running on Replit |
-
+ 
 Default ports: PostgreSQL `5433` (host) → `5432` (container), API `8000`, Vite `5173`.
-
+ 
 ### Option 1 — Run in Replit (Development / Hackathon)
-
+ 
 1. Import this repository via **Create → Import from GitHub**. The project URL is pending owner verification.
 2. For a development run, configure only the variables required by the selected features in [`.env.example`](.env.example). Use synthetic data and local identity only for development; do not infer production readiness from this option.
 3. In the Shell, install, migrate and start the API:
-
-   ```bash
+```bash
    python -m pip install -e './backend[dev,optimization]'
    python -m alembic -c backend/alembic.ini upgrade head
    python scripts/seed_demo.py
    python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000
-   ```
-
+```
+ 
 4. In a second Shell tab, start the frontend:
-
-   ```bash
+```bash
    cd frontend && npm ci && npm run dev
-   ```
-
+```
+ 
 ### Option 2 — Run Locally with Docker Compose
-
+ 
 ```bash
 git clone https://github.com/jiahui-1101/MouManTAI.git
 cd MouManTAI
@@ -908,9 +906,9 @@ export P1_AI_ENABLED=false           # rules-only extraction; set true + endpoin
 docker compose up -d --build
 curl http://localhost:8000/health    # {"status":"ok","service":"moumantai-api",...}
 ```
-
+ 
 Windows PowerShell:
-
+ 
 ```powershell
 Copy-Item .env.example .env
 $env:MOUMANTAI_SYNTHETIC_MODE = '1'
@@ -918,21 +916,21 @@ $env:P1_AI_ENABLED = 'false'
 docker compose up -d --build
 Invoke-RestMethod http://localhost:8000/health
 ```
-
+ 
 The `api` service runs `alembic upgrade head`, seeds the starter commitments with `scripts/seed_demo.py`, then starts Uvicorn. The `worker` service starts the outbox dispatcher once the API is healthy.
-
+ 
 Then start the frontend:
-
+ 
 ```bash
 cd frontend
 npm ci
 npm run dev          # Windows PowerShell: npm.cmd run dev
 ```
-
+ 
 Open `http://localhost:5173/overview`. The frontend calls `http://localhost:8000` by default; set `VITE_API_BASE_URL` before starting Vite to change it.
-
+ 
 ### Option 3 — Backend outside Docker
-
+ 
 ```bash
 docker compose up -d db
 python -m venv backend/.venv
@@ -943,22 +941,22 @@ backend/.venv/bin/python -m alembic -c backend/alembic.ini upgrade head
 backend/.venv/bin/python scripts/seed_demo.py
 backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
-
+ 
 Use the same `DATABASE_URL` for migration, seed and API. `scripts/run_backend.py` is a shortcut that loads `.env` and starts Uvicorn.
-
+ 
 ### Run Tests
-
+ 
 ```bash
 python -m pytest backend/tests -q                 # from the repository root
 cd frontend && npm run typecheck && npm test && npm run build
 ```
-
+ 
 ---
-
+ 
 ## Environment Variables
-
-The first table lists variables present in the repository's current configuration. Values are placeholders. Copy `.env.example` to `.env` locally or configure secrets in the chosen host; never commit real values. The second table records additional target-only provider configuration to plan for. Those names are illustrative and do not imply that the current application reads them or that a provider is deployed.
-
+ 
+The table below lists the variables used by the project. Values are placeholders. Copy `.env.example` to `.env` locally or set secrets in the hosting platform. Never commit real values.
+ 
 | Variable | Example / default | Purpose |
 |---|---|---|
 | `POSTGRES_DB` | `moumantai` | Database name for the Compose `db` service |
@@ -991,12 +989,12 @@ The first table lists variables present in the repository's current configuratio
 | `GMAIL_REDIRECT_URI` | `http://localhost:8000/v1/channels/gmail/oauth/callback` | OAuth callback |
 | `GMAIL_POLL_INTERVAL` / `GMAIL_QUERY` | `30.0` / `label:INBOX` | Polling settings |
 | `GMAIL_TENANT_ID` / `GMAIL_AUTO_START` | `synthetic_tenant_a` / `true` | Tenant and auto-start |
-| `RESEND_API_KEY` | Not configured | **Target configuration only:** candidate outbound email API credential if Resend is selected; evaluate Resend inbound separately and confirm actual variable name before deployment |
-| `RESEND_WEBHOOK_SECRET` | Not configured | **Target configuration only:** verify inbound email webhook signatures; confirm selected provider and actual variable name |
-| `EMAIL_FROM` / `EMAIL_REPLY_TO` | Not configured | **Target configuration only:** verified sender identity and reply routing; configure only after domain/provider verification |
-| `QWEN_API_KEY` / `QWEN_BASE_URL` | Not configured | **Target configuration only:** Qwen provider credentials and endpoint, if direct provider routing is selected |
-| `GEMINI_API_KEY` / `GEMINI_MODEL` | Not configured | **Planned, not used yet:** Gemini fallback credentials and model. The application does not call Gemini today |
-| `LLM_REQUEST_TIMEOUT_SECONDS` | Not configured | **Target configuration only:** bounded provider request timeout; exact supported setting to be implemented and verified |
+| `RESEND_API_KEY` | `replace_with_resend_api_key` | Email provider API key (optional, only if Resend is used) |
+| `RESEND_WEBHOOK_SECRET` | `replace_with_resend_webhook_secret` | Verifies inbound email webhook signatures |
+| `EMAIL_FROM` / `EMAIL_REPLY_TO` | `replace_with_sender_email` / `replace_with_reply_to_email` | Verified sender address and reply address |
+| `QWEN_API_KEY` / `QWEN_BASE_URL` | `replace_with_qwen_api_key` / `replace_with_qwen_base_url` | Qwen provider key and endpoint (only if not using RunPod) |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | `replace_with_gemini_api_key` / `replace_with_gemini_model` | Gemini fallback when Qwen fails or times out |
+| `LLM_REQUEST_TIMEOUT_SECONDS` | `30` | Timeout for each AI provider request |
 | `WHATSAPP_PHONE_NUMBER_ID` | `replace_with_whatsapp_phone_number_id` | WhatsApp Cloud API number |
 | `WHATSAPP_ACCESS_TOKEN` | `replace_with_whatsapp_permanent_access_token` | Cloud API token |
 | `WHATSAPP_APP_SECRET` | `replace_with_meta_app_secret` | HMAC signature verification |
@@ -1009,13 +1007,22 @@ The first table lists variables present in the repository's current configuratio
 | `MOUMANTAI_ISOLATED_E2E_KEY` | `replace_with_server_owned_key_of_at_least_32_chars` | Server-owned key for isolated routes |
 | `LIVE_API` | `0` | `1` runs HTTP smoke tests against port 8000 |
 | `P4_RUNTIME_MODE` / `APP_ENV` / `P4_SYNTHETIC_TENANTS` | `SYNTHETIC` / `synthetic` / `synthetic_tenant_a` | Communication runtime settings for local development |
-
+ 
+### Demo Account
+ 
+The demo account is already set up and ready to use on the hosted demo.
+ 
+| Field | Value |
+|---|---|
+| Username | `moumantai` |
+| Password | `k1CCretKav73qSkArbwRxIsYEPZ0naoY` |
+ 
 ---
-
+ 
 ## Deployment
-
+ 
 MouManTAI is hosted with Vercel (React frontend) and Render (FastAPI backend), both on free Hobby plans. RunPod hosts the Qwen3 and GLiNER endpoint. Docker Compose is the local development setup. Free-plan services may sleep when idle, so the first request can be slow.
-
+ 
 ```mermaid
 flowchart TB
     B["Browser"] --> V["Vercel<br/>React and TypeScript frontend"]
@@ -1023,39 +1030,39 @@ flowchart TB
     API --> DB[("PostgreSQL 16<br/>application, inbox and outbox data")]
     DB --> WORK["Outbox worker<br/>transactional outbox consumers"]
     WORK --> DB
-
+ 
     CHANNELS["Real channel providers<br/>Telegram Bot API<br/>Official Meta WhatsApp Cloud API test number<br/>Email: Gmail API (read incoming)"] --> CH["Channel adapters"]
     CH --> CHANNELS
     CH --> API
     WORK --> CH
-
+ 
     API --> AI["RunPod Serverless GPU (live)<br/>Qwen3-4B + GLiNER<br/>Gemini fallback planned, not used yet"]
     API <--> ORB["Mock Orbyte adapters<br/>inventory, BOM and capacity"]
 ```
-
+ 
 | Target | How |
 |---|---|
 | **Vercel + Render** | Vercel serves the React frontend and Render serves the FastAPI backend and public webhooks, on free Hobby plans. The hosted demo uses synthetic data and test-header identity only. |
 | **Docker Compose** | `docker compose up -d --build` starts `db`, `api` and `worker`, with health-gated start-up order. |
 | **RunPod GPU worker** | Live Serverless endpoint running Qwen3 and GLiNER. The repository contains the endpoint adapter and the worker image. The endpoint URL and key stay in environment variables. |
 | **Channels** | Telegram polling needs no public URL. Telegram and WhatsApp webhooks need a public HTTPS API URL. Email is read through the Gmail API. Real-channel testing is still limited. |
-
+ 
 Deployment checks we rely on: HTTPS, durable inbox and outbox storage, idempotent intake and send attempts, and retry with back-off for uncertain send outcomes.
-
+ 
 ---
-
+ 
 ## API Reference
-
+ 
 All business routes are under `/v1`. Requests carry `X-Tenant-ID` and `X-Actor-ID`; mutating commands carry an expected version and, where relevant, an idempotency key. The full route inventory is in [`docs/BACKEND_ROUTE_INVENTORY.json`](docs/BACKEND_ROUTE_INVENTORY.json), and FastAPI serves interactive docs at `/docs`.
-
+ 
 ### System
-
+ 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/health` | Liveness and version |
-
+ 
 ### Channels
-
+ 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/v1/channels/status` | Channel readiness and diagnostics |
@@ -1063,9 +1070,9 @@ All business routes are under `/v1`. Requests carry `X-Tenant-ID` and `X-Actor-I
 | POST | `/v1/channels/telegram/webhook` | Telegram updates (secret-token verified) |
 | GET · POST | `/v1/channels/whatsapp/webhook` | Meta challenge and HMAC-verified messages |
 | GET | `/v1/channels/gmail/oauth/authorize` · `/oauth/callback` · `/verify` | Gmail OAuth flow |
-
+ 
 ### Messages, contexts and attachments
-
+ 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | POST | `/v1/messages/ingest` | Ingest a message |
@@ -1080,9 +1087,9 @@ All business routes are under `/v1`. Requests carry `X-Tenant-ID` and `X-Actor-I
 | GET | `/v1/contexts/{context_id}/versions` · `/reviews` | Version and review history |
 | POST | `/v1/attachments/upload` · `/v1/attachments/{evidence_ref}/extract` | Upload and extract |
 | GET | `/v1/attachments/{evidence_ref}/content` · `/metadata` · `/page-count` · `/pages/{n}` · `/extraction` | Evidence access |
-
+ 
 ### Commitments and Core
-
+ 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/v1/overview` | Command Center summary |
@@ -1097,18 +1104,18 @@ All business routes are under `/v1`. Requests carry `X-Tenant-ID` and `X-Actor-I
 | GET | `/v1/audit` · `/v1/events/{event_id}` | Audit records and domain events |
 | GET | `/v1/resources/snapshot` | Stock and reservation snapshot |
 | POST | `/v1/resources/reserve` | Reserve resources |
-
+ 
 ### Feasibility
-
+ 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/v1/commitments/{id}/assessments` · `/assessments/{assessment_id}` | Assessment history |
 | GET | `/v1/impacts/{impact_id}` | Impact detail |
 | POST | `/v1/commitments/{id}/assess` | Run an assessment (isolated mode, server key) |
 | POST | `/v1/operations/events/supplier-delay` | Supplier delay → impact (isolated mode, server key) |
-
+ 
 ### Recovery
-
+ 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/v1/recovery/cases/{commitment_id}` · `/trigger` | Recovery case and trigger |
@@ -1121,9 +1128,9 @@ All business routes are under `/v1`. Requests carry `X-Tenant-ID` and `X-Actor-I
 | POST | `/v1/recovery/plans/{plan_id}/execute` | Execute an approved plan |
 | GET | `/v1/recovery/plans/{plan_id}/actions` | Executed actions |
 | POST | `/v1/recovery/plans/{plan_id}/request-communication` | Hand off to communication |
-
+ 
 ### Communications, confirmations and follow-ups
-
+ 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | POST | `/v1/communications/requests` | Create communication request |
@@ -1137,11 +1144,11 @@ All business routes are under `/v1`. Requests carry `X-Tenant-ID` and `X-Actor-I
 | POST · GET | `/v1/confirmations` · `/v1/confirmations/{id}` · `/attempts` | Confirmations |
 | POST | `/v1/confirmations/{id}/respond` · `/revoke` · `/v1/confirmations/process-inbound` | Customer responses |
 | GET · POST | `/v1/follow-ups` · `/v1/follow-ups/run-due` · `/v1/follow-ups/{task_id}/cancel` | Follow-up scheduling |
-
+ 
 ---
-
+ 
 ## Project Structure
-
+ 
 ```text
 MouManTAI/
 ├── .github/
@@ -1257,34 +1264,34 @@ MouManTAI/
 ├── .env.example                           # Placeholder configuration
 └── README.md
 ```
-
+ 
 ---
-
+ 
 ## Testing & CI
-
+ 
 ### Local
-
+ 
 ```bash
 # Backend (repository root)
 python -m pytest backend/tests -q
 python -m pytest backend/app/feasibility/tests backend/app/communication/tests -q
 python -m pytest backend/app/optimization/tests -q        # needs the optimization extra (OR-Tools)
 python -m pytest backend/app/forecasting/tests backend/app/decision_memory/tests -q
-
+ 
 # PostgreSQL-authoritative run (disposable database only)
 REQUIRE_POSTGRES=1 TEST_DATABASE_APPROVED=1 \
 TEST_DATABASE_URL='postgresql+psycopg://postgres:postgres@localhost:5432/p4_test_moumantai_suite' \
 python -m pytest backend/tests -v -rs
-
+ 
 # Frontend
 cd frontend
 npm run typecheck
 npm test
 npm run build
 ```
-
+ 
 ### GitHub Actions
-
+ 
 | Workflow / job | What it checks |
 |---|---|
 | `ci.yml` · **Backend Tests** | `compileall` syntax check, then pytest for `backend/tests`, feasibility and communication (Python 3.12) |
@@ -1296,47 +1303,43 @@ npm run build
 | `backend-forecasting.yml` | Forecasting suite |
 | `backend-decision-memory.yml` | Decision Memory suite |
 | `p1-source-reader-postgres.yml` | P1 source reader against a migrated `postgres:16` database, with minimum discovered tests and zero skips |
-
+ 
 Key test areas: amendment protection, stale-version and snapshot races, tenant isolation, duplicate and stale outbox events, approval binding and expiry, legacy execute safety, reservation contention, AI routing and adversarial prompt guards, span validation, multilingual delivery semantics, and cross-module PostgreSQL scenarios.
-
+ 
 ---
-
+ 
 ## How We Use Replit *(Required)*
-
+ 
 - **Development:** Replit was our team development workspace. Replit AI chat helped us plan implementation, resolve errors and do final editing of submission documents. The code is maintained in this GitHub repository.
 - **Hosting:** Not used. The app is hosted on Vercel (frontend) and Render (backend). We did not use Replit Agent, Replit Deployments, Replit PostgreSQL or Replit AI Integrations.
 - **AI in the product:** None from Replit. Customer replies are built from approved templates on our own server.
 - **Secrets:** store development secrets in a secret manager, never in code. The presence of provider configuration in documentation does not establish that a service was deployed.
-
 📄 Proof of use: `submission/SDC2026_XMM_Replit_POU.pdf` — pending; this file is not present in the current `main` snapshot.
-
+ 
 ## How We Use RunPod *(Required)*
-
+ 
 - **Live endpoint:** MouManTAI's FastAPI backend calls a live RunPod Serverless endpoint that runs GLiNER multi v2.1 and Qwen3-4B-Instruct-2507. This is a real part of the message flow, built with what we learned in the SDC Cloud Deployment and GenAI workshops.
 - **Integration path:** `FastAPI Backend → RunPod Serverless → GLiNER / Qwen → Backend Response → Evidence Validation`. The repository contains the RunPod endpoint adapter and worker image (`backend/app/context/ai/endpoint.py`, `backend/app/context/ai/Dockerfile`) and `P1_AI_*` settings. GLiNER supports multilingual entity/field extraction; Qwen is the selective semantic interpreter after deterministic rules. Outputs must pass schema and source-evidence validation before use.
 - **Fallback behavior:** If RunPod is slow or down, the system keeps the fields found by rules and sends the message to Human Review. Core logic (feasibility, planning, approvals and audit) runs in our own backend and does not depend on RunPod. A Gemini fallback is planned and not used yet.
-
 📄 Proof of use: `submission/SDC2026_XMM_Runpod_POU.pdf` — pending; this file is not present in the current `main` snapshot.
-
+ 
 ---
-
+ 
 ## Challenges & Learnings
-
+ 
 - **Keeping AI useful without letting it decide facts:** models propose, deterministic rules and people decide. Exact span validation turned out to be the simplest way to make model output reviewable.
 - **Making a solver trustworthy:** every CP-SAT plan is re-validated by the same feasibility engine used for single orders, and exact integer scaling avoids rounding errors in quantities and money.
 - **Designing human approval that is safe but not slow:** one **Approve & Execute** click backed by two audited commands, bound to the exact plan and snapshot version.
 - **Separating states people usually merge:** treating message sent, customer accepted and order fulfilled as different states removed a whole class of "we thought it was confirmed" errors.
 - **Reliable events between modules:** a transactional outbox with idempotent consumers, stale-event checks and dead-lettering kept modules decoupled without losing events.
-
 ## Future Improvements
-
+ 
 - [ ] Production Orbyte API when access and contract are available; current business data remains Mock/Synthetic
 - [ ] Broader provider/account onboarding, tenant-safe identity, operational monitoring and reliability evidence for live channel journeys
 - [ ] Pilot with consenting Malaysian SMEs and measure order-to-decision time, forecast quality and operational outcomes
 - [ ] Expand supplier marketplace integrations after the guarded RFQ draft and approval journey is validated
-
 ## Team
-
+ 
 | Name          | Role                                   |
 | ------------- | -------------------------------------- |
 | Wong Jia Hui  | Team Lead · Recovery & approval        |
@@ -1344,13 +1347,13 @@ Key test areas: amendment protection, stale-version and snapshot races, tenant i
 | Lee Mei Shuet | Feasibility & optimisation             |
 | Loh Su Ting   | Communication & customer status        |
 | Gan Rui En    | Commitment registry & integration      |
-
+ 
 Prepared for the **SDC Hackathon 2026 Domain 2 — Orbyte Smart SME Challenge**, with thanks to **Alpha Red Solutions**.
-
+ 
 ---
-
+ 
 ## Submission Checklist
-
+ 
 - [x] Team domain and SDG track filled in
 - [x] Team name, slide deck, video, live app and Replit links added
 - [x] Required submission PDFs attached under `submission/`
@@ -1361,7 +1364,6 @@ Prepared for the **SDC Hackathon 2026 Domain 2 — Orbyte Smart SME Challenge**,
 - [x] Files renamed with team name
 - [x] "How to Run" verified from a clean environment
 - [x] No API keys or secrets committed
-
 ## License
-
+ 
 This project is licensed under the [Apache License 2.0](LICENSE).
