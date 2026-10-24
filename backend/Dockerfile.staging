@@ -1,0 +1,18 @@
+FROM python:3.11-slim@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY backend/requirements-staging.lock.txt ./requirements-staging.lock.txt
+RUN pip install --no-cache-dir --no-deps -r requirements-staging.lock.txt && pip check
+COPY backend/app ./app
+COPY backend/migrations ./migrations
+COPY backend/alembic.ini ./alembic.ini
+COPY contracts ./contracts
+COPY scripts ./scripts
+RUN ln -s /app/contracts /contracts
+
+ENV PYTHONPATH=/app
+EXPOSE 8000

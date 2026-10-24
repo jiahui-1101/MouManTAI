@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+*.pyc
+**/__pycache__
+**/.pytest_cache
+**/node_modules
+**/dist
+**/.venv
+**/test_*.db
+**/pg-test.log
+**/pg-report.xml
