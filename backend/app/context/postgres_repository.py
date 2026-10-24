@@ -8,7 +8,21 @@ from datetime import date, datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, Index, LargeBinary, String, Text, UniqueConstraint, desc, func, or_, select
+from pydantic import ValidationError
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Index,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    desc,
+    func,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
@@ -23,9 +37,15 @@ from .association_schemas import (
     MessageAssociationRecord,
     OrderReference,
 )
-from .document_schemas import AttachmentRecord, DocumentEvidence, DocumentExtractionResult
 from .deterministic_extraction import PROVISIONAL_PRODUCTS, VERSION, extract_explicit_fields
-from .ingestion_schemas import ExtractionAttemptRecord, IngestResponse, MessagePage, ProcessResponse, StoredMessage
+from .document_schemas import AttachmentRecord, DocumentEvidence, DocumentExtractionResult
+from .ingestion_schemas import (
+    ExtractionAttemptRecord,
+    IngestResponse,
+    MessagePage,
+    ProcessResponse,
+    StoredMessage,
+)
 from .order_context_schemas import (
     ContextReadinessStatus,
     ContextReviewRecord,
@@ -40,6 +60,7 @@ from .repository import (
     DuplicateConflict,
     ExtractionNotFound,
     MessageNotFound,
+    OrderContextSourceSnapshot,
     PersistenceUnavailable,
     ProcessingConflict,
     StaleContextVersion,
@@ -1294,6 +1315,100 @@ class PostgresMessageRepository:
                 return [context_review_record(r) for r in rows]
         except SQLAlchemyError:
             raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+
+    def read_order_context_source(
+        self, tenant_id: str, context_id: str
+    ) -> OrderContextSourceSnapshot | None:
+        """Load mapping inputs in one tenant-scoped, read-only DB snapshot.
+
+        The returned association is the current row for each message. P1 does
+        not retain historical association versions, so callers must preserve
+        the row's version and downstream consumers must re-read it.
+        """
+        try:
+            with self.engine.connect().execution_options(
+                isolation_level="REPEATABLE READ"
+            ) as connection:
+                with Session(bind=connection) as session, session.begin():
+                    session.execute(text("SET TRANSACTION READ ONLY"))
+                    context_row = session.scalar(
+                        select(OrderContext).where(
+                            OrderContext.tenant_id == tenant_id,
+                            OrderContext.context_id == context_id,
+                        )
+                    )
+                    if context_row is None:
+                        return None
+
+                    context = order_context_record(context_row)
+                    source_ids = tuple(dict.fromkeys(context.source_message_ids))
+                    version_rows = session.scalars(
+                        select(OrderContextVersion).where(
+                            OrderContextVersion.tenant_id == tenant_id,
+                            OrderContextVersion.context_id == context_id,
+                        ).order_by(OrderContextVersion.context_version.desc())
+                    ).all()
+                    review_rows = session.scalars(
+                        select(ContextReview).where(
+                            ContextReview.tenant_id == tenant_id,
+                            ContextReview.context_id == context_id,
+                        ).order_by(ContextReview.created_at.desc())
+                    ).all()
+
+                    message_rows = []
+                    association_rows = []
+                    attempt_rows = []
+                    if source_ids:
+                        message_rows = session.scalars(
+                            select(InboundMessage).where(
+                                InboundMessage.tenant_id == tenant_id,
+                                InboundMessage.message_id.in_(source_ids),
+                            )
+                        ).all()
+                        association_rows = session.scalars(
+                            select(MessageAssociation).where(
+                                MessageAssociation.tenant_id == tenant_id,
+                                MessageAssociation.message_id.in_(source_ids),
+                            )
+                        ).all()
+                        attempt_rows = session.scalars(
+                            select(ExtractionAttempt).where(
+                                ExtractionAttempt.tenant_id == tenant_id,
+                                ExtractionAttempt.message_id.in_(source_ids),
+                            ).order_by(ExtractionAttempt.started_at.desc())
+                        ).all()
+
+                    latest_processed_version: dict[str, str] = {}
+                    for row in attempt_rows:
+                        if row.status == "PROCESSED":
+                            latest_processed_version.setdefault(
+                                row.message_id, row.extractor_version
+                            )
+
+                    return OrderContextSourceSnapshot(
+                        context=context,
+                        context_versions=tuple(
+                            order_context_version_record(row) for row in version_rows
+                        ),
+                        context_reviews=tuple(
+                            context_review_record(row) for row in review_rows
+                        ),
+                        source_messages=tuple(
+                            stored(row, latest_processed_version.get(row.message_id))
+                            for row in message_rows
+                        ),
+                        associations=tuple(
+                            association_record(row) for row in association_rows
+                        ),
+                        extraction_attempts=tuple(
+                            attempt_record(row) for row in attempt_rows
+                        ),
+                    )
+        except SQLAlchemyError:
+            raise PersistenceUnavailable("Message storage temporarily unavailable") from None
+        except (ValidationError, ValueError, TypeError, KeyError):
+            # Stored JSON/model corruption is not safe to echo to a caller.
+            raise PersistenceUnavailable("P1 source records could not be validated") from None
 
     def save_attachment(self, tenant_id: str, attachment: AttachmentRecord, content: bytes) -> AttachmentRecord:
         try:
