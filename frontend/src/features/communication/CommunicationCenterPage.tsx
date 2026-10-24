@@ -801,7 +801,7 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
                             <th>Status <span className="cc-sort-arrow" aria-hidden="true">⇅</span></th>
                             <th>Channel <span className="cc-sort-arrow" aria-hidden="true">⇅</span></th>
                             <th>Created <span className="cc-sort-arrow" aria-hidden="true">⇅</span></th>
-                            <th>Action</th>
+                            <th className="cc-col-action">Action</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -854,7 +854,7 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
                               <td>
                                 <time>{formatKLTimestamp(request.created_at)}</time>
                               </td>
-                              <td>
+                              <td className="cc-col-action">
                                 <div className="cc-actions-row">
                                   <button
                                     type="button"
@@ -866,12 +866,24 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
                                     }}
                                     title="Preview draft & proposal details"
                                   >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                    <svg
+                                      className="cc-btn-svg"
+                                      width="18"
+                                      height="18"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      aria-hidden="true"
+                                      style={{ width: "18px", height: "18px", display: "block", flexShrink: 0 }}
+                                    >
+                                      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
                                       <circle cx="12" cy="12" r="3" />
                                     </svg>
                                   </button>
-                                  {request.request_status === "READY_FOR_DRAFTING" && (
+                                  {(request.request_status === "READY_FOR_DRAFTING" || label(request) === "Drafted") && (
                                     <button
                                       type="button"
                                       className="cc-action-icon-btn"
@@ -882,9 +894,21 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
                                       }}
                                       title="Edit / prepare draft"
                                     >
-                                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                        <path d="M12 20h9" />
-                                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                                      <svg
+                                        className="cc-btn-svg"
+                                        width="18"
+                                        height="18"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        aria-hidden="true"
+                                        style={{ width: "18px", height: "18px", display: "block", flexShrink: 0 }}
+                                      >
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                                       </svg>
                                     </button>
                                   )}
@@ -898,7 +922,19 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
                                         onClick={() => handleDirectApprove(request)}
                                         title="Approve draft"
                                       >
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <svg
+                                          className="cc-btn-svg"
+                                          width="18"
+                                          height="18"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2.5"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                          style={{ width: "18px", height: "18px", display: "block", flexShrink: 0 }}
+                                        >
                                           <polyline points="20 6 9 17 4 12" />
                                         </svg>
                                       </button>
@@ -1362,7 +1398,7 @@ function ConfirmationsView({
                   <th>Response</th>
                   <th>Created At</th>
                   <th>Expires At</th>
-                  <th>Action</th>
+                  <th className="cc-col-action">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1391,7 +1427,7 @@ function ConfirmationsView({
                     </td>
                     <td>{formatKLTimestamp(item.created_at)}</td>
                     <td>{formatKLTimestamp(item.expires_at)}</td>
-                    <td>
+                    <td className="cc-col-action">
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                         <button
                           type="button"
@@ -1841,7 +1877,7 @@ function FollowUpQueueView({
                 <th>下次到期</th>
                 <th>允许时段</th>
                 <th>升级原因</th>
-                <th>Actions</th>
+                <th className="cc-col-action">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1888,7 +1924,7 @@ function FollowUpQueueView({
                         {escalationReason}
                       </span>
                     </td>
-                    <td>
+                    <td className="cc-col-action">
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                         <button
                           type="button"

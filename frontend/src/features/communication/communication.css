@@ -1103,6 +1103,7 @@
 .cc-table-container {
   width: 100%;
   overflow-x: auto;
+  position: relative;
 }
 
 .cc-master-table {
@@ -1139,6 +1140,34 @@
 }
 .cc-master-table tr.row-selected td {
   background: #eff6ff;
+}
+
+/* Pinned sticky Action column on the far right */
+.cc-master-table th.cc-col-action,
+.cc-master-table td.cc-col-action {
+  position: sticky;
+  right: 0;
+  z-index: 5;
+  background-color: #ffffff;
+  box-shadow: -4px 0 10px -2px rgba(15, 23, 42, 0.08);
+  min-width: 175px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.cc-master-table th.cc-col-action {
+  background-color: #ffffff;
+  z-index: 6;
+  font-weight: 600;
+  color: #475569;
+}
+
+.cc-master-table tr:hover td.cc-col-action {
+  background-color: #f8fafc;
+}
+
+.cc-master-table tr.row-selected td.cc-col-action {
+  background-color: #eff6ff;
 }
 
 .cc-commitment-cell {
@@ -1193,39 +1222,57 @@
   flex-wrap: nowrap;
 }
 .cc-action-icon-btn {
-  width: 34px;
-  height: 34px;
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  min-height: 34px !important;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
   background: #ffffff;
   color: #475569;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   cursor: pointer;
   transition: all 0.15s ease;
-  padding: 0;
-  flex-shrink: 0;
+  padding: 0 !important;
+  flex: 0 0 34px !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box;
 }
 .cc-action-icon-btn:hover {
   background: #f8fafc;
   border-color: #cbd5e1;
   color: #0f172a;
 }
+.cc-action-icon-btn svg,
+.cc-action-icon-btn .cc-btn-svg {
+  display: block !important;
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px !important;
+  min-height: 18px !important;
+  flex: 0 0 18px !important;
+  flex-shrink: 0 !important;
+  stroke: currentColor !important;
+  fill: none !important;
+  overflow: visible !important;
+  pointer-events: none;
+}
 .cc-action-approve-btn {
-  border-color: rgba(22, 163, 74, 0.3);
-  background: #f0fdf4;
-  color: #16a34a;
+  border-color: rgba(22, 163, 74, 0.3) !important;
+  background: #f0fdf4 !important;
+  color: #16a34a !important;
 }
 .cc-action-approve-btn:hover {
-  background: #dcfce7;
-  border-color: #16a34a;
-  color: #15803d;
+  background: #dcfce7 !important;
+  border-color: #16a34a !important;
+  color: #15803d !important;
 }
 .cc-action-reject-link {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: #64748b;
   font-size: 13px;
   font-weight: 500;
   padding: 6px 8px;
