@@ -5,14 +5,15 @@ import { useAuth } from '../../shared/auth';
 import { StatusBadge } from '../../shared/StatusBadge';
 import { OrderQueueUnavailableError, unavailableOrderQueueSource, type OrderQueueSource } from './api';
 import type { OrderQueueItem, QueueFilters, StatusView } from './types';
-import { initialFilters, profitText, selectOrders, shown, timestamp } from './queue';
+import { profitText, selectOrders, shown, timestamp } from './queue';
 import { useQueuePreferences } from './useQueuePreferences';
 import './orders.css';
 
 const statusViews: { value: StatusView; label: string }[] = [
+  { value: 'ALL', label: 'All Statuses' },
   { value: 'PENDING_ACCEPTANCE', label: 'Pending acceptance' },
   { value: 'ACCEPTED', label: 'Accepted' }, { value: 'REJECTED', label: 'Rejected' },
-  { value: 'OTHER', label: 'Other / unknown' }, { value: 'ALL', label: 'All statuses' },
+  { value: 'OTHER', label: 'Other / unknown' },
 ];
 const tiers: Record<OrderQueueItem['evidenceTier'], string> = {
   VERIFIED_FACT: 'Verified fact', CLAIM: 'Customer / supplier claim',
@@ -55,7 +56,7 @@ export interface OrderQueuePageProps { source?: OrderQueueSource }
 /** Requires existing AuthProvider, QueryClientProvider and Router; registers no routes. */
 export function OrderQueuePage({ source = unavailableOrderQueueSource }: OrderQueuePageProps = {}) {
   const { authHeaders: auth } = useAuth();
-  const { filters, setFilters, analysis, setAnalysis } = useQueuePreferences(auth);
+  const { filters, setFilters, analysis, setAnalysis, resetFilters } = useQueuePreferences(auth);
   const query = useQuery({
     queryKey: ['orders', 'queue', source.cacheKey, auth.tenantId, auth.actorId],
     queryFn: ({ signal }) => source.load(auth, signal),
@@ -67,7 +68,7 @@ export function OrderQueuePage({ source = unavailableOrderQueueSource }: OrderQu
   const update = <K extends keyof QueueFilters>(key: K, value: QueueFilters[K]) =>
     setFilters(current => ({ ...current, [key]: value }));
   const invalidRange = !!filters.from && !!filters.to && filters.from > filters.to;
-  const textFilter = (key: 'search' | 'product' | 'customer', label: string) => <label>{label}
+  const textFilter = (key: 'product' | 'customer', label: string) => <label>{label}
     <input type="search" value={filters[key]} onChange={e => update(key, e.target.value)} /></label>;
   const operationalFilter = (key: 'channel' | 'priority' | 'risk' | 'size', label: string) => {
     const options = Array.from(new Set(items.map(order => shown(order[key])))).sort();
@@ -83,17 +84,30 @@ export function OrderQueuePage({ source = unavailableOrderQueueSource }: OrderQu
       <h1 id="oq-title">Order Decision Queue</h1><p>Review requests, uncertainty and backend assessments before opening an order.</p></div>
       <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>Refresh queue</button></header>
     <p className="oq-notice">Pending acceptance is a request only. Feasibility and recommendations do not accept orders or reserve resources.</p>
-    <p><Link to="/orders/portfolio">Portfolio Comparison</Link> · Source-backed comparison, subject to Backend availability.</p>
-    <p><Link to="/orders/calendar">Production & Delivery Calendar</Link> · Source-backed schedules and requested dates; availability may be unknown.</p>
-    <fieldset className="oq-status"><legend>Order status</legend>{statusViews.map(view => <button type="button"
-      key={view.value} aria-pressed={filters.status === view.value} onClick={() => update('status', view.value)}>{view.label}</button>)}</fieldset>
+    <div className="oq-toolbar">
+      <div className="oq-search">
+        <label htmlFor="oq-search">Search by Order ID or Customer</label>
+        <div className="oq-search-control">
+          <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" />
+          </svg>
+          <input id="oq-search" type="search" placeholder="Search by Order ID or Customer..."
+            aria-describedby="oq-search-help" value={filters.search} onChange={e => update('search', e.target.value)} />
+          <button type="button" aria-label="Clear search" disabled={!filters.search} onClick={() => update('search', '')}>Clear</button>
+        </div>
+      </div>
+      <label className="oq-status">Order Status<select value={filters.status} onChange={e => update('status', e.target.value as StatusView)}>
+        {statusViews.map(view => <option key={view.value} value={view.value}>{view.label}</option>)}
+      </select></label>
+    </div>
+    <p id="oq-search-help" className="oq-muted">Search applies only to loaded orders: Order ID and customer display text when supplied by the source.</p>
     <div className="oq-filters">
-      {textFilter('search', 'Search order, customer or product')}{textFilter('customer', 'Customer')}{textFilter('product', 'Product')}
+      {textFilter('customer', 'Customer')}{textFilter('product', 'Product')}
       <label>Received from (MYT)<input type="date" value={filters.from} onChange={e => update('from', e.target.value)} /></label>
       <label>Received through (MYT)<input type="date" value={filters.to} onChange={e => update('to', e.target.value)} /></label>
       {operationalFilter('channel', 'Origin channel')}{operationalFilter('priority', 'Priority')}
       {operationalFilter('risk', 'Risk')}{operationalFilter('size', 'Order size')}
-      <button type="button" onClick={() => setFilters(initialFilters)}>Reset filters</button>
+      <button type="button" onClick={resetFilters}>Reset filters</button>
     </div>
     {invalidRange && <p role="alert">Received from must be on or before Received through.</p>}
     <div className="oq-analysis"><label>Analysis view<select value={analysis} onChange={e => setAnalysis(e.target.value)}>
@@ -115,7 +129,7 @@ export function OrderQueuePage({ source = unavailableOrderQueueSource }: OrderQu
         <table><caption>{activeLabel} · loaded orders · read only</caption><thead><tr>
           {['Order / customer', 'Status / priority / risk', 'Received / completed', 'Products / deadline', 'Assessment / reasons', 'Expected profit / provenance', 'Details'].map(heading => <th key={heading} scope="col">{heading}</th>)}
         </tr></thead><tbody>{visible.map(order => <OrderRow key={order.id} order={order} />)}</tbody></table></div> :
-        <div className="oq-state" role="status"><h2>{invalidRange ? 'Check the date range' : `No ${activeLabel?.toLowerCase()} orders match`}</h2>
+        <div className="oq-state" role="status"><h2>{invalidRange ? 'Check the date range' : filters.status === 'ALL' ? 'No orders match' : `No ${activeLabel?.toLowerCase()} orders match`}</h2>
           <p>{data?.coverage === 'partial' ? 'No matches in the loaded subset. More orders may exist outside this snapshot.' : 'Try another status or reset the search and filters.'}</p></div>}
     </>}
   </section>;

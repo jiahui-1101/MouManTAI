@@ -68,7 +68,15 @@ export function useQueuePreferences(auth: RequestAuthHeaders) {
   const location = useLocation();
   const navigate = useNavigate();
   const session = sessionFor(auth);
-  const value = useMemo(() => read(location.search, session), [location.search, session]);
+  const pendingRoute = location.pathname.replace(/\/+$/, '') === '/orders/pending';
+  const value = useMemo(() => {
+    const saved = read(location.search, session);
+    // Entering Pending selects that existing filter without rewriting a previous
+    // visit's immutable snapshot or losing its other preferences and Analysis.
+    return pendingRoute && saved.filters.status !== 'PENDING_ACCEPTANCE'
+      ? snapshot({ filters: { ...saved.filters, status: 'PENDING_ACCEPTANCE' }, analysis: saved.analysis })
+      : saved;
+  }, [location.search, session, pendingRoute]);
   const search = searchFor(value);
   useEffect(() => {
     session.snapshots.set(value.id, value);
@@ -84,10 +92,12 @@ export function useQueuePreferences(auth: RequestAuthHeaders) {
     session.last = saved;
     // Edits replace the current Queue visit. Links still push normal navigation
     // entries, so Back/Forward restores each visit without one entry per keystroke.
-    void navigate({ pathname: location.pathname, search: searchFor(saved), hash: location.hash }, { replace: true });
+    const pathname = pendingRoute && next.filters.status !== 'PENDING_ACCEPTANCE' ? '/orders' : location.pathname;
+    void navigate({ pathname, search: searchFor(saved), hash: location.hash }, { replace: true });
   }
   return {
     filters: value.filters, analysis: value.analysis,
+    resetFilters: () => save({ filters: { ...initialFilters }, analysis: 'QUEUE' }),
     setFilters: (update: QueueFilters | ((current: QueueFilters) => QueueFilters)) =>
       save({ filters: typeof update === 'function' ? update(value.filters) : update, analysis: value.analysis }),
     setAnalysis: (analysis: string) => save({ filters: value.filters, analysis: analyses.includes(analysis) ? analysis : 'QUEUE' }),

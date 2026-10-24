@@ -3,7 +3,7 @@ import { parseScheduleInstant } from './calendarDates';
 import type { OrderQueueItem, QueueFilters } from './types';
 
 export const initialFilters: QueueFilters = {
-  status: 'PENDING_ACCEPTANCE', search: '', from: '', to: '', product: '',
+  status: 'ALL', search: '', from: '', to: '', product: '',
   channel: '', priority: '', risk: '', customer: '', size: '',
 };
 const knownStatuses = ['PENDING_ACCEPTANCE', 'ACCEPTED', 'REJECTED'];
@@ -33,7 +33,7 @@ export function selectOrders(items: OrderQueueItem[], filters: QueueFilters): Or
   return items.filter(order => {
     const date = businessDate(order.receivedAt);
     return (filters.status === 'ALL' || statusBucket(order.status) === filters.status) &&
-      (!filters.search.trim() || [order.id, order.customer, ...(order.lines ?? []).map(l => l.product)]
+      (!filters.search.trim() || [order.id, order.customer]
         .some(value => contains(value, filters.search))) &&
       (!filters.from || (!!date && date >= filters.from)) &&
       (!filters.to || (!!date && date <= filters.to)) &&

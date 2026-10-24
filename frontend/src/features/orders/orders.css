@@ -5,11 +5,17 @@
 .order-queue .oq-eyebrow { color: var(--ui-primary, #0767e8); text-transform: uppercase; letter-spacing: .08em; font-size: .75rem; }
 .order-queue .oq-notice, .order-queue .oq-analysis, .order-queue .oq-state { background: var(--ui-surface, #fff); border: 1px solid var(--ui-divider, #dce2eb); border-radius: .75rem; padding: 1rem; margin: 1rem 0; }
 .order-queue .oq-notice { border-left: 4px solid #a65b00; }
-.order-queue .oq-status { border: 0; padding: 0; display: flex; gap: .5rem; flex-wrap: wrap; }
+.order-queue .oq-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 1rem; }
+.order-queue .oq-search { flex: 1 1 320px; min-width: 0; }
+.order-queue .oq-search > label { margin-bottom: .4rem; }
+.order-queue .oq-search-control { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.order-queue .oq-search-control svg { flex: 0 0 20px; width: 20px; height: 20px; color: var(--ui-muted, #4d5e79); }
+.order-queue .oq-search-control input { flex: 1; min-width: 0; width: 100%; }
+.order-queue .oq-status { flex: 0 1 230px; min-width: 0; }
+.order-queue .oq-status select { width: 100%; }
 .order-queue legend { padding: .5rem 0; font-weight: 600; }
 .order-queue button, .order-queue input, .order-queue select { color: var(--ui-text, #1c3153); background: var(--ui-surface, #fff); border: 1px solid var(--ui-input-border, #aeb8c8); border-radius: .4rem; min-height: 44px; padding: .55rem .7rem; max-width: 100%; }
 .order-queue button { cursor: pointer; }
-.order-queue button[aria-pressed=true] { background: var(--ui-active, #e8f0fd); border-color: var(--ui-primary, #0767e8); }
 .order-queue button:disabled { opacity: .6; cursor: wait; }
 .order-queue :is(button, input, select, a, [tabindex]):focus-visible { outline: 3px solid var(--ui-primary, #0767e8); outline-offset: 3px; }
 .order-queue .oq-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: .8rem; margin-top: 1rem; align-items: end; }
@@ -37,7 +43,7 @@
 .order-queue dl { margin: .6rem 0; }
 .order-queue dt { color: var(--ui-muted, #4d5e79); font-size: .75rem; }
 .order-queue dd { margin: 0 0 .5rem; }
-@media (max-width: 600px) { .order-queue .oq-status button { flex: 1 1 130px; } .order-queue .oq-heading button { width: 100%; } }
+@media (max-width: 600px) { .order-queue .oq-status { flex-basis: 100%; } .order-queue .oq-heading button { width: 100%; } }
 
 /* Feature-local surface keeps legacy and current shells readable. */
 .order-queue { background: var(--ui-background, #f4f8ff); overflow-wrap: anywhere; }
