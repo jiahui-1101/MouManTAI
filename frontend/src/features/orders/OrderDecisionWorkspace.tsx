@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ApiError } from '../../shared/api';
 import { useAuth } from '../../shared/auth';
@@ -8,6 +9,8 @@ import { coreOrderDecisionSource } from './decisionApi';
 import { acceptanceBlockers, assentLabel, commandDependency, receiptLabel } from './decisionGuards';
 import { DecisionTermsView, TermsComparison } from './DecisionTermsView';
 import { ProposalPreparation } from './ProposalPreparation';
+import { AcceptanceReviewActions } from './AcceptanceReviewActions';
+import { OrderProgressPanel } from './OrderProgressPanel';
 import { instant, shown, timestamp } from './queue';
 import './orderDecisions.css';
 
@@ -36,8 +39,9 @@ function DecisionTimeline({ snapshot }: { snapshot: OrderDecisionSnapshot }) {
   </section>;
 }
 
-export function OrderDecisionWorkspace({ order, now, source = coreOrderDecisionSource }: { order: OrderDetail; now: number; source?: OrderDecisionSource }) {
+export function OrderDecisionWorkspace({ order, now, source = coreOrderDecisionSource, view = 'all' }: { order: OrderDetail; now: number; source?: OrderDecisionSource; view?: 'all' | 'decisions' | 'history' }) {
   const { authHeaders: auth } = useAuth();
+  const titleId = useId();
   const query = useQuery({ queryKey: ['orders', 'decisions', source.cacheKey, auth.tenantId, auth.actorId, order.id, order.version ?? null,
     order.contextVersion ?? null, order.contextUpdatedAt ?? null, order.commitmentId ?? null],
     queryFn: async ({ signal }) => {
@@ -52,18 +56,20 @@ export function OrderDecisionWorkspace({ order, now, source = coreOrderDecisionS
       error.status === 404 ? 'Linked decision source was not found. No order decision is inferred.' :
         error.status === 422 ? 'Source validation failed. No command or reservation was performed.' : 'Decision source unavailable. No command was submitted.' :
     'Decision source could not be safely read. No business command was submitted.';
-  return <section className="order-decisions" aria-labelledby="order-decisions-heading"><header><h2 id="order-decisions-heading">Order Decision workspace</h2>
+  return <section className="order-decisions" aria-labelledby={titleId}><header><h2 id={titleId}>{view === 'history' ? 'Order history & progress' : 'Order Decision workspace'}</h2>
     <p>Read-only Backend boundary · acceptance, proposal, rejection and amendment commands unavailable.</p>
     <EvidenceTierBadge evidenceTier="TARGET" title="Order command capability is not yet operational" />
-    <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>Refresh decision records</button></header>
+    <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>{view === 'history' ? 'Refresh history records' : 'Refresh decision records'}</button></header>
     {query.isPending || query.isFetching ? <p role="status"><span>Loading decision records…</span> Previous terms and unsent preparation are hidden.</p> : error ? <div role="status" aria-label="Order decision source state">
       {error instanceof ApiError && error.status === 409 ? <VersionConflictBanner message={errorText} expectedVersion={order.version ?? undefined} /> : <ErrorState error={error} description={errorText} />}
       <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>Retry decision records</button></div> : snapshot && <>
       <p>Decision data source: {snapshot.sourceLabel}</p>{snapshot.warnings?.map((warning, i) => <p key={i} className="decision-notice">{warning}</p>)}
+      {view !== 'history' && <>
       <section className="decision-panel" aria-labelledby="acceptance-review"><h3 id="acceptance-review">Acceptance review</h3>
         <UncertaintyNote kind="insufficient-evidence">Frontend review never grants decision permission; server command authority remains unavailable.</UncertaintyNote>
         <p>Order reference: {order.id} · Authoritative request version: {shown(snapshot.requestVersion)}. Context and commitment versions cannot substitute.</p>
         <DecisionTermsView terms={snapshot.exactOriginal} title="Exact original customer-offered terms" financial={snapshot.financialAccess === 'AUTHORIZED'} />
+        <AcceptanceReviewActions key={`${auth.tenantId}:${auth.actorId}:${order.id}:${query.dataUpdatedAt}`} order={order} snapshot={snapshot} />
         <h4>Acceptance blockers and source conditions</h4><ul>{acceptanceBlockers(order, snapshot, now).map(blocker => <li key={blocker}>{blocker}</li>)}</ul>
         <p>Assessment/snapshot reference: {shown(order.assessment?.id)} / {shown(order.assessment?.snapshotId)} · Source freshness: {order.assessment?.freshness ?? 'UNKNOWN'}</p>
         <p>Outstanding conditions: {order.assessment?.conditions?.join('; ') || 'Not available'}</p>
@@ -80,16 +86,22 @@ export function OrderDecisionWorkspace({ order, now, source = coreOrderDecisionS
           <DecisionTermsView terms={proposal.terms} title="Exact proposed terms (not current agreement)" financial={snapshot.financialAccess === 'AUTHORIZED'} />
           <TermsComparison original={snapshot.exactOriginal} proposed={proposal.terms} financial={snapshot.financialAccess === 'AUTHORIZED'} /></article>)}
         <ProposalPreparation key={`proposal:${auth.tenantId}:${auth.actorId}:${order.id}:${source.cacheKey}:${query.dataUpdatedAt}:${query.isFetching}`} base={snapshot.exactOriginal} financial={snapshot.financialAccess === 'AUTHORIZED'} />
-        <p><strong>Submit proposal — unavailable.</strong> No sending, customer assent or durable proposal is created by local preparation.</p>
+        <button type="button" disabled aria-describedby="proposal-submit-dependency">Submit proposal</button>
+        <p id="proposal-submit-dependency"><strong>Submit proposal — unavailable.</strong> No sending, customer assent or durable proposal is created by local preparation.</p>
       </section>
       <section className="decision-panel" aria-labelledby="rejection-review"><h3 id="rejection-review">Order rejection</h3>
         <p><strong>Reject order — unavailable.</strong> Required reason, role, version, idempotency and audit response depend on a verified order rejection contract. No local lifecycle update occurs.</p></section>
+      </>}
+      {view !== 'decisions' && <>
+      <OrderProgressPanel order={order} snapshot={snapshot} />
       <section className="decision-panel" aria-labelledby="amendment-workspace"><h3 id="amendment-workspace">Order amendments · preserve confirmed terms</h3>
         <p>Legacy Core state: {shown(snapshot.legacyCommitmentState)}. A legacy CONFIRMED agreement is not v2.2 ACCEPTED/reserved status.</p>
         <DecisionTermsView terms={snapshot.currentAgreement?.terms} title="Currently confirmed agreement (preserved)" financial={snapshot.financialAccess === 'AUTHORIZED'} />
         <p>Current agreement version: {shown(snapshot.currentAgreement?.version)}</p>
         {(snapshot.previousAgreements ?? []).map(agreement => <article key={agreement.version}><h4>Previous confirmed version {agreement.version}</h4>
           <DecisionTermsView terms={agreement.terms} title="Previous accepted terms record" financial={snapshot.financialAccess === 'AUTHORIZED'} />
+          <TermsComparison original={agreement.terms} proposed={snapshot.currentAgreement?.terms} financial={snapshot.financialAccess === 'AUTHORIZED'}
+            originalLabel={`Previous agreement version ${agreement.version}`} proposedLabel={`Current agreement version ${snapshot.currentAgreement?.version ?? 'unavailable'}`} />
           <p>Effective: {timestamp(agreement.effectiveAt)} · Audit evidence: {agreement.evidence?.join(', ') || 'Not available'}</p></article>)}
         {!snapshot.previousAgreements?.length && <p>Previous confirmed agreement records not available; history is not reconstructed from guesses.</p>}
         {snapshot.amendment ? <><p>Amendment {snapshot.amendment.id} · version {snapshot.amendment.version} · State: {shown(snapshot.amendment.state)}</p>
@@ -99,9 +111,11 @@ export function OrderDecisionWorkspace({ order, now, source = coreOrderDecisionS
             originalLabel="Currently confirmed terms (preserved)" proposedLabel="Backend-proposed amendment (not effective)" />
           <p>Amendment audit evidence: {snapshot.amendment.evidence?.join(', ') || 'Not available'}</p></> : <p>No authoritative amendment record supplied.</p>}
         {snapshot.currentAgreement ? <ProposalPreparation key={`amendment:${auth.tenantId}:${auth.actorId}:${order.id}:${source.cacheKey}:${query.dataUpdatedAt}:${query.isFetching}`} base={snapshot.currentAgreement.terms} financial={snapshot.financialAccess === 'AUTHORIZED'} amendment /> : <p>Amendment preparation requires an authoritative current agreement record.</p>}
-        <p><strong>Submit amendment — unavailable.</strong> Backend decides effectiveness after exact assent, reassessment and reservation adjustment. Existing terms/resources remain unchanged.</p>
+        <button type="button" disabled aria-describedby="amendment-submit-dependency">Submit amendment</button>
+        <p id="amendment-submit-dependency"><strong>Submit amendment — unavailable.</strong> Backend decides effectiveness after exact assent, reassessment and reservation adjustment. Existing terms/resources remain unchanged.</p>
       </section>
       <DecisionTimeline snapshot={snapshot} />
+      </>}
     </>}
   </section>;
 }
