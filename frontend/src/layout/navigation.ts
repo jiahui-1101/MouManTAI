@@ -8,25 +8,25 @@ export interface NavigationItem {
   /** Detail routes stay under their business parent without becoming sidebar destinations. */
   activeFor?: string[];
   activePrefixes?: readonly string[];
+  /** Reserved static routes must not also highlight their dynamic order parent. */
+  inactiveFor?: readonly string[];
   children?: NavigationItem[];
 }
 
 export const navigation: NavigationItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard", children: [
     { id: "overview", label: "Overview", icon: "dashboard", to: "/overview", activeFor: ["/"] },
-    { id: "calendar", label: "Calendar", icon: "calendar", to: "/calendar" },
+    { id: "calendar", label: "Calendar", icon: "calendar", to: "/calendar", activeFor: ["/orders/calendar"] },
   ] },
   { id: "inbox", label: "Inbox", icon: "inbox", children: [
-    { id: "customer-messages", label: "Customer Messages", icon: "inbox", to: "/inbox" },
-    { id: "human-review", label: "Human Review", icon: "review", to: "/human-review" },
+    { id: "customer-messages", label: "Customer Messages", icon: "inbox", to: "/inbox", activeFor: ["/inbox", "/inbox/customer-messages", "/inbox/customer-messages/"] },
+    { id: "human-review", label: "Human Review", icon: "review", to: "/inbox/human-review", activeFor: ["/inbox/human-review", "/inbox/human-review/", "/human-review"] },
   ] },
-  { id: "orders", label: "Orders", icon: "orders", activeFor: ["/orders/", "/commitments/", "/impact/"], children: [
-    { id: "all-orders", label: "All Orders", icon: "orders", to: "/orders" },
-    { id: "pending-acceptance", label: "Pending Acceptance", icon: "pending", to: "/orders/pending" },
+  { id: "orders", label: "Orders", icon: "orders", activeFor: ["/commitments/", "/impact/"], children: [
+    { id: "all-orders", label: "All Orders", icon: "orders", to: "/orders", inactiveFor: ["/orders/portfolio", "/orders/calendar"] },
   ] },
   { id: "planning", label: "Planning", icon: "planning", children: [
-    { id: "feasibility", label: "Feasibility", icon: "feasibility", to: "/planning/feasibility" },
-    { id: "portfolio-comparison", label: "Portfolio Comparison", icon: "portfolio", to: "/planning/portfolio" },
+    { id: "portfolio-comparison", label: "Portfolio Comparison", icon: "portfolio", to: "/planning/portfolio", activeFor: ["/orders/portfolio"] },
     { id: "forecasts", label: "Forecasts", icon: "forecast", to: "/planning/forecasts" },
   ] },
   { id: "suppliers", label: "Suppliers", icon: "supplier", activeFor: ["/suppliers/"], children: [
@@ -47,13 +47,15 @@ export const navigation: NavigationItem[] = [
 ];
 
 export function isItemActive(item: NavigationItem, pathname: string): boolean {
+  if (item.inactiveFor?.some(path => pathname === path || pathname.startsWith(`${path}/`))) return false;
   if (item.to && (pathname === item.to || (item.to !== "/" && pathname.startsWith(`${item.to}/`)))) return true;
   if (item.activeFor?.some(path => path === pathname || (path !== "/" && path.endsWith("/") && pathname.startsWith(path)))) return true;
   if (item.activePrefixes?.some(prefix => pathname.startsWith(prefix))) return true;
   return item.children?.some(child => isItemActive(child, pathname)) ?? false;
 }
 
-export function isNavigationItemActive(item: { to?: string; activePrefixes?: readonly string[]; activeFor?: string[] }, pathname: string): boolean {
+export function isNavigationItemActive(item: { to?: string; activePrefixes?: readonly string[]; activeFor?: string[]; inactiveFor?: readonly string[] }, pathname: string): boolean {
+  if (item.inactiveFor?.some(path => pathname === path || pathname.startsWith(`${path}/`))) return false;
   if (item.to && (pathname === item.to || (item.to !== "/" && pathname.startsWith(`${item.to}/`)))) return true;
   if (item.activePrefixes?.some((prefix) => pathname.startsWith(prefix))) return true;
   if (item.activeFor?.some((path) => path === pathname || (path !== "/" && path.endsWith("/") && pathname.startsWith(path)))) return true;

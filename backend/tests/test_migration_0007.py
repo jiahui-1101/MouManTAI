@@ -24,6 +24,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -77,6 +78,15 @@ def test_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
             pytest.fail("REQUIRE_POSTGRES=1 is set, but TEST_MIGRATION_DATABASE_URL is missing or empty.")
         if mig_url.startswith("postgresql://"):
             mig_url = mig_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        parsed = make_url(mig_url)
+        if (
+            os.getenv("TEST_DATABASE_APPROVED") != "1"
+            or not parsed.drivername.startswith("postgresql")
+            or parsed.host not in ("localhost", "127.0.0.1", "::1")
+            or not parsed.database
+            or not (parsed.database == "moumantai_migration" or parsed.database.endswith("_test"))
+        ):
+            pytest.fail("Use an approved local, disposable PostgreSQL migration test database")
         db_url = mig_url
     else:
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
@@ -93,6 +103,9 @@ def test_migration_0006_to_0007_upgrade_downgrade_and_restrict() -> None:
             with engine.begin() as conn:
                 conn.execute(text("DROP SCHEMA public CASCADE"))
                 conn.execute(text("CREATE SCHEMA public"))
+                # The later P1 migration owns this separate schema. Reset it too,
+                # otherwise a second run fails on its already-created tables.
+                conn.execute(text("DROP SCHEMA IF EXISTS p1_dev CASCADE"))
 
         # 1. Migrate to 0006
         command.upgrade(cfg, "0006_recovery_cases")

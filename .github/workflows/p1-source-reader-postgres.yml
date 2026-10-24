@@ -1,0 +1,92 @@
+name: P1 Source Reader PostgreSQL
+
+on:
+  push:
+    branches:
+      - "ci/**"
+    paths:
+      - "backend/app/context/**"
+      - "backend/app/orders/p1_source_reader.py"
+      - "backend/tests/v2_2/test_p1_source_reader.py"
+      - ".github/workflows/p1-source-reader-postgres.yml"
+  pull_request:
+    branches:
+      - main
+      - backend-a/feat-v2-2-p1-trusted-source-reader
+    paths:
+      - "backend/app/context/**"
+      - "backend/app/orders/p1_source_reader.py"
+      - "backend/tests/v2_2/test_p1_source_reader.py"
+      - ".github/workflows/p1-source-reader-postgres.yml"
+
+jobs:
+  migrated-p1-reader:
+    name: P1 Source Reader (migrated PostgreSQL, zero skips)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DISABLE_SQLALCHEMY_CEXT: "1"
+      MOUMANTAI_SYNTHETIC_MODE: "1"
+      P1_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/moumantai_p1_reader_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --no-binary=sqlalchemy -e "./backend[dev]"
+      - name: Create disposable test database
+        run: |
+          python - <<'PY'
+          import os
+          from sqlalchemy import create_engine
+          from sqlalchemy.engine import make_url
+
+          url = make_url(os.environ["P1_TEST_DATABASE_URL"])
+          assert url.database == "moumantai_p1_reader_test"
+          admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+          with admin.begin() as connection:
+              connection.exec_driver_sql('CREATE DATABASE "moumantai_p1_reader_test"')
+          admin.dispose()
+          PY
+      - name: Run migrated P1 reader and repository tests
+        working-directory: backend
+        run: |
+          python -m pytest -p no:cacheprovider -o addopts= \
+            app/context/tests/test_p1_alembic_migration.py \
+            app/context/tests/test_order_context_source_snapshot.py \
+            app/context/tests/test_postgres_repository.py \
+            -q -rA --tb=short --junitxml=p1-reader-postgres.xml
+      - name: Enforce discovery and zero skipped tests
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          from xml.etree import ElementTree
+
+          root = ElementTree.parse("p1-reader-postgres.xml").getroot()
+          cases = root.findall(".//testcase")
+          skipped = root.findall(".//skipped")
+          failures = root.findall(".//failure")
+          errors = root.findall(".//error")
+          print(f"P1 PostgreSQL: {len(cases)} discovered, {len(skipped)} skipped, {len(failures)} failed, {len(errors)} errors")
+          assert len(cases) >= 22, "P1 PostgreSQL suite was not fully collected"
+          assert not (skipped or failures or errors), "P1 PostgreSQL gate must execute without skips or failures"
+          PY

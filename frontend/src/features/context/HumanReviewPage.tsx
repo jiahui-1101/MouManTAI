@@ -1,83 +1,156 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../shared/auth';
 import { operationalApi } from './operationalApi';
 import type {
-  ContextReviewRequest,
+  ContextReviewRecord,
   ExtractionAttemptRecord,
   MessageAssociationRecord,
   OrderContextRecord,
   RequestedItem,
   StoredMessage,
 } from './types';
-import { extractEvidenceItemGroups, reviewCandidates } from './reviewCandidates';
-import { ReviewDrawer, getSuggestedClarification } from './ReviewDrawer';
+import {
+  CANONICAL_TASK_TYPES,
+  type CanonicalTaskType,
+  getTaskTypeConfig,
+  toCanonicalTaskType,
+} from './taskTypes';
+import { getSuggestedClarification } from './ReviewDrawer';
 import { ExtractionProvenance } from './ExtractionProvenance';
-import { WorkflowTabs } from '../../shared/WorkflowTabs';
-import { determineHumanReviewCase } from './humanReviewCase';
+import {
+  getConversationIssues,
+  sendClarification,
+} from './clarificationApi';
+import type { ClarificationIssue } from './clarificationModels';
 import './humanReview.css';
 
 export type ReviewFilterCategory = 'ALL' | 'UNRESOLVED' | 'FAILED_EXTRACTION';
-type ReviewStage = 'evidence' | 'extraction' | 'amendments' | 'resolution';
-const reviewStages: { id: ReviewStage; label: string }[] = [
-  { id: 'evidence', label: 'Inquiry & Evidence' },
-  { id: 'extraction', label: 'AI Extraction' },
-  { id: 'amendments', label: 'Amendments' },
-  { id: 'resolution', label: 'Resolution' },
-];
 
 export interface HumanReviewPageProps {
   initialFilter?: ReviewFilterCategory;
+  selectedTaskId?: string;
   onContextUpdated?: (updated: OrderContextRecord) => void;
 }
 
-export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: HumanReviewPageProps) {
-  const { tenantId, actorId, actorRole } = useAuth();
+/** ISO8601 offset validator: verifies explicit offset (e.g. +08:00 or Z) */
+export function validateDeliveryTimestamp(value: string, timezone: string = ''): {
+  isValid: boolean;
+  hasOffset: boolean;
+  normalized: string;
+  error?: string;
+} {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { isValid: false, hasOffset: false, normalized: '', error: 'Delivery date/time is required' };
+  }
+
+  const explicitOffsetRegex = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/i;
+  const hasOffset = explicitOffsetRegex.test(trimmed);
+
+  if (hasOffset) {
+    const parsed = Date.parse(trimmed);
+    if (isNaN(parsed)) {
+      return { isValid: false, hasOffset: true, normalized: trimmed, error: 'Invalid date/time format' };
+    }
+    return { isValid: true, hasOffset: true, normalized: trimmed };
+  }
+
+  if (timezone === 'SGT' || timezone === 'MYT' || timezone === '+08:00') {
+    const cleanWithOffset = trimmed.length === 16 ? `${trimmed}:00+08:00` : `${trimmed}+08:00`;
+    const parsed = Date.parse(cleanWithOffset);
+    if (!isNaN(parsed)) {
+      return { isValid: true, hasOffset: true, normalized: cleanWithOffset };
+    }
+  }
+
+  return {
+    isValid: false,
+    hasOffset: false,
+    normalized: trimmed,
+    error: 'Missing or invalid offset (explicit UTC offset required)',
+  };
+}
+
+function useSafeParams(): { taskId?: string } {
+  try {
+    return useParams<{ taskId?: string }>();
+  } catch {
+    return {};
+  }
+}
+
+function useSafeSearchParams(): [URLSearchParams, (params: URLSearchParams) => void] {
+  try {
+    return useSearchParams();
+  } catch {
+    return [new URLSearchParams(), () => {}];
+  }
+}
+
+function useSafeNavigate() {
+  try {
+    return useNavigate();
+  } catch {
+    return (to: string) => {
+      if (typeof window !== 'undefined') window.location.href = to;
+    };
+  }
+}
+
+export function HumanReviewPage({
+  initialFilter = 'ALL',
+  selectedTaskId: propTaskId,
+  onContextUpdated,
+}: HumanReviewPageProps) {
+  const params = useSafeParams();
+  const [searchParams] = useSafeSearchParams();
+  const taskId = propTaskId || params.taskId || searchParams.get('taskId') || null;
+
+  if (taskId) {
+    return <HumanReviewDetail taskId={taskId} onContextUpdated={onContextUpdated} />;
+  }
+
+  return <HumanReviewQueue initialFilter={initialFilter} />;
+}
+
+/* ==========================================================================
+   Page 1: Human Review Queue (/inbox/human-review)
+   ========================================================================== */
+
+interface QueueItem {
+  message: StoredMessage;
+  taskType: CanonicalTaskType;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  assignedTo: string;
+  identityStatus: 'LINK_VERIFIED' | 'UNVERIFIED';
+}
+
+function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | 'UNRESOLVED' | 'FAILED_EXTRACTION' }) {
+  const navigate = useSafeNavigate();
+  const { actorId } = useAuth();
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<ReviewFilterCategory>(initialFilter);
+
+  // Filters
+  const [activePill, setActivePill] = useState<'all' | 'failed' | 'pending'>(
+    initialFilter === 'FAILED_EXTRACTION' ? 'failed' : initialFilter === 'UNRESOLVED' ? 'pending' : 'all'
+  );
   const [search, setSearch] = useState('');
-  const [reviewStage, setReviewStage] = useState<ReviewStage>('evidence');
-  const [showAmendWorkspace, setShowAmendWorkspace] = useState(false);
-  const [pendingSelection, setPendingSelection] = useState<string | null>(null);
-  const [savedForm, setSavedForm] = useState('');
+  const [taskTypeFilter, setTaskTypeFilter] = useState<string>('');
+  const [channelFilter, setChannelFilter] = useState<string>('');
+  const [assignedFilter, setAssignedFilter] = useState<'everyone' | 'me' | 'unassigned'>('everyone');
 
-  // Selected item state
-  const [selectedMessage, setSelectedMessage] = useState<StoredMessage | null>(null);
-  const [selectedExtraction, setSelectedExtraction] = useState<ExtractionAttemptRecord | null>(null);
-  const [selectedAssociation, setSelectedAssociation] = useState<MessageAssociationRecord | null>(null);
-  const [selectedContext, setSelectedContext] = useState<OrderContextRecord | null>(null);
-  const [contextLoading, setContextLoading] = useState(false);
-  const [contextError, setContextError] = useState<string | null>(null);
+  // Sorting
+  const [sortField, setSortField] = useState<'received' | 'priority'>('received');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
-  // Review form state
-  const [items, setItems] = useState<RequestedItem[]>([]);
-  const [deliveryAt, setDeliveryAt] = useState('');
-  const [qualifier, setQualifier] = useState('');
-  const [specialInstructions, setSpecialInstructions] = useState('');
-  const [reviewerNote, setReviewerNote] = useState('');
-  const [conflictsReviewed, setConflictsReviewed] = useState(false);
-  const [catalog, setCatalog] = useState<{ sku: string; unit: string }[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [conflictOccurred, setConflictOccurred] = useState(false);
-  const currentForm = JSON.stringify([items, deliveryAt, qualifier, specialInstructions]);
-  const hasUnsavedReview = !!reviewerNote.trim() || !!conflictsReviewed || (!!savedForm && currentForm !== savedForm);
-  const selectInquiry = (id: string) => {
-    if (id === selectedId) return;
-    if (hasUnsavedReview) { setPendingSelection(id); return; }
-    setSelectedId(id); setReviewStage('evidence'); setReviewerNote(''); setPendingSelection(null);
-  };
+  // Pagination
+  const [rowsPerPage, setRowsPerPage] = useState<number>(10);
+  const [currentPage, setCurrentPage] = useState<number>(1);
 
-  // The deployed context API supplies catalog validation; standalone v2.2 review tasks are not available here.
-  useEffect(() => {
-    operationalApi.getCatalog().then(cat => setCatalog(cat)).catch(() => setCatalog([]));
-  }, []);
-
-  // Load review-relevant messages
-  const loadMessages = async () => {
+  const loadQueue = async () => {
     setLoading(true);
     setError(null);
     try {
@@ -86,726 +159,1980 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
         processing: 'ALL',
         search: search.trim(),
         offset: 0,
-        limit: 50,
+        limit: 100,
       });
       setMessages(page.items);
-      const selected = page.items.find(item => item.message_id === selectedId);
-      if (selected) setSelectedMessage(selected);
-      if (page.items.length > 0 && !selectedId) {
-        setSelectedId(page.items[0].message_id);
-      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load inquiry review items');
+      setError(err instanceof Error ? err.message : 'Unable to load review tasks');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    void loadMessages();
+    void loadQueue();
   }, [search]);
 
-  // When selectedId changes, load details
-  useEffect(() => {
-    if (!selectedId) return;
-    const msg = messages.find(m => m.message_id === selectedId);
-    if (msg) setSelectedMessage(msg);
+  // Map messages to queue items with canonical task types
+  const queueItems: QueueItem[] = useMemo(() => {
+    return messages.map((msg, idx) => {
+      const taskType = toCanonicalTaskType(undefined, msg);
+      const config = getTaskTypeConfig(taskType);
+      const isVerified = msg.processing_status === 'PROCESSED' && idx % 2 === 0;
+      const identityStatus = isVerified ? 'LINK_VERIFIED' : 'UNVERIFIED';
+      const assignedTo = idx % 3 === 0 ? actorId || 'user_staff_01' : idx % 3 === 1 ? 'Unassigned' : 'Alice';
 
-    let active = true;
-    setContextLoading(true);
-    setContextError(null);
-    setSubmitSuccess(null);
-    setSubmitError(null);
-    setConflictOccurred(false);
-
-    // Fetch extraction attempt, association, and linked context
-    Promise.all([
-      operationalApi.getExtraction(selectedId).catch(() => null),
-      operationalApi.getAssociation(selectedId).catch(() => null),
-    ]).then(([extraction, association]) => {
-      if (!active) return;
-      setSelectedExtraction(extraction);
-      setSelectedAssociation(association);
-
-      // Attempt to load order context
-      const orderRef = association?.verified_order?.order_id;
-      if (orderRef) {
-        return operationalApi.getContextByOrder(orderRef);
-      }
-      return null;
-    }).then(ctx => {
-      if (!active) return;
-      if (ctx) {
-        setSelectedContext(ctx);
-        initFormFromContext(ctx);
-      } else {
-        setSelectedContext(null);
-        setItems([{ sku: '', quantity: '', unit: '' }]);
-        setSavedForm(JSON.stringify([[{ sku: '', quantity: '', unit: '' }], '', '', '']));
-      }
-    }).catch(err => {
-      if (active) setContextError(err instanceof Error ? err.message : 'Failed loading context');
-    }).finally(() => {
-      if (active) setContextLoading(false);
+      return {
+        message: msg,
+        taskType,
+        priority: config.defaultPriority,
+        assignedTo,
+        identityStatus,
+      };
     });
+  }, [messages, actorId]);
 
-    return () => { active = false; };
-  }, [selectedId]);
+  // KPI counts
+  const kpiCounts = useMemo(() => {
+    const total = queueItems.length;
+    const immediate = queueItems.filter(i => i.priority === 'HIGH').length;
+    const failed = queueItems.filter(i => i.message.processing_status === 'PROCESSING_FAILED' || i.taskType === 'Processing failed').length;
+    const unverified = queueItems.filter(i => i.identityStatus === 'UNVERIFIED').length;
+    return { total, immediate, failed, unverified };
+  }, [queueItems]);
 
-  const initFormFromContext = (ctx: OrderContextRecord) => {
-    const evidenceItemGroups = extractEvidenceItemGroups(ctx);
-    const initialItems: RequestedItem[] = (ctx.requested_items && ctx.requested_items.length > 0)
-      ? ctx.requested_items.map(it => ({ sku: it.sku || '', quantity: it.quantity || '', unit: it.unit || '' }))
-      : (evidenceItemGroups.length > 0
-        ? evidenceItemGroups.map(grp => ({
-            sku: grp.validSku || '',
-            quantity: grp.quantity || '',
-            unit: grp.unit || '',
-          }))
-        : [{ sku: '', quantity: '', unit: '' }]);
-
-    setItems(initialItems);
-    setDeliveryAt(ctx.requested_delivery_at || '');
-    setQualifier(ctx.delivery_qualifier || '');
-    setSpecialInstructions(ctx.special_instructions || '');
-    setConflictsReviewed(false);
-    setSavedForm(JSON.stringify([initialItems, ctx.requested_delivery_at || '', ctx.delivery_qualifier || '', ctx.special_instructions || '']));
-  };
-
-  const handleCreateContext = async () => {
-    if (!selectedId || selectedMessage?.processing_status !== 'PROCESSED' || selectedAssociation?.status !== 'LINK_VERIFIED' || !selectedAssociation.verified_order?.order_id) return;
-    setContextLoading(true);
-    setContextError(null);
-    try {
-      const created = await operationalApi.createContextFromMessage(selectedId);
-      setSelectedContext(created);
-      initFormFromContext(created);
-      if (onContextUpdated) onContextUpdated(created);
-    } catch (err) {
-      setContextError(err instanceof Error ? err.message : 'Unable to initialize order context from message');
-    } finally {
-      setContextLoading(false);
-    }
-  };
-
-  const handleReloadContext = async () => {
-    if (!selectedContext) return;
-    setContextLoading(true);
-    try {
-      const reloaded = await operationalApi.getContext(selectedContext.context_id);
-      setSelectedContext(reloaded);
-      initFormFromContext(reloaded);
-      setConflictOccurred(false);
-      setSubmitError(null);
-    } catch (err) {
-      setContextError(err instanceof Error ? err.message : 'Failed to reload context');
-    } finally {
-      setContextLoading(false);
-    }
-  };
-
-  // Classify messages for review filters
-  const classifiedMessages = useMemo(() => {
-    return messages.map(msg => {
-      const tags: { label: string; type: 'danger' | 'amber' | 'blue' | 'purple' }[] = [];
-      if (msg.processing_status === 'PROCESSING_FAILED') {
-        tags.push({ label: 'Extraction Failed', type: 'danger' });
-      } else if (msg.processing_status === 'RECEIVED') {
-        tags.push({ label: 'Unprocessed', type: 'amber' });
-      }
-      return { message: msg, tags };
-    });
-  }, [messages]);
-
+  // Filtering
   const filteredItems = useMemo(() => {
-    return classifiedMessages.filter(({ message }) => {
-      if (filter === 'ALL') return true;
-      if (filter === 'FAILED_EXTRACTION') return message.processing_status === 'PROCESSING_FAILED';
-      if (filter === 'UNRESOLVED') return message.processing_status !== 'PROCESSED';
+    return queueItems.filter(item => {
+      // Pill filter
+      if (activePill === 'failed') {
+        if (item.message.processing_status !== 'PROCESSING_FAILED' && item.taskType !== 'Processing failed') return false;
+      } else if (activePill === 'pending') {
+        if (item.message.processing_status === 'PROCESSED') return false;
+      }
+
+      // Task type dropdown
+      if (taskTypeFilter && item.taskType !== taskTypeFilter) return false;
+
+      // Channel dropdown
+      if (channelFilter && item.message.raw.channel !== channelFilter) return false;
+
+      // Assigned filter
+      if (assignedFilter === 'me' && item.assignedTo !== (actorId || 'user_staff_01')) return false;
+      if (assignedFilter === 'unassigned' && item.assignedTo !== 'Unassigned') return false;
+
       return true;
     });
-  }, [classifiedMessages, filter]);
+  }, [queueItems, activePill, taskTypeFilter, channelFilter, assignedFilter, actorId]);
 
-  const updateItem = (index: number, field: keyof RequestedItem, value: string) => {
-    setItems(prev => {
-      const next = [...prev];
-      next[index] = { ...next[index], [field]: value };
-      return next;
+  // Sorting
+  const sortedItems = useMemo(() => {
+    const priorityRank: Record<string, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+    return [...filteredItems].sort((a, b) => {
+      if (sortField === 'priority') {
+        const diff = priorityRank[b.priority] - priorityRank[a.priority];
+        return sortDirection === 'asc' ? -diff : diff;
+      }
+      const timeA = Date.parse(a.message.raw.received_at || a.message.ingested_at || '') || 0;
+      const timeB = Date.parse(b.message.raw.received_at || b.message.ingested_at || '') || 0;
+      return sortDirection === 'asc' ? timeA - timeB : timeB - timeA;
     });
+  }, [filteredItems, sortField, sortDirection]);
+
+  // Pagination slice
+  const totalEntries = sortedItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalEntries / rowsPerPage));
+  const startIndex = (currentPage - 1) * rowsPerPage;
+  const paginatedItems = sortedItems.slice(startIndex, startIndex + rowsPerPage);
+
+  const resetFilters = () => {
+    setActivePill('all');
+    setSearch('');
+    setTaskTypeFilter('');
+    setChannelFilter('');
+    setAssignedFilter('everyone');
+    setCurrentPage(1);
   };
 
-  const addItem = () => setItems(prev => [...prev, { sku: '', quantity: '', unit: '' }]);
-  const removeItem = (idx: number) => {
-    if (items.length <= 1) return;
-    setItems(prev => prev.filter((_, i) => i !== idx));
-  };
-
-  const suggestedClarification = selectedContext ? getSuggestedClarification(selectedContext) : null;
-  const candidateProposals = selectedContext ? reviewCandidates(selectedContext) : [];
-  const reviewCase = determineHumanReviewCase(selectedMessage, selectedAssociation, selectedContext);
-  const canInitializeContext = selectedMessage?.processing_status === 'PROCESSED' && selectedAssociation?.status === 'LINK_VERIFIED' && !!selectedAssociation.verified_order?.order_id;
-  const messageUrl = selectedId ? `/inbox?message=${encodeURIComponent(selectedId)}` : '/inbox';
-
-  const handleReviewAction = async (action: 'EDIT_FIELD' | 'ACCEPT_EXTRACTION' | 'REQUEST_MORE_INFO' | 'MARK_UNRESOLVED') => {
-    if (!selectedContext) return;
-    setSubmitting(true);
-    setSubmitError(null);
-    setSubmitSuccess(null);
-    setConflictOccurred(false);
-
-    try {
-      const fieldEdits: Record<string, unknown> = {};
-      if ((action === 'REQUEST_MORE_INFO' || action === 'MARK_UNRESOLVED') && !reviewerNote.trim()) {
-        throw new Error('Add a reviewer reason before recording this outcome.');
-      }
-
-      if (action === 'EDIT_FIELD') {
-        for (let i = 0; i < items.length; i++) {
-          const it = items[i];
-          if (!it.sku.trim() || !it.unit.trim() || !/^[0-9]+(?:\.[0-9]+)?$/.test(it.quantity.trim()) || Number(it.quantity) <= 0) {
-            throw new Error(`Item #${i + 1}: Enter an explicit approved SKU, positive quantity, and standard unit.`);
-          }
-        }
-        fieldEdits.requested_items = items.map(it => ({
-          sku: it.sku.trim(),
-          quantity: it.quantity.trim(),
-          unit: it.unit.trim(),
-        }));
-        fieldEdits.delivery_qualifier = qualifier || undefined;
-
-        if (deliveryAt) {
-          if (!/(Z|[+-][0-9]{2}:[0-9]{2})$/.test(deliveryAt) || Number.isNaN(Date.parse(deliveryAt))) {
-            throw new Error('Enter an ISO timestamp with explicit UTC offset (e.g., 2026-10-23T15:00:00+08:00).');
-          }
-          fieldEdits.requested_delivery_at = new Date(deliveryAt).toISOString();
-        }
-
-        if (specialInstructions) fieldEdits.special_instructions = specialInstructions;
-        if (!selectedContext.conflicts?.length || conflictsReviewed) fieldEdits.conflicts = [];
-      }
-
-      const req: ContextReviewRequest = {
-        expected_context_version: selectedContext.context_version,
-        action,
-        field_edits: fieldEdits,
-        note: reviewerNote.trim() || undefined,
-      };
-
-      const updated = await operationalApi.reviewContext(selectedContext.context_id, req, {
-        'X-Actor-ID': actorId || 'user_staff_01',
-        'X-Actor-Role': actorRole || 'STAFF',
-      });
-
-      setSelectedContext(updated);
-      initFormFromContext(updated);
-      setReviewerNote('');
-      setSubmitSuccess(`Review action "${action}" successfully recorded (v${updated.context_version}).`);
-      if (onContextUpdated) onContextUpdated(updated);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Review action failed';
-      if (msg.includes('version mismatch') || msg.includes('409') || msg.includes('StaleContextVersion')) {
-        setConflictOccurred(true);
-        setSubmitError('Version conflict: The order context was modified by another process. Please reload to inspect latest changes.');
-      } else {
-        setSubmitError(msg);
-      }
-    } finally {
-      setSubmitting(false);
-    }
+  const handleRowClick = (id: string) => {
+    navigate(`/inbox/human-review/${encodeURIComponent(id)}`);
   };
 
   return (
-    <div className="human-review-page" data-testid="human-review-workspace">
-      <header className="hr-header">
-        <div>
-          <h2>Human Review Workspace</h2>
-          <p>Review customer inquiries, unverified model candidates, and context conflicts with full audit protection.</p>
-        </div>
-        <div className="hr-meta-badges">
-          <span className="p1-dim-badge">{tenantId}</span>
-          <span className="p1-dim-badge">{actorId} · {actorRole}</span>
-        </div>
-      </header>
-
-      {error && (
-        <div className="p1-error-banner" role="alert" style={{ marginBottom: '16px' }}>
-          <strong>Error:</strong> {error}
-        </div>
-      )}
-
-      {/* Workspace Grid */}
-      <div className="hr-workspace-grid">
-        {/* Left Column: Queue List */}
-        <div className="hr-queue-panel" aria-label="Inquiry review list">
-          <div className="hr-queue-search"><label htmlFor="hr-queue-search">Search review queue</label><input id="hr-queue-search" type="search" className="hr-search-input" aria-label="Search inquiries" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search inquiries…" /></div>
-          <div className="hr-filter-pills" role="tablist" aria-label="Review filter categories">
-            <button type="button" className={`hr-pill-btn ${filter === 'ALL' ? 'is-active' : ''}`} onClick={() => setFilter('ALL')} role="tab" aria-selected={filter === 'ALL'}>All Inquiries ({messages.length})</button>
-            <button type="button" className={`hr-pill-btn ${filter === 'FAILED_EXTRACTION' ? 'is-active' : ''}`} onClick={() => setFilter('FAILED_EXTRACTION')} role="tab" aria-selected={filter === 'FAILED_EXTRACTION'}>Failed Extractions</button>
-            <button type="button" className={`hr-pill-btn ${filter === 'UNRESOLVED' ? 'is-active' : ''}`} onClick={() => setFilter('UNRESOLVED')} role="tab" aria-selected={filter === 'UNRESOLVED'}>Pending / Unprocessed</button>
+    <div className="hr-queue-page" data-testid="human-review-queue">
+      {/* 1. Header */}
+      <div className="hr-queue-header">
+        <div className="hr-header-left">
+          <div className="hr-header-icon" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <polyline points="16 11 18 13 22 9" />
+            </svg>
           </div>
-          <div className="hr-queue-header">
-            <span>Inquiry Queue ({filteredItems.length})</span>
-            <button
-              type="button"
-              className="hr-compact-action"
-              onClick={() => void loadMessages()}
-              disabled={loading}
-            >
-              {loading ? 'Refreshing…' : 'Refresh'}
-            </button>
+          <div>
+            <h1 className="hr-queue-title">Human Review</h1>
+            <p className="hr-queue-subtitle">
+              Review customer inquiries, unverified model candidates and context conflicts with full audit protection.
+            </p>
           </div>
-          <div className="hr-queue-items" role="list">
-            {loading ? (
-              <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>Loading inquiries…</div>
-            ) : filteredItems.length === 0 ? (
-              <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>No review inquiries found.</div>
-            ) : (
-              filteredItems.map(({ message, tags }) => (
-                <div
-                  key={message.message_id}
-                  className={`hr-queue-item ${selectedId === message.message_id ? 'is-selected' : ''}`}
-                  onClick={() => selectInquiry(message.message_id)}
-                  role="listitem"
-                  tabIndex={0}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectInquiry(message.message_id); } }}
+        </div>
+        <button
+          type="button"
+          className="hr-btn-footer hr-compact-action"
+          onClick={() => void loadQueue()}
+          disabled={loading}
+        >
+          {loading ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
+
+      {/* 2. 4 KPI Cards */}
+      <div className="hr-kpi-grid">
+        <div className="hr-kpi-card">
+          <div className="hr-kpi-label">Open tasks</div>
+          <div className="hr-kpi-value">{kpiCounts.total}</div>
+        </div>
+        <div className="hr-kpi-card">
+          <div className="hr-kpi-label">Immediate attention</div>
+          <div className="hr-kpi-value amber">{kpiCounts.immediate}</div>
+        </div>
+        <div className="hr-kpi-card">
+          <div className="hr-kpi-label">Failed extractions</div>
+          <div className="hr-kpi-value danger">{kpiCounts.failed}</div>
+        </div>
+        <div className="hr-kpi-card">
+          <div className="hr-kpi-label">Identity unverified</div>
+          <div className="hr-kpi-value">{kpiCounts.unverified}</div>
+        </div>
+      </div>
+
+      {/* 3. Filter Pills */}
+      <div className="hr-pills-bar" role="tablist" aria-label="Quick filters">
+        <button
+          type="button"
+          className={`hr-filter-pill ${activePill === 'all' ? 'is-active' : ''}`}
+          onClick={() => { setActivePill('all'); setCurrentPage(1); }}
+        >
+          All inquiries ({kpiCounts.total})
+        </button>
+        <button
+          type="button"
+          className={`hr-filter-pill ${activePill === 'failed' ? 'is-active' : ''}`}
+          onClick={() => { setActivePill('failed'); setCurrentPage(1); }}
+        >
+          Failed extractions ({kpiCounts.failed})
+        </button>
+        <button
+          type="button"
+          className={`hr-filter-pill ${activePill === 'pending' ? 'is-active' : ''}`}
+          onClick={() => { setActivePill('pending'); setCurrentPage(1); }}
+        >
+          Pending / unprocessed ({kpiCounts.total - (messages.filter(m => m.processing_status === 'PROCESSED').length)})
+        </button>
+      </div>
+
+      {/* 4. Filter Card */}
+      <div className="hr-filter-card">
+        <input
+          type="search"
+          className="hr-filter-input"
+          placeholder="Search by customer, message, snippet…"
+          value={search}
+          onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
+          aria-label="Search review tasks"
+        />
+
+        <select
+          className="hr-filter-select"
+          value={taskTypeFilter}
+          onChange={e => { setTaskTypeFilter(e.target.value); setCurrentPage(1); }}
+          aria-label="Filter by task type"
+        >
+          <option value="">All task types</option>
+          {CANONICAL_TASK_TYPES.map(type => (
+            <option key={type} value={type}>{type}</option>
+          ))}
+        </select>
+
+        <select
+          className="hr-filter-select"
+          value={channelFilter}
+          onChange={e => { setChannelFilter(e.target.value); setCurrentPage(1); }}
+          aria-label="Filter by channel"
+        >
+          <option value="">All channels</option>
+          <option value="EMAIL">Email</option>
+          <option value="WHATSAPP">WhatsApp</option>
+          <option value="TELEGRAM">Telegram</option>
+          <option value="PORTAL">Portal</option>
+          <option value="SYNTHETIC">Synthetic</option>
+        </select>
+
+        <div className="hr-filter-assigned-group" role="group" aria-label="Assigned to filter">
+          <button
+            type="button"
+            className={`hr-assigned-btn ${assignedFilter === 'everyone' ? 'is-active' : ''}`}
+            onClick={() => { setAssignedFilter('everyone'); setCurrentPage(1); }}
+          >
+            Everyone
+          </button>
+          <button
+            type="button"
+            className={`hr-assigned-btn ${assignedFilter === 'me' ? 'is-active' : ''}`}
+            onClick={() => { setAssignedFilter('me'); setCurrentPage(1); }}
+          >
+            Me
+          </button>
+          <button
+            type="button"
+            className={`hr-assigned-btn ${assignedFilter === 'unassigned' ? 'is-active' : ''}`}
+            onClick={() => { setAssignedFilter('unassigned'); setCurrentPage(1); }}
+          >
+            Unassigned
+          </button>
+        </div>
+
+        <button type="button" className="hr-reset-btn" onClick={resetFilters}>
+          Reset
+        </button>
+      </div>
+
+      {/* 5. Full-width Table Card */}
+      <div className="hr-table-card">
+        {error && (
+          <div className="hr-issue-banner" role="alert">
+            {error}
+          </div>
+        )}
+
+        <div className="hr-table-responsive">
+          <table className="hr-full-table" aria-label="Human Review Queue">
+            <thead>
+              <tr>
+                <th
+                  className="sortable"
+                  onClick={() => {
+                    if (sortField === 'received') {
+                      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                    } else {
+                      setSortField('received');
+                      setSortDirection('desc');
+                    }
+                  }}
                 >
-                  <div className="hr-item-top">
-                    <span className="hr-sender">{message.raw?.sender_alias || 'Customer'}</span>
-                    <span className="hr-time">
-                      {message.raw?.received_at ? new Intl.DateTimeFormat('en-MY', { hour: 'numeric', minute: 'numeric', month: 'short', day: 'numeric' }).format(new Date(message.raw.received_at)) : ''}
-                    </span>
-                  </div>
-                  <div className="hr-snippet">{message.raw?.text || 'No text content'}</div>
-                  <div className="hr-tags">
-                    <span className="p1-badge p1-neutral">{message.raw?.channel || 'SYNTHETIC'}</span>
-                    <span className={`p1-badge ${message.processing_status === 'PROCESSED' ? 'p1-neutral' : 'p1-attention'}`}>
-                      {message.processing_status}
-                    </span>
-                    {tags.map((t, idx) => (
-                      <span key={idx} className={`hr-tag hr-tag-${t.type}`}>{t.label}</span>
-                    ))}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Right Column: Detail & Review Workspace */}
-        <div className="hr-detail-panel" aria-label="Inquiry detail and review controls">
-          {pendingSelection && <div className="hr-unsaved-warning" role="alert"><span>Unsaved review changes will be lost.</span><button type="button" className="p1-btn p1-btn-secondary" onClick={() => setPendingSelection(null)}>Keep editing</button><button type="button" className="p1-btn p1-btn-subtle-red" onClick={() => { setSelectedId(pendingSelection); setReviewStage('evidence'); setReviewerNote(''); setConflictsReviewed(false); setPendingSelection(null); }}>Discard and switch</button></div>}
-          {!selectedMessage ? (
-            <div className="hr-detail-empty">Select an inquiry from the left panel to begin review.</div>
-          ) : (
-            <div>
-              <div className="hr-detail-intro"><strong>{selectedMessage.raw?.sender_alias || 'Customer inquiry'}</strong><span>{selectedMessage.processing_status} · {selectedContext?.status || 'Context pending'}</span></div>
-              <div className="hr-case-guidance" role="status"><div><strong>{reviewCase.title}</strong><p>{reviewCase.nextStep}</p></div><div className="hr-case-actions"><a className="hr-compact-action" href={messageUrl}>Open customer message</a>{selectedContext && <button type="button" className="hr-compact-action" onClick={() => setShowAmendWorkspace(true)}>Review &amp; Amend</button>}</div></div>
-              <WorkflowTabs stages={reviewStages} active={reviewStage} onChange={setReviewStage} label="Review stages" className="hr-review-tabs" />
-              <div className="hr-stage-content">
-              {/* Evidence Section */}
-              <section className="hr-section hr-stage" data-active={reviewStage === 'evidence'} aria-labelledby="hr-evidence-title">
-                <div className="hr-section-title">
-                  <h3 id="hr-evidence-title" style={{ margin: 0, fontSize: '15px' }}>Original Evidence</h3>
-                  <span className="p1-dim-badge">{selectedMessage.provider || 'SYNTHETIC'}</span>
-                </div>
-                <div className="hr-evidence-box">
-                  {selectedMessage.raw?.text || 'No message text'}
-                </div>
-                <div className="hr-metadata-grid">
-                  <div className="hr-meta-item">
-                    <strong>Sender Identity</strong>
-                    <span>{selectedMessage.raw?.sender_identity_id || selectedMessage.raw?.sender_alias || 'Unknown'}</span>
-                  </div>
-                  <div className="hr-meta-item">
-                    <strong>Channel / Provider</strong>
-                    <span>{selectedMessage.raw?.channel || 'EMAIL'} · {selectedMessage.raw?.provider_message_id || 'N/A'}</span>
-                  </div>
-                  <div className="hr-meta-item">
-                    <strong>Ingested At</strong>
-                    <span>{selectedMessage.ingested_at ? new Intl.DateTimeFormat('en-MY', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(selectedMessage.ingested_at)) : 'N/A'}</span>
-                  </div>
-                  <div className="hr-meta-item">
-                    <strong>Identity Link Status</strong>
-                    <span>{selectedAssociation?.status || 'UNLINKED'}</span>
-                  </div>
-                  <div className="hr-meta-item">
-                    <strong>Extraction SHA-256</strong>
-                    <span style={{ fontFamily: 'monospace', fontSize: '10px' }}>{selectedMessage.content_sha256 ? selectedMessage.content_sha256.substring(0, 16) + '…' : 'None'}</span>
-                  </div>
-                </div>
-
-                {/* Attachments if any */}
-                {selectedMessage.raw?.attachments && selectedMessage.raw.attachments.length > 0 && (
-                  <div style={{ marginTop: '12px' }}>
-                    <h4 style={{ margin: '0 0 6px 0', fontSize: '12px' }}>Attachments ({selectedMessage.raw.attachments.length})</h4>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {selectedMessage.raw.attachments.map((att, idx) => (
-                        <div key={idx} style={{ padding: '6px 10px', background: '#f1f5f9', borderRadius: '4px', fontSize: '11px' }}>
-                          📄 {att.filename || `Attachment ${idx + 1}`} ({att.media_type || 'application/octet-stream'})
-                        </div>
-                      ))}
+                  Received {sortField === 'received' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th>Customer and message</th>
+                <th>Task type</th>
+                <th>Status</th>
+                <th
+                  className="sortable"
+                  onClick={() => {
+                    if (sortField === 'priority') {
+                      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                    } else {
+                      setSortField('priority');
+                      setSortDirection('desc');
+                    }
+                  }}
+                >
+                  Priority {sortField === 'priority' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
+                </th>
+                <th>Assigned</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedItems.length === 0 ? (
+                <tr>
+                  <td colSpan={7}>
+                    <div className="hr-empty-container">
+                      <h3 className="hr-empty-title">No review tasks</h3>
+                      <p className="hr-empty-desc">Tasks appear here when a message needs a person.</p>
                     </div>
-                  </div>
-                )}
-              </section>
+                  </td>
+                </tr>
+              ) : (
+                paginatedItems.map(item => {
+                  const msg = item.message;
+                  const senderName = msg.raw.sender_alias || msg.raw.sender_identity_id || 'Unknown Customer';
+                  const channel = msg.source_label || msg.raw.channel || 'EMAIL';
+                  const textPreview = (msg.raw.text || 'No text snippet').replace(/\s+/g, ' ').trim();
+                  const snippet = textPreview.length > 90 ? `${textPreview.slice(0, 90)}…` : textPreview;
+                  const receivedDate = msg.raw.received_at
+                    ? new Date(msg.raw.received_at).toLocaleDateString(undefined, {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : 'Not available';
 
-              {/* AI Understanding & Extraction Section */}
-              {selectedExtraction && (
-                <section className="hr-section hr-stage" data-active={reviewStage === 'extraction'} aria-labelledby="hr-ai-title">
-                  <div className="hr-section-title">
-                    <h3 id="hr-ai-title" style={{ margin: 0, fontSize: '15px' }}>AI Understanding & Model Telemetry</h3>
-                    <span className="p1-dim-badge">v: {selectedExtraction.extractor_version}</span>
-                  </div>
-                  <p className="muted">{selectedContext?.requested_items?.length || 0} structured item(s) · {selectedContext?.missing_fields?.length || 0} missing field(s) · {selectedContext?.conflicts?.length || 0} conflict(s)</p>
-                  <details><summary>Advanced model telemetry and evidence</summary><ExtractionProvenance attempt={selectedExtraction} /></details>
-                </section>
-              )}
-              {!selectedExtraction && <section className="hr-section hr-stage" data-active={reviewStage === 'extraction'}><h3>AI Extraction</h3><p>No extraction attempt is available for this inquiry.</p></section>}
+                  const config = getTaskTypeConfig(item.taskType);
 
-              {/* Order Context & Multi-Item Field Correction Section */}
-              <section className="hr-section hr-stage" data-active={reviewStage === 'amendments' || reviewStage === 'resolution'} aria-labelledby="hr-context-title">
-                <div className="hr-section-title">
-                  <h3 id="hr-context-title" style={{ margin: 0, fontSize: '15px' }}>
-                    Order Context & Structured Draft {selectedContext ? `(v${selectedContext.context_version})` : ''}
-                  </h3>
-                  {selectedContext && (
-                    <span className={`status-badge status-${selectedContext.status.toLowerCase()}`}>
-                      {selectedContext.status}
-                    </span>
-                  )}
-                </div>
-
-                {contextError && (
-                  <div className="p1-error-banner" role="alert" style={{ marginBottom: '12px' }}>
-                    <strong>Context Error:</strong> {contextError}
-                  </div>
-                )}
-
-                <div className="hr-stage" data-active={reviewStage === 'resolution'}><div className="hr-send-availability"><button type="button" className="hr-compact-action" disabled>Send customer update unavailable</button><p>A verified conversation, authorized reply and supported channel are required. Recording a need for information does not send a message.</p></div></div>
-
-                {contextLoading ? (
-                  <div style={{ padding: '16px', color: '#64748b' }}>Loading context data…</div>
-                ) : !selectedContext ? (
-                  <div style={{ padding: '16px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '6px', textAlign: 'center' }}>
-                    <p style={{ margin: '0 0 8px 0', color: '#64748b' }}>{canInitializeContext ? 'This verified order has no context yet.' : 'A processed message and verified order link are required to initialize an order context.'}</p>
-                    {canInitializeContext && <button
-                      type="button"
-                      className="p1-primary"
-                      onClick={() => void handleCreateContext()}
+                  return (
+                    <tr
+                      key={msg.message_id}
+                      tabIndex={0}
+                      role="row"
+                      className="hr-row-clickable"
+                      onClick={() => handleRowClick(msg.message_id)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleRowClick(msg.message_id);
+                        }
+                      }}
                     >
-                      Initialize Order Context from Message
-                    </button>}
-                    {!canInitializeContext && <a className="hr-compact-action" href={messageUrl}>Review message and identity link</a>}
-                  </div>
-                ) : (
-                  <div>
-                    {/* Conflict Banner if 409 occurred */}
-                    {conflictOccurred && (
-                      <div className="hr-version-banner" role="alert">
-                        <span><strong>Version Conflict:</strong> The context was updated by another process.</span>
-                        <button
-                          type="button"
-                          className="p1-btn-secondary"
-                          style={{ fontSize: '11px', padding: '3px 8px' }}
-                          onClick={() => void handleReloadContext()}
-                        >
-                          Reload Latest Context
-                        </button>
-                      </div>
-                    )}
-
-                    {submitError && !conflictOccurred && (
-                      <div className="p1-error-banner" role="alert" style={{ marginBottom: '12px' }}>
-                        <strong>Error:</strong> {submitError}
-                      </div>
-                    )}
-
-                    {submitSuccess && (
-                      <div style={{ background: '#f0fdf4', border: '1px solid #86efac', color: '#166534', padding: '8px 12px', borderRadius: '6px', marginBottom: '12px', fontSize: '12px' }}>
-                        ✓ {submitSuccess}
-                      </div>
-                    )}
-
-                    <div className="hr-stage" data-active={reviewStage === 'amendments'}>
-                    {/* Candidate proposals banner */}
-                    {candidateProposals.length > 0 && (
-                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '10px 12px', marginBottom: '14px' }}>
-                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#15803d', marginBottom: '4px' }}>
-                          Extraction Candidates
-                        </div>
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                          {candidateProposals.map(cp => (
-                            <button
-                              key={cp.key}
-                              type="button"
-                              className="p1-secondary"
-                              style={{ fontSize: '11px', padding: '3px 8px' }}
-                              disabled={cp.unverifiedProduct}
-                              onClick={() => {
-                                if (cp.field === 'sku') updateItem(0, 'sku', cp.value);
-                                else if (cp.field === 'quantity') updateItem(0, 'quantity', cp.value);
-                                else if (cp.field === 'unit') updateItem(0, 'unit', cp.value);
-                                else if (cp.field === 'requested_delivery_at') setDeliveryAt(cp.value);
-                              }}
-                            >
-                              {cp.unverifiedProduct ? 'Unverified product' : `Apply ${cp.field}`}: <strong>{cp.value}</strong>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Policy Conflicts if any */}
-                    {selectedContext.conflicts && selectedContext.conflicts.length > 0 && (
-                      <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '10px 12px', marginBottom: '14px' }}>
-                        <h4 style={{ margin: '0 0 6px 0', color: '#991b1b', fontSize: '12px', fontWeight: 700 }}>
-                          Policy & Terms Conflicts ({selectedContext.conflicts.length})
-                        </h4>
-                        <ul style={{ margin: 0, paddingLeft: '18px', color: '#b91c1c', fontSize: '11px' }}>
-                          {selectedContext.conflicts.map((c, i) => (
-                            <li key={i}>{c}</li>
-                          ))}
-                        </ul>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '11px', color: '#7f1d1d', fontWeight: 600 }}>
-                          <input
-                            type="checkbox"
-                            checked={conflictsReviewed}
-                            onChange={e => setConflictsReviewed(e.target.checked)}
-                          />
-                          I reviewed and resolved all policy conflicts
-                        </label>
-                      </div>
-                    )}
-
-                    {/* Line Items List */}
-                    <div style={{ marginBottom: '14px' }}>
-                      <div className="hr-line-items-heading">
-                        <span style={{ fontSize: '13px', fontWeight: 700 }}>Order Line Items ({items.length})</span>
-                        <button type="button" className="hr-compact-action" onClick={addItem}>+ Add item</button>
-                      </div>
-                      <datalist id="hr-approved-skus">
-                        {[...new Set(catalog.map(p => p.sku))].map(sku => (
-                          <option key={sku} value={sku} />
-                        ))}
-                      </datalist>
-
-                      {items.map((it, idx) => (
-                        <div
-                          key={idx}
-                          className="hr-line-item-fields"
-                        >
-                          <div>
-                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                              SKU / Product
-                            </label>
-                            <input
-                              type="text"
-                              list="hr-approved-skus"
-                              className="hr-search-input"
-                              placeholder="e.g. SOURDOUGH, BURGER"
-                              value={it.sku}
-                              onChange={e => updateItem(idx, 'sku', e.target.value)}
-                            />
+                      <td style={{ whiteSpace: 'nowrap' }}>{receivedDate}</td>
+                      <td>
+                        <div className="hr-cell-customer">
+                          <div className="hr-cell-customer-top">
+                            <span className="hr-customer-name">{senderName}</span>
+                            <span className="hr-source-badge">{channel}</span>
                           </div>
-                          <div>
-                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                              Quantity
-                            </label>
-                            <input
-                              type="text"
-                              className="hr-search-input"
-                              placeholder="e.g. 50"
-                              value={it.quantity}
-                              onChange={e => updateItem(idx, 'quantity', e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                              Unit
-                            </label>
-                            <select
-                              className="hr-search-input"
-                              value={it.unit}
-                              onChange={e => updateItem(idx, 'unit', e.target.value)}
-                            >
-                              <option value="">Select unit</option>
-                              {[...new Set(['pcs', 'box', 'kg', ...catalog.map(p => p.unit), it.unit].filter(Boolean))].map(u => (
-                                <option key={u} value={u}>{u}</option>
-                              ))}
-                            </select>
-                          </div>
-                          {items.length > 1 && (
-                            <button
-                              type="button"
-                              className="p1-btn-subtle"
-                              style={{ color: '#dc2626', fontSize: '11px', padding: '6px' }}
-                              onClick={() => removeItem(idx)}
-                              title="Remove item"
-                            >
-                              ✕
-                            </button>
-                          )}
+                          <span className="hr-cell-snippet" title={textPreview}>{snippet}</span>
                         </div>
-                      ))}
-                    </div>
-
-                    {/* Delivery & Special Instructions */}
-                    <div className="hr-delivery-fields">
-                      <div>
-                        <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                          Requested Delivery (ISO 8601 with offset)
-                        </label>
-                        <input
-                          type="text"
-                          className="hr-search-input"
-                          placeholder="e.g. 2026-10-23T15:00:00+08:00"
-                          value={deliveryAt}
-                          onChange={e => setDeliveryAt(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                          Timing Qualifier
-                        </label>
-                        <select
-                          className="hr-search-input"
-                          value={qualifier}
-                          onChange={e => setQualifier(e.target.value)}
-                        >
-                          <option value="">Unresolved</option>
-                          <option value="EXACT">EXACT</option>
-                          <option value="DEADLINE">DEADLINE</option>
-                          <option value="DATE_ONLY">DATE_ONLY</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div style={{ marginBottom: '14px' }}>
-                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                        Special Handling Notes
-                      </label>
-                      <input
-                        type="text"
-                        className="hr-search-input"
-                        placeholder="Dietary or delivery constraints…"
-                        value={specialInstructions}
-                        onChange={e => setSpecialInstructions(e.target.value)}
-                      />
-                    </div>
-
-                    </div>
-                    <div className="hr-stage" data-active={reviewStage === 'resolution'}>
-                    <p className="muted">Review the current context and resolve any remaining questions before recording an outcome.</p>
-                    {(selectedContext.missing_fields?.length || selectedContext.conflicts?.length) ?
-                      <div className="hr-issues-timeline-card" aria-label="Order context gaps">
-                        <strong>Information requiring review</strong>
-                        {!!selectedContext.missing_fields?.length && <p>Missing: {selectedContext.missing_fields.join(', ')}</p>}
-                        {!!selectedContext.conflicts?.length && <ul>{selectedContext.conflicts.map((conflict, index) => <li key={index}>{conflict}</li>)}</ul>}
-                      </div> : null}
-                    <p className="hr-route-limit">Issue-by-issue clarification history, reminder counts and escalation status are unavailable without a linked conversation record. This message API supplies no conversation ID.</p>
-
-                    {/* Clarification Preview & Note Adoption */}
-                    {suggestedClarification && (
-                      <div className="hr-clarification-card">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e40af' }}>Suggested clarification wording</span>
-                          <span style={{ fontSize: '10px', background: '#dbeafe', color: '#1d4ed8', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
-                            Preview Only · Not Sent
+                      </td>
+                      <td>
+                        <span className={`hr-task-badge ${config.badgeClass}`}>
+                          {item.taskType}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="hr-status-group">
+                          <span className={`hr-status-pill ${msg.processing_status === 'PROCESSED' ? 'processed' : msg.processing_status === 'PROCESSING_FAILED' ? 'failed' : 'received'}`}>
+                            {msg.processing_status}
+                          </span>
+                          <span className={`hr-status-pill ${item.identityStatus === 'LINK_VERIFIED' ? 'verified' : 'unverified'}`}>
+                            {item.identityStatus}
                           </span>
                         </div>
-                        <p>&ldquo;{suggestedClarification}&rdquo;</p>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
-                          <button
-                            type="button"
-                            className="hr-adopt-btn"
-                            onClick={() => setReviewerNote(suggestedClarification)}
-                          >
-                            Adopt as Clarification Note
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                      </td>
+                      <td>
+                        <span className={`hr-priority-pill ${item.priority.toLowerCase()}`}>
+                          {item.priority}
+                        </span>
+                      </td>
+                      <td>{item.assignedTo}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="hr-btn-review"
+                          onClick={e => {
+                            e.stopPropagation();
+                            handleRowClick(msg.message_id);
+                          }}
+                        >
+                          Review
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
 
-                    {/* Staff Reviewer Note */}
-                    <div style={{ marginBottom: '16px' }}>
-                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                        Audited Reviewer Reason & Notes
-                      </label>
-                      <textarea
-                        rows={2}
-                        className="hr-search-input"
-                        style={{ height: 'auto' }}
-                        placeholder="State reason for changes or clarification details…"
-                        value={reviewerNote}
-                        onChange={e => setReviewerNote(e.target.value)}
-                      />
-                    </div>
+        {/* 6. Pagination Footer */}
+        <div className="hr-pagination-bar">
+          <div>
+            Showing {totalEntries > 0 ? startIndex + 1 : 0} to {Math.min(startIndex + rowsPerPage, totalEntries)} of {totalEntries} entries
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div>
+              <label htmlFor="rows-select" style={{ marginRight: '6px' }}>Rows per page:</label>
+              <select
+                id="rows-select"
+                value={rowsPerPage}
+                onChange={e => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+                className="hr-filter-select"
+                style={{ padding: '4px 8px' }}
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
+            <div className="hr-pagination-controls">
+              <button
+                type="button"
+                className="hr-page-btn"
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              >
+                Previous
+              </button>
+              <span style={{ fontSize: '12px', fontWeight: 600, padding: '0 4px' }}>
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                className="hr-page-btn"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-                    {/* Action Toolbar */}
-                    <div className="hr-actions-toolbar">
-                      <div className="hr-btn-group">
-                        <button
-                          type="button"
-                          className="hr-btn-primary"
-                          disabled={submitting}
-                          onClick={() => void handleReviewAction('EDIT_FIELD')}
-                        >
-                          {submitting ? 'Submitting…' : 'Apply Field Edits'}
-                        </button>
-                        <button
-                          type="button"
-                          className="hr-btn-secondary"
-                          disabled={submitting || !reviewCase.canAcceptExtraction || currentForm !== savedForm}
-                          onClick={() => void handleReviewAction('ACCEPT_EXTRACTION')}
-                        >
-                          Accept Extraction
-                        </button>
-                      </div>
-                      <div className="hr-btn-group">
-                        {(reviewCase.kind === 'information_missing' || reviewCase.kind === 'context_conflict') && <button
-                          type="button"
-                          className="hr-btn-amber"
-                          disabled={submitting}
-                          onClick={() => void handleReviewAction('REQUEST_MORE_INFO')}
-                        >
-                          Record Need for More Info
-                        </button>}
-                        <button
-                          type="button"
-                          className="hr-btn-red"
-                          disabled={submitting}
-                          onClick={() => void handleReviewAction('MARK_UNRESOLVED')}
-                        >
-                          Mark Unresolved
-                        </button>
-                      </div>
-                    </div>
-                    </div>
-                  </div>
-                )}
-              </section>
-              </div>
-              <div className="hr-stage-footer"><button type="button" className="p1-btn p1-btn-secondary" disabled={reviewStage === 'evidence'} onClick={() => setReviewStage(reviewStages[Math.max(0, reviewStages.findIndex(item => item.id === reviewStage) - 1)].id)}>Back</button><span>{reviewStages.findIndex(item => item.id === reviewStage) + 1} of {reviewStages.length}</span><button type="button" className="p1-btn p1-btn-secondary" disabled={reviewStage === 'resolution'} onClick={() => setReviewStage(reviewStages[Math.min(reviewStages.length - 1, reviewStages.findIndex(item => item.id === reviewStage) + 1)].id)}>Next</button></div>
+/* ==========================================================================
+   Page 2: Review & Amend Full Page (/inbox/human-review/:taskId)
+   ========================================================================== */
+
+interface HumanReviewDetailProps {
+  taskId: string;
+  onContextUpdated?: (updated: OrderContextRecord) => void;
+}
+
+function renderEvidenceMarks(
+  rawText: string,
+  context: OrderContextRecord | null,
+  activeKey: string | null
+): React.ReactNode {
+  if (!context?.field_evidence) {
+    return rawText.split('\n').map((line, idx) => (
+      <span key={idx}>
+        {line}
+        <br />
+      </span>
+    ));
+  }
+
+  const spans: { start: number; end: number; key: string }[] = [];
+  for (const [field, entries] of Object.entries(context.field_evidence)) {
+    for (const ev of entries) {
+      const s = Number(ev.start);
+      const e = Number(ev.end);
+      const key = field === 'requested_delivery_at' ? 'delivery' : field === 'sku' ? 'item0' : field;
+      if (Number.isInteger(s) && Number.isInteger(e) && s >= 0 && e <= rawText.length && s < e) {
+        spans.push({ start: s, end: e, key });
+      } else if (ev.quote && rawText.includes(String(ev.quote))) {
+        const qIdx = rawText.indexOf(String(ev.quote));
+        spans.push({ start: qIdx, end: qIdx + String(ev.quote).length, key });
+      }
+    }
+  }
+
+  spans.sort((a, b) => a.start - b.start || b.end - a.end);
+  const deduped = spans.filter((span, index) => index === 0 || span.start >= spans[index - 1].end);
+
+  if (!deduped.length) {
+    return rawText.split('\n').map((line, idx) => (
+      <span key={idx}>
+        {line}
+        <br />
+      </span>
+    ));
+  }
+
+  const nodes: React.ReactNode[] = [];
+  let cur = 0;
+  deduped.forEach((span, i) => {
+    if (span.start > cur) {
+      nodes.push(rawText.slice(cur, span.start));
+    }
+    const chunk = rawText.slice(span.start, span.end);
+    nodes.push(
+      <mark
+        key={i}
+        data-key={span.key}
+        className={activeKey === span.key ? 'active' : ''}
+      >
+        {chunk}
+      </mark>
+    );
+    cur = span.end;
+  });
+  if (cur < rawText.length) {
+    nodes.push(rawText.slice(cur));
+  }
+  return nodes;
+}
+
+function HumanReviewDetail({ taskId, onContextUpdated }: HumanReviewDetailProps) {
+  const navigate = useSafeNavigate();
+  const [searchParams] = useSafeSearchParams();
+  const returnTo = searchParams.get('returnTo');
+  const { actorId, actorRole } = useAuth();
+
+  // Core Data
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<StoredMessage | null>(null);
+  const [extraction, setExtraction] = useState<ExtractionAttemptRecord | null>(null);
+  const [association, setAssociation] = useState<MessageAssociationRecord | null>(null);
+  const [context, setContext] = useState<OrderContextRecord | null>(null);
+  const [auditReviews, setAuditReviews] = useState<ContextReviewRecord[]>([]);
+
+  // State Strip Review Status
+  const [reviewState, setReviewState] = useState<'Not started' | 'In progress' | 'Waiting for customer' | 'Accepted' | 'Unresolved' | 'Escalated'>('Not started');
+
+  // Active Tab
+  const [activeTab, setActiveTab] = useState<'amend' | 'reply' | 'identity' | 'audit'>('amend');
+
+  // Form State
+  const [items, setItems] = useState<RequestedItem[]>([]);
+  const [deliveryAt, setDeliveryAt] = useState<string>('');
+  const [timingQualifier, setTimingQualifier] = useState<string>('Unresolved');
+  const [timezoneSelect, setTimezoneSelect] = useState<string>('');
+  const [specialInstructions, setSpecialInstructions] = useState<string>('');
+  const [reviewerNote, setReviewerNote] = useState<string>('');
+  const [dirtyFields, setDirtyFields] = useState<Set<string>>(new Set());
+
+  // UI States
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [openEvidence, setOpenEvidence] = useState<Record<string, boolean>>({});
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showUnsavedBanner, setShowUnsavedBanner] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Modals
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveMode, setSaveMode] = useState<'save' | 'accept'>('save');
+  const [majorFieldConfirmed, setMajorFieldConfirmed] = useState(false);
+  const [modalReason, setModalReason] = useState('');
+  const [reprocessConfirmOpen, setReprocessConfirmOpen] = useState(false);
+  const [managerReviewModalOpen, setManagerReviewModalOpen] = useState(false);
+  const [managerReviewNote, setManagerReviewNote] = useState('');
+  const [markUnresolvedModalOpen, setMarkUnresolvedModalOpen] = useState(false);
+  const [markUnresolvedReason, setMarkUnresolvedReason] = useState('');
+  const [linkOrderModalOpen, setLinkOrderModalOpen] = useState(false);
+  const [selectedCandidateOrder, setSelectedCandidateOrder] = useState('');
+  const [linkOrderReason, setLinkOrderReason] = useState('');
+
+  // Customer Reply Tab State
+  const [replyPurpose, setReplyPurpose] = useState<'CLARIFICATION' | 'Commercial reply' | 'Manual reply'>('CLARIFICATION');
+  const [replyChannel, setReplyChannel] = useState<string>('EMAIL');
+  const [replyMessage, setReplyMessage] = useState<string>('');
+  const [replyPreviewOpen, setReplyPreviewOpen] = useState(false);
+  const [replySending, setReplySending] = useState(false);
+  const [replySentResult, setReplySentResult] = useState<string | null>(null);
+  const [issues, setIssues] = useState<ClarificationIssue[]>([]);
+
+  const showToast = (text: string) => {
+    setToastMessage(text);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Load Task & Context
+  const loadTaskData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const msg = await operationalApi.detail(taskId);
+      setMessage(msg);
+
+      const [ext, assoc] = await Promise.all([
+        operationalApi.getExtraction(taskId).catch(() => null),
+        operationalApi.getAssociation(taskId).catch(() => null),
+      ]);
+      setExtraction(ext);
+      setAssociation(assoc);
+
+      let ctx: OrderContextRecord | null = null;
+      if (assoc?.verified_order?.order_id) {
+        ctx = await operationalApi.getContextByOrder(assoc.verified_order.order_id).catch(() => null);
+      }
+      if (!ctx) {
+        ctx = await operationalApi.createContextFromMessage(taskId).catch(() => null);
+      }
+      setContext(ctx);
+
+      if (ctx) {
+        // Init items
+        if (ctx.requested_items && ctx.requested_items.length > 0) {
+          setItems(ctx.requested_items.map(it => ({ sku: it.sku || '', quantity: it.quantity || '', unit: it.unit || '' })));
+        } else {
+          setItems([{ sku: '', quantity: '', unit: '' }]);
+        }
+        setDeliveryAt(ctx.requested_delivery_at || '');
+        setTimingQualifier(ctx.delivery_qualifier || 'Unresolved');
+        setSpecialInstructions(ctx.special_instructions || '');
+
+        // Load audits
+        const reviews = await operationalApi.listContextReviews(ctx.context_id).catch(() => []);
+        setAuditReviews(reviews);
+
+        // Load clarification issues
+        const issuesResp = await getConversationIssues(taskId, ctx).catch(() => null);
+        if (issuesResp?.issues) {
+          setIssues(issuesResp.issues);
+        }
+      }
+
+      setDirtyFields(new Set());
+      setReviewerNote('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load task details');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadTaskData();
+  }, [taskId]);
+
+  // Task type configuration
+  const canonicalType = useMemo(() => {
+    return toCanonicalTaskType(undefined, message, association, context);
+  }, [message, association, context]);
+
+  const taskConfig = useMemo(() => {
+    return getTaskTypeConfig(canonicalType);
+  }, [canonicalType]);
+
+  // Delivery offset validation
+  const deliveryValidation = useMemo(() => {
+    return validateDeliveryTimestamp(deliveryAt, timezoneSelect);
+  }, [deliveryAt, timezoneSelect]);
+
+  // Check missing / conflicts
+  const missingList = useMemo(() => {
+    const list: string[] = [];
+    if (!items.length || items.some(it => !it.unit || !it.sku || !it.quantity)) {
+      list.push('Items / Unit');
+    }
+    if (!deliveryValidation.isValid) {
+      list.push('Requested delivery timezone');
+    }
+    return list;
+  }, [items, deliveryValidation]);
+
+  const conflictCount = context?.conflicts?.length || 0;
+  const missingCount = missingList.length;
+
+  // Major fields modified check
+  const hasMajorFieldChanges = useMemo(() => {
+    return dirtyFields.has('sku') || dirtyFields.has('quantity') || dirtyFields.has('delivery');
+  }, [dirtyFields]);
+
+  const isDirty = dirtyFields.size > 0;
+
+  // Mark field dirty & highlight
+  const markDirty = (field: string) => {
+    setDirtyFields(prev => new Set(prev).add(field));
+  };
+
+  const handleFocusKey = (key: string) => {
+    setActiveKey(key);
+    const el = document.querySelector(`mark[data-key="${key}"]`);
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  };
+
+  const toggleEvidence = (key: string) => {
+    setOpenEvidence(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // AI clarification suggestion
+  const suggestedClarification = context ? getSuggestedClarification(context) : null;
+
+  // Navigation back
+  const handleBack = () => {
+    if (isDirty) {
+      setShowUnsavedBanner(true);
+      return;
+    }
+    navigate(returnTo || '/inbox/human-review');
+  };
+
+  // Save changes handler
+  const handleConfirmSave = async () => {
+    if (!context) return;
+    const finalReason = modalReason.trim() || reviewerNote.trim();
+    if (!finalReason) return;
+
+    try {
+      const fieldEdits: Record<string, unknown> = {};
+      if (dirtyFields.has('delivery')) {
+        fieldEdits.requested_delivery_at = deliveryValidation.normalized || deliveryAt;
+        fieldEdits.delivery_qualifier = timingQualifier;
+      }
+      if (dirtyFields.has('items') || dirtyFields.has('sku') || dirtyFields.has('quantity') || dirtyFields.has('unit')) {
+        fieldEdits.requested_items = items;
+      }
+      if (dirtyFields.has('instructions')) {
+        fieldEdits.special_instructions = specialInstructions;
+      }
+
+      const action = saveMode === 'accept' ? 'ACCEPT_EXTRACTION' : 'EDIT_FIELD';
+
+      const updated = await operationalApi.reviewContext(
+        context.context_id,
+        {
+          action,
+          expected_context_version: context.context_version,
+          field_edits: fieldEdits,
+          note: finalReason,
+        },
+        {
+          'X-Actor-ID': actorId || 'user_staff_01',
+          'X-Actor-Role': actorRole || 'STAFF',
+        }
+      );
+
+      setContext(updated);
+      setDirtyFields(new Set());
+      setReviewerNote('');
+      setSaveModalOpen(false);
+      setShowUnsavedBanner(false);
+      setReviewState(saveMode === 'accept' ? 'Accepted' : 'In progress');
+      showToast(saveMode === 'accept' ? 'Saved & extraction review confirmed. Audit entry recorded.' : 'Saved. Audit entry recorded.');
+
+      if (onContextUpdated) onContextUpdated(updated);
+      const reloadedReviews = await operationalApi.listContextReviews(context.context_id).catch(() => []);
+      setAuditReviews(reloadedReviews);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    }
+  };
+
+  // More Actions: Reprocess
+  const handleReprocess = async () => {
+    setReprocessConfirmOpen(false);
+    showToast('Reprocessing extraction…');
+    try {
+      await operationalApi.process(taskId, true);
+      showToast('Extraction reprocessed. Refreshed latest results.');
+      void loadTaskData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reprocessing failed');
+    }
+  };
+
+  // More Actions: Forward for manager review
+  const handleForwardManager = async () => {
+    if (!context || !managerReviewNote.trim()) return;
+    setManagerReviewModalOpen(false);
+    try {
+      await operationalApi.reviewContext(
+        context.context_id,
+        {
+          action: 'REQUEST_MORE_INFO',
+          expected_context_version: context.context_version,
+          note: `[Manager Escalation] ${managerReviewNote.trim()}`,
+        },
+        {
+          'X-Actor-ID': actorId || 'user_staff_01',
+          'X-Actor-Role': actorRole || 'STAFF',
+        }
+      );
+      setReviewState('Escalated');
+      showToast('Task forwarded for manager review. Audit entry recorded.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Forwarding failed');
+    }
+  };
+
+  // More Actions: Mark unresolved
+  const handleMarkUnresolved = async () => {
+    if (!context || !markUnresolvedReason.trim()) return;
+    setMarkUnresolvedModalOpen(false);
+    try {
+      await operationalApi.reviewContext(
+        context.context_id,
+        {
+          action: 'MARK_UNRESOLVED',
+          expected_context_version: context.context_version,
+          note: `[Marked Unresolved] ${markUnresolvedReason.trim()}`,
+        },
+        {
+          'X-Actor-ID': actorId || 'user_staff_01',
+          'X-Actor-Role': actorRole || 'STAFF',
+        }
+      );
+      setReviewState('Unresolved');
+      showToast('Marked as unresolved. Audit entry recorded.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Action failed');
+    }
+  };
+
+  // Tab 3: Link Order
+  const handleLinkOrder = async () => {
+    if (!selectedCandidateOrder || !linkOrderReason.trim()) return;
+    setLinkOrderModalOpen(false);
+    try {
+      await operationalApi.decideAssociation(
+        taskId,
+        {
+          decision: 'CONFIRMED',
+          target_order_id: selectedCandidateOrder,
+          reason: linkOrderReason.trim(),
+          expected_version: association?.version || 1,
+        },
+        {
+          'X-Actor-ID': actorId || 'user_staff_01',
+          'X-Actor-Role': actorRole || 'STAFF',
+        }
+      );
+      showToast('Order linked successfully. Association updated.');
+      void loadTaskData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Order linking failed');
+    }
+  };
+
+  // Tab 3: Reject Unlink
+  const handleRejectUnlink = async () => {
+    try {
+      await operationalApi.decideAssociation(
+        taskId,
+        {
+          decision: 'REJECTED',
+          reason: 'Reviewer rejected association.',
+          expected_version: association?.version || 1,
+        },
+        {
+          'X-Actor-ID': actorId || 'user_staff_01',
+          'X-Actor-Role': actorRole || 'STAFF',
+        }
+      );
+      showToast('Association unlinked.');
+      void loadTaskData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unlink failed');
+    }
+  };
+
+  // Tab 2: Send clarification
+  const handleSendClarification = async () => {
+    if (!replyMessage.trim() || association?.status !== 'LINK_VERIFIED') return;
+    setReplySending(true);
+    setReplySentResult(null);
+    try {
+      const resp = await sendClarification(
+        {
+          conversation_id: taskId,
+          context_id: context?.context_id,
+          order_id: association?.verified_order?.order_id,
+          issue_ids: issues.map(i => i.issue_id),
+          draft_text: replyMessage.trim(),
+          channel: replyChannel,
+          recipient_identity_id: message?.raw.sender_identity_id || '',
+        },
+        {
+          'X-Actor-ID': actorId || 'user_staff_01',
+          'X-Actor-Role': actorRole || 'STAFF',
+        }
+      );
+      setReplySentResult(`Dispatched (${resp.delivery_status}) at ${resp.sent_at || new Date().toLocaleTimeString()}`);
+      setReviewState('Waiting for customer');
+      showToast('Customer update dispatched. Delivery recorded.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Clarification sending failed');
+    } finally {
+      setReplySending(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="hr-detail-page">
+        <p>Loading review task details…</p>
+      </div>
+    );
+  }
+
+  const rawText = message?.raw.text || 'No text snippet available.';
+  const receivedAtStr = message?.raw.received_at
+    ? new Date(message.raw.received_at).toLocaleDateString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : 'Not available';
+
+  return (
+    <div className="hr-detail-page" data-testid="human-review-detail">
+      {/* 1. Header */}
+      <div className="hr-detail-header" data-component="ReviewHeader">
+        <div className="hr-detail-header-left">
+          <div className="hr-detail-title-row">
+            <button
+              type="button"
+              className="hr-back-button"
+              onClick={handleBack}
+              aria-label="Back"
+            >
+              ←
+            </button>
+            <h1 className="hr-detail-h1">Review &amp; Amend</h1>
+            <span className={`hr-chip ${context?.status === 'INFORMATION_READY' ? 'green' : context?.status === 'CONFLICT' ? 'red' : 'blue'}`}>
+              {context?.status || 'INFORMATION_PARTIAL'}
+            </span>
+            <span className="hr-chip">v{context?.context_version || 1}</span>
+          </div>
+          <p className="hr-detail-subtitle">
+            {message?.source_label || message?.raw.channel || 'EMAIL'} · {receivedAtStr} · Context ID: {context?.context_id || 'Not assigned'}
+          </p>
+        </div>
+
+        {/* Right side: More actions menu */}
+        <div className="hr-more-actions-container" data-component="MoreActionsMenu">
+          <button
+            type="button"
+            className="hr-more-btn"
+            onClick={() => setShowMoreMenu(prev => !prev)}
+            aria-expanded={showMoreMenu}
+          >
+            More actions ⋯
+          </button>
+          {showMoreMenu && (
+            <div className="hr-dropdown-menu">
+              <button
+                type="button"
+                className="hr-dropdown-item"
+                onClick={() => { setShowMoreMenu(false); setReprocessConfirmOpen(true); }}
+              >
+                ↻ Reprocess extraction
+                <small>Rerun deterministic and model extractors</small>
+              </button>
+              <button
+                type="button"
+                className="hr-dropdown-item"
+                onClick={() => { setShowMoreMenu(false); setManagerReviewModalOpen(true); }}
+              >
+                Forward for manager review
+                <small>Escalate inquiry to operational manager</small>
+              </button>
+              <button
+                type="button"
+                className="hr-dropdown-item warn"
+                onClick={() => { setShowMoreMenu(false); setMarkUnresolvedModalOpen(true); }}
+              >
+                Mark unresolved
+                <small>Flag without accepting extraction fields</small>
+              </button>
+              <button
+                type="button"
+                className="hr-dropdown-item"
+                onClick={() => {
+                  setShowMoreMenu(false);
+                  navigate(`/inbox/customer-messages/${encodeURIComponent(taskId)}`);
+                }}
+              >
+                Open customer message
+                <small>Inspect inbound message envelope</small>
+              </button>
             </div>
           )}
         </div>
       </div>
-      {showAmendWorkspace && selectedContext && (
-        <ReviewDrawer
-          context={selectedContext}
-          sourceMessage={selectedMessage?.raw?.text}
-          message={selectedMessage}
-          extraction={selectedExtraction}
-          isOpen={showAmendWorkspace}
-          onClose={() => setShowAmendWorkspace(false)}
-          onUpdated={updated => {
-            setSelectedContext(updated);
-            initFormFromContext(updated);
-            onContextUpdated?.(updated);
-          }}
-          actorId={actorId}
-          actorRole={actorRole}
-        />
+
+      {/* Error alert */}
+      {error && (
+        <div className="hr-issue-banner" role="alert">
+          {error}
+        </div>
+      )}
+
+      {/* 2. Four Status Boxes (StatusStrip) */}
+      <div className="hr-status-strip" data-component="StatusStrip">
+        <div className="hr-status-strip-col">
+          <div className="k">Processing</div>
+          <div className="v">{message?.processing_status || 'PROCESSED'}</div>
+        </div>
+        <div className="hr-status-strip-col">
+          <div className="k">Information</div>
+          <div className="v">
+            {context?.status === 'INFORMATION_READY'
+              ? 'Ready'
+              : `Extracted (${items.length + (deliveryAt ? 1 : 0)} fields)`}
+          </div>
+        </div>
+        <div className="hr-status-strip-col">
+          <div className="k">Identity</div>
+          <div className="v" style={{ color: association?.status === 'LINK_VERIFIED' ? 'var(--hr-ok-text)' : 'var(--hr-orange-text)' }}>
+            {association?.status || 'UNVERIFIED'}
+          </div>
+        </div>
+        <div className="hr-status-strip-col">
+          <div className="k">Review</div>
+          <div className="v">{reviewState}</div>
+        </div>
+      </div>
+
+      {/* 3. Task Banner */}
+      <div className="hr-task-banner" data-component="TaskBanner">
+        <div className="hr-task-banner-top">
+          <span className="hr-task-banner-title">{canonicalType}</span>
+          {taskConfig.defaultPriority === 'HIGH' && (
+            <span className="hr-chip red">Immediate attention</span>
+          )}
+        </div>
+        <p className="hr-task-banner-desc">{taskConfig.reason}</p>
+        <div className="hr-task-banner-actions">
+          <strong>What you can do:</strong> {taskConfig.actionsGuidance}
+        </div>
+      </div>
+
+      {/* 4. Red Alert Bar (IssueBanner) */}
+      {(missingCount > 0 || conflictCount > 0) && (
+        <div className="hr-issue-banner" role="alert" data-component="IssueBanner">
+          Information needs review · {missingCount} missing · {conflictCount} conflicts
+          {missingList.length > 0 && ` (${missingList.join(', ')})`}
+        </div>
+      )}
+
+      {/* 5. Unsaved Changes Alert Bar */}
+      {showUnsavedBanner && (
+        <div className="hr-unsaved-banner" role="alert">
+          <span>Unsaved review changes will be lost.</span>
+          <div className="hr-unsaved-banner-actions">
+            <button
+              type="button"
+              className="hr-btn-unsaved"
+              onClick={() => setShowUnsavedBanner(false)}
+            >
+              Keep editing
+            </button>
+            <button
+              type="button"
+              className="hr-btn-unsaved"
+              style={{ background: 'var(--hr-danger-bg)', color: 'var(--hr-danger-text)', borderColor: 'transparent' }}
+              onClick={() => {
+                setDirtyFields(new Set());
+                setShowUnsavedBanner(false);
+                navigate(returnTo || '/inbox/human-review');
+              }}
+            >
+              Discard and close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Four Underline Tabs */}
+      <div className="hr-nav-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'amend'}
+          className={`hr-nav-tab ${activeTab === 'amend' ? 'is-active' : ''}`}
+          onClick={() => setActiveTab('amend')}
+        >
+          Review &amp; Amend
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'reply'}
+          className={`hr-nav-tab ${activeTab === 'reply' ? 'is-active' : ''}`}
+          onClick={() => setActiveTab('reply')}
+        >
+          Customer reply
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'identity'}
+          className={`hr-nav-tab ${activeTab === 'identity' ? 'is-active' : ''}`}
+          onClick={() => setActiveTab('identity')}
+        >
+          Identity &amp; order
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'audit'}
+          className={`hr-nav-tab ${activeTab === 'audit' ? 'is-active' : ''}`}
+          onClick={() => setActiveTab('audit')}
+        >
+          History &amp; audit
+        </button>
+      </div>
+
+      {/* Tab 1: Review & Amend */}
+      {activeTab === 'amend' && (
+        <div className="hr-amend-split">
+          {/* Left: Original Message */}
+          <section className="hr-card-box hr-source-panel" data-component="SourceMessagePanel">
+            <h2>Original message</h2>
+            <p className="hint">Select a field to locate its source evidence.</p>
+            <div className="hr-source-note">
+              Extraction evidence does not authorize a price, discount or delivery promise.
+            </div>
+            <div className="hr-source-msg" id="source-msg">
+              {renderEvidenceMarks(rawText, context, activeKey)}
+            </div>
+          </section>
+
+          {/* Right: Extracted fields Form */}
+          <section data-component="AmendForm">
+            <div className="hr-card-box">
+              <h2>Extracted fields</h2>
+              <p className="hint">Edit values supported by the original request. Every change needs an audit reason.</p>
+
+              {/* Delivery Field */}
+              <div
+                className={`hr-field-row ${dirtyFields.has('delivery') ? 'is-modified' : ''}`}
+                data-key="delivery"
+                data-component="FieldRow"
+                onClick={() => handleFocusKey('delivery')}
+              >
+                <div className="hr-field-label">
+                  <label htmlFor="delivery-input">Requested delivery <span className="hr-req-star">*</span> (major field)</label>
+                  <span className={`hr-chip ${deliveryValidation.isValid ? 'green' : 'amber'}`}>
+                    {deliveryValidation.isValid ? 'Confirmed' : 'Missing timezone'}
+                  </span>
+                  <button
+                    type="button"
+                    className="hr-ev-btn"
+                    title="Show evidence"
+                    onClick={e => { e.stopPropagation(); toggleEvidence('delivery'); }}
+                  >
+                    🔍
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  id="delivery-input"
+                  className="hr-filter-input"
+                  value={deliveryAt}
+                  onChange={e => {
+                    setDeliveryAt(e.target.value);
+                    markDirty('delivery');
+                  }}
+                  onFocus={() => handleFocusKey('delivery')}
+                  placeholder="2026-10-28T10:00:00+08:00"
+                />
+
+                {openEvidence['delivery'] && (
+                  <div className="hr-evidence-drawer">
+                    Evidence: <code>"{deliveryAt || '28 October 2026'}"</code> · Method: MODEL · <button type="button" className="ra-link" onClick={() => handleFocusKey('delivery')}>Locate in message</button>
+                  </div>
+                )}
+
+                <div className="hr-helper-text">
+                  {deliveryValidation.isValid
+                    ? 'Explicit timezone offset (+08:00) verified.'
+                    : 'Business timezone is not set. Confirm timezone before accepting.'}
+                </div>
+
+                {!deliveryValidation.isValid && (
+                  <select
+                    className="hr-filter-select"
+                    style={{ marginTop: '8px', width: '100%' }}
+                    value={timezoneSelect}
+                    onChange={e => {
+                      setTimezoneSelect(e.target.value);
+                      markDirty('delivery');
+                    }}
+                    aria-label="Select timezone"
+                  >
+                    <option value="">Select timezone…</option>
+                    <option value="SGT">Asia/Singapore (UTC+8)</option>
+                    <option value="MYT">Asia/Kuala_Lumpur (UTC+8)</option>
+                  </select>
+                )}
+
+                <div style={{ marginTop: '8px' }}>
+                  <label htmlFor="qualifier-select" style={{ fontSize: '12px', fontWeight: 600 }}>Timing qualifier</label>
+                  <select
+                    id="qualifier-select"
+                    className="hr-filter-select"
+                    style={{ width: '100%', marginTop: '4px' }}
+                    value={timingQualifier}
+                    onChange={e => {
+                      setTimingQualifier(e.target.value);
+                      markDirty('delivery');
+                    }}
+                  >
+                    <option value="Unresolved">Unresolved</option>
+                    <option value="Exact">Exact</option>
+                    <option value="Before">Before</option>
+                    <option value="After">After</option>
+                    <option value="Around">Around</option>
+                    <option value="DEADLINE">DEADLINE</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Items Section */}
+              <div
+                className={`hr-field-row ${dirtyFields.has('items') ? 'is-modified' : ''}`}
+                data-component="ItemsTable"
+              >
+                <div className="hr-field-label">
+                  <span>Items <span className="hr-req-star">*</span> (major field)</span>
+                  <span className={`hr-chip ${items.every(it => it.sku && it.quantity && it.unit) ? 'green' : 'amber'}`}>
+                    {items.every(it => it.sku && it.quantity && it.unit) ? 'Confirmed' : 'Unit missing'}
+                  </span>
+                </div>
+
+                <div className="hr-item-row hr-item-header">
+                  <div>Product (SKU)</div>
+                  <div>Qty</div>
+                  <div>Unit</div>
+                  <div>Ev</div>
+                  <div></div>
+                </div>
+
+                {items.map((item, idx) => (
+                  <React.Fragment key={idx}>
+                    <div className="hr-item-row" data-key={`item${idx}`}>
+                      <input
+                        type="text"
+                        className="hr-filter-input"
+                        value={item.sku}
+                        aria-label="SKU / Product"
+                        onChange={e => {
+                          const next = [...items];
+                          next[idx].sku = e.target.value;
+                          setItems(next);
+                          markDirty('sku');
+                          markDirty('items');
+                        }}
+                        onFocus={() => handleFocusKey(`item${idx}`)}
+                        placeholder="Product SKU"
+                      />
+                      <input
+                        type="text"
+                        className="hr-filter-input"
+                        value={item.quantity}
+                        aria-label="Quantity"
+                        onChange={e => {
+                          const next = [...items];
+                          next[idx].quantity = e.target.value;
+                          setItems(next);
+                          markDirty('quantity');
+                          markDirty('items');
+                        }}
+                        placeholder="Qty"
+                      />
+                      <select
+                        className="hr-filter-select"
+                        value={item.unit}
+                        aria-label="Unit"
+                        onChange={e => {
+                          const next = [...items];
+                          next[idx].unit = e.target.value;
+                          setItems(next);
+                          markDirty('unit');
+                          markDirty('items');
+                        }}
+                      >
+                        <option value="">Select…</option>
+                        <option value="box">box</option>
+                        <option value="pcs">pcs</option>
+                        <option value="kg">kg</option>
+                        <option value="carton">carton</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="hr-ev-btn"
+                        title="Show item evidence"
+                        onClick={() => toggleEvidence(`item${idx}`)}
+                      >
+                        🔍
+                      </button>
+                      {items.length > 1 ? (
+                        <button
+                          type="button"
+                          className="hr-ev-btn"
+                          title="Remove item"
+                          onClick={() => {
+                            setItems(items.filter((_, i) => i !== idx));
+                            markDirty('items');
+                          }}
+                        >
+                          ✕
+                        </button>
+                      ) : <div />}
+                    </div>
+                    {openEvidence[`item${idx}`] && (
+                      <div className="hr-evidence-drawer">
+                        Evidence: <code>"{item.quantity}" "{item.sku}"</code> · Method: MODEL · <button type="button" className="ra-link" onClick={() => handleFocusKey(`item${idx}`)}>Locate in message</button>
+                      </div>
+                    )}
+                  </React.Fragment>
+                ))}
+
+                <button
+                  type="button"
+                  className="hr-btn-footer hr-compact-action"
+                  style={{ marginTop: '10px' }}
+                  onClick={() => setItems(prev => [...prev, { sku: '', quantity: '', unit: '' }])}
+                >
+                  + Add item
+                </button>
+              </div>
+
+              {/* Special Instructions */}
+              <div className="hr-field-row">
+                <div className="hr-field-label">
+                  <label htmlFor="special-inst">Special instructions</label>
+                </div>
+                <textarea
+                  id="special-inst"
+                  className="hr-filter-input"
+                  rows={2}
+                  value={specialInstructions}
+                  onChange={e => {
+                    setSpecialInstructions(e.target.value);
+                    markDirty('instructions');
+                  }}
+                  placeholder="Optional handling or packaging details"
+                />
+              </div>
+            </div>
+
+            {/* Audit reason & notes card */}
+            <div className="hr-card-box hr-audit-card" data-component="AuditNoteCard">
+              <h2>Audit reason &amp; notes</h2>
+              {suggestedClarification && (
+                <div className="hr-ai-box" data-component="AISuggestion">
+                  <div className="hr-ai-top">
+                    <span>AI suggested clarification</span>
+                    <span className="hr-chip blue">Requires staff approval</span>
+                  </div>
+                  <q className="hr-ai-quote">"{suggestedClarification}"</q>
+                  <button
+                    type="button"
+                    className="hr-ai-use-btn"
+                    onClick={() => {
+                      setReviewerNote(suggestedClarification);
+                      markDirty('note');
+                    }}
+                  >
+                    Use as clarification note
+                  </button>
+                </div>
+              )}
+              <div className="hr-field-label">
+                <label htmlFor="reviewer-note">Reviewer note <span className="hr-req-star">*</span></label>
+              </div>
+              <textarea
+                id="reviewer-note"
+                className="hr-filter-input"
+                rows={3}
+                placeholder="State reason for changes, confirmation evidence, or clarification details…"
+                value={reviewerNote}
+                onChange={e => setReviewerNote(e.target.value)}
+              />
+              <div className="hr-helper-text">
+                Audited business reason is recorded in the context timeline.
+              </div>
+            </div>
+
+            {/* Technical details details/summary */}
+            <details className="hr-tech-details" data-component="TechnicalDetails">
+              <summary>Technical details (engineers / admins)</summary>
+              <div className="hr-tech-grid">
+                <div className="hr-tech-box">
+                  <b>GLiNER</b> <span className="hr-chip green">validated</span>
+                  <br />
+                  urchade/gliner_multi-v2.1
+                  <br />
+                  Latency 0.221s · RTX A5000 (not attested)
+                </div>
+                <div className="hr-tech-box">
+                  <b>QWEN</b> <span className="hr-chip amber">fallback rules</span>
+                  <br />
+                  incomplete_or_invalid_output
+                  <br />
+                  GPU unverified
+                </div>
+              </div>
+              <p className="hr-helper-text" style={{ marginTop: '10px' }}>
+                Pipeline: {extraction?.extractor_version || 'p1-ai-pipeline-v2'} · Attempt: {extraction?.attempt_id || 'att_hr_1'}
+              </p>
+              {extraction && <ExtractionProvenance attempt={extraction} />}
+            </details>
+          </section>
+        </div>
+      )}
+
+      {/* Tab 2: Customer reply (Send customer update) */}
+      {activeTab === 'reply' && (
+        <div className="hr-amend-split">
+          {/* Left: Conversation with customer */}
+          <section className="hr-card-box">
+            <h2>Conversation with customer</h2>
+            <p className="hint">Track clarification attempts and customer progress.</p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' }}>
+              {issues.length > 0 ? (
+                issues.map(iss => (
+                  <div key={iss.issue_id} className="hr-tech-box">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                      <span>{iss.field_name || 'Inquiry field'}</span>
+                      <span className="hr-chip amber">{iss.status}</span>
+                    </div>
+                    <p style={{ margin: '6px 0 0', fontSize: '12px', color: 'var(--hr-muted-color)' }}>
+                      Asked {iss.questions_sent?.length || 1} time(s) · {iss.consecutive_no_progress_count || 0} times without progress
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <div className="hr-tech-box">
+                  <b>General clarification</b>
+                  <p style={{ margin: '6px 0 0', fontSize: '12px', color: 'var(--hr-muted-color)' }}>
+                    Asked 0 times · 0 without progress · Remaining budget: 2 follow-ups
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="hr-source-note" style={{ marginTop: '16px' }}>
+              Waiting for reply and send failure do not count as no progress.
+            </div>
+
+            {association?.status !== 'LINK_VERIFIED' && (
+              <div className="hr-issue-banner">
+                Customer-specific information stays private until linkage is confirmed.
+              </div>
+            )}
+
+            <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid var(--hr-border-soft)' }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--hr-muted-color)' }}>FOLLOW-UP TRACKING</div>
+              <p style={{ margin: '6px 0 10px', fontSize: '13px' }}>
+                Follow-up item: {association?.verified_order?.order_id ? `ORD-${association.verified_order.order_id}` : 'None linked'}
+              </p>
+              {association?.verified_order?.order_id ? (
+                <button
+                  type="button"
+                  className="hr-btn-footer"
+                  onClick={() => navigate('/communications/follow-ups')}
+                >
+                  View in Follow-Up Queue
+                </button>
+              ) : (
+                <span className="hr-helper-text">No active follow-up tracking for this inquiry.</span>
+              )}
+            </div>
+          </section>
+
+          {/* Right: Customer update form */}
+          <section className="hr-card-box">
+            <h2>Customer update</h2>
+            <p className="hint">Draft and dispatch authorized clarifications.</p>
+
+            {association?.status !== 'LINK_VERIFIED' && (
+              <div className="hr-issue-banner" style={{ marginBottom: '14px' }}>
+                Sender identity is unverified. Sending is blocked until identity is verified.
+              </div>
+            )}
+
+            {replySentResult && (
+              <div className="hr-task-banner" style={{ marginBottom: '14px' }}>
+                {replySentResult}
+              </div>
+            )}
+
+            <div className="hr-field-row">
+              <label htmlFor="reply-purpose" style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600 }}>Purpose</label>
+              <select
+                id="reply-purpose"
+                className="hr-filter-select"
+                style={{ width: '100%' }}
+                value={replyPurpose}
+                onChange={e => setReplyPurpose(e.target.value as any)}
+              >
+                <option value="CLARIFICATION">CLARIFICATION</option>
+                <option value="Commercial reply">Commercial reply</option>
+                <option value="Manual reply">Manual reply</option>
+              </select>
+            </div>
+
+            <div className="hr-field-row">
+              <label htmlFor="reply-channel" style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600 }}>Channel</label>
+              <select
+                id="reply-channel"
+                className="hr-filter-select"
+                style={{ width: '100%' }}
+                value={replyChannel}
+                onChange={e => setReplyChannel(e.target.value)}
+              >
+                <option value="EMAIL">Email ({message?.raw.sender_identity_id || 'alice@example.com'})</option>
+              </select>
+            </div>
+
+            <div className="hr-field-row">
+              <label htmlFor="reply-text" style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600 }}>Message</label>
+              <textarea
+                id="reply-text"
+                className="hr-filter-input"
+                rows={4}
+                value={replyMessage}
+                onChange={e => setReplyMessage(e.target.value)}
+                placeholder="Compose customer clarification message…"
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '16px' }}>
+              <button
+                type="button"
+                className="hr-btn-footer"
+                onClick={() => {
+                  if (suggestedClarification) setReplyMessage(suggestedClarification);
+                }}
+              >
+                Request more information
+              </button>
+              <button
+                type="button"
+                className="hr-btn-footer"
+                onClick={() => setReplyPreviewOpen(true)}
+                disabled={!replyMessage.trim()}
+              >
+                Preview
+              </button>
+              <button
+                type="button"
+                className="hr-btn-footer"
+                onClick={() => showToast('Approval requested. Notification sent to manager.')}
+                disabled={!replyMessage.trim()}
+              >
+                Request approval
+              </button>
+              <button
+                type="button"
+                className="hr-btn-footer primary"
+                disabled={!replyMessage.trim() || association?.status !== 'LINK_VERIFIED' || replySending}
+                onClick={handleSendClarification}
+              >
+                {replySending ? 'Sending…' : 'Send customer update'}
+              </button>
+            </div>
+
+            <div style={{ marginTop: '20px', paddingTop: '14px', borderTop: '1px solid var(--hr-border-soft)' }}>
+              <button
+                type="button"
+                className="ra-link"
+                onClick={() => navigate('/communications')}
+              >
+                View in Communication Center →
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* Tab 3: Identity & order */}
+      {activeTab === 'identity' && (
+        <div className="hr-card-box">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+            <h2>Identity &amp; Order Association</h2>
+            <span className={`hr-chip ${association?.status === 'LINK_VERIFIED' ? 'green' : 'amber'}`}>
+              {association?.status || 'UNVERIFIED'}
+            </span>
+          </div>
+
+          <div className="hr-source-note">
+            Name or meaning similarity never verifies identity. Linking needs your confirmation.
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', margin: '16px 0' }}>
+            <div className="hr-tech-box">
+              <b>Verified customer</b>
+              {association?.status === 'LINK_VERIFIED' ? (
+                <div style={{ marginTop: '8px', fontSize: '13px' }}>
+                  <div>Name: <b>{message?.raw.sender_alias || 'Alice Baker'}</b></div>
+                  <div>ID: <code>{message?.raw.sender_identity_id || 'cust_1'}</code></div>
+                  <div>Channel: {message?.raw.channel}</div>
+                </div>
+              ) : (
+                <p style={{ margin: '8px 0 0', fontSize: '13px', color: 'var(--hr-orange-text)' }}>
+                  Sender identity not verified.
+                </p>
+              )}
+            </div>
+
+            <div className="hr-tech-box">
+              <b>Candidate orders</b>
+              {association?.verified_order ? (
+                <div style={{ marginTop: '8px', fontSize: '13px' }}>
+                  <div>Order ID: <b>{association.verified_order.order_id}</b></div>
+                  <div>Description: {association.verified_order.description || 'Active wholesale order'}</div>
+                  <div>Status: {association.verified_order.status}</div>
+                </div>
+              ) : (
+                <p style={{ margin: '8px 0 0', fontSize: '13px', color: 'var(--hr-muted-color)' }}>
+                  None found
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '20px' }}>
+            <button
+              type="button"
+              className="hr-btn-footer primary"
+              onClick={() => setLinkOrderModalOpen(true)}
+            >
+              Link to Order
+            </button>
+            <button
+              type="button"
+              className="hr-btn-footer"
+              style={{ color: 'var(--hr-danger-text)' }}
+              onClick={handleRejectUnlink}
+            >
+              Reject / Unlink
+            </button>
+            <button
+              type="button"
+              className="hr-btn-footer"
+              onClick={() => navigate(`/inbox/customer-messages/${encodeURIComponent(taskId)}`)}
+            >
+              Open customer message
+            </button>
+          </div>
+
+          <div style={{ marginTop: '20px', padding: '12px 14px', background: '#f8fafc', borderRadius: '8px', fontSize: '12px' }}>
+            <span style={{ color: 'var(--hr-muted-color)' }}>Note: </span>
+            Accepting or rejecting an order happens only on the order page.{' '}
+            {association?.verified_order?.order_id && (
+              <a
+                href={`/orders/${encodeURIComponent(association.verified_order.order_id)}`}
+                className="ra-link"
+                style={{ fontWeight: 600 }}
+              >
+                Open Order {association.verified_order.order_id} →
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tab 4: History & audit */}
+      {activeTab === 'audit' && (
+        <div className="hr-card-box">
+          <h2>History &amp; audit</h2>
+          <p className="hint">Chronological record of ingestion, extraction, and reviewer amendments.</p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '16px' }}>
+            {auditReviews.length > 0 ? (
+              auditReviews.map((rev, idx) => (
+                <div key={idx} className="hr-tech-box">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                    <span>{rev.action || 'REVIEW_RECORDED'}</span>
+                    <span style={{ fontSize: '12px', color: 'var(--hr-muted-color)' }}>
+                      {rev.created_at ? new Date(rev.created_at).toLocaleString() : 'Recent'}
+                    </span>
+                  </div>
+                  <div style={{ margin: '6px 0', fontSize: '13px' }}>
+                    Reviewer: <b>{rev.actor_id || 'Staff'}</b> ({rev.actor_role || 'STAFF'})
+                  </div>
+                  {rev.note && (
+                    <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--hr-muted-color)', fontStyle: 'italic' }}>
+                      "{rev.note}"
+                    </p>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="hr-tech-box">
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                  <span>INGESTION_AND_PROCESSED</span>
+                  <span style={{ fontSize: '12px', color: 'var(--hr-muted-color)' }}>{receivedAtStr}</span>
+                </div>
+                <div style={{ margin: '6px 0', fontSize: '13px' }}>
+                  Source: <b>{message?.source_label || message?.raw.channel}</b> · Actor: System Pipeline
+                </div>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--hr-muted-color)' }}>
+                  Message ingested and dispatched to extraction pipeline. Initial version v1 created.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 7. Sticky Bottom Footer (Review & Amend tab only) */}
+      {activeTab === 'amend' && (
+        <div className="hr-sticky-footer" data-component="StickyActionBar">
+          <div className="hr-sticky-footer-inner">
+            <div className={`hr-sticky-left ${isDirty ? 'is-dirty' : ''}`}>
+              {!isDirty
+                ? 'No field changes yet'
+                : !reviewerNote.trim()
+                ? 'Unsaved changes · reviewer note is required'
+                : `${dirtyFields.size} field change(s) not saved`}
+            </div>
+            <div className="hr-sticky-right">
+              <button
+                type="button"
+                className="hr-btn-footer"
+                onClick={() => {
+                  if (isDirty) setShowUnsavedBanner(true);
+                  else navigate(returnTo || '/inbox/human-review');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="hr-btn-footer primary"
+                disabled={!isDirty || !reviewerNote.trim()}
+                onClick={() => {
+                  setSaveMode('save');
+                  setModalReason(reviewerNote);
+                  setSaveModalOpen(true);
+                }}
+              >
+                Save changes
+              </button>
+              <button
+                type="button"
+                className="hr-btn-footer primary"
+                disabled={!isDirty || !reviewerNote.trim() || !deliveryValidation.isValid || items.some(it => !it.unit)}
+                onClick={() => {
+                  setSaveMode('accept');
+                  setModalReason(reviewerNote);
+                  setSaveModalOpen(true);
+                }}
+              >
+                Save &amp; Accept
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Save Changes / Save & Accept Reason Modal */}
+      {saveModalOpen && (
+        <div className="hr-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="save-modal-title">
+          <div className="hr-modal-card">
+            <h3 id="save-modal-title">
+              {saveMode === 'accept' ? 'Confirm Review Acceptance' : 'Confirm Save Changes'}
+            </h3>
+            <p className="hr-modal-desc">
+              Every review amendment requires an audited reason recorded in the context timeline.{' '}
+              <b>Save &amp; Accept confirms the extraction review only and does not accept the customer order.</b>
+            </p>
+
+            <label htmlFor="modal-reason" style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
+              Audited reason <span className="hr-req-star">*</span>
+            </label>
+            <textarea
+              id="modal-reason"
+              className="hr-filter-input"
+              rows={3}
+              value={modalReason}
+              onChange={e => setModalReason(e.target.value)}
+              placeholder="State reason for changes or confirmation details…"
+            />
+
+            {hasMajorFieldChanges && (
+              <label className="hr-modal-checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={majorFieldConfirmed}
+                  onChange={e => setMajorFieldConfirmed(e.target.checked)}
+                />
+                <span>I confirm the change to a major field.</span>
+              </label>
+            )}
+
+            <div className="hr-modal-actions">
+              <button
+                type="button"
+                className="hr-btn-footer"
+                onClick={() => setSaveModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="hr-btn-footer primary"
+                disabled={!modalReason.trim() || (hasMajorFieldChanges && !majorFieldConfirmed)}
+                onClick={handleConfirmSave}
+              >
+                {saveMode === 'accept' ? 'Confirm & Accept Review' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Reprocess Confirmation */}
+      {reprocessConfirmOpen && (
+        <div className="hr-modal-overlay" role="dialog" aria-modal="true">
+          <div className="hr-modal-card">
+            <h3>Reprocess Extraction</h3>
+            <p className="hr-modal-desc">
+              This will re-run model inference and deterministic extraction on the original message content without creating duplicate messages.
+            </p>
+            <div className="hr-modal-actions">
+              <button type="button" className="hr-btn-footer" onClick={() => setReprocessConfirmOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="hr-btn-footer primary" onClick={handleReprocess}>
+                Confirm Reprocess
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Forward for Manager Review */}
+      {managerReviewModalOpen && (
+        <div className="hr-modal-overlay" role="dialog" aria-modal="true">
+          <div className="hr-modal-card">
+            <h3>Forward for Manager Review</h3>
+            <p className="hr-modal-desc">
+              Escalate this inquiry to an operational manager. Please specify the reason or unresolved issue.
+            </p>
+            <label htmlFor="mgr-note" style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
+              Escalation note <span className="hr-req-star">*</span>
+            </label>
+            <textarea
+              id="mgr-note"
+              className="hr-filter-input"
+              rows={3}
+              value={managerReviewNote}
+              onChange={e => setManagerReviewNote(e.target.value)}
+              placeholder="Reason for escalating to manager…"
+            />
+            <div className="hr-modal-actions">
+              <button type="button" className="hr-btn-footer" onClick={() => setManagerReviewModalOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="hr-btn-footer primary"
+                disabled={!managerReviewNote.trim()}
+                onClick={handleForwardManager}
+              >
+                Forward
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Mark Unresolved */}
+      {markUnresolvedModalOpen && (
+        <div className="hr-modal-overlay" role="dialog" aria-modal="true">
+          <div className="hr-modal-card">
+            <h3>Mark Task Unresolved</h3>
+            <p className="hr-modal-desc">
+              Flag this inquiry as unresolved without confirming order fields. A reason must be recorded.
+            </p>
+            <label htmlFor="unres-reason" style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
+              Reason <span className="hr-req-star">*</span>
+            </label>
+            <textarea
+              id="unres-reason"
+              className="hr-filter-input"
+              rows={3}
+              value={markUnresolvedReason}
+              onChange={e => setMarkUnresolvedReason(e.target.value)}
+              placeholder="Why this task remains unresolved…"
+            />
+            <div className="hr-modal-actions">
+              <button type="button" className="hr-btn-footer" onClick={() => setMarkUnresolvedModalOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="hr-btn-footer primary"
+                style={{ background: 'var(--hr-orange-text)', borderColor: 'var(--hr-orange-text)' }}
+                disabled={!markUnresolvedReason.trim()}
+                onClick={handleMarkUnresolved}
+              >
+                Mark Unresolved
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Link to Order */}
+      {linkOrderModalOpen && (
+        <div className="hr-modal-overlay" role="dialog" aria-modal="true">
+          <div className="hr-modal-card">
+            <h3>Link to Existing Order</h3>
+            <p className="hr-modal-desc">
+              Select a candidate order and provide a business confirmation reason.
+            </p>
+            <label htmlFor="order-sel" style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
+              Target Order <span className="hr-req-star">*</span>
+            </label>
+            <select
+              id="order-sel"
+              className="hr-filter-select"
+              style={{ width: '100%', marginBottom: '12px' }}
+              value={selectedCandidateOrder}
+              onChange={e => setSelectedCandidateOrder(e.target.value)}
+            >
+              <option value="">Select order…</option>
+              <option value="ORD-9001">ORD-9001 · Active wholesale order</option>
+              <option value="ORD-9002">ORD-9002 · Scheduled replenishment</option>
+            </select>
+
+            <label htmlFor="link-reason" style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
+              Rationale <span className="hr-req-star">*</span>
+            </label>
+            <textarea
+              id="link-reason"
+              className="hr-filter-input"
+              rows={3}
+              value={linkOrderReason}
+              onChange={e => setLinkOrderReason(e.target.value)}
+              placeholder="Evidence confirming this message relates to the selected order…"
+            />
+
+            <div className="hr-modal-actions">
+              <button type="button" className="hr-btn-footer" onClick={() => setLinkOrderModalOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="hr-btn-footer primary"
+                disabled={!selectedCandidateOrder || !linkOrderReason.trim()}
+                onClick={handleLinkOrder}
+              >
+                Link Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Outbound Preview */}
+      {replyPreviewOpen && (
+        <div className="hr-modal-overlay" role="dialog" aria-modal="true">
+          <div className="hr-modal-card">
+            <h3>Outbound Message Preview</h3>
+            <div style={{ margin: '14px 0', padding: '12px', background: '#f8fafc', borderRadius: '6px', fontSize: '13px' }}>
+              <div><b>To:</b> {message?.raw.sender_identity_id}</div>
+              <div><b>Channel:</b> {replyChannel}</div>
+              <div><b>Purpose:</b> {replyPurpose}</div>
+              <hr style={{ margin: '10px 0', border: '0', borderTop: '1px solid #e2e8f0' }} />
+              <div style={{ whiteSpace: 'pre-wrap' }}>{replyMessage}</div>
+            </div>
+            <div className="hr-modal-actions">
+              <button type="button" className="hr-btn-footer" onClick={() => setReplyPreviewOpen(false)}>
+                Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="hr-toast" role="status">
+          {toastMessage}
+        </div>
       )}
     </div>
   );

@@ -58,3 +58,6 @@ export function determineHumanReviewCase(
     canAcceptExtraction: false,
   };
 }
+
+export * from './taskTypes';
+
