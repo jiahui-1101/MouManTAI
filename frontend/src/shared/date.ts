@@ -3,13 +3,13 @@
  * Primary SME business operations are reflected in Malaysia time (Asia/Kuala_Lumpur, UTC+8).
  */
 
-export function formatKLTimestamp(isoString: string | null | undefined): string {
+export function formatKLTimestamp(isoString: string | null | undefined, timeZone = "Asia/Kuala_Lumpur"): string {
   if (!isoString) return "—";
   try {
     const date = new Date(isoString);
     if (Number.isNaN(date.getTime())) return isoString;
     const formatted = new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Asia/Kuala_Lumpur",
+      timeZone,
       year: "numeric",
       month: "short",
       day: "2-digit",

@@ -132,7 +132,8 @@ def test_missing_storage_is_sanitized():
     try:
         for operation in [lambda: PostgresMessageRepository(engine).ingest(envelope(), NOW),
                           lambda: PostgresMessageRepository(engine).get("tenant_a", "missing"),
-                          lambda: PostgresMessageRepository(engine).list("tenant_a")]:
+                          lambda: PostgresMessageRepository(engine).list("tenant_a"),
+                          lambda: PostgresMessageRepository(engine).read_order_context_source("tenant_a", "missing")]:
             with pytest.raises(PersistenceUnavailable) as captured:
                 operation()
             assert "secret" not in str(captured.value)

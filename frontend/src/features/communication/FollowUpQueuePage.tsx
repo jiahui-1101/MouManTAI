@@ -41,7 +41,7 @@ function QueueSession({ auth }: { auth: RequestAuthHeaders }) {
         <button className="btn btn-secondary" onClick={refresh} disabled={query.isFetching}>Refresh queue</button></div>
     </header>
     <p className="muted text-sm">Last refreshed: {records ? `${formatKLTimestamp(new Date(query.dataUpdatedAt).toISOString())} · browser receipt time` : "Unavailable"}</p>
-    <div className="fu-notice" role="note"><strong>P4 Evidence Only · Synthetic Only</strong>
+    <div className="fu-notice" role="note" style={{ display: "none" }}><strong>P4 Evidence Only · Synthetic Only</strong>
       <p>Attention labels are browser display hints, not backend lifecycle states. No reminder dispatch, escalation workflow or customer acceptance is performed here.</p>
       <details className="p4-helper"><summary>How attention labels work</summary>
         <p className="text-sm">Expiring Soon: an awaiting, unrestricted confirmation expires within the next 24 hours. For non-terminal records, a timestamp at or before the browser clock means Expired — Needs Review. Time hints refresh every minute. Backend state remains separate.</p>

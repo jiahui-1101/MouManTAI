@@ -268,3 +268,85 @@ def test_gmail_incremental_polling_and_deduplication(repo, state_mgr, gmail_conf
     # Poll second time: seen IDs are skipped in memory/cursor
     count2 = adapter.poll_inbox()
     assert count2 == 0
+
+
+def test_gmail_get_profile_and_verify_connection(repo, state_mgr, gmail_config):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "users/me/profile" in str(request.url)
+        return httpx.Response(200, json={
+            "emailAddress": "dedicated-moumantai@gmail.com",
+            "messagesTotal": 42,
+            "threadsTotal": 15,
+            "historyId": "999888",
+        })
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    adapter = GmailAdapter(config=gmail_config, repository=repo, state_manager=state_mgr, http_client=client)
+
+    profile = adapter.get_profile()
+    assert profile["emailAddress"] == "dedicated-moumantai@gmail.com"
+    assert profile["messagesTotal"] == 42
+
+    verification = adapter.verify_connection()
+    assert verification["authenticated"] is True
+    assert verification["masked_email"] == "ded***@gmail.com"
+    assert verification["messages_total"] == 42
+
+
+def test_gmail_config_supports_web_and_installed_formats(tmp_path, monkeypatch):
+    import json
+    from app.context.channels.config import ChannelsConfig
+
+    # 1. Test web format
+    web_file = tmp_path / "web_client.json"
+    web_file.write_text(json.dumps({
+        "web": {
+            "client_id": "web_id_123.apps.googleusercontent.com",
+            "client_secret": "web_sec_abc",
+            "redirect_uris": ["http://localhost:8000/v1/channels/gmail/oauth/callback"],
+        }
+    }), encoding="utf-8")
+
+    monkeypatch.setenv("GMAIL_CREDENTIALS_FILE", str(web_file))
+    monkeypatch.delenv("GMAIL_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GMAIL_CLIENT_SECRET", raising=False)
+
+    cfg = ChannelsConfig.load_from_env()
+    assert cfg.gmail.client_id == "web_id_123.apps.googleusercontent.com"
+    assert cfg.gmail.client_secret == "web_sec_abc"
+    assert cfg.gmail.can_authorize is True
+
+    # 2. Test installed format
+    inst_file = tmp_path / "installed_client.json"
+    inst_file.write_text(json.dumps({
+        "installed": {
+            "client_id": "inst_id_456.apps.googleusercontent.com",
+            "client_secret": "inst_sec_xyz",
+            "redirect_uris": ["http://localhost"],
+        }
+    }), encoding="utf-8")
+
+    monkeypatch.setenv("GMAIL_CREDENTIALS_FILE", str(inst_file))
+    cfg_inst = ChannelsConfig.load_from_env()
+    assert cfg_inst.gmail.client_id == "inst_id_456.apps.googleusercontent.com"
+    assert cfg_inst.gmail.client_secret == "inst_sec_xyz"
+
+
+def test_gmail_adapter_discards_stale_tokens_on_new_refresh_token(repo, tmp_path, gmail_config):
+    # Setup state manager with OLD tokens
+    state_file = tmp_path / "channel_state.json"
+    state_mgr = ChannelStateManager(storage_path=state_file)
+    state_mgr.save_gmail_tokens(gmail_config.tenant_id, {
+        "access_token": "stale_old_access_token",
+        "refresh_token": "stale_old_refresh_token",
+    })
+
+    # New config with different refresh token
+    gmail_config.refresh_token = "brand_new_refresh_token"
+    gmail_config.access_token = None
+
+    adapter = GmailAdapter(config=gmail_config, repository=repo, state_manager=state_mgr)
+
+    # Old stale access token MUST NOT be loaded
+    assert adapter.config.access_token is None
+    assert adapter.config.refresh_token == "brand_new_refresh_token"

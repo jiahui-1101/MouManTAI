@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review & Amend – Prototype</title>
+<!--
+  HANDOFF NOTES FOR AGENTS
+  - 所有颜色/间距/圆角都在 :root 的 design tokens,请映射到项目现有的 theme,不要硬编码。
+  - 每个区块有 data-component="..." ,对应建议的组件名。
+  - 行为规则见同目录 SPEC.md。
+  - 这是 UI 原型,数据是写死的 mock。
+-->
+<style>
+:root{
+  --primary:#0b63e5; --primary-hover:#0a54c2; --primary-soft:#eaf2ff;
+  --bg:#f4f7fc; --surface:#fff; --border:#d9e1ee; --border-soft:#e8edf5;
+  --text:#14233b; --muted:#64748b;
+  --warn-bg:#fff4cc; --warn-text:#8a6100;
+  --danger-bg:#ffe9e9; --danger-text:#b42318;
+  --ok-bg:#e3f6e8; --ok-text:#177a3a;
+  --orange-bg:#fff0e0; --orange-text:#b45309;
+  --radius:10px; --radius-sm:6px;
+  --gap:16px; --pad:20px;
+  --font:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px}
+button{font:inherit;cursor:pointer}
+.page{max-width:1280px;margin:0 auto;padding:20px 24px 110px}
+
+/* header */
+.header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:var(--gap)}
+.header h1{margin:0;font-size:22px;display:flex;align-items:center;gap:10px}
+.back{border:1px solid var(--border);background:var(--surface);border-radius:var(--radius-sm);width:34px;height:34px}
+.sub{color:var(--muted);margin:6px 0 0 44px}
+.chip{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
+.chip.missing{background:var(--danger-bg);color:var(--danger-text);border-color:transparent}
+.chip.unresolved{background:var(--warn-bg);color:var(--warn-text);border-color:transparent}
+.chip.confirmed{background:var(--ok-bg);color:var(--ok-text);border-color:transparent}
+.chip.blue{background:var(--primary-soft);color:var(--primary);border-color:transparent}
+
+.btn{border:1px solid var(--border);background:var(--surface);color:var(--text);padding:9px 16px;border-radius:var(--radius-sm);font-weight:600}
+.btn:hover{background:#f6f8fc}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.btn.primary:hover{background:var(--primary-hover)}
+.btn.primary:disabled{background:#9dc0f5;border-color:#9dc0f5;cursor:not-allowed}
+.btn.ghost-warn{color:var(--orange-text)}
+.menu{position:relative}
+.menu-list{position:absolute;right:0;top:44px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(20,35,59,.12);min-width:260px;padding:6px;display:none;z-index:20}
+.menu-list.open{display:block}
+.menu-item{display:block;width:100%;text-align:left;border:0;background:none;padding:10px 12px;border-radius:var(--radius-sm)}
+.menu-item:hover{background:var(--primary-soft)}
+.menu-item small{display:block;color:var(--muted);font-weight:400;margin-top:2px}
+.menu-item.warn{color:var(--orange-text)}
+
+/* status strip */
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--gap);background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px var(--pad);margin-bottom:var(--gap)}
+.strip .k{font-size:11px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
+.strip .v{font-weight:700;margin-top:3px}
+.alert{background:var(--danger-bg);color:var(--danger-text);border-radius:var(--radius);padding:10px var(--pad);margin-bottom:var(--gap);font-weight:600}
+
+/* split */
+.split{display:grid;grid-template-columns:minmax(320px,5fr) minmax(420px,7fr);gap:var(--gap);align-items:start}
+.card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:var(--pad)}
+.card h2{margin:0 0 4px;font-size:16px}
+.card .hint{color:var(--muted);margin:0 0 14px;font-size:13px}
+.source{position:sticky;top:12px;max-height:calc(100vh - 140px);overflow:auto}
+.msg{border-left:4px solid var(--primary);background:#f9fbff;border-radius:var(--radius-sm);padding:14px 16px;line-height:1.75}
+mark{background:#ffe99a;border-radius:3px;padding:0 2px;transition:background .2s}
+mark.active{background:#ffb84d;outline:2px solid #ff9f1a}
+.note{background:var(--primary-soft);border-radius:var(--radius-sm);padding:10px 12px;color:#35507a;font-size:13px;margin-bottom:12px}
+
+/* form */
+.field{padding:14px 0;border-bottom:1px solid var(--border-soft)}
+.field:last-child{border-bottom:0}
+.field label,.lbl{display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:6px}
+.req{color:var(--danger-text)}
+input[type=text],input[type=datetime-local],select,textarea{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font:inherit;background:#fff;color:var(--text)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
+textarea{min-height:84px;resize:vertical}
+.row{display:grid;grid-template-columns:1fr 90px 130px 32px;gap:8px;align-items:center;margin-bottom:8px}
+.row-head{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.ev-btn{border:1px solid var(--border);background:#fff;border-radius:var(--radius-sm);height:32px;width:32px}
+.ev{display:none;background:#f7f9fd;border:1px dashed var(--border);border-radius:var(--radius-sm);padding:8px 10px;margin-top:6px;font-size:12px;color:var(--muted)}
+.ev.open{display:block}
+.ev code{background:#fff;border:1px solid var(--border-soft);padding:1px 5px;border-radius:4px;color:var(--text)}
+.helper{font-size:12px;color:var(--muted);margin-top:5px}
+.ai{background:var(--primary-soft);border-radius:var(--radius);padding:12px 14px;margin-bottom:10px}
+.ai .t{display:flex;justify-content:space-between;align-items:center;font-weight:700;color:var(--primary);margin-bottom:6px}
+.ai q{display:block;margin-bottom:10px;color:#274a85}
+
+details.tech{margin-top:var(--gap);background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px var(--pad)}
+details.tech summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.tech-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;font-size:13px}
+.tech-box{border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:10px 12px}
+
+/* sticky footer */
+.footer{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--border);padding:12px 24px;z-index:10}
+.footer-in{max-width:1280px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.footer .left{color:var(--muted);font-size:13px}
+.footer .right{display:flex;gap:10px}
+.toast{position:fixed;top:18px;right:18px;background:var(--text);color:#fff;padding:10px 16px;border-radius:var(--radius-sm);display:none;z-index:50}
+
+@media(max-width:900px){.split{grid-template-columns:1fr}.source{position:static;max-height:none}.strip{grid-template-columns:1fr 1fr}.row{grid-template-columns:1fr 70px 110px 32px}}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ReviewHeader -->
+  <div class="header" data-component="ReviewHeader">
+    <div>
+      <h1><button class="back" aria-label="Back">←</button> Review &amp; Amend <span class="chip blue">INFORMATION_PARTIAL</span> <span class="chip">v1</span></h1>
+      <p class="sub">MouManTAI · Gmail · 24 Oct 2026, 4:11 am</p>
+    </div>
+    <div class="menu" data-component="MoreActionsMenu">
+      <button class="btn" id="moreBtn">More actions ⋯</button>
+      <div class="menu-list" id="moreList">
+        <button class="menu-item" data-act="request">Request more info<small>Send the AI-suggested question to the customer</small></button>
+        <button class="menu-item warn" data-act="unresolved">Mark unresolved<small>Leave as-is and flag for follow-up</small></button>
+        <button class="menu-item" data-act="reprocess">Reprocess extraction</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- StatusStrip -->
+  <div class="strip" data-component="StatusStrip">
+    <div><div class="k">Processing</div><div class="v">PROCESSED</div></div>
+    <div><div class="k">Information</div><div class="v">Extracted (4 fields)</div></div>
+    <div><div class="k">Identity</div><div class="v">UNVERIFIED</div></div>
+    <div><div class="k">Review</div><div class="v" id="reviewState">Not started</div></div>
+  </div>
+  <div class="alert" id="alertBar" data-component="IssueBanner">Manual review required · <span id="missingCount">3</span> field(s) need attention · 0 conflicts</div>
+
+  <div class="split">
+    <!-- SourcePanel (read-only) -->
+    <section class="card source" data-component="SourceMessagePanel">
+      <h2>Original message</h2>
+      <p class="hint">Click a field on the right to locate its evidence here.</p>
+      <div class="note">Extraction evidence is not authorization to answer a price, discount, or delivery question.</div>
+      <div class="msg" id="msg">
+        Subject: New Order Request – Urgent Delivery<br><br>
+        Hi MouManTAI Team,<br><br>
+        I would like to place an order for the following items:<br><br>
+        1. <mark data-key="qty0">50</mark> boxes of <mark data-key="item0">Chicken Nuggets</mark> (SKU-CN001)<br>
+        2. <mark data-key="qty1">20</mark> kg of <mark data-key="item1">Frozen French Fries</mark> (SKU-FF002)<br>
+        3. <mark data-key="qty2">15</mark> cartons of <mark data-key="item2">Fresh Milk</mark> (SKU-FM003)<br><br>
+        Please deliver on <mark data-key="delivery">28 October 2026</mark> at <mark data-key="delivery">10:00 AM</mark>.
+      </div>
+    </section>
+
+    <!-- AmendForm (editable) -->
+    <section data-component="AmendForm">
+      <div class="card">
+        <h2>Extracted fields</h2>
+        <p class="hint">Edit values below. Every change is saved with an audit reason.</p>
+
+        <div class="field" data-key="delivery" data-component="FieldRow">
+          <label>Requested delivery <span class="req">*</span> <span class="chip missing" id="chipDelivery">Missing timezone</span>
+            <button class="ev-btn" style="margin-left:auto" data-ev="evDelivery" title="Show evidence">🔍</button></label>
+          <input type="datetime-local" id="delivery" value="2026-10-28T10:00">
+          <div class="ev" id="evDelivery">Evidence: <code>"28 October 2026" [313:328]</code> · <code>"10:00 AM" [337:345]</code> · Method: RULE</div>
+          <div class="helper">Business timezone is not set. Confirm the timezone before accepting.</div>
+          <select id="tz" style="margin-top:8px">
+            <option value="">Select timezone…</option>
+            <option value="SGT">Asia/Singapore (UTC+8)</option>
+            <option value="MYT">Asia/Kuala_Lumpur (UTC+8)</option>
+          </select>
+        </div>
+
+        <div class="field" data-component="ItemsTable">
+          <div class="lbl">Items <span class="req">*</span> <span class="chip unresolved" id="chipItems">Unit missing</span></div>
+          <div class="row row-head"><div>Product</div><div>Qty</div><div>Unit</div><div></div></div>
+
+          <div class="row" data-key="item0"><input type="text" value="Chicken Nuggets (SKU-CN001)"><input type="text" value="50"><select class="unit"><option value="">Select…</option><option>box</option><option>pcs</option><option>kg</option><option>carton</option></select><button class="ev-btn" data-ev="ev0">🔍</button></div>
+          <div class="ev" id="ev0">Evidence: <code>"50" [139:141]</code> · Chicken Nuggets</div>
+
+          <div class="row" data-key="item1"><input type="text" value="Frozen French Fries (SKU-FF002)"><input type="text" value="20"><select class="unit"><option value="">Select…</option><option>box</option><option>pcs</option><option selected>kg</option><option>carton</option></select><button class="ev-btn" data-ev="ev1">🔍</button></div>
+          <div class="ev" id="ev1">Evidence: <code>"20" [192:194]</code> · French Fries</div>
+
+          <div class="row" data-key="item2"><input type="text" value="Fresh Milk (SKU-FM003)"><input type="text" value="15"><select class="unit"><option value="">Select…</option><option>box</option><option>pcs</option><option>kg</option><option selected>carton</option></select><button class="ev-btn" data-ev="ev2">🔍</button></div>
+          <div class="ev" id="ev2">Evidence: <code>"15" [246:248]</code> · Fresh Milk</div>
+          <div class="helper">Customer wrote "50 boxes" but the unit was not captured by extraction. Pick a unit.</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px" data-component="AuditNoteCard">
+        <h2>Audit reason &amp; notes</h2>
+        <div class="ai" data-component="AISuggestion">
+          <div class="t">AI suggested clarification <span class="chip blue">Requires staff approval</span></div>
+          <q>"Could you please confirm the unit for the 50 chicken nuggets (e.g., pcs or boxes)?"</q>
+          <button class="btn" id="useAI">Use as clarification note</button>
+        </div>
+        <label class="lbl" for="note">Reviewer note <span class="req">*</span></label>
+        <textarea id="note" placeholder="Reason for change, confirmation evidence, or clarification details…"></textarea>
+        <div class="helper">Audited business reason is recorded in the context timeline.</div>
+      </div>
+
+      <details class="tech" data-component="TechnicalDetails">
+        <summary>Technical details (engineers / admins)</summary>
+        <div class="tech-grid">
+          <div class="tech-box"><b>GLiNER</b> <span class="chip confirmed">validated</span><br>urchade/gliner_multi-v2.1<br>Latency 0.221s · RTX A5000 (not attested)</div>
+          <div class="tech-box"><b>QWEN</b> <span class="chip missing">inference unsuccessful</span><br>incomplete_or_invalid_output<br>GPU unverified</div>
+        </div>
+        <p class="helper">Pipeline p1-ai-pipeline-v2 · Attempt c6bcf8a1 · 24 Oct 2026 4:11–4:12 am</p>
+      </details>
+    </section>
+  </div>
+</div>
+
+<!-- Sticky footer: Orbyte-style Cancel + Save -->
+<div class="footer" data-component="StickyActionBar">
+  <div class="footer-in">
+    <div class="left" id="dirty">No changes yet</div>
+    <div class="right">
+      <button class="btn">Cancel</button>
+      <button class="btn primary" id="save" disabled>Save changes</button>
+      <button class="btn primary" id="saveAccept" disabled>Save &amp; Accept</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+let dirty=false;
+
+// 1) 点字段 → 左侧原文高亮
+function focusKey(key){
+  $$('mark').forEach(m=>m.classList.toggle('active',m.dataset.key===key));
+  const m=$('mark.active'); if(m) m.scrollIntoView({block:'center',behavior:'smooth'});
+}
+$$('[data-key]').forEach(el=>{
+  if(el.tagName==='MARK') return;
+  el.addEventListener('focusin',()=>focusKey(el.dataset.key));
+  el.addEventListener('click',()=>focusKey(el.dataset.key));
+});
+
+// 2) 证据展开
+$$('[data-ev]').forEach(b=>b.addEventListener('click',e=>{
+  e.stopPropagation(); $('#'+b.dataset.ev).classList.toggle('open');
+}));
+
+// 3) More actions 菜单
+$('#moreBtn').addEventListener('click',e=>{e.stopPropagation();$('#moreList').classList.toggle('open')});
+document.addEventListener('click',()=>$('#moreList').classList.remove('open'));
+function toast(t){const el=$('#toast');el.textContent=t;el.style.display='block';setTimeout(()=>el.style.display='none',2200)}
+$$('.menu-item').forEach(b=>b.addEventListener('click',()=>{
+  const a=b.dataset.act;
+  if(a==='request'){ if(!$('#note').value) $('#note').value="Could you please confirm the unit for the 50 chicken nuggets (e.g., pcs or boxes)?"; toast('Request queued for staff approval'); $('#reviewState').textContent='Waiting for customer'; }
+  if(a==='unresolved'){ toast('Marked unresolved'); $('#reviewState').textContent='Unresolved'; }
+  if(a==='reprocess'){ toast('Reprocessing…'); }
+}));
+
+// 4) AI 建议一键带入
+$('#useAI').addEventListener('click',()=>{
+  $('#note').value='Could you please confirm the unit for the 50 chicken nuggets (e.g., pcs or boxes)?';
+  markDirty();
+});
+
+// 5) 脏状态、校验
+function validate(){
+  const unitOk=$$('.unit').every(s=>s.value);
+  const tzOk=!!$('#tz').value;
+  const noteOk=$('#note').value.trim().length>0;
+  $('#chipItems').className='chip '+(unitOk?'confirmed':'unresolved'); $('#chipItems').textContent=unitOk?'Confirmed':'Unit missing';
+  $('#chipDelivery').className='chip '+(tzOk?'confirmed':'missing'); $('#chipDelivery').textContent=tzOk?'Confirmed':'Missing timezone';
+  const left=(unitOk?0:1)+(tzOk?0:1);
+  $('#missingCount').textContent=left;
+  $('#alertBar').style.display=left?'block':'none';
+  $('#save').disabled=!(dirty&&noteOk);
+  $('#saveAccept').disabled=!(dirty&&noteOk&&unitOk&&tzOk);
+  $('#dirty').textContent=dirty?(noteOk?'Unsaved changes':'Unsaved changes · reviewer note is required'):'No changes yet';
+}
+function markDirty(){dirty=true;validate()}
+$$('input,select,textarea').forEach(el=>{el.addEventListener('input',markDirty);el.addEventListener('change',markDirty)});
+$('#save').addEventListener('click',()=>{toast('Changes saved with audit note');$('#reviewState').textContent='In progress';dirty=false;validate()});
+$('#saveAccept').addEventListener('click',()=>{toast('Saved & extraction accepted');$('#reviewState').textContent='Accepted';dirty=false;validate()});
+validate();
+</script>
+</body>
+</html>
