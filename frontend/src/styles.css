@@ -835,9 +835,10 @@ table th, .table th, .data-table th {
   justify-content: space-between;
   gap: 1rem;
   padding: 0.85rem 1.25rem;
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid #1e293b;
-  border-radius: 0.65rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #334155;
 }
 
 .meta-left {
@@ -850,31 +851,43 @@ table th, .table th, .data-table th {
 .tenant-pill, .mode-pill {
   font-size: 0.75rem;
   font-weight: 600;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  background: #1e293b;
-  color: #cbd5e1;
-  border: 1px solid #334155;
+  padding: 0.25rem 0.65rem;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
 }
 
 .actor-pill {
   font-size: 0.75rem;
   font-weight: 700;
   padding: 0.25rem 0.65rem;
-  border-radius: 999px;
+  border-radius: 6px;
+  line-height: 1.35;
 }
 
 /* Redacted Banner & Callout */
 .redacted-banner {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.85rem;
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid #f59e0b;
-  border-radius: 999px;
-  color: #fbbf24;
-  font-size: 0.76rem;
+  gap: 0.6rem;
+  padding: 0.45rem 0.85rem;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  color: #92400e;
+  font-size: 0.78rem;
+}
+
+.redacted-banner .redacted-text {
+  color: #92400e;
+}
+
+.redacted-banner .redacted-text strong {
+  color: #78350f;
 }
 
 .redacted-callout {
@@ -882,30 +895,34 @@ table th, .table th, .data-table th {
   align-items: center;
   gap: 0.65rem;
   padding: 0.65rem 0.95rem;
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px dashed rgba(245, 158, 11, 0.4);
-  border-radius: 0.55rem;
+  background: #fffbeb;
+  border: 1px dashed #fcd34d;
+  border-radius: 6px;
   margin: 0.75rem 0;
+  color: #92400e;
 }
 
 .redacted-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.2rem 0.55rem;
-  background: rgba(245, 158, 11, 0.2);
-  border: 1px solid #f59e0b;
-  border-radius: 999px;
-  color: #fbbf24;
-  font-size: 0.72rem;
-  font-weight: 800;
+  padding: 2px 8px;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
 }
 
 .redacted-note {
   margin: 0;
-  color: #d1d5db;
+  color: #92400e;
   font-size: 0.78rem;
   line-height: 1.4;
 }
@@ -984,10 +1001,10 @@ table th, .table th, .data-table th {
   align-items: center;
   gap: 0.75rem;
   padding: 0.45rem 1rem;
-  background: rgba(56, 189, 248, 0.1);
-  border: 1px solid #38bdf8;
-  border-radius: 999px;
-  color: #7dd3fc;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  color: #0369a1;
   font-size: 0.8rem;
   font-weight: 600;
   align-self: flex-start;
