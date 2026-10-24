@@ -5,7 +5,7 @@ Revises: 0018_mock_order_requests
 Create Date: 2026-10-25
 """
 
-from alembic import op
+from alembic import op, context
 import sqlalchemy as sa
 
 
@@ -16,11 +16,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Use if_not_exists / check to be safe in case p4_orders was created
-    conn = op.get_bind()
-    inspector = sa.inspect(conn)
-    tables = inspector.get_table_names()
-    if "p4_orders" not in tables:
+    # Offline mode cannot inspect database tables.
+    if context.is_offline_mode():
+        should_create = True
+    else:
+        conn = op.get_bind()
+        inspector = sa.inspect(conn)
+        should_create = "p4_orders" not in inspector.get_table_names()
+
+    if should_create:
         op.create_table(
             "p4_orders",
             sa.Column("tenant_id", sa.String(128), nullable=False),
