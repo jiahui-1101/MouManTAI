@@ -90,7 +90,7 @@ class OrderTerms(ImmutableContract):
     tenant_id: Text
     order_request_id: Text
     customer_id: Text
-    terms_revision: int = Field(ge=1)
+    terms_revision: int = Field(ge=1, strict=True)
     items: tuple[OrderLine, ...] = Field(min_length=1, max_length=100)
     fulfilment_method: Literal["DELIVERY", "PICKUP"]
     location_ref: Text

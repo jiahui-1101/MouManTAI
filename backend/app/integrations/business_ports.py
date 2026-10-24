@@ -17,19 +17,20 @@ from app.orders.terms import Evidence, ImmutableContract, OrderTerms, Text
 class ReservationCommand(ImmutableContract):
     tenant_id: Text
     order_request_id: Text
-    request_version: int = Field(ge=1)
+    request_version: int = Field(ge=1, strict=True)
     terms: OrderTerms
     snapshot_id: Text
-    snapshot_version: int = Field(ge=1)
+    snapshot_version: int = Field(ge=1, strict=True)
     assessment_id: Text
     idempotency_key: Text
 
     @model_validator(mode="after")
     def terms_binding(self):
-        if (self.tenant_id, self.order_request_id) != (self.terms.tenant_id, self.terms.order_request_id):
+        if (self.tenant_id, self.order_request_id) != (
+            self.terms.tenant_id,
+            self.terms.order_request_id,
+        ):
             raise ValueError("Reservation terms must belong to this tenant and order")
-        if self.request_version != self.terms.terms_revision:
-            raise ValueError("Reservation terms revision must match request")
         return self
 
 
@@ -38,9 +39,12 @@ class ReservationReceipt(ImmutableContract):
     order_request_id: Text
     operation_id: Text
     idempotency_key: Text
-    request_version: int = Field(ge=1)
+    request_version: int = Field(ge=1, strict=True)
     terms_hash: str = Field(pattern=r"^order-terms-v1:[0-9a-f]{64}$")
-    snapshot_version: int = Field(ge=1)
+    terms_revision: int = Field(ge=1, strict=True)
+    snapshot_id: Text
+    snapshot_version: int = Field(ge=1, strict=True)
+    assessment_id: Text
     status: Literal["PENDING", "CONFIRMED", "UNKNOWN", "FAILED", "RELEASED"]
     mode: Literal["SYNTHETIC", "MOCK", "LIVE"]
     checked_at: AwareDatetime
@@ -59,15 +63,32 @@ class ReservationReceipt(ImmutableContract):
         return self.status == "CONFIRMED"
 
 
-def require_receipt_binding(receipt: ReservationReceipt, *, tenant_id: str, order_request_id: str,
-                            operation_id: str, idempotency_key: str, request_version: int,
-                            terms_hash: str) -> None:
-    expected = dict(tenant_id=tenant_id, order_request_id=order_request_id,
-                    operation_id=operation_id, idempotency_key=idempotency_key,
-                    request_version=request_version, terms_hash=terms_hash)
-    if any(getattr(receipt, name) != value for name, value in expected.items()):
-        raise DomainError("RESERVATION_RECEIPT_MISMATCH", "Reservation receipt does not match intent",
-                          status_code=409)
+def require_receipt_binding(
+    receipt: ReservationReceipt, *, expected: ReservationCommand, operation_id: str
+) -> None:
+    """Require a receipt to match the caller's trusted, persisted reservation intent.
+
+    Structural identity and CONFIRMED status do not establish provider authenticity,
+    snapshot freshness, SME authority, customer assent, or a Core lifecycle transition.
+    """
+    expected_values = {
+        "tenant_id": expected.tenant_id,
+        "order_request_id": expected.order_request_id,
+        "operation_id": operation_id,
+        "idempotency_key": expected.idempotency_key,
+        "request_version": expected.request_version,
+        "terms_hash": expected.terms.terms_hash,
+        "terms_revision": expected.terms.terms_revision,
+        "snapshot_id": expected.snapshot_id,
+        "snapshot_version": expected.snapshot_version,
+        "assessment_id": expected.assessment_id,
+    }
+    if any(getattr(receipt, name) != value for name, value in expected_values.items()):
+        raise DomainError(
+            "RESERVATION_RECEIPT_MISMATCH",
+            "Reservation receipt does not match intent",
+            status_code=409,
+        )
 
 
 class ReviewNotification(ImmutableContract):
@@ -89,8 +110,9 @@ class BusinessCommandPort(Protocol):
 
     def read_reservation_status(self, tenant_id: str, operation_id: str) -> ReservationReceipt: ...
 
-    def release_reservation(self, tenant_id: str, operation_id: str,
-                            idempotency_key: str) -> ReservationReceipt:
+    def release_reservation(
+        self, tenant_id: str, operation_id: str, idempotency_key: str
+    ) -> ReservationReceipt:
         """Only after caller validates its persisted intent/compensation policy."""
         ...
 
