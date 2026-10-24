@@ -712,30 +712,35 @@
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 16px 20px;
+  padding: 14px 18px;
   margin-bottom: 20px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
+  flex-wrap: nowrap;
+  gap: 12px;
   align-items: flex-end;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  overflow-x: auto;
 }
 
 .hr-filter-col {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .hr-col-search {
-  flex: 1 1 260px;
-  min-width: 220px;
+  flex: 1 1 200px;
+  min-width: 150px;
+  max-width: 340px;
+  flex-shrink: 1;
 }
 
 .hr-field-label {
   font-size: 13px;
   font-weight: 700;
   color: #1e293b;
+  line-height: 1.2;
 }
 
 .hr-search-wrap {
@@ -747,14 +752,16 @@
 
 .hr-search-icon {
   position: absolute;
-  left: 12px;
+  left: 10px;
   color: #94a3b8;
   pointer-events: none;
 }
 
 .hr-filter-input {
   width: 100%;
-  padding: 8px 12px 8px 36px;
+  height: 38px;
+  box-sizing: border-box;
+  padding: 0 12px 0 32px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   font-size: 13px;
@@ -771,37 +778,44 @@
 }
 
 .hr-filter-select {
-  padding: 8px 12px;
+  height: 38px;
+  box-sizing: border-box;
+  padding: 0 12px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   font-size: 13px;
   background: #ffffff;
   color: #0f172a;
   outline: none;
-  min-width: 150px;
+  min-width: 120px;
+  max-width: 160px;
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .hr-filter-assigned-group {
-  display: flex;
+  height: 38px;
+  box-sizing: border-box;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
-  padding: 3px 4px;
+  padding: 3px;
   background: #f8fafc;
 }
 
 .hr-assigned-btn {
+  height: 30px;
   border: none;
   background: transparent;
-  padding: 5px 12px;
+  padding: 0 10px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
   color: #64748b;
   cursor: pointer;
+  white-space: nowrap;
   transition: all 0.15s ease;
 }
 
@@ -813,16 +827,20 @@
 }
 
 .hr-reset-btn {
+  height: 38px;
+  box-sizing: border-box;
   border: 1px solid #cbd5e1;
   background: #ffffff;
   color: #475569;
-  padding: 8px 22px;
+  padding: 0 18px;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   margin-left: auto;
   align-self: flex-end;
+  flex-shrink: 0;
+  white-space: nowrap;
   transition: all 0.15s ease;
 }
 
