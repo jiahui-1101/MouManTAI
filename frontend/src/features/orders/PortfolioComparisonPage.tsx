@@ -11,6 +11,7 @@ import { PortfolioUnavailableError, PortfolioVersionError, portfolioFresh, unava
 import { metricDifference, metricText, verifiedRecommendation } from './portfolioView';
 import { PortfolioStrategyAvailability } from './PortfolioStrategyAvailability';
 import { PortfolioCalendarContext } from './portfolioCalendarContext';
+import { PortfolioAnalysisScope } from './PortfolioAnalysisScope';
 import './portfolio.css';
 
 const executionNotice = 'Scenario membership is a proposal only. Comparison does not accept orders, establish customer assent, reserve resources or change confirmed agreements.';
@@ -107,7 +108,7 @@ export function PortfolioComparisonPage({ source = unavailablePortfolioSource }:
   const available = data && portfolioFresh(data, observedNow);
   return <section className="portfolio-comparison" aria-labelledby="pc-title">
     <header className="pc-header"><div><p className="pc-eyebrow">Orders & planning · read only</p><h1 id="pc-title">Portfolio Comparison</h1>
-      <p>Compare source-provided order and resource scenarios, constraints and uncertainty before separate order review.</p>
+      <p>Compare order acceptance strategies and understand their trade-offs.</p>
       <Link to="/orders">Back to Order Decision Queue</Link></div>
       <button className="foundation-button foundation-button-secondary" type="button" disabled={query.isFetching} onClick={refresh}>Refresh portfolio</button></header>
     <p><Link to="/orders/calendar">Production & Delivery Calendar</Link> · Scenario inclusion does not create scheduled work.</p>
@@ -125,9 +126,11 @@ export function PortfolioComparisonPage({ source = unavailablePortfolioSource }:
       <ErrorState error={query.error} retrySafe onRetry={refresh} />)}
     {data && !conflict && !available && <EmptyState kind="unavailable" title="Current verified snapshot unavailable"
       description="Source evidence is unverified, stale, expired, future-dated or of unknown freshness. Metrics, allocations and recommendations are withheld. Refresh or review individual orders." />}
+    <PortfolioAnalysisScope data={available && !conflict ? data : undefined} />
     <PortfolioStrategyAvailability data={available && !conflict ? data : undefined} />
     {available && !conflict && (data.scenarios.length ?
       <PortfolioResults key={`${auth.tenantId}:${auth.actorId}:${data.snapshotId}:${data.snapshotVersion}:${data.updatedAt}:${data.scenarios.map(s => `${s.id}:${s.version}`).join('|')}`} data={data} now={observedNow} /> :
       <EmptyState kind="empty" title="No source scenarios" description="The source returned no scenarios. Continue with individual order assessments; no local portfolio is invented." />)}
+    <nav className="pc-decision-nav" aria-label="Portfolio decision navigation"><strong>Review before deciding</strong><span>Strategy recommendations are advisory and do not accept orders or reserve resources.</span><Link to="/orders">Back to Orders</Link><Link to="/calendar">Open Calendar</Link></nav>
   </section>;
 }
