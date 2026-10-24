@@ -1,7 +1,7 @@
 """Synthetic input only. Does not extract, associate, emit events or process messages."""
 
-from datetime import datetime, timezone
-from typing import Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
 
 from .ingestion_schemas import IngestResponse
 from .repository import MessageRepository
@@ -44,7 +44,7 @@ SyntheticWhatsAppAdapter = SyntheticMultiChannelAdapter
 class IngestionService:
     def __init__(self, repository: MessageRepository, clock: Callable[[], datetime] | None = None):
         self.repository = repository
-        self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.clock = clock or (lambda: datetime.now(UTC))
         self.adapter = SyntheticMultiChannelAdapter()
 
     def ingest(self, envelope: RawMessageEnvelope, effective_tenant: str) -> IngestResponse:
