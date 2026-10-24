@@ -36,6 +36,7 @@ from app.feasibility.api_dependencies import (
     get_impact_reader,
     require_isolated_e2e_key,
 )
+from app.orchestration.router import router as orchestration_router
 
 
 class HealthResponse(BaseModel):
@@ -82,6 +83,7 @@ app.add_middleware(
 app.include_router(core_router)
 app.include_router(recovery_router)
 app.include_router(communication_router)
+app.include_router(orchestration_router)
 app.include_router(feasibility_read_router)
 app.include_router(context_router)
 app.include_router(orders_preview_router)
