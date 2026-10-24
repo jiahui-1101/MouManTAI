@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useInRouterContext, useParams } from 'react-router-dom';
 import type {
   ContextReviewRecord,
   OrderContextRecord,
   OrderContextVersionRecord,
 } from './types';
-import { operationalApi } from './operationalApi';
+import { getReviewCatalog, operationalApi } from './operationalApi';
 import { ReviewDrawer } from './ReviewDrawer';
 
 export interface OrderContextDetailProps {
@@ -13,13 +13,23 @@ export interface OrderContextDetailProps {
   contextId?: string;
   onClose?: () => void;
   onContextUpdated?: (updated: OrderContextRecord) => void;
+  requestHeaders?: Record<string, string>;
+  onContextLoaded?: (context: OrderContextRecord) => void;
 }
 
-export function OrderContextDetail({ orderId: propOrderId, contextId: propContextId, onClose, onContextUpdated }: OrderContextDetailProps) {
+export function OrderContextDetail({
+  orderId: propOrderId,
+  contextId: propContextId,
+  onClose,
+  onContextUpdated,
+  requestHeaders,
+  onContextLoaded,
+}: OrderContextDetailProps) {
   const inRouter = useInRouterContext();
   const params = useParams<{ id: string }>();
   const effectiveOrderId = propOrderId || params.id;
   const effectiveContextId = propContextId;
+  const catalogLoader = useCallback(() => requestHeaders ? getReviewCatalog(requestHeaders) : getReviewCatalog(), [requestHeaders]);
 
   const [context, setContext] = useState<OrderContextRecord | null>(null);
   const [versions, setVersions] = useState<OrderContextVersionRecord[]>([]);
@@ -38,17 +48,21 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
     try {
       let ctx: OrderContextRecord;
       if (effectiveContextId) {
-        ctx = await operationalApi.getContext(effectiveContextId);
+        ctx = await operationalApi.getContext(effectiveContextId, ...(requestHeaders ? [requestHeaders] : []));
       } else if (effectiveOrderId) {
-        ctx = await operationalApi.getContextByOrder(effectiveOrderId);
+        ctx = await operationalApi.getContextByOrder(effectiveOrderId, ...(requestHeaders ? [requestHeaders] : []));
       } else {
         throw new Error('No order reference or context ID provided');
       }
+      if (requestHeaders?.['X-Tenant-ID'] && ctx.tenant_id !== requestHeaders['X-Tenant-ID']) {
+        throw new Error('Order context tenant does not match the current session');
+      }
       setContext(ctx);
+      onContextLoaded?.(ctx);
 
       const [vers, revs] = await Promise.all([
-        operationalApi.listContextVersions(ctx.context_id).catch(() => []),
-        operationalApi.listContextReviews(ctx.context_id).catch(() => []),
+        operationalApi.listContextVersions(ctx.context_id, ...(requestHeaders ? [requestHeaders] : [])).catch(() => []),
+        operationalApi.listContextReviews(ctx.context_id, ...(requestHeaders ? [requestHeaders] : [])).catch(() => []),
       ]);
       setVersions(vers);
       setReviews(revs);
@@ -69,7 +83,7 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
     setPublishError(null);
     setPublishSuccess(null);
     try {
-      const updated = await operationalApi.publishContext(context.context_id);
+      const updated = await operationalApi.publishContext(context.context_id, ...(requestHeaders ? [requestHeaders] : []));
       setContext(updated);
       setPublishSuccess(`Successfully published to Core commitment ${updated.core_commitment_id}`);
       onContextUpdated?.(updated);
@@ -86,7 +100,7 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
 
   useEffect(() => {
     loadData();
-  }, [effectiveOrderId, effectiveContextId]);
+  }, [effectiveOrderId, effectiveContextId, requestHeaders]);
 
   if (loading) {
     return (
@@ -399,6 +413,8 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
 
       {/* Nested Review Drawer */}
       <ReviewDrawer
+        requestHeaders={requestHeaders}
+        catalogLoader={catalogLoader}
         context={context}
         isOpen={isReviewOpen}
         onClose={() => setIsReviewOpen(false)}
