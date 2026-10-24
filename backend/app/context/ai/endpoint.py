@@ -76,6 +76,9 @@ class EndpointAdapter:
             import httpx
 
             payload = request.model_dump(mode="json")
+            if request.task == "order_fields":
+                # Preserve the published P1 extraction envelope exactly.
+                payload.pop("task")
             if self.config.mode == "runpod":
                 payload = {"input": payload, "policy": {"executionTimeout": 90000, "ttl": 120000}}
             async with asyncio.timeout(self.config.timeout_seconds):
