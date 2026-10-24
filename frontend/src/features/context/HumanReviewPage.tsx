@@ -143,9 +143,10 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
   const [resolvedTaskIds, setResolvedTaskIds] = useState<Set<string>>(() => getResolvedTaskIds());
 
   // Filters
-  const [activePill, setActivePill] = useState<'all' | 'failed' | 'pending'>(
+  const [activePill, setActivePill] = useState<'all' | 'failed' | 'pending' | 'resolved'>(
     initialFilter === 'FAILED_EXTRACTION' ? 'failed' : initialFilter === 'UNRESOLVED' ? 'pending' : 'all'
   );
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'resolved'>('all');
   const [search, setSearch] = useState('');
   const [taskTypeFilter, setTaskTypeFilter] = useState<string>('');
   const [channelFilter, setChannelFilter] = useState<string>('');
@@ -223,11 +224,13 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
   // Filtering
   const filteredItems = useMemo(() => {
     return queueItems.filter(item => {
-      // Pill filter
+      // Status & Pill filters
+      const effectiveStatus = statusFilter !== 'all' ? statusFilter : (activePill === 'pending' || activePill === 'resolved' ? activePill : 'all');
+      if (effectiveStatus === 'pending' && item.isResolved) return false;
+      if (effectiveStatus === 'resolved' && !item.isResolved) return false;
+
       if (activePill === 'failed') {
         if (item.message.processing_status !== 'PROCESSING_FAILED' && item.taskType !== 'Processing failed') return false;
-      } else if (activePill === 'pending') {
-        if (item.message.processing_status === 'PROCESSED') return false;
       }
 
       // Task type dropdown
@@ -242,7 +245,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
 
       return true;
     });
-  }, [queueItems, activePill, taskTypeFilter, channelFilter, assignedFilter, actorId]);
+  }, [queueItems, activePill, statusFilter, taskTypeFilter, channelFilter, assignedFilter, actorId]);
 
   // Sorting
   const sortedItems = useMemo(() => {
@@ -266,6 +269,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
 
   const resetFilters = () => {
     setActivePill('all');
+    setStatusFilter('all');
     setSearch('');
     setTaskTypeFilter('');
     setChannelFilter('');
@@ -308,7 +312,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
 
       {/* 2. 4 KPI Cards */}
       <div className="hr-kpi-grid">
-        <div className="hr-kpi-card">
+        <div className="hr-kpi-card" onClick={() => { setActivePill('all'); setStatusFilter('all'); setCurrentPage(1); }} title="Filter by all reviews">
           <div className="hr-kpi-icon-wrap hr-icon-blue" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -323,7 +327,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
           </div>
         </div>
 
-        <div className="hr-kpi-card">
+        <div className="hr-kpi-card" onClick={() => { setActivePill('pending'); setStatusFilter('pending'); setCurrentPage(1); }} title="Filter by pending reviews">
           <div className="hr-kpi-icon-wrap hr-icon-amber" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -337,7 +341,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
           </div>
         </div>
 
-        <div className="hr-kpi-card">
+        <div className="hr-kpi-card" onClick={() => { setActivePill('resolved'); setStatusFilter('resolved'); setCurrentPage(1); }} title="Filter by resolved reviews">
           <div className="hr-kpi-icon-wrap hr-icon-green" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
@@ -350,7 +354,7 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
           </div>
         </div>
 
-        <div className="hr-kpi-card">
+        <div className="hr-kpi-card" onClick={() => { setActivePill('failed'); setCurrentPage(1); }} title="Filter by urgent reviews">
           <div className="hr-kpi-icon-wrap hr-icon-red" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
@@ -369,24 +373,31 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
       <div className="hr-pills-bar" role="tablist" aria-label="Quick filters">
         <button
           type="button"
-          className={`hr-filter-pill ${activePill === 'all' ? 'is-active' : ''}`}
-          onClick={() => { setActivePill('all'); setCurrentPage(1); }}
+          className={`hr-filter-pill ${activePill === 'all' && statusFilter === 'all' ? 'is-active' : ''}`}
+          onClick={() => { setActivePill('all'); setStatusFilter('all'); setCurrentPage(1); }}
         >
           All inquiries ({kpiCounts.total})
         </button>
         <button
           type="button"
-          className={`hr-filter-pill ${activePill === 'failed' ? 'is-active' : ''}`}
-          onClick={() => { setActivePill('failed'); setCurrentPage(1); }}
+          className={`hr-filter-pill ${(activePill === 'pending' || statusFilter === 'pending') ? 'is-active' : ''}`}
+          onClick={() => { setActivePill('pending'); setStatusFilter('pending'); setCurrentPage(1); }}
         >
-          Failed extractions ({queueItems.filter(i => i.message.processing_status === 'PROCESSING_FAILED' || i.taskType === 'Processing failed').length})
+          Pending / unprocessed ({kpiCounts.pending})
         </button>
         <button
           type="button"
-          className={`hr-filter-pill ${activePill === 'pending' ? 'is-active' : ''}`}
-          onClick={() => { setActivePill('pending'); setCurrentPage(1); }}
+          className={`hr-filter-pill ${(activePill === 'resolved' || statusFilter === 'resolved') ? 'is-active' : ''}`}
+          onClick={() => { setActivePill('resolved'); setStatusFilter('resolved'); setCurrentPage(1); }}
         >
-          Pending / unprocessed ({kpiCounts.pending})
+          Resolved ({kpiCounts.resolved})
+        </button>
+        <button
+          type="button"
+          className={`hr-filter-pill ${activePill === 'failed' ? 'is-active' : ''}`}
+          onClick={() => { setActivePill('failed'); setStatusFilter('all'); setCurrentPage(1); }}
+        >
+          Failed extractions ({queueItems.filter(i => i.message.processing_status === 'PROCESSING_FAILED' || i.taskType === 'Processing failed').length})
         </button>
       </div>
 
@@ -409,6 +420,26 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
               aria-label="Search review tasks"
             />
           </div>
+        </div>
+
+        <div className="hr-filter-col">
+          <label htmlFor="hr-status-select" className="hr-field-label">Status</label>
+          <select
+            id="hr-status-select"
+            className="hr-filter-select"
+            value={statusFilter}
+            onChange={e => {
+              const val = e.target.value as 'all' | 'pending' | 'resolved';
+              setStatusFilter(val);
+              setActivePill(val);
+              setCurrentPage(1);
+            }}
+            aria-label="Filter by review status"
+          >
+            <option value="all">All statuses</option>
+            <option value="pending">Pending / Unsolved</option>
+            <option value="resolved">Resolved / Solved</option>
+          </select>
         </div>
 
         <div className="hr-filter-col">
@@ -609,13 +640,13 @@ function HumanReviewQueue({ initialFilter = 'ALL' }: { initialFilter?: 'ALL' | '
                       <td className="hr-col-action">
                         <button
                           type="button"
-                          className="hr-btn-review"
+                          className={`hr-btn-review ${item.isResolved ? 'is-resolved' : ''}`}
                           onClick={e => {
                             e.stopPropagation();
                             handleRowClick(msg.message_id);
                           }}
                         >
-                          Review
+                          {item.isResolved ? 'View' : 'Review'}
                         </button>
                       </td>
                     </tr>
