@@ -93,6 +93,15 @@ def get_message(message_id: str, tenant: Tenant, repository: Repository) -> Stor
     return message
 
 
+@router.delete("/v1/messages/{message_id}",
+               responses={**errors, 404: {"model": ApiError}})
+def delete_message(message_id: str, tenant: Tenant, repository: Repository):
+    success = repository.delete_message(tenant.tenant_id, message_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return {"status": "deleted", "message_id": message_id}
+
+
 @router.post("/v1/messages/{message_id}/process", response_model=ProcessResponse,
              responses={**errors, 404: {"model": ApiError}, 409: {"model": ApiError}})
 def process_message(message_id: str, tenant: Tenant, repository: Repository,

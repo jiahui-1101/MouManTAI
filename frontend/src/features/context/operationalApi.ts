@@ -71,6 +71,7 @@ export interface OperationalApi {
   config(): Promise<DevelopmentContext>;
   list(query: MessageQuery): Promise<MessagePage>;
   detail(id: string): Promise<StoredMessage>;
+  deleteMessage(id: string, headers?: Record<string, string>): Promise<{ status: string; message_id: string }>;
   ingest(envelope: RawMessageEnvelope): Promise<IngestResponse>;
   process(id: string, reprocess?: boolean): Promise<ProcessResponse>;
   getExtraction(id: string): Promise<ExtractionAttemptRecord>;
@@ -145,6 +146,11 @@ export const operationalApi: OperationalApi = {
     return request(`/v1/messages?${params}`);
   },
   detail: id => request(`/v1/messages/${encodeURIComponent(id)}`),
+  deleteMessage: (id: string, headers: Record<string, string> = {}) =>
+    request<{ status: string; message_id: string }>(`/v1/messages/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { ...headers },
+    }),
   ingest: envelope => request('/v1/messages/ingest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(envelope) }),
   process: processMessage,
   getExtraction: id => request(`/v1/messages/${encodeURIComponent(id)}/extraction`),
