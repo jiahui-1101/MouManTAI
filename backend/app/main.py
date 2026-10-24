@@ -17,6 +17,7 @@ from app.orders.router import router as orders_preview_router
 from app.orders.demo_router import router as orders_demo_router
 from app.suppliers.router import router as suppliers_router
 from app.forecasting.router import router as forecasting_router
+from app.forecasting.mock_router import router as mock_forecast_router
 from app.orders.api import router as orders_api_router
 from app.core.errors import DomainError
 from app.core.router import router as core_router
@@ -89,6 +90,7 @@ app.include_router(orders_demo_router)
 app.include_router(suppliers_router)
 app.include_router(forecasting_router)
 app.include_router(orders_api_router)
+app.include_router(mock_forecast_router)
 if os.getenv("MOUMANTAI_ISOLATED_E2E") == "1":
     isolated_dependencies = [Depends(require_isolated_e2e_key)]
     app.include_router(feasibility_assessment_router, dependencies=isolated_dependencies)
