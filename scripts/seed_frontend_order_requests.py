@@ -21,6 +21,9 @@ def main() -> None:
     base = os.environ.get("MOUMANTAI_LOCAL_API_BASE", "http://127.0.0.1:18000")
     tenant = os.environ["MOUMANTAI_ISOLATED_E2E_TENANT_ID"]
     prefix = os.environ.get("MOUMANTAI_E2E_REQUEST_PREFIX", "fe_bff")
+    outcome = os.environ.get("MOUMANTAI_E2E_RESERVATION_OUTCOME", "NORMAL")
+    if outcome not in {"NORMAL", "UNKNOWN"}:
+        raise ValueError("Only NORMAL or UNKNOWN synthetic outcomes are supported")
     headers = {
         "X-Tenant-ID": tenant,
         "X-Actor-ID": os.environ["MOUMANTAI_ISOLATED_E2E_MANAGER_ID"],
@@ -29,7 +32,7 @@ def main() -> None:
     now = datetime.now(UTC)
     with httpx.Client(base_url=base, timeout=15) as client:
         resources = client.post("/v1/backend-v2/mock-orbyte/resources", headers=headers,
-                                json={"stock_quantity": "150", "next_reservation_outcome": "NORMAL"})
+                                json={"stock_quantity": "150", "next_reservation_outcome": outcome})
         if resources.status_code != 409 or resources.json().get("code") != "MOCK_RESOURCE_ALREADY_CONFIGURED":
             resources.raise_for_status()
         for request_id in (f"{prefix}_accept", f"{prefix}_reject"):

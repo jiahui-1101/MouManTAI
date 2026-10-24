@@ -5,6 +5,7 @@ const base = process.env.MOUMANTAI_BROWSER_BASE ?? 'http://127.0.0.1:5174';
 const prefix = process.env.MOUMANTAI_E2E_REQUEST_PREFIX ?? 'fe_bff';
 const acceptId = `${prefix}_accept`;
 const rejectId = `${prefix}_reject`;
+const expectUnknown = process.env.MOUMANTAI_E2E_EXPECT_UNKNOWN === '1';
 const bootstrap = process.env.MOUMANTAI_BFF_BOOTSTRAP_TOKEN;
 if (!bootstrap) throw new Error('MOUMANTAI_BFF_BOOTSTRAP_TOKEN is required');
 const browser = await chromium.launch({ headless: true,
@@ -15,6 +16,7 @@ try {
   await page.goto(`${base}/order-requests`);
   await page.getByLabel('Operator bootstrap token').fill(bootstrap);
   await page.getByRole('button', { name: 'Open isolated session' }).click();
+  const operatorTenant = await page.evaluate(async () => (await (await fetch('/demo-bff/session')).json()).tenant_id);
   const sessionCookie = (await context.cookies()).find(value => value.name === 'moumantai_demo_session');
   if (!sessionCookie?.httpOnly || sessionCookie.sameSite !== 'Strict') throw new Error('Operator session cookie lacks required flags');
   if (await page.evaluate(() => document.cookie.includes('moumantai_demo_session')))
@@ -45,12 +47,27 @@ try {
   await page.getByLabel('Acceptance reason').fill('Browser approved exact synthetic terms');
   await page.getByRole('button', { name: 'Accept Order', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm Accept Order' }).click();
-  await page.getByText('MOCK / DEMO-ONLY · ACCEPTED', { exact: false }).waitFor();
-  await page.getByRole('heading', { name: `Linked Commitment com_${acceptId}` }).waitFor();
-  await page.reload();
-  await page.getByText('MOCK / DEMO-ONLY · ACCEPTED', { exact: false }).waitFor();
-  await page.getByRole('link', { name: 'P3 Recovery' }).waitFor();
-  await page.getByRole('heading', { name: 'Same-Commitment timeline' }).waitFor();
+  if (expectUnknown) {
+    await page.getByText('MOCK / DEMO-ONLY · RESERVATION_UNKNOWN', { exact: false }).waitFor();
+    await page.getByText('Persisted receipt status: UNKNOWN', { exact: false }).waitFor();
+    if (await page.getByRole('heading', { name: /^Linked Commitment/ }).count())
+      throw new Error('Unknown reservation was displayed as an accepted Commitment');
+    if (!await page.evaluate(({ tenant, requestId }) => !!sessionStorage.getItem(`demo-bff:pending:${tenant}:${requestId}`),
+      { tenant: operatorTenant, requestId: acceptId }))
+      throw new Error('Unknown reservation lost its idempotency key');
+    await page.reload();
+    await page.getByText('MOCK / DEMO-ONLY · RESERVATION_UNKNOWN', { exact: false }).waitFor();
+    await page.getByText('Persisted receipt status: UNKNOWN', { exact: false }).waitFor();
+    if (await page.getByRole('button', { name: 'Accept Order', exact: true }).count())
+      throw new Error('Unknown reservation allowed a fresh acceptance');
+  } else {
+    await page.getByText('MOCK / DEMO-ONLY · ACCEPTED', { exact: false }).waitFor();
+    await page.getByRole('heading', { name: `Linked Commitment com_${acceptId}` }).waitFor();
+    await page.reload();
+    await page.getByText('MOCK / DEMO-ONLY · ACCEPTED', { exact: false }).waitFor();
+    await page.getByRole('link', { name: 'P3 Recovery' }).waitFor();
+    await page.getByRole('heading', { name: 'Same-Commitment timeline' }).waitFor();
+  }
 
   await page.goto(`${base}/order-requests/${rejectId}`);
   await page.getByText('MOCK / DEMO-ONLY · PENDING', { exact: false }).waitFor();
@@ -58,7 +75,7 @@ try {
   await page.getByRole('button', { name: 'Reject request' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm decision' }).click();
   await page.getByText('MOCK / DEMO-ONLY · REJECTED', { exact: false }).waitFor();
-  console.log('BROWSER E2E PASS: persisted list, review, acceptance, reload, rejection, forged identity and CSRF denial');
+  console.log(`BROWSER E2E PASS: persisted list, review, ${expectUnknown ? '202 unknown receipt safety' : 'acceptance'}, reload, rejection, forged identity and CSRF denial`);
 } catch (error) {
   await page.screenshot({ path: 'e2e-order-request-failure.png', fullPage: true });
   console.error(error);
