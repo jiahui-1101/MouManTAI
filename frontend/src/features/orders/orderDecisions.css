@@ -22,3 +22,7 @@
 .order-decisions :is(button, input, textarea, summary, [tabindex]):focus-visible { outline: 3px solid var(--ui-primary, #0767e8); outline-offset: 3px; }
 .order-decisions .decision-receipt { border: 1px solid var(--ui-input-border, #aeb8c8); border-radius: .5rem; padding: 1rem; margin-top: .8rem; }
 @media(max-width:600px) { .order-decisions header button { width: 100%; } }
+
+.order-decisions .decision-action-buttons { display: flex; gap: .6rem; flex-wrap: wrap; }
+.order-decisions .decision-action-buttons button { max-width: 100%; white-space: normal; }
+.order-decisions button:disabled { cursor: not-allowed; opacity: .65; }

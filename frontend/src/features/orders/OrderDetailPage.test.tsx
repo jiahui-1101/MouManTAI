@@ -150,7 +150,7 @@ describe('Order detail and resource assessment', () => {
     expect(within(section).getAllByText(status).length).toBeGreaterThan(0);
     expect(screen.getByText('Verify flour receipt')).toBeInTheDocument();
     expect(screen.getByText('Do not use expired lots')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Accept|^Reject|^Reserve/ })).not.toBeInTheDocument();
+    for (const command of screen.queryAllByRole('button', { name: /^Accept|^Reject|^Reserve/ })) expect(command).toBeDisabled();
   });
   it.each(['stale', 'unknown-freshness', 'unverified', 'incomplete', 'wrong-version', 'unknown-version', 'unknown-offset', 'future', 'missing-snapshot'])('suppresses positive badges when %s', async condition => {
     const data = fixture(); const a = data.assessment!; a.status = 'FEASIBLE';

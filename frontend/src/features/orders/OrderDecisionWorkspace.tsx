@@ -8,6 +8,7 @@ import { coreOrderDecisionSource } from './decisionApi';
 import { acceptanceBlockers, assentLabel, commandDependency, receiptLabel } from './decisionGuards';
 import { DecisionTermsView, TermsComparison } from './DecisionTermsView';
 import { ProposalPreparation } from './ProposalPreparation';
+import { AcceptanceReviewActions } from './AcceptanceReviewActions';
 import { instant, shown, timestamp } from './queue';
 import './orderDecisions.css';
 
@@ -64,6 +65,7 @@ export function OrderDecisionWorkspace({ order, now, source = coreOrderDecisionS
         <UncertaintyNote kind="insufficient-evidence">Frontend review never grants decision permission; server command authority remains unavailable.</UncertaintyNote>
         <p>Order reference: {order.id} · Authoritative request version: {shown(snapshot.requestVersion)}. Context and commitment versions cannot substitute.</p>
         <DecisionTermsView terms={snapshot.exactOriginal} title="Exact original customer-offered terms" financial={snapshot.financialAccess === 'AUTHORIZED'} />
+        <AcceptanceReviewActions key={`${auth.tenantId}:${auth.actorId}:${order.id}:${query.dataUpdatedAt}`} order={order} snapshot={snapshot} />
         <h4>Acceptance blockers and source conditions</h4><ul>{acceptanceBlockers(order, snapshot, now).map(blocker => <li key={blocker}>{blocker}</li>)}</ul>
         <p>Assessment/snapshot reference: {shown(order.assessment?.id)} / {shown(order.assessment?.snapshotId)} · Source freshness: {order.assessment?.freshness ?? 'UNKNOWN'}</p>
         <p>Outstanding conditions: {order.assessment?.conditions?.join('; ') || 'Not available'}</p>
@@ -80,7 +82,8 @@ export function OrderDecisionWorkspace({ order, now, source = coreOrderDecisionS
           <DecisionTermsView terms={proposal.terms} title="Exact proposed terms (not current agreement)" financial={snapshot.financialAccess === 'AUTHORIZED'} />
           <TermsComparison original={snapshot.exactOriginal} proposed={proposal.terms} financial={snapshot.financialAccess === 'AUTHORIZED'} /></article>)}
         <ProposalPreparation key={`proposal:${auth.tenantId}:${auth.actorId}:${order.id}:${source.cacheKey}:${query.dataUpdatedAt}:${query.isFetching}`} base={snapshot.exactOriginal} financial={snapshot.financialAccess === 'AUTHORIZED'} />
-        <p><strong>Submit proposal — unavailable.</strong> No sending, customer assent or durable proposal is created by local preparation.</p>
+        <button type="button" disabled aria-describedby="proposal-submit-dependency">Submit proposal</button>
+        <p id="proposal-submit-dependency"><strong>Submit proposal — unavailable.</strong> No sending, customer assent or durable proposal is created by local preparation.</p>
       </section>
       <section className="decision-panel" aria-labelledby="rejection-review"><h3 id="rejection-review">Order rejection</h3>
         <p><strong>Reject order — unavailable.</strong> Required reason, role, version, idempotency and audit response depend on a verified order rejection contract. No local lifecycle update occurs.</p></section>
