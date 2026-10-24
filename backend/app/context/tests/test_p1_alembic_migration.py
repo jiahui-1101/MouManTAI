@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, select, func, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
@@ -185,7 +186,7 @@ def test_scoped_delivery_collision_blocks_downgrade_without_data_loss(migrated_d
     indexes = {
         index["name"] for index in inspect(engine).get_indexes("inbound_messages", schema="p1_dev")
     }
-    assert version == "0025_merge_c1_business_orch"
+    assert version == ScriptDirectory.from_config(config).get_current_head()
     assert {"uq_p1_delivery_legacy", "uq_p1_delivery_scoped"} <= indexes
     assert len(rows) == 2
     assert {row["provider_account_id"] for row in rows} == {"phone-a", "phone-b"}
@@ -227,7 +228,7 @@ def test_c1_ah_merge_upgrades_either_history_and_preserves_source_rows(
             "SELECT * FROM p1_dev.inbound_messages WHERE message_id = 'merge-source'"
         )).mappings().one()
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0025_merge_c1_business_orch"
+            ScriptDirectory.from_config(config).get_current_head()
         )
     # Replaying the join applies neither parent's DDL again.
     command.upgrade(config, "head")
