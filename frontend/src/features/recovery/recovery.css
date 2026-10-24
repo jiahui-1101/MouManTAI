@@ -58,5 +58,10 @@
 .recovery-timeline-item p { margin: 0.25rem 0 0; color: #94a3b8; font-size: 0.76rem; line-height: 1.45; }
 .recovery-action-list { display: grid; gap: 0.45rem; margin: 1rem 0 0; padding: 0; list-style: none; }
 .recovery-action-list li { padding: 0.65rem; border-radius: 0.45rem; background: rgba(2, 6, 23, 0.5); color: #cbd5e1; font-size: 0.78rem; }
+.recovery-decision-reason { display: grid; gap: .4rem; margin-top: .75rem; color: #cbd5e1; font-size: .82rem; }
+.recovery-decision-reason textarea { width: 100%; resize: vertical; border: 1px solid #64748b; border-radius: .35rem; padding: .55rem; color: #e2e8f0; background: #0f172a; font: inherit; }
+.recovery-decision-reason textarea:focus-visible { outline: 2px solid #3885ec; outline-offset: 2px; }
+.recovery-risk-summary { color: #cbd5e1; font-size: .78rem; }
+.recovery-risk-summary ul { margin: .3rem 0 0; padding-left: 1rem; }
 @media (max-width: 860px) { .recovery-demo-timeline { grid-template-columns: 1fr; } .recovery-timeline-item { grid-template-columns: 1fr; } }
 @media (max-width: 860px) { .recovery-incident-grid, .recovery-options-grid, .recovery-detail-grid { grid-template-columns: 1fr; } }

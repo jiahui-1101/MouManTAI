@@ -20,6 +20,7 @@ import { CommitmentFeasibilityPage } from "./features/feasibility/CommitmentFeas
 import { ImpactDetailPage } from "./features/feasibility/ImpactDetailPage";
 import { RecoveryCaseRoutePage } from "./features/recovery/RecoveryCaseRoutePage";
 import { RecoveryPage } from "./features/recovery/RecoveryPage";
+import { SupplierComparisonPage, SupplierDetailPage, SupplierDirectoryPage } from "./features/suppliers/SupplierWorkspace";
 
 export function CommitmentFeasibilityRoute() {
   const { authHeaders: auth } = useAuth();
@@ -105,8 +106,9 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/planning/forecasts" element={<FeaturePlaceholder owner="Planning" title="Forecasts" />} />
               <Route path="/commitments/:id" element={<CommitmentFeasibilityRoute />} />
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
-              <Route path="/suppliers" element={<FeaturePlaceholder owner="Suppliers" title="Supplier Directory" />} />
-              <Route path="/suppliers/compare" element={<FeaturePlaceholder owner="Suppliers" title="Offer Comparison" />} />
+              <Route path="/suppliers" element={<SupplierDirectoryPage />} />
+              <Route path="/suppliers/compare" element={<SupplierComparisonPage />} />
+              <Route path="/suppliers/:id" element={<SupplierDetailPage />} />
               <Route path="/suppliers/sourcing" element={<FeaturePlaceholder owner="Suppliers" title="Sourcing" />} />
               <Route path="/recovery" element={<FeaturePlaceholder owner="Recovery" title="Emergency Cases" />} />
               <Route path="/recovery/plans" element={<FeaturePlaceholder owner="Recovery" title="Recovery Plans" />} />
