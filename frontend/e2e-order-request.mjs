@@ -7,14 +7,21 @@ const acceptId = `${prefix}_accept`;
 const rejectId = `${prefix}_reject`;
 const expectUnknown = process.env.MOUMANTAI_E2E_EXPECT_UNKNOWN === '1';
 const bootstrap = process.env.MOUMANTAI_BFF_BOOTSTRAP_TOKEN;
-if (!bootstrap) throw new Error('MOUMANTAI_BFF_BOOTSTRAP_TOKEN is required');
+const demoUsername = process.env.MOUMANTAI_DEMO_ADMIN_USERNAME;
+const demoPassword = process.env.MOUMANTAI_DEMO_ADMIN_PASSWORD;
+if (!bootstrap && !(demoUsername && demoPassword)) throw new Error('Demo Admin credentials or bootstrap token required');
 const browser = await chromium.launch({ headless: true,
   executablePath: process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' });
-const context = await browser.newContext();
+const context = await browser.newContext({ ignoreHTTPSErrors: process.env.MOUMANTAI_BROWSER_ALLOW_SELF_SIGNED === '1' });
 const page = await context.newPage();
 try {
   await page.goto(`${base}/order-requests`);
-  await page.getByLabel('Operator bootstrap token').fill(bootstrap);
+  if (demoUsername && demoPassword) {
+    await page.getByLabel('Demo Admin username').fill(demoUsername);
+    await page.getByLabel('Demo Admin password').fill(demoPassword);
+  } else {
+    await page.getByLabel('Operator bootstrap token').fill(bootstrap);
+  }
   await page.getByRole('button', { name: 'Open isolated session' }).click();
   const operatorTenant = await page.evaluate(async () => (await (await fetch('/demo-bff/session')).json()).tenant_id);
   const sessionCookie = (await context.cookies()).find(value => value.name === 'moumantai_demo_session');

@@ -57,7 +57,7 @@ class C3ReviewService:
         self.db, self.reader, self.authority = db, reader, authority
 
     def enqueue(self, message_id: str, classifier: MessageIntelligenceService,
-                *, now: datetime) -> C3ReviewRecord | None:
+                *, now: datetime, outcome=None, commit: bool = True) -> C3ReviewRecord | None:
         """Recompute from current P1 records; callers cannot submit model provenance."""
         tenant_id = self.reader.scope.current_verified_tenant_id()
         if not tenant_id or not message_id:
@@ -84,12 +84,15 @@ class C3ReviewService:
                 self.reader.assert_current(candidate.source, evidence=tuple(candidate.evidence))
             except SourceContractError:
                 continue  # A changed source needs a new analysis and review version.
-            self.db.commit()  # Release the transaction-scoped duplicate-worker lock.
+            if commit:
+                self.db.commit()  # Release the transaction-scoped duplicate-worker lock.
             return existing
-        outcome = self.reader.analyze(message_id, classifier, now=now)
+        if outcome is None:
+            outcome = self.reader.analyze(message_id, classifier, now=now)
         candidate = outcome.human_review_candidate
         if candidate is None:
-            self.db.commit()
+            if commit:
+                self.db.commit()
             return None
         self.reader.assert_current(candidate.source, evidence=tuple(candidate.evidence))
         if candidate.tenant_id != self.reader.scope.current_verified_tenant_id():
@@ -114,7 +117,8 @@ class C3ReviewService:
             created_at=now,
         )
         self.db.add(row)
-        self.db.commit()
+        if commit:
+            self.db.commit()
         return row
 
     def decide(self, context: RequestContext, review_id: str,

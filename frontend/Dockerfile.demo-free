@@ -1,0 +1,33 @@
+FROM node:22-bookworm-slim AS frontend-build
+WORKDIR /workspace/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+COPY contracts/ /workspace/contracts/
+COPY backend/app/context/fixtures/ /workspace/backend/app/context/fixtures/
+ENV VITE_API_BASE_URL=""
+ENV VITE_DEMO_ADMIN_LOGIN="1"
+ENV VITE_C3_REVIEW_READS="1"
+RUN npm run build
+
+FROM python:3.11-slim-bookworm
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 libgl1 libglib2.0-0 libicu72 libstdc++6 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 1000 --create-home demo
+COPY --from=frontend-build /usr/local/bin/node /usr/local/bin/node
+WORKDIR /app
+COPY backend/requirements-demo-free.txt ./requirements-demo-free.txt
+RUN pip install --no-cache-dir -r requirements-demo-free.txt && pip check
+COPY backend/app ./app
+COPY backend/migrations ./migrations
+COPY backend/alembic.ini ./alembic.ini
+COPY contracts ./contracts
+COPY scripts ./scripts
+COPY --from=frontend-build /workspace/frontend/dist ./frontend/dist
+COPY frontend/demoGateway.mjs ./frontend/demoGateway.mjs
+RUN ln -s /app/contracts /contracts
+ENV PYTHONPATH=/app
+USER demo
+EXPOSE 10000
+CMD ["python", "scripts/render_demo_start.py", "free"]

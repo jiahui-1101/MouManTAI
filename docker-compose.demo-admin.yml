@@ -1,0 +1,51 @@
+# Use only as an override of docker-compose.staging.yml. No public FastAPI port.
+services:
+  api:
+    environment:
+      MOUMANTAI_ISOLATED_E2E: "1"
+      MOUMANTAI_DEMO_ADMIN_AUTH: "1"
+      MOUMANTAI_ISOLATED_E2E_KEY: ${DEMO_ISOLATED_API_KEY:?Set a unique private 32+ character key}
+      MOUMANTAI_ISOLATED_E2E_TENANT_ID: ${DEMO_TENANT_ID:?Set the fixed synthetic tenant}
+      MOUMANTAI_ISOLATED_E2E_MANAGER_ID: ${DEMO_MANAGER_ID:?Set the fixed manager ID}
+    command: ["sh", "-c", "python /app/scripts/demo_admin_preflight.py && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+
+  worker:
+    environment:
+      MOUMANTAI_ISOLATED_E2E: "1"
+      MOUMANTAI_DEMO_ADMIN_AUTH: "1"
+      MOUMANTAI_ISOLATED_E2E_KEY: ${DEMO_ISOLATED_API_KEY:?Set a unique private 32+ character key}
+      MOUMANTAI_ISOLATED_E2E_TENANT_ID: ${DEMO_TENANT_ID:?Set the fixed synthetic tenant}
+      MOUMANTAI_ISOLATED_E2E_MANAGER_ID: ${DEMO_MANAGER_ID:?Set the fixed manager ID}
+    command: ["sh", "-c", "python /app/scripts/demo_admin_preflight.py && exec python -m app.worker"]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.demo-admin
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: staging
+      APP_ENV: synthetic
+      MOUMANTAI_SYNTHETIC_MODE: "1"
+      MOUMANTAI_ISOLATED_E2E: "1"
+      MOUMANTAI_DEMO_ADMIN_AUTH: "1"
+      MOUMANTAI_DEMO_ADMIN_USERNAME: ${DEMO_ADMIN_USERNAME:?Set Demo Admin username}
+      MOUMANTAI_DEMO_ADMIN_PASSWORD_HASH: ${DEMO_ADMIN_PASSWORD_HASH:?Set scrypt password hash}
+      MOUMANTAI_ISOLATED_E2E_KEY: ${DEMO_ISOLATED_API_KEY:?Set private API key}
+      MOUMANTAI_ISOLATED_E2E_TENANT_ID: ${DEMO_TENANT_ID:?Set synthetic tenant}
+      MOUMANTAI_ISOLATED_E2E_MANAGER_ID: ${DEMO_MANAGER_ID:?Set manager ID}
+      MOUMANTAI_DEMO_ORIGIN: ${DEMO_HTTPS_ORIGIN:?Set exact HTTPS origin}
+      MOUMANTAI_DEMO_PRIVATE_API: http://api:8000
+      MOUMANTAI_DEMO_TLS_CERT: /run/tls/demo.crt
+      MOUMANTAI_DEMO_TLS_KEY: /run/tls/demo.key
+      TELEGRAM_OUTBOUND_ENABLED: "false"
+      WHATSAPP_OUTBOUND_ENABLED: "false"
+      RESEND_OUTBOUND_ENABLED: "false"
+    volumes:
+      - ${DEMO_TLS_CERT_PATH:?Set TLS certificate path}:/run/tls/demo.crt:ro
+      - ${DEMO_TLS_KEY_PATH:?Set TLS private key path}:/run/tls/demo.key:ro
+    ports:
+      - "${DEMO_BIND_ADDRESS:-0.0.0.0}:${DEMO_HTTPS_PORT:-8443}:8443"
+    depends_on:
+      api:
+        condition: service_healthy

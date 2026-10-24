@@ -1,0 +1,72 @@
+# Temporary, isolated synthetic demo on Render's free plans only.
+# The one public process is the Demo Admin Gateway. FastAPI binds loopback.
+previews:
+  generation: "off"
+
+databases:
+  - name: moumantai-demo-staging-db
+    databaseName: moumantai_demo_staging
+    user: moumantai_demo
+    postgresMajorVersion: "16"
+    region: singapore
+    plan: free
+    ipAllowList: []
+
+services:
+  - type: web
+    name: moumantai-demo-gateway
+    runtime: docker
+    region: singapore
+    plan: free
+    numInstances: 1
+    autoDeployTrigger: "off"
+    dockerfilePath: frontend/Dockerfile.demo-free
+    dockerContext: .
+    healthCheckPath: /
+    envVars:
+      - key: RENDER_DATABASE_URL
+        fromDatabase:
+          name: moumantai-demo-staging-db
+          property: connectionString
+      - key: ENVIRONMENT
+        value: staging
+      - key: APP_ENV
+        value: synthetic
+      - key: MOUMANTAI_DEMO_HOSTING
+        value: render-free
+      - key: MOUMANTAI_SYNTHETIC_MODE
+        value: "1"
+      - key: MOUMANTAI_ISOLATED_E2E
+        value: "1"
+      - key: MOUMANTAI_DEMO_ADMIN_AUTH
+        value: "1"
+      - key: MOUMANTAI_DEMO_ADMIN_USERNAME
+        sync: false
+      - key: MOUMANTAI_DEMO_ADMIN_PASSWORD_HASH
+        sync: false
+      - key: MOUMANTAI_ISOLATED_E2E_KEY
+        generateValue: true
+      - key: MOUMANTAI_ISOLATED_E2E_TENANT_ID
+        value: tenant_demo_01
+      - key: MOUMANTAI_ISOLATED_E2E_MANAGER_ID
+        value: user_owner_01
+      - key: P1_DEV_TENANT_ID
+        value: tenant_demo_01
+      - key: P1_STRICT_AUTH
+        value: "true"
+      - key: P1_AI_ENABLED
+        value: "false"
+      - key: P4_RUNTIME_MODE
+        value: SYNTHETIC
+      - key: P4_SYNTHETIC_TENANTS
+        value: tenant_demo_01
+      - key: TELEGRAM_AUTO_START
+        value: "false"
+      - key: GMAIL_AUTO_START
+        value: "false"
+      - key: TELEGRAM_OUTBOUND_ENABLED
+        value: "false"
+      - key: WHATSAPP_OUTBOUND_ENABLED
+        value: "false"
+      - key: RESEND_OUTBOUND_ENABLED
+        value: "false"

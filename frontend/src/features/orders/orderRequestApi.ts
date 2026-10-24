@@ -57,6 +57,9 @@ export const getDemoSession = () => apiRequest<DemoSession>(`${base}/session`);
 export const openDemoSession = (bootstrap_token: string) => apiRequest<DemoSession>(`${base}/session`, {
   method: 'POST', body: JSON.stringify({ bootstrap_token }),
 });
+export const openDemoAdminSession = (username: string, password: string) => apiRequest<DemoSession>(`${base}/session`, {
+  method: 'POST', body: JSON.stringify({ username, password }),
+});
 export const closeDemoSession = (session: DemoSession) => apiRequest<{ revoked: true }>(`${base}/session`, {
   method: 'DELETE', headers: { 'X-CSRF-Token': session.csrf_token },
 });

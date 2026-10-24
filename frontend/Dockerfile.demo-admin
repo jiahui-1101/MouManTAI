@@ -1,0 +1,19 @@
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS build
+WORKDIR /workspace/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+COPY contracts/ /workspace/contracts/
+COPY backend/app/context/fixtures/ /workspace/backend/app/context/fixtures/
+ENV VITE_API_BASE_URL=""
+ENV VITE_DEMO_ADMIN_LOGIN="1"
+ENV VITE_C3_REVIEW_READS="1"
+RUN npm run build
+
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
+WORKDIR /app/frontend
+COPY --from=build /workspace/frontend/dist ./dist
+COPY frontend/demoGateway.mjs ./demoGateway.mjs
+USER node
+EXPOSE 8443
+CMD ["node", "demoGateway.mjs"]

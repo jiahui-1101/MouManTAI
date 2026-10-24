@@ -37,3 +37,18 @@ class C3ReviewRecord(Base):
         UniqueConstraint("tenant_id", "request_key", name="uq_c3_review_request_key"),
         Index("ix_c3_review_queue", "tenant_id", "state", "created_at"),
     )
+
+
+class C3ClassificationRecord(Base):
+    """One durable typed outcome for an exact current P1 source snapshot."""
+
+    __tablename__ = "c3_classification_results"
+
+    tenant_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    message_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    source_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    outcome: Mapped[dict] = mapped_column(JSON, nullable=False)
+    review_id: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("ix_c3_classification_message", "tenant_id", "message_id", "created_at"),)
