@@ -81,7 +81,7 @@ export type ConfirmationState =
   | "EXPIRED"
   | "SUPERSEDED";
 
-export type CommunicationChannel = "MOCK_WHATSAPP" | "MOCK_EMAIL" | "MOCK_TELEGRAM" | "UNKNOWN";
+export type CommunicationChannel = "MOCK_WHATSAPP" | "MOCK_EMAIL" | "MOCK_TELEGRAM" | "EMAIL" | "GMAIL" | "WHATSAPP" | "TELEGRAM" | "UNKNOWN";
 
 export interface RequestedItem {
   sku: string;

@@ -56,4 +56,17 @@ describe("shared shell", () => {
     expect(await screen.findByTestId("synthetic-badge")).toHaveTextContent("SYNTHETIC");
     expect(screen.getByTestId("active-tenant")).toHaveTextContent("tenant_demo_01");
   });
+
+  it("supports additive route registration inside the existing shell", async () => {
+    window.history.pushState({}, "", "/future-order-workspace");
+    const { unmount } = render(
+      <App routeExtensions={[
+        { path: "/future-order-workspace", element: <h2>Future order workspace</h2> },
+      ]} />,
+    );
+    expect(await screen.findByRole("heading", { name: "Future order workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeInTheDocument();
+    unmount();
+    window.history.pushState({}, "", "/");
+  });
 });

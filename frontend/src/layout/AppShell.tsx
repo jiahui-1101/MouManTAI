@@ -1,16 +1,11 @@
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../shared/auth";
+import { getOverview } from "../shared/api";
+import { formatKLTimestamp } from "../shared/date";
 import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { ToastProvider } from "../shared/Toast";
-
-const navigation = [
-  ["/overview", "Overview"],
-  ["/activity", "Activity"],
-  ["/inbox", "Inbox · P1"],
-  ["/commitments/demo", "Commitment · P2"],
-  ["/recovery/demo", "Recovery · P3"],
-  ["/communications", "Communications · P4"],
-] as const;
+import { Sidebar } from "./Sidebar";
 
 const routeLabels: Record<string, string> = {
   overview: "Overview",
@@ -30,7 +25,7 @@ export function Breadcrumbs() {
 
   if (segments.length === 0 || (segments.length === 1 && segments[0] === "overview")) {
     return (
-      <nav aria-label="Breadcrumb" className="breadcrumbs" data-testid="shell-breadcrumbs">
+      <nav aria-label="Breadcrumb" className="breadcrumbs sr-only" data-testid="shell-breadcrumbs">
         <ol>
           <li>
             <span aria-current="page">Overview</span>
@@ -54,7 +49,7 @@ export function Breadcrumbs() {
   });
 
   return (
-    <nav aria-label="Breadcrumb" className="breadcrumbs" data-testid="shell-breadcrumbs">
+    <nav aria-label="Breadcrumb" className="breadcrumbs sr-only" data-testid="shell-breadcrumbs">
       <ol>
         {crumbs.map((crumb, idx) => (
           <li key={crumb.path || idx}>
@@ -72,54 +67,35 @@ export function Breadcrumbs() {
 }
 
 export function AppShell() {
-  const { tenantId, actorId, setActorId, actorRole } = useAuth();
+  const { tenantId, actorId, authHeaders } = useAuth();
+  const location = useLocation();
+  const { data: overview } = useQuery({
+    queryKey: ["overview", tenantId, actorId],
+    queryFn: () => getOverview(authHeaders),
+    enabled: location.pathname === "/" || location.pathname === "/overview",
+  });
 
   return (
     <ToastProvider>
       <div className="app-shell">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Synthetic integration mode</p>
-            <h1>MouManTAI</h1>
-          </div>
-          <div className="topbar-controls">
-            <div className="role-simulator">
-              <label htmlFor="shell-role-select" className="role-label">
-                Simulated Role:
-              </label>
-              <select
-                id="shell-role-select"
-                aria-label="Demo role selector"
-                value={actorId}
-                onChange={(e) => setActorId(e.target.value)}
-                className="role-selector"
-                data-testid="shell-role-selector"
-              >
-                <option value="user_owner_01">Owner (user_owner_01)</option>
-                <option value="user_manager_01">Manager (user_manager_01)</option>
-                <option value="user_staff_01">Staff (user_staff_01)</option>
-              </select>
+        <Sidebar />
+
+        <div className="shell-workspace">
+          <header className="sr-only">
+            <div>
+              <p className="eyebrow">Business command center</p>
+              <h1>MouManTAI</h1>
             </div>
-            <span className="tenant-badge" data-testid="shell-tenant-badge">
-              {tenantId} · {actorRole}
-            </span>
-          </div>
-        </header>
-
-        <div className="shell-body">
-          <nav aria-label="Primary navigation" className="sidebar">
-            {navigation.map(([to, label]) => (
-              <NavLink key={to} to={to} className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}>
-                {label}
-              </NavLink>
-            ))}
-          </nav>
-
+            <div className="topbar-controls">
+              <span className="shell-connection" aria-label="Integration mode and last updated">
+                <strong>{overview?.integration_mode ?? "Mode unknown"}</strong>
+                <small>{overview?.last_updated_at ? `Updated ${formatKLTimestamp(overview.last_updated_at)}` : "Update time unavailable"}</small>
+              </span>
+            </div>
+          </header>
           <main className="main-content">
             <Breadcrumbs />
-            <ErrorBoundary>
-              <Outlet />
-            </ErrorBoundary>
+            <ErrorBoundary><Outlet /></ErrorBoundary>
           </main>
         </div>
       </div>

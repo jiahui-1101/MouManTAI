@@ -131,6 +131,30 @@ async function prepare() {
 const posts = () => fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
 
 describe("Communication Center", () => {
+  it("keeps draft choices while moving between focused communication stages", async () => {
+    mount();
+    await select();
+    fireEvent.click(screen.getByRole("tab", { name: "Draft Message" }));
+    fireEvent.change(screen.getByLabelText("Draft language"), { target: { value: "ms" } });
+    fireEvent.click(screen.getByRole("tab", { name: "Request Overview" }));
+    expect(screen.getByRole("tab", { name: "Request Overview" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("tab", { name: "Draft Message" }));
+    expect(screen.getByLabelText("Draft language")).toHaveValue("ms");
+    expect(posts()).toHaveLength(0);
+  });
+
+  it("warns before switching requests with an unsaved draft choice", async () => {
+    mount();
+    await select();
+    fireEvent.click(screen.getByRole("tab", { name: "Draft Message" }));
+    fireEvent.change(screen.getByLabelText("Draft language"), { target: { value: "ms" } });
+    fireEvent.click(within(listRegion()).getByRole("button", { name: /commitment-b/ }));
+    expect(screen.getByText("Unsaved communication input will be lost.")).toBeInTheDocument();
+    expect(within(details()).getByText("proposal-a · v3")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByLabelText("Draft language")).toHaveValue("ms");
+  });
+
   it.each([
     ["SENT", "Sent"], ["FAILED", "Blocked"], ["DELIVERY_UNKNOWN", "Blocked"], ["QUEUED", "Sending"],
   ] as const)("uses backend outbound %s for the request display label", async (state, label) => {

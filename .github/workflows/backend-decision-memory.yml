@@ -1,0 +1,46 @@
+name: Backend Decision Memory
+
+on:
+  push:
+    branches:
+      - "feat/**"
+    paths:
+      - "backend/app/decision_memory/**"
+      - "backend/pyproject.toml"
+      - ".github/workflows/backend-decision-memory.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "backend/app/decision_memory/**"
+      - "backend/pyproject.toml"
+      - ".github/workflows/backend-decision-memory.yml"
+
+concurrency:
+  group: backend-decision-memory-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  decision-memory:
+    name: Backend G Decision Memory Tests
+    runs-on: ubuntu-latest
+    env:
+      DISABLE_SQLALCHEMY_CEXT: "1"
+      MOUMANTAI_SYNTHETIC_MODE: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install backend test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --no-binary=sqlalchemy -e "./backend[dev]"
+
+      - name: Run decision-memory tests
+        run: pytest backend/app/decision_memory/tests -v
