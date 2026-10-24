@@ -252,7 +252,7 @@ describe('durable synthetic Inbox', () => {
     render(<DurableInbox api={api} />);
     const detail = await screen.findByRole('region', { name: 'Persisted message details' });
     expect(api.detail).toHaveBeenCalledWith('stored_message_1');
-    fireEvent.click(within(detail).getByRole('button', { name: 'Close message details' }));
+    fireEvent.click(within(detail).getByRole('button', { name: /Back to Customer Messages|Close message details/ }));
     expect(window.location.search).toBe('');
   });
   it('submits to the API, refreshes the list and presents truthful awaiting-processing details', async () => {
