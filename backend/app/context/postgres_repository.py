@@ -1150,6 +1150,25 @@ class PostgresMessageRepository:
                 row.last_decision = updated_record.last_decision.model_dump(mode="json") if updated_record.last_decision else None
                 row.version = updated_record.version
                 row.updated_at = updated_record.updated_at
+                if updated_record.status.value == "LINK_VERIFIED" and updated_record.verified_customer:
+                    linked_ctxs = session.scalars(select(OrderContext).where(
+                        OrderContext.tenant_id == tenant_id,
+                        OrderContext.source_message_ids.contains([message_id]),
+                    )).all()
+                    for linked_context in linked_ctxs:
+                        linked_context.customer_id = updated_record.verified_customer.customer_id
+                        linked_context.customer_identity_status = "LINK_VERIFIED"
+                        if "customer_identity" in (linked_context.missing_fields or []):
+                            linked_context.missing_fields = [
+                                field for field in linked_context.missing_fields
+                                if field != "customer_identity"
+                            ]
+                        if (
+                            not linked_context.missing_fields
+                            and linked_context.requested_items
+                            and not linked_context.conflicts
+                        ):
+                            linked_context.status = "INFORMATION_READY"
                 session.flush()
                 return association_record(row)
         except (MessageNotFound, AssociationNotFound, StaleAssociationVersion):
