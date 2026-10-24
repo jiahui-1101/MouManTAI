@@ -5,25 +5,33 @@ Schema/source validity does not prove correct semantics or GPU execution.
 """
 import asyncio
 import hashlib
+import re
 import time
 from collections import OrderedDict
-from typing import Literal, Sequence
 from decimal import Decimal
-import re
+from typing import Literal, Sequence
 
 from ..deterministic_extraction import (
-    ProductAlias,
-    UNIT_NORMALIZATION,
-    extract_explicit_fields,
-    ORDER_RE,
-    DEADLINE_PRE_RE,
     DEADLINE_POST_RE,
+    DEADLINE_PRE_RE,
+    ORDER_RE,
+    UNIT_NORMALIZATION,
+    ProductAlias,
+    extract_explicit_fields,
 )
 from ..extraction import ExtractionResult
 from ..ingestion_schemas import StoredMessage
-from ..schemas import ExtractedField, FieldEvidence, P1Model
 from ..request_intent import request_intent
-from .protocol import InferenceFailure, InferenceInput, InferenceOutput, MODEL_CONFIG, Observation, SourceText, validate_evidence
+from ..schemas import ExtractedField, FieldEvidence, P1Model
+from .protocol import (
+    MODEL_CONFIG,
+    InferenceFailure,
+    InferenceInput,
+    InferenceOutput,
+    Observation,
+    SourceText,
+    validate_evidence,
+)
 
 NON_ORDER_PATTERNS = re.compile(
     r"\b(do you do delivery|do you deliver|available tak|what is the price|how much|can you send(?: the)? menu|"
@@ -61,6 +69,7 @@ class ProposalResult(P1Model):
     outcomes: dict[str, str]
     conflicts: list[str]
     telemetry: dict[str, dict] = {}
+    provider_audit: dict[str, object] = {}
     manual_review_required: Literal[True] = True
     routing_reasons: dict[str, str] = {}
     worker_request_count: int = 0
@@ -80,7 +89,14 @@ class ModelProposalService:
         self.cache_ttl_seconds = 60.0
         self.cache_max_entries = 128
         self.worker_request_count: int = 0
-        self.request_timeout_seconds = min(180.0, getattr(getattr(endpoint, 'config', None), 'timeout_seconds', 125.0) + 3.0)
+        primary_timeout = getattr(getattr(endpoint, "config", None), "timeout_seconds", 125.0)
+        fallback_config = getattr(endpoint, "fallback", None)
+        fallback_config = getattr(fallback_config, "config", None)
+        fallback_timeout = getattr(fallback_config, "timeout_seconds", 0.0)
+        fallback_attempts = getattr(fallback_config, "max_retries", 0) + (1 if fallback_config else 0)
+        self.request_timeout_seconds = min(
+            365.0, primary_timeout + fallback_timeout * fallback_attempts + 3.0
+        )
 
     async def extract_stored(self, message: StoredMessage, *, catalog: Sequence[ProductAlias],
                              reviewed_fields: Sequence[ExtractedField] = ()) -> ProposalResult:
@@ -100,11 +116,6 @@ class ModelProposalService:
             routing_reasons={},
             worker_request_count=0,
         )
-        if not self.enabled or self.endpoint is None:
-            result.outcomes["models"] = "disabled"
-            result.routing_reasons["models"] = "Model extraction disabled or endpoint unconfigured"
-            return result
-
         rule_sku_valid = any(f.field_name == "sku" and f.validation_status == "VALID" for f in rules.fields)
         rule_qty_valid = any(f.field_name == "quantity" and f.validation_status == "VALID" for f in rules.fields)
         rule_unit_valid = any(f.field_name == "unit" and f.validation_status == "VALID" for f in rules.fields)
@@ -174,6 +185,28 @@ class ModelProposalService:
         else:
             needs_l1 = True
             l0_reason = "L0 deterministic rules could not resolve all required terms (missing SKU, quantity, or delivery)"
+
+        if needs_l1 and (not self.enabled or self.endpoint is None):
+            unavailable_provider = (
+                "qwen" if "qwen" in self.stages else self.stages[-1] if self.stages else None
+            )
+            unavailable_code = "credentials_missing" if self.endpoint is None else "provider_disabled"
+            result.outcomes["models"] = "disabled"
+            result.routing_reasons["models"] = "Model extraction unavailable; deterministic observations require human review"
+            result.provider_audit = {
+                "primary_provider": unavailable_provider,
+                "provider_used": None,
+                "fallback_provider": "gemini" if unavailable_provider == "qwen" else None,
+                "fallback_trigger": None,
+                "primary_error": unavailable_code,
+                "fallback_error": "not_attempted",
+                "validation_outcome": "NOT_ATTEMPTED",
+                "latency_ms": 0,
+                "primary_attempts": 0,
+                "fallback_attempts": 0,
+                "review_required": True,
+            }
+            return result
 
         for engine in self.stages:
             if engine == "gliner":
@@ -279,6 +312,8 @@ class ModelProposalService:
                 except InferenceFailure as error:
                     result.outcomes[engine] = str(error)
                     result.routing_reasons[engine] = f"Worker inference failure: {error}"
+                    if engine == "qwen" and error.audit:
+                        result.provider_audit = error.audit
                 except Exception:
                     result.outcomes[engine] = "invalid_context_or_candidate"
                     result.routing_reasons[engine] = "Worker exception or validation error"
@@ -408,7 +443,8 @@ class ModelProposalService:
         """
         request = InferenceInput(engine=engine, messages=[SourceText(id="m1", text=message.raw.text)])
         config = getattr(self.endpoint, "config", None)
-        key = (message.raw.tenant_id, engine, id(self.endpoint), getattr(config, "url", ""),
+        provider_chain = getattr(self.endpoint, "cache_key", None)
+        key = (message.raw.tenant_id, engine, id(self.endpoint), getattr(config, "url", ""), provider_chain,
                MODEL_CONFIG[engine], "grounded-observations-v2",
                hashlib.sha256(request.model_dump_json().encode()).hexdigest())
         now = time.monotonic()
@@ -439,14 +475,31 @@ class ModelProposalService:
                         answer = InferenceOutput.model_validate(raw.model_dump() if isinstance(raw, InferenceOutput) else raw)
                         return validate_evidence(answer, request)
                     except TimeoutError:
-                        raise InferenceFailure('timeout') from None
+                        audit = {
+                            "primary_provider": "qwen",
+                            "provider_used": None,
+                            "fallback_provider": "gemini",
+                            "fallback_trigger": "timeout",
+                            "primary_error": "timeout",
+                            "fallback_error": "request_deadline_exceeded",
+                            "validation_outcome": "BOTH_FAILED",
+                            "latency_ms": round(self.request_timeout_seconds * 1000),
+                            "primary_attempts": 1,
+                            "fallback_attempts": 0,
+                            "review_required": True,
+                        }
+                        raise InferenceFailure("timeout", audit=audit) from None
                     except (ValueError, TypeError):
-                        raise InferenceFailure('invalid_structured_output') from None
+                        raise InferenceFailure("schema_validation") from None
 
                 task = asyncio.create_task(invoke())
                 self._inflight[flight_key] = task
                 try:
                     answer = await task
+                except InferenceFailure as error:
+                    if engine == "qwen" and error.audit:
+                        result.provider_audit = error.audit
+                    raise
                 finally:
                     self._inflight.pop(flight_key, None)
                 self._inference_cache[key] = (time.monotonic(), answer.model_copy(deep=True))
@@ -458,6 +511,31 @@ class ModelProposalService:
             inference_seconds=answer.inference_seconds if result.telemetry[engine]["attempted"] else 0.0,
             load_seconds=answer.load_seconds if result.telemetry[engine]["attempted"] else 0.0,
         )
+        if engine == "qwen":
+            provider_used = answer.provider or "qwen"
+            measured_latency = (
+                answer.provider_latency_ms
+                if result.telemetry[engine]["attempted"] and answer.provider_latency_ms is not None
+                else 0
+            )
+            result.provider_audit = {
+                "primary_provider": "qwen",
+                "provider_used": provider_used,
+                "fallback_provider": "gemini",
+                "fallback_trigger": answer.fallback_trigger,
+                "validation_outcome": answer.validation_outcome,
+                "latency_ms": measured_latency,
+                "provider_attempts": answer.provider_attempts if result.telemetry[engine]["attempted"] else 0,
+                "redacted_span_count": answer.redacted_span_count,
+                "cache_reused": bool(result.telemetry[engine].get("cached") or result.telemetry[engine].get("coalesced")),
+            }
+            result.telemetry[engine].update(
+                provider=provider_used,
+                fallback_trigger=answer.fallback_trigger,
+                validation_outcome=answer.validation_outcome,
+                latency_ms=measured_latency,
+                provider_attempts=result.provider_audit["provider_attempts"],
+            )
         return answer
 
     @staticmethod

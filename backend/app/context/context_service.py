@@ -4,10 +4,9 @@
 
 from __future__ import annotations
 
-
-
-from datetime import datetime, timezone
+import json
 import re
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -32,39 +31,21 @@ EXPLICIT_FOLLOWUP_RE = re.compile(
 
 
 from .association_schemas import IdentityLinkStatus
-
 from .association_service import AssociationService
-
 from .order_context_schemas import (
-
     ContextReadinessStatus,
-
     ContextReviewRequest,
-
     ContextUpdateRequest,
-
     OrderContextRecord,
-
     RequestedItem,
-
 )
-
 from .repository import (
-
     ContextNotFound,
-
     ExtractionNotFound,
-
     MessageNotFound,
-
     MessageRepository,
-
     StaleContextVersion,
-
 )
-
-
-
 
 
 class ContextService:
@@ -72,6 +53,16 @@ class ContextService:
     def __init__(self, repository: MessageRepository):
 
         self.repo = repository
+
+    @staticmethod
+    def _provider_failure_reason(attempt) -> str | None:
+        try:
+            diagnostic = json.loads(attempt.diagnostic or "{}")
+        except (TypeError, ValueError):
+            return None
+        if isinstance(diagnostic, dict) and diagnostic.get("review_required") is True:
+            return "Structured extraction provider failure; deterministic observations require human review"
+        return None
 
 
 
@@ -341,6 +332,9 @@ class ContextService:
                 return existing_context
 
             conflicts = list(existing_context.conflicts)
+            provider_failure_reason = self._provider_failure_reason(attempt)
+            if provider_failure_reason and provider_failure_reason not in conflicts:
+                conflicts.append(provider_failure_reason)
 
             for name in uncertain_terms:
 
@@ -637,6 +631,9 @@ class ContextService:
             # Create new OrderContext
 
             conflicts = list(assoc.conflicts)
+            provider_failure_reason = self._provider_failure_reason(attempt)
+            if provider_failure_reason and provider_failure_reason not in conflicts:
+                conflicts.append(provider_failure_reason)
 
             for f in attempt.fields:
                 intent_val = f.metadata.get("request_intent") if f.metadata else None

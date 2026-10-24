@@ -74,6 +74,10 @@ jobs:
             app/context/tests/test_p1_alembic_migration.py \
             app/context/tests/test_order_context_source_snapshot.py \
             app/context/tests/test_postgres_repository.py \
+            app/context/tests/test_ai_provider_reliability.py \
+            app/context/tests/test_ai_endpoint.py \
+            app/context/tests/test_ai_pipeline_integration.py \
+            -k "not opt_in_live_gemini_smoke" \
             -q -rA --tb=short --junitxml=p1-reader-postgres.xml
       - name: Enforce discovery and zero skipped tests
         working-directory: backend
