@@ -165,15 +165,16 @@ describe('HumanReviewPage component', () => {
     });
   });
 
-  it('keeps amendment values while moving between review activities', async () => {
+  it('opens the same Review & Amend workspace and keeps unsaved values in it', async () => {
     renderPage(<HumanReviewPage />);
-    await waitFor(() => expect(screen.getByDisplayValue('CROISSANT')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('tab', { name: 'Amendments' }));
-    fireEvent.change(screen.getByDisplayValue('CROISSANT'), { target: { value: 'SOURDOUGH' } });
-    fireEvent.click(screen.getByRole('tab', { name: 'Inquiry & Evidence' }));
-    expect(screen.getByRole('tab', { name: 'Inquiry & Evidence' })).toHaveAttribute('aria-selected', 'true');
-    fireEvent.click(screen.getByRole('tab', { name: 'Amendments' }));
-    expect(screen.getByDisplayValue('SOURDOUGH')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Review & Amend' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Review & Amend' }));
+    expect(screen.getByTestId('review-drawer')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('SKU / Product'), { target: { value: 'SOURDOUGH' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByText('Unsaved review changes will be lost.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(screen.getByLabelText('SKU / Product')).toHaveValue('SOURDOUGH');
   });
 
   it('keeps unsaved amendment values when the queue is refreshed', async () => {

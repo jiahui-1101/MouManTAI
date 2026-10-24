@@ -5,7 +5,7 @@ import { useAuth } from "../../shared/auth";
 import type { RequestAuthHeaders } from "../../shared/api";
 import { formatKLTimestamp } from "../../shared/date";
 import { communicationKeys, getCommunication, getCommunicationSummary, listCommunications } from "./api";
-import { communicationLabel, channelText, DisplayBadge, ErrorNotice } from "./presentation";
+import { communicationLabel, channelText, DisplayBadge, ErrorNotice, OriginBadge, DeliveryModeBadge } from "./presentation";
 import { CommunicationDetails } from "./CommunicationDetails";
 import { RecipientPreferences } from "./RecipientPreferences";
 import type { MessageDraftView } from "./types";
@@ -114,7 +114,13 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
                   <span className="cc-row"><strong>{request.reference.commitment_id}</strong><DisplayBadge label={label(request)} /></span>
                   <span className="cc-id">{request.communication_id}</span>
                   <span className="muted">{request.reference.proposal_id} · v{request.reference.proposal_version}</span>
-                  <span className="cc-row muted"><span>{channelText(request.channel)}</span><time>{formatKLTimestamp(request.created_at)}</time></span>
+                  <span className="cc-row muted">
+                    <span className="cc-badges-group">
+                      <OriginBadge request={request} />
+                      <DeliveryModeBadge request={request} />
+                    </span>
+                    <time>{formatKLTimestamp(request.created_at)}</time>
+                  </span>
                 </button></li>)}</ul>}
           </section>
           </div>

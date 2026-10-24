@@ -130,6 +130,15 @@ def gmail_oauth_authorize(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.get("/gmail/verify")
+def gmail_verify(manager: ChannelManager = Depends(get_manager)) -> dict[str, Any]:
+    """Safely verify authenticated Gmail account identity and OAuth status."""
+    try:
+        return manager.gmail.verify_connection()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.get("/gmail/oauth/callback")
 def gmail_oauth_callback(
     code: Annotated[str | None, Query()] = None,

@@ -7,9 +7,22 @@ metrics, and drafting controls.
 from datetime import datetime, timezone, timedelta
 import os
 import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend")))
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+repo_root = Path(__file__).resolve().parents[1]
+env_path = repo_root / ".env"
+if env_path.is_file():
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip("'\""))
+
+backend_dir = repo_root / "backend"
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
 
 from app.db.session import SessionLocal
 from app.communication.models import CommunicationRequestRecord

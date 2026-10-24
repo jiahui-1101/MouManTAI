@@ -159,6 +159,7 @@
 .hr-line-item-fields > div { min-width: 0; }
 .hr-delivery-fields { display: grid; grid-template-columns: minmax(0,2fr) minmax(0,1fr); gap: 10px; margin-bottom: 14px; }
 .hr-case-guidance { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 8px; background: #f4f8ff; border: 1px solid rgba(7,103,232,.22); border-radius: 6px; }
+.hr-case-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .hr-case-guidance strong { color: #1c3153; font-size: 13px; }
 .hr-case-guidance p, .hr-send-availability p, .hr-route-limit { margin: 4px 0 0; color: rgba(28,49,83,.7); font-size: 12px; line-height: 1.45; }
 .hr-send-availability { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 0; border-top: 1px solid rgba(28,49,83,.12); }

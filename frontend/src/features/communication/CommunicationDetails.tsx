@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { RequestAuthHeaders } from "../../shared/api";
 import { formatKLTimestamp } from "../../shared/date";
 import { communicationKeys, getDraft, prepareDraft } from "./api";
-import { channelText, communicationLabel, DisplayBadge, ErrorNotice, errorText, languages, reasonText } from "./presentation";
+import { channelText, communicationLabel, DisplayBadge, ErrorNotice, errorText, languages, reasonText, OriginBadge, DeliveryModeBadge } from "./presentation";
 import { DraftPreview } from "./DraftPreview";
 import { ManagerReview } from "./ManagerReview";
 import { OutboundPanel } from "./OutboundPanel";
@@ -101,11 +101,23 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
     request.outbound_status || failed ? "Blocked" : communicationLabel(request.request_status, request.message_status, !!validDraft);
   const terms = request.proposed_terms;
   return <>
-    <div className="cc-row"><div><p className="eyebrow">Request details</p><h3>{request.reference.commitment_id}</h3></div><DisplayBadge label={label} /></div>
+    <div className="cc-row">
+      <div>
+        <p className="eyebrow">Request details</p>
+        <h3>{request.reference.commitment_id}</h3>
+      </div>
+      <div className="cc-badges-group">
+        <OriginBadge request={request} />
+        <DeliveryModeBadge request={request} />
+        <DisplayBadge label={label} />
+      </div>
+    </div>
     <WorkflowTabs stages={communicationStages} active={stage} onChange={setStage} label="Communication stages" className="cc-review-tabs" />
     <div className="cc-stage" data-active={stage === 'overview'}>
     <dl className="cc-facts">
       <Fact label="Communication" value={id} />
+      <Fact label="Case origin" value={<OriginBadge request={request} />} />
+      <Fact label="Delivery mode" value={<DeliveryModeBadge request={request} />} />
       <Fact label="Proposal" value={`${request.reference.proposal_id} · v${request.reference.proposal_version}`} />
       <Fact label="Recovery plan" value={`${request.reference.plan_id} · v${request.reference.plan_version}`} />
       <Fact label="Commitment version" value={request.reference.commitment_version} />
@@ -187,7 +199,7 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
   </>;
 }
 
-function Fact({ label, value }: { label: string; value?: string | number | null }) {
+function Fact({ label, value }: { label: string; value?: React.ReactNode }) {
   return <div><dt>{label}</dt><dd>{value ?? "Not provided"}</dd></div>;
 }
 function Evidence({ label, values }: { label: string; values?: string[] }) {

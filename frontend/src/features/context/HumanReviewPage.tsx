@@ -2,27 +2,22 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../shared/auth';
 import { operationalApi } from './operationalApi';
 import type {
-  ContextReviewRequest,
   ExtractionAttemptRecord,
   MessageAssociationRecord,
   OrderContextRecord,
-  RequestedItem,
   StoredMessage,
 } from './types';
-import { extractEvidenceItemGroups, reviewCandidates } from './reviewCandidates';
-import { getSuggestedClarification } from './ReviewDrawer';
+import { ReviewDrawer } from './ReviewDrawer';
 import { ExtractionProvenance } from './ExtractionProvenance';
 import { WorkflowTabs } from '../../shared/WorkflowTabs';
 import { determineHumanReviewCase } from './humanReviewCase';
 import './humanReview.css';
 
 export type ReviewFilterCategory = 'ALL' | 'UNRESOLVED' | 'FAILED_EXTRACTION';
-type ReviewStage = 'evidence' | 'extraction' | 'amendments' | 'resolution';
+type ReviewStage = 'evidence' | 'extraction';
 const reviewStages: { id: ReviewStage; label: string }[] = [
   { id: 'evidence', label: 'Inquiry & Evidence' },
   { id: 'extraction', label: 'AI Extraction' },
-  { id: 'amendments', label: 'Amendments' },
-  { id: 'resolution', label: 'Resolution' },
 ];
 
 export interface HumanReviewPageProps {
@@ -39,8 +34,7 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
   const [filter, setFilter] = useState<ReviewFilterCategory>(initialFilter);
   const [search, setSearch] = useState('');
   const [reviewStage, setReviewStage] = useState<ReviewStage>('evidence');
-  const [pendingSelection, setPendingSelection] = useState<string | null>(null);
-  const [savedForm, setSavedForm] = useState('');
+  const [showAmendWorkspace, setShowAmendWorkspace] = useState(false);
 
   // Selected item state
   const [selectedMessage, setSelectedMessage] = useState<StoredMessage | null>(null);
@@ -50,30 +44,10 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
   const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState<string | null>(null);
 
-  // Review form state
-  const [items, setItems] = useState<RequestedItem[]>([]);
-  const [deliveryAt, setDeliveryAt] = useState('');
-  const [qualifier, setQualifier] = useState('');
-  const [specialInstructions, setSpecialInstructions] = useState('');
-  const [reviewerNote, setReviewerNote] = useState('');
-  const [conflictsReviewed, setConflictsReviewed] = useState(false);
-  const [catalog, setCatalog] = useState<{ sku: string; unit: string }[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [conflictOccurred, setConflictOccurred] = useState(false);
-  const currentForm = JSON.stringify([items, deliveryAt, qualifier, specialInstructions]);
-  const hasUnsavedReview = !!reviewerNote.trim() || !!conflictsReviewed || (!!savedForm && currentForm !== savedForm);
   const selectInquiry = (id: string) => {
     if (id === selectedId) return;
-    if (hasUnsavedReview) { setPendingSelection(id); return; }
-    setSelectedId(id); setReviewStage('evidence'); setReviewerNote(''); setPendingSelection(null);
+    setSelectedId(id); setReviewStage('evidence');
   };
-
-  // The deployed context API supplies catalog validation; standalone v2.2 review tasks are not available here.
-  useEffect(() => {
-    operationalApi.getCatalog().then(cat => setCatalog(cat)).catch(() => setCatalog([]));
-  }, []);
 
   // Load review-relevant messages
   const loadMessages = async () => {
@@ -113,9 +87,6 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
     let active = true;
     setContextLoading(true);
     setContextError(null);
-    setSubmitSuccess(null);
-    setSubmitError(null);
-    setConflictOccurred(false);
 
     // Fetch extraction attempt, association, and linked context
     Promise.all([
@@ -136,11 +107,8 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
       if (!active) return;
       if (ctx) {
         setSelectedContext(ctx);
-        initFormFromContext(ctx);
       } else {
         setSelectedContext(null);
-        setItems([{ sku: '', quantity: '', unit: '' }]);
-        setSavedForm(JSON.stringify([[{ sku: '', quantity: '', unit: '' }], '', '', '']));
       }
     }).catch(err => {
       if (active) setContextError(err instanceof Error ? err.message : 'Failed loading context');
@@ -151,26 +119,6 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
     return () => { active = false; };
   }, [selectedId]);
 
-  const initFormFromContext = (ctx: OrderContextRecord) => {
-    const evidenceItemGroups = extractEvidenceItemGroups(ctx);
-    const initialItems: RequestedItem[] = (ctx.requested_items && ctx.requested_items.length > 0)
-      ? ctx.requested_items.map(it => ({ sku: it.sku || '', quantity: it.quantity || '', unit: it.unit || '' }))
-      : (evidenceItemGroups.length > 0
-        ? evidenceItemGroups.map(grp => ({
-            sku: grp.validSku || '',
-            quantity: grp.quantity || '',
-            unit: grp.unit || '',
-          }))
-        : [{ sku: '', quantity: '', unit: '' }]);
-
-    setItems(initialItems);
-    setDeliveryAt(ctx.requested_delivery_at || '');
-    setQualifier(ctx.delivery_qualifier || '');
-    setSpecialInstructions(ctx.special_instructions || '');
-    setConflictsReviewed(false);
-    setSavedForm(JSON.stringify([initialItems, ctx.requested_delivery_at || '', ctx.delivery_qualifier || '', ctx.special_instructions || '']));
-  };
-
   const handleCreateContext = async () => {
     if (!selectedId || selectedMessage?.processing_status !== 'PROCESSED' || selectedAssociation?.status !== 'LINK_VERIFIED' || !selectedAssociation.verified_order?.order_id) return;
     setContextLoading(true);
@@ -178,26 +126,9 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
     try {
       const created = await operationalApi.createContextFromMessage(selectedId);
       setSelectedContext(created);
-      initFormFromContext(created);
       if (onContextUpdated) onContextUpdated(created);
     } catch (err) {
       setContextError(err instanceof Error ? err.message : 'Unable to initialize order context from message');
-    } finally {
-      setContextLoading(false);
-    }
-  };
-
-  const handleReloadContext = async () => {
-    if (!selectedContext) return;
-    setContextLoading(true);
-    try {
-      const reloaded = await operationalApi.getContext(selectedContext.context_id);
-      setSelectedContext(reloaded);
-      initFormFromContext(reloaded);
-      setConflictOccurred(false);
-      setSubmitError(null);
-    } catch (err) {
-      setContextError(err instanceof Error ? err.message : 'Failed to reload context');
     } finally {
       setContextLoading(false);
     }
@@ -398,7 +329,7 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
           ) : (
             <div>
               <div className="hr-detail-intro"><strong>{selectedMessage.raw?.sender_alias || 'Customer inquiry'}</strong><span>{selectedMessage.processing_status} · {selectedContext?.status || 'Context pending'}</span></div>
-              <div className="hr-case-guidance" role="status"><div><strong>{reviewCase.title}</strong><p>{reviewCase.nextStep}</p></div><a className="hr-compact-action" href={messageUrl}>Open customer message</a></div>
+              <div className="hr-case-guidance" role="status"><div><strong>{reviewCase.title}</strong><p>{reviewCase.nextStep}</p></div><div className="hr-case-actions"><a className="hr-compact-action" href={messageUrl}>Open customer message</a>{selectedContext && <button type="button" className="hr-compact-action" onClick={() => setShowAmendWorkspace(true)}>Review &amp; Amend</button>}</div></div>
               <WorkflowTabs stages={reviewStages} active={reviewStage} onChange={setReviewStage} label="Review stages" className="hr-review-tabs" />
               <div className="hr-stage-content">
               {/* Evidence Section */}
@@ -461,334 +392,20 @@ export function HumanReviewPage({ initialFilter = 'ALL', onContextUpdated }: Hum
               )}
               {!selectedExtraction && <section className="hr-section hr-stage" data-active={reviewStage === 'extraction'}><h3>AI Extraction</h3><p>No extraction attempt is available for this inquiry.</p></section>}
 
-              {/* Order Context & Multi-Item Field Correction Section */}
-              <section className="hr-section hr-stage" data-active={reviewStage === 'amendments' || reviewStage === 'resolution'} aria-labelledby="hr-context-title">
-                <div className="hr-section-title">
-                  <h3 id="hr-context-title" style={{ margin: 0, fontSize: '15px' }}>
-                    Order Context & Structured Draft {selectedContext ? `(v${selectedContext.context_version})` : ''}
-                  </h3>
-                  {selectedContext && (
-                    <span className={`status-badge status-${selectedContext.status.toLowerCase()}`}>
-                      {selectedContext.status}
-                    </span>
-                  )}
-                </div>
-
-                {contextError && (
-                  <div className="p1-error-banner" role="alert" style={{ marginBottom: '12px' }}>
-                    <strong>Context Error:</strong> {contextError}
-                  </div>
-                )}
-
-                <div className="hr-stage" data-active={reviewStage === 'resolution'}><div className="hr-send-availability"><button type="button" className="hr-compact-action" disabled>Send customer update unavailable</button><p>A verified conversation, authorized reply and supported channel are required. Recording a need for information does not send a message.</p></div></div>
-
-                {contextLoading ? (
-                  <div style={{ padding: '16px', color: '#64748b' }}>Loading context data…</div>
-                ) : !selectedContext ? (
-                  <div style={{ padding: '16px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '6px', textAlign: 'center' }}>
-                    <p style={{ margin: '0 0 8px 0', color: '#64748b' }}>{canInitializeContext ? 'This verified order has no context yet.' : 'A processed message and verified order link are required to initialize an order context.'}</p>
-                    {canInitializeContext && <button
-                      type="button"
-                      className="p1-primary"
-                      onClick={() => void handleCreateContext()}
-                    >
-                      Initialize Order Context from Message
-                    </button>}
-                    {!canInitializeContext && <a className="hr-compact-action" href={messageUrl}>Review message and identity link</a>}
-                  </div>
-                ) : (
-                  <div>
-                    {/* Conflict Banner if 409 occurred */}
-                    {conflictOccurred && (
-                      <div className="hr-version-banner" role="alert">
-                        <span><strong>Version Conflict:</strong> The context was updated by another process.</span>
-                        <button
-                          type="button"
-                          className="p1-btn-secondary"
-                          style={{ fontSize: '11px', padding: '3px 8px' }}
-                          onClick={() => void handleReloadContext()}
-                        >
-                          Reload Latest Context
-                        </button>
-                      </div>
-                    )}
-
-                    {submitError && !conflictOccurred && (
-                      <div className="p1-error-banner" role="alert" style={{ marginBottom: '12px' }}>
-                        <strong>Error:</strong> {submitError}
-                      </div>
-                    )}
-
-                    {submitSuccess && (
-                      <div style={{ background: '#f0fdf4', border: '1px solid #86efac', color: '#166534', padding: '8px 12px', borderRadius: '6px', marginBottom: '12px', fontSize: '12px' }}>
-                        ✓ {submitSuccess}
-                      </div>
-                    )}
-
-                    <div className="hr-stage" data-active={reviewStage === 'amendments'}>
-                    {/* Candidate proposals banner */}
-                    {candidateProposals.length > 0 && (
-                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '10px 12px', marginBottom: '14px' }}>
-                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#15803d', marginBottom: '4px' }}>
-                          Extraction Candidates
-                        </div>
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                          {candidateProposals.map(cp => (
-                            <button
-                              key={cp.key}
-                              type="button"
-                              className="p1-secondary"
-                              style={{ fontSize: '11px', padding: '3px 8px' }}
-                              disabled={cp.unverifiedProduct}
-                              onClick={() => {
-                                if (cp.field === 'sku') updateItem(0, 'sku', cp.value);
-                                else if (cp.field === 'quantity') updateItem(0, 'quantity', cp.value);
-                                else if (cp.field === 'unit') updateItem(0, 'unit', cp.value);
-                                else if (cp.field === 'requested_delivery_at') setDeliveryAt(cp.value);
-                              }}
-                            >
-                              {cp.unverifiedProduct ? 'Unverified product' : `Apply ${cp.field}`}: <strong>{cp.value}</strong>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Policy Conflicts if any */}
-                    {selectedContext.conflicts && selectedContext.conflicts.length > 0 && (
-                      <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '10px 12px', marginBottom: '14px' }}>
-                        <h4 style={{ margin: '0 0 6px 0', color: '#991b1b', fontSize: '12px', fontWeight: 700 }}>
-                          Policy & Terms Conflicts ({selectedContext.conflicts.length})
-                        </h4>
-                        <ul style={{ margin: 0, paddingLeft: '18px', color: '#b91c1c', fontSize: '11px' }}>
-                          {selectedContext.conflicts.map((c, i) => (
-                            <li key={i}>{c}</li>
-                          ))}
-                        </ul>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '11px', color: '#7f1d1d', fontWeight: 600 }}>
-                          <input
-                            type="checkbox"
-                            checked={conflictsReviewed}
-                            onChange={e => setConflictsReviewed(e.target.checked)}
-                          />
-                          I reviewed and resolved all policy conflicts
-                        </label>
-                      </div>
-                    )}
-
-                    {/* Line Items List */}
-                    <div style={{ marginBottom: '14px' }}>
-                      <div className="hr-line-items-heading">
-                        <span style={{ fontSize: '13px', fontWeight: 700 }}>Order Line Items ({items.length})</span>
-                        <button type="button" className="hr-compact-action" onClick={addItem}>+ Add item</button>
-                      </div>
-                      <datalist id="hr-approved-skus">
-                        {[...new Set(catalog.map(p => p.sku))].map(sku => (
-                          <option key={sku} value={sku} />
-                        ))}
-                      </datalist>
-
-                      {items.map((it, idx) => (
-                        <div
-                          key={idx}
-                          className="hr-line-item-fields"
-                        >
-                          <div>
-                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                              SKU / Product
-                            </label>
-                            <input
-                              type="text"
-                              list="hr-approved-skus"
-                              className="hr-search-input"
-                              placeholder="e.g. SOURDOUGH, BURGER"
-                              value={it.sku}
-                              onChange={e => updateItem(idx, 'sku', e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                              Quantity
-                            </label>
-                            <input
-                              type="text"
-                              className="hr-search-input"
-                              placeholder="e.g. 50"
-                              value={it.quantity}
-                              onChange={e => updateItem(idx, 'quantity', e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                              Unit
-                            </label>
-                            <select
-                              className="hr-search-input"
-                              value={it.unit}
-                              onChange={e => updateItem(idx, 'unit', e.target.value)}
-                            >
-                              <option value="">Select unit</option>
-                              {[...new Set(['pcs', 'box', 'kg', ...catalog.map(p => p.unit), it.unit].filter(Boolean))].map(u => (
-                                <option key={u} value={u}>{u}</option>
-                              ))}
-                            </select>
-                          </div>
-                          {items.length > 1 && (
-                            <button
-                              type="button"
-                              className="p1-btn-subtle"
-                              style={{ color: '#dc2626', fontSize: '11px', padding: '6px' }}
-                              onClick={() => removeItem(idx)}
-                              title="Remove item"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Delivery & Special Instructions */}
-                    <div className="hr-delivery-fields">
-                      <div>
-                        <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                          Requested Delivery (ISO 8601 with offset)
-                        </label>
-                        <input
-                          type="text"
-                          className="hr-search-input"
-                          placeholder="e.g. 2026-10-23T15:00:00+08:00"
-                          value={deliveryAt}
-                          onChange={e => setDeliveryAt(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                          Timing Qualifier
-                        </label>
-                        <select
-                          className="hr-search-input"
-                          value={qualifier}
-                          onChange={e => setQualifier(e.target.value)}
-                        >
-                          <option value="">Unresolved</option>
-                          <option value="EXACT">EXACT</option>
-                          <option value="DEADLINE">DEADLINE</option>
-                          <option value="DATE_ONLY">DATE_ONLY</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div style={{ marginBottom: '14px' }}>
-                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                        Special Handling Notes
-                      </label>
-                      <input
-                        type="text"
-                        className="hr-search-input"
-                        placeholder="Dietary or delivery constraints…"
-                        value={specialInstructions}
-                        onChange={e => setSpecialInstructions(e.target.value)}
-                      />
-                    </div>
-
-                    </div>
-                    <div className="hr-stage" data-active={reviewStage === 'resolution'}>
-                    <p className="muted">Review the current context and resolve any remaining questions before recording an outcome.</p>
-                    {(selectedContext.missing_fields?.length || selectedContext.conflicts?.length) ?
-                      <div className="hr-issues-timeline-card" aria-label="Order context gaps">
-                        <strong>Information requiring review</strong>
-                        {!!selectedContext.missing_fields?.length && <p>Missing: {selectedContext.missing_fields.join(', ')}</p>}
-                        {!!selectedContext.conflicts?.length && <ul>{selectedContext.conflicts.map((conflict, index) => <li key={index}>{conflict}</li>)}</ul>}
-                      </div> : null}
-                    <p className="hr-route-limit">Issue-by-issue clarification history, reminder counts and escalation status are unavailable without a linked conversation record. This message API supplies no conversation ID.</p>
-
-                    {/* Clarification Preview & Note Adoption */}
-                    {suggestedClarification && (
-                      <div className="hr-clarification-card">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e40af' }}>Suggested clarification wording</span>
-                          <span style={{ fontSize: '10px', background: '#dbeafe', color: '#1d4ed8', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
-                            Preview Only · Not Sent
-                          </span>
-                        </div>
-                        <p>&ldquo;{suggestedClarification}&rdquo;</p>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
-                          <button
-                            type="button"
-                            className="hr-adopt-btn"
-                            onClick={() => setReviewerNote(suggestedClarification)}
-                          >
-                            Adopt as Clarification Note
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Staff Reviewer Note */}
-                    <div style={{ marginBottom: '16px' }}>
-                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
-                        Audited Reviewer Reason & Notes
-                      </label>
-                      <textarea
-                        rows={2}
-                        className="hr-search-input"
-                        style={{ height: 'auto' }}
-                        placeholder="State reason for changes or clarification details…"
-                        value={reviewerNote}
-                        onChange={e => setReviewerNote(e.target.value)}
-                      />
-                    </div>
-
-                    {/* Action Toolbar */}
-                    <div className="hr-actions-toolbar">
-                      <div className="hr-btn-group">
-                        <button
-                          type="button"
-                          className="hr-btn-primary"
-                          disabled={submitting}
-                          onClick={() => void handleReviewAction('EDIT_FIELD')}
-                        >
-                          {submitting ? 'Submitting…' : 'Apply Field Edits'}
-                        </button>
-                        <button
-                          type="button"
-                          className="hr-btn-secondary"
-                          disabled={submitting || !reviewCase.canAcceptExtraction || currentForm !== savedForm}
-                          onClick={() => void handleReviewAction('ACCEPT_EXTRACTION')}
-                        >
-                          Accept Extraction
-                        </button>
-                      </div>
-                      <div className="hr-btn-group">
-                        {(reviewCase.kind === 'information_missing' || reviewCase.kind === 'context_conflict') && <button
-                          type="button"
-                          className="hr-btn-amber"
-                          disabled={submitting}
-                          onClick={() => void handleReviewAction('REQUEST_MORE_INFO')}
-                        >
-                          Record Need for More Info
-                        </button>}
-                        <button
-                          type="button"
-                          className="hr-btn-red"
-                          disabled={submitting}
-                          onClick={() => void handleReviewAction('MARK_UNRESOLVED')}
-                        >
-                          Mark Unresolved
-                        </button>
-                      </div>
-                    </div>
-                    </div>
-                  </div>
-                )}
-              </section>
-              </div>
-              <div className="hr-stage-footer"><button type="button" className="p1-btn p1-btn-secondary" disabled={reviewStage === 'evidence'} onClick={() => setReviewStage(reviewStages[Math.max(0, reviewStages.findIndex(item => item.id === reviewStage) - 1)].id)}>Back</button><span>{reviewStages.findIndex(item => item.id === reviewStage) + 1} of {reviewStages.length}</span><button type="button" className="p1-btn p1-btn-secondary" disabled={reviewStage === 'resolution'} onClick={() => setReviewStage(reviewStages[Math.min(reviewStages.length - 1, reviewStages.findIndex(item => item.id === reviewStage) + 1)].id)}>Next</button></div>
+              {contextError && <div className="p1-error-banner" role="alert">{contextError}</div>}
+              {contextLoading && <p className="muted">Loading order context…</p>}
+              {!contextLoading && !selectedContext && <div className="hr-context-route">
+                <p>{canInitializeContext ? 'This verified order has no context yet.' : 'A processed message and verified order link are required before context review.'}</p>
+                {canInitializeContext ? <button type="button" className="hr-compact-action" onClick={() => void handleCreateContext()}>Initialize Order Context from Message</button> : <a className="hr-compact-action" href={messageUrl}>Review message and identity link</a>}
+              </div>}
+              {selectedContext && <div className="hr-context-route"><p>Order context v{selectedContext.context_version} · {selectedContext.status}. Review fields and record outcomes in the shared workspace.</p><button type="button" className="hr-compact-action" onClick={() => setShowAmendWorkspace(true)}>Review &amp; Amend</button></div>}
+              </div>              <div className="hr-stage-footer"><button type="button" className="p1-btn p1-btn-secondary" disabled={reviewStage === 'evidence'} onClick={() => setReviewStage('evidence')}>Back</button><span>{reviewStages.findIndex(item => item.id === reviewStage) + 1} of {reviewStages.length}</span><button type="button" className="p1-btn p1-btn-secondary" disabled={reviewStage === 'extraction'} onClick={() => setReviewStage('extraction')}>Next</button></div>
             </div>
           )}
         </div>
       </div>
+      {showAmendWorkspace && selectedContext && <ReviewDrawer context={selectedContext} sourceMessage={selectedMessage?.raw?.text} message={selectedMessage} extraction={selectedExtraction} isOpen={showAmendWorkspace} onClose={() => setShowAmendWorkspace(false)} onUpdated={updated => { setSelectedContext(updated); initFormFromContext(updated); onContextUpdated?.(updated); }} actorId={actorId} actorRole={actorRole} />}
     </div>
   );
 }
+

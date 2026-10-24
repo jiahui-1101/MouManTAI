@@ -515,7 +515,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
     function handleMouseMove(e: MouseEvent) {
 
-      const rightOffset = showReviewDrawer ? 520 : 0;
+      const rightOffset = 0;
 
       const maxWidth = Math.max(380, window.innerWidth - rightOffset - 40);
 
@@ -567,11 +567,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
       if (e.key === 'Escape') {
 
-        if (showReviewDrawer) {
-
-          setShowReviewDrawer(false);
-
-        } else {
+        if (!showReviewDrawer) {
 
           onClose();
 
@@ -767,7 +763,7 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
     <div className="p1-drawer-backdrop" onClick={onClose} aria-label="Close message details" role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onClose(); }} />
 
-    <section className={`p1-detail ${isResizing ? 'p1-is-resizing' : ''} ${showReviewDrawer ? 'p1-detail-shifted' : ''}`} style={{ width: `${panelWidth}px` }} ref={panel} tabIndex={-1} aria-label="Persisted message details">
+    <section className={`p1-detail ${isResizing ? 'p1-is-resizing' : ''}`} style={{ width: `${panelWidth}px` }} ref={panel} tabIndex={-1} aria-label="Persisted message details">
 
       <div className={`p1-resize-handle ${isResizing ? 'active' : ''}`} onMouseDown={e => { e.preventDefault(); setIsResizing(true); }} title="Drag left or right to resize panel width">
 
@@ -1708,6 +1704,8 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
 
           context={activeContext}
           sourceMessage={data && activeContext.source_message_ids?.includes(data.message_id) ? data.raw.text : undefined}
+          message={data}
+          extraction={extraction}
 
           isOpen={showReviewDrawer}
 
@@ -1716,8 +1714,6 @@ function StoredMessageDetail({ id, api, onUpdated, onClose }: { id: string; api:
           onUpdated={(updated) => {
 
             setActiveContext(updated);
-
-            setShowReviewDrawer(false);
 
             onUpdated?.();
 

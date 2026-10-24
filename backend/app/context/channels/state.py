@@ -165,6 +165,13 @@ class ChannelStateManager:
             data["updated_at"] = now
             self._save()
 
+    def set_verified_email(self, channel: str, tenant_id: str, email: str) -> None:
+        with self._lock:
+            data = self._get_channel_data(channel, tenant_id)
+            data["verified_email"] = email
+            data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._save()
+
     def get_channel_summary(self, channel: str, tenant_id: str) -> dict[str, Any]:
         with self._lock:
             return dict(self._get_channel_data(channel, tenant_id))
