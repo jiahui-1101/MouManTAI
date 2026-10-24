@@ -49,6 +49,7 @@ def seed_reviewed_orders(client):
         imported = client.post(ORDER_BASE + "/order-requests/import-mock", headers=HEADERS,
                                json={"source_id": source_id, "expected_source_version": 1})
         assert imported.status_code == 201, imported.text
+        assert datetime.fromisoformat(imported.json()["created_at"]).utcoffset() is not None
         reviewed = client.post(ORDER_BASE + f"/order-requests/{name}/review", headers=HEADERS,
                                json={"expected_request_version": 1, "decision": "REVIEWED",
                                      "reason": "Reviewed synthetic portfolio candidate"})
