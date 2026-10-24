@@ -75,9 +75,9 @@
 | Resource          | Link                                         |
 | ----------------- | -------------------------------------------- |
 | GitHub Repository | https://github.com/jiahui-1101/MouManTAI     |
-| Live Demo    | [to be filled]                               |
+| Live Demo    | https://moumantai-demo-gateway.onrender.com   |
 | RunPod Endpoint   | https://api.runpod.ai/v2/bys4nkbjlva29s/run |
-| Slide Deck        | Pending verified URL                         |
+| Slide Deck        | https://docs.google.com/presentation/d/1Wrr5P5XTaBlFqOM7-endL-7XRBz3pj7-lobeDdu9lUY/edit?usp=sharing                      |
 | Demo Video    | Pending verified URL                         |
 
 ---
