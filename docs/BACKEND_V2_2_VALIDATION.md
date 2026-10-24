@@ -117,3 +117,30 @@ Current gaps: no adapter authenticates the origin/freshness of an OrderCommercia
 - From `backend`, `REQUIRE_POSTGRES=0` with database environment variables unset: `python -m pytest tests -q -rs -o addopts= --basetemp="C:\Users\User\.codex\worktrees\backend-a-order-mapper\pytest-tmp-final"` → **568 passed, 31 skipped, 12 warnings**. The 31 skips are PostgreSQL-gated scenarios; no shared/development database was used.
 - Static checks: scoped `ruff check --select E,F,I --ignore E501` on the four changed Python files passed; `ruff format --check` on mapper and mapper tests passed; `compileall` on terms and mapper passed; root `git diff --check` passed. Full default Ruff and whole-file formatting still identify pre-existing legacy style in `terms.py`/`test_terms.py`; no unrelated style rewrite was made.
 - Review correction: for repeated New York wall time `2026-11-01 01:30`, explicit `-04:00` and `-05:00` each resolve to their distinct valid instant; equivalent UTC values have identical canonical values/hash. Missing or invalid offsets and nonexistent local times fail closed. A known fixed v1 hash vector now guards serialization compatibility. PostgreSQL integration remains **NOT_RUN**; no approved disposable PostgreSQL URL was configured.
+
+## 2026-10-24 — Prompt 2: PR #50/#52 consolidation validation
+
+Dependency evidence, read before editing:
+- PR #48 HEAD `568e5deff97a29244944ae31b5d138fa910a4042`; exact-head GitHub CI `40054989068` completed SUCCESS with all five jobs, including the authoritative PostgreSQL job with zero skips.
+- PR #50 starting HEAD `fd7be2e2dae0b3275ea344f9f4d567b836c93cb1`; PR #52 `8d7ca20c0651db947092dec34510fe1b0b63aaaa`; PR #55 `2a97cf553b8d686d277d322b40db15fdabcc3ae8`, based on the exact #50 starting head.
+- PR #48's two reservation/version findings are corrected in the pushed source and tests; reviewer re-approval remains pending. The technical dependency is present, not approved/merged.
+
+Implementation in the isolated PR #50 worktree:
+- Merged corrected #48 into #50 with merge commit `c49889e07a8c20679e51fad4d9553a901680490e` (no rebase/history rewrite).
+- Consolidation code commit `c7a05149b6d51513e9bf2d8acf35b4989b5be260`. Changed implementation/test files: `backend/app/orders/terms.py`, `backend/tests/v2_2/test_terms.py`. PR #48 additionally contributes its corrected `backend/app/integrations/business_ports.py` and `backend/tests/v2_2/test_business_ports.py` unchanged through the merge. `context_mapping.py` and `test_context_mapping.py` remain unchanged from #50.
+- All nine distinct #52-added term regression functions were retained alongside #50's tests: evidence-reference/currentness boundary; proposed revision mismatch; Kuala Lumpur wrong offset; both explicit DST folds and equivalent UTC instants; repeated local hour requires explicit offset; spring transition; UTC-instant order through a DST fold; wrong repeated-hour offset; nonexistent local time. Shared fixed hash vector remains present. Terms hash semantics are unchanged.
+
+Commands (run from `backend`, each pytest run used a fresh GUID-based `--basetemp` below `C:\Users\User\.codex\worktrees\backend-a-order-mapper` and `MOUMANTAI_SYNTHETIC_MODE=1`):
+- `python -m pytest tests/v2_2/test_terms.py -o addopts= --basetemp=$temp -q --tb=short` → **56 passed, 5 warnings**.
+- `python -m pytest tests/v2_2/test_context_mapping.py -o addopts= --basetemp=$temp -q --tb=short` → **52 passed, 5 warnings**.
+- `python -m pytest tests/v2_2/test_business_ports.py -o addopts= --basetemp=$temp -q --tb=short` → **68 passed, 5 warnings**.
+- `python -m pytest tests/v2_2 -o addopts= --basetemp=$temp -q --tb=short` → **243 passed, 5 warnings**.
+- `python -m pytest app/context/tests/test_order_context_storage.py app/context/tests/test_association_models_and_storage.py app/context/tests/test_context_api.py app/context/tests/test_review_readiness.py app/context/tests/test_core_publisher.py app/context/tests/test_p2_consumer.py tests/test_core_api.py tests/test_core_assessment_writer_provenance.py -o addopts= --basetemp=$temp -q -rs --tb=short` → **21 passed, 22 skipped, 5 warnings**. Every skip reports `P1_TEST_DATABASE_URL is unset; PostgreSQL validation NOT RUN`.
+- `python -m pytest app/feasibility/tests -o addopts= --basetemp=$temp -q -rs --tb=short` → **288 passed, 1 warning**.
+- `python -m pytest tests/test_resource_reservations.py tests/test_outbox_events.py tests/test_p5_integration_recovery.py tests/test_core_api.py tests/test_core_assessment_writer_provenance.py -o addopts= --basetemp=$temp -q -rs --tb=short` → **48 passed, 5 warnings**.
+- Ruff `check --select E,F,I --ignore E501,F401,F841` on terms, mapper, ports and relevant tests → pass. `ruff format --check` on mapper/ports and their tests → pass. Full terms/test_terms formatting check → pre-existing fail; the same check on their unchanged pre-consolidation #50 HEAD also exited 1. `python -m compileall -q app tests/v2_2` → pass. `python -m alembic heads` → one head, `0017_p1_real_channel_provenance`. `git diff --check` → pass. Secret scan on changed source/test files → no matches.
+- No local PostgreSQL database was started or used. There is no approved disposable P1 database URL; all gated P1 tests are reported NOT_RUN/skipped, not passed. PR #48 PostgreSQL CI does not validate PR #55's separate database tests.
+
+PR #50's own exact-head CI will be checked after the normal push. No CI result is inferred from #48. PRs remain Draft; no merge, auto-merge or production operation.
+
+Independent read-only review of the consolidated implementation found no actionable code issues. It confirmed the corrected #48 contract is an ancestor, all 17 #52 test function definitions remain (nine transferred because absent from original #50), PR #50 mapper files are unchanged, and hash semantics remain stable. Latest fetched Main is `b1255f5a428e8cd87a0ecb48576bc373b6286c50` (#58); it is separate UI/design/spec changes and was not pulled into this stacked PR. This review does not constitute owner signoff.
