@@ -22,6 +22,7 @@ import { CommitmentFeasibilityPage } from "./features/feasibility/CommitmentFeas
 import { ImpactDetailPage } from "./features/feasibility/ImpactDetailPage";
 import { RecoveryCaseRoutePage } from "./features/recovery/RecoveryCaseRoutePage";
 import { RecoveryPage } from "./features/recovery/RecoveryPage";
+import { DailyPerformancePage } from "./features/overview/DailyPerformance";
 import { SupplierComparisonPage, SupplierDetailPage, SupplierDirectoryPage } from "./features/suppliers/SupplierWorkspace";
 
 export function CommitmentFeasibilityRoute() {
@@ -118,6 +119,7 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/impact/:id" element={<ImpactDetailRoute />} />
               <Route path="/suppliers" element={<SupplierDirectoryPage />} />
               <Route path="/suppliers/compare" element={<SupplierComparisonPage />} />
+              <Route path="/supplier-comparison" element={<SupplierComparisonPage />} />
               <Route path="/suppliers/:id" element={<SupplierDetailPage />} />
               <Route path="/suppliers/sourcing" element={<FeaturePlaceholder owner="Suppliers" title="Sourcing" />} />
               <Route path="/recovery" element={<FeaturePlaceholder owner="Recovery" title="Emergency Cases" />} />
@@ -128,7 +130,8 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/confirmations/:id" element={<ConfirmationWorkspacePage />} />
               <Route path="/communications/follow-ups" element={<FollowUpQueuePage />}/>
               <Route path="/insights" element={<FeaturePlaceholder owner="Insights" title="Insights" />} />
-              <Route path="/insights/performance" element={<FeaturePlaceholder owner="Insights" title="Performance" />} />
+              <Route path="/insights/performance" element={<DailyPerformancePage />} />
+              <Route path="/performance" element={<DailyPerformancePage />} />
               <Route path="/insights/history" element={<FeaturePlaceholder owner="Insights" title="Decision History" />} />
               <Route path="/settings" element={<FeaturePlaceholder owner="Settings" title="Settings" />} />
               {/* Older callers may still supply these formerly additive routes. */}

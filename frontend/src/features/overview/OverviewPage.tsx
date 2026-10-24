@@ -247,8 +247,8 @@ export function OverviewPage() {
         </div>
 
         <div className="header-actions">
-          <span className="status-pill" data-testid="synthetic-badge">
-            {data.integration_mode}
+          <span className="status-pill demo-only-pill" data-testid="synthetic-badge">
+            {data.integration_mode === "SYNTHETIC" ? "DEMO-ONLY / SYNTHETIC" : data.integration_mode}
           </span>
 
           <div className="actor-selector-group">
@@ -282,6 +282,16 @@ export function OverviewPage() {
             {isFetching ? "Refreshing…" : "Refresh"}
           </button>
         </div>
+      </div>
+
+      {/* Quick Links for Daily Performance & Audit Activity */}
+      <div className="overview-subnav" data-testid="overview-subnav" style={{ display: "flex", gap: "0.75rem", marginBottom: "1.25rem" }}>
+        <Link to="/insights/performance" className="btn btn-outline btn-sm" data-testid="daily-performance-link">
+          📊 Daily Performance & Fulfilment (FE-FB-02) &rarr;
+        </Link>
+        <Link to="/activity" className="btn btn-outline btn-sm" data-testid="activity-history-link">
+          📜 Activity & Audit History (FE-AUD-01) &rarr;
+        </Link>
       </div>
 
       {/* FE-02a & FE-02c: 7 Authoritative State Summary Cards */}
