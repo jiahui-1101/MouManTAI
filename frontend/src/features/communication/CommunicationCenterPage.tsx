@@ -5,7 +5,7 @@ import { useAuth } from "../../shared/auth";
 import type { RequestAuthHeaders } from "../../shared/api";
 import { formatKLTimestamp } from "../../shared/date";
 import { communicationKeys, getCommunication, getCommunicationSummary, listCommunications } from "./api";
-import { communicationLabel, channelText, DisplayBadge, ErrorNotice } from "./presentation";
+import { communicationLabel, channelText, DisplayBadge, ErrorNotice, OriginBadge, DeliveryModeBadge } from "./presentation";
 import { CommunicationDetails } from "./CommunicationDetails";
 import { RecipientPreferences } from "./RecipientPreferences";
 import type { MessageDraftView } from "./types";
@@ -25,6 +25,8 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
   const [status, setStatus] = useState("");
   const [channel, setChannel] = useState("");
   const [selected, setSelected] = useState("");
+  const [detailDirty, setDetailDirty] = useState(false);
+  const [pendingSelection, setPendingSelection] = useState("");
   const [known, setKnown] = useState<Record<string, string[]>>({});
   const [verified, setVerified] = useState<Record<string, Verified | undefined>>({});
   const [attention, setAttention] = useState<Record<string, boolean>>({});
@@ -62,6 +64,11 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
     setVerified({}); setAttention({});
     void client.invalidateQueries({ queryKey: communicationKeys.scope(auth) });
   };
+  const selectRequest = (id: string) => {
+    if (id === selected) return;
+    if (detailDirty) { setPendingSelection(id); return; }
+    setDetailDirty(false); setPendingSelection(""); setSelected(id);
+  };
   return <section className="communication-center" aria-label="Communication Center">
     <header className="page-heading">
       <div><p className="eyebrow">Customer communication</p><h2>Communication Center</h2>
@@ -87,38 +94,42 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
     </section>
     {list.isFetching ? <P4Loading>Loading communication requests…</P4Loading> : list.isError ?
       <ErrorNotice error={list.error} resource="list" onRetry={refresh} /> : <>
-      <form className="cc-filters" onSubmit={event => event.preventDefault()} aria-label="Request filters">
-        <label>Search references<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Commitment, communication or proposal" /></label>
-        <label>Status<select value={status} onChange={event => setStatus(event.target.value)}>
-          <option value="">All statuses</option>{["Pending", "Drafted", "Sent", "Blocked"].map(value => <option key={value}>{value}</option>)}
-        </select></label>
-        <label>Channel<select value={channel} onChange={event => setChannel(event.target.value)}>
-          <option value="">All channels</option>{[...new Set(requests.map(r => r.channel ?? "UNKNOWN"))].map(value =>
-            <option key={value} value={value}>{channelText(value)}</option>)}
-        </select></label>
-        <button className="btn btn-ghost" type="button" onClick={() => { setSearch(""); setStatus(""); setChannel(""); }}>Clear filters</button>
-      </form>
-      <p className="muted text-sm">Search and filters apply to the {requests.length} loaded requests.</p>
       {!requests.length ? <div className="cc-state"><h3>No communication requests</h3><p className="muted">Requests will appear here when they are created from an approved recovery proposal.</p></div> :
         <div className="cc-workspace">
-          <section className="cc-list" aria-label="Communication requests">
+          <div className="cc-queue">
+            <form className="cc-filters" onSubmit={event => event.preventDefault()} aria-label="Request filters">
+              <label>Search references<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Commitment, communication or proposal" /></label>
+              <label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="">All statuses</option>{["Pending", "Drafted", "Sent", "Blocked"].map(value => <option key={value}>{value}</option>)}</select></label>
+              <label>Channel<select value={channel} onChange={event => setChannel(event.target.value)}><option value="">All channels</option>{[...new Set(requests.map(r => r.channel ?? "UNKNOWN"))].map(value => <option key={value} value={value}>{channelText(value)}</option>)}</select></label>
+              <button className="btn btn-ghost" type="button" onClick={() => { setSearch(""); setStatus(""); setChannel(""); }}>Clear filters</button>
+            </form>
+            <p className="muted text-sm cc-filter-note">Search and filters apply to the {requests.length} loaded requests.</p>
+            <section className="cc-list" aria-label="Communication requests">
             <h3>Requests <span className="muted">({visible.length})</span></h3>
+            {pendingSelection && <div className="cc-unsaved-warning" role="alert"><span>Unsaved communication input will be lost.</span><button type="button" className="btn btn-secondary" onClick={() => setPendingSelection("")}>Keep editing</button><button type="button" className="btn btn-secondary" onClick={() => { setDetailDirty(false); setSelected(pendingSelection); setPendingSelection(""); }}>Discard and switch</button></div>}
             {!visible.length ? <p className="muted">No search results. Try clearing your filters.</p> :
               <ul>{visible.map(request => <li key={request.communication_id}>
                 <button className="cc-request" aria-pressed={selected === request.communication_id}
-                  onClick={() => setSelected(request.communication_id)}>
+                  onClick={() => selectRequest(request.communication_id)}>
                   <span className="cc-row"><strong>{request.reference.commitment_id}</strong><DisplayBadge label={label(request)} /></span>
                   <span className="cc-id">{request.communication_id}</span>
                   <span className="muted">{request.reference.proposal_id} · v{request.reference.proposal_version}</span>
-                  <span className="cc-row muted"><span>{channelText(request.channel)}</span><time>{formatKLTimestamp(request.created_at)}</time></span>
+                  <span className="cc-row muted">
+                    <span className="cc-badges-group">
+                      <OriginBadge request={request} />
+                      <DeliveryModeBadge request={request} />
+                    </span>
+                    <time>{formatKLTimestamp(request.created_at)}</time>
+                  </span>
                 </button></li>)}</ul>}
           </section>
+          </div>
           <section className="cc-panel" aria-label="Communication details">
             {!selected ? <div className="cc-state"><h3>Select a request</h3><p className="muted">Review its proposal and prepare a draft.</p></div> :
               detail.isFetching ? <P4Loading>Loading communication details…</P4Loading> :
               detail.isError ? <ErrorNotice error={detail.error} resource="detail" onRetry={() => { void detail.refetch(); }} /> : detail.data ?
               <CommunicationDetails key={selected} request={detail.data} auth={auth} knownIds={known[selected] ?? []}
-                remember={remember} checked={checked} now={now} /> : null}
+                remember={remember} checked={checked} onDirtyChange={setDetailDirty} now={now} /> : null}
           </section>
         </div>}
     </>}

@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from .attachment_validator import AttachmentLimitExceeded, InvalidAttachmentPayload, UnsupportedAttachmentType
+from .association_schemas import AssociationDecisionRequest, MessageAssociationRecord
+from .attachment_validator import (
+    AttachmentLimitExceeded,
+    InvalidAttachmentPayload,
+    UnsupportedAttachmentType,
+)
 from .document_schemas import AttachmentRecord, DocumentExtractionResult
-from .ingestion_schemas import ExtractionAttemptRecord, IngestResponse, MessagePage, ProcessResponse, StoredMessage
+from .ingestion_schemas import (
+    ExtractionAttemptRecord,
+    IngestResponse,
+    MessagePage,
+    ProcessResponse,
+    StoredMessage,
+)
 from .order_context_schemas import (
     ContextReviewRecord,
     ContextReviewRequest,
@@ -15,6 +27,18 @@ from .order_context_schemas import (
     OrderContextVersionRecord,
 )
 from .schemas import Channel, ProcessingStatus, RawMessageEnvelope
+
+
+@dataclass(frozen=True)
+class OrderContextSourceSnapshot:
+    """One tenant-scoped, read-only P1 snapshot for order-context mapping."""
+
+    context: OrderContextRecord
+    context_versions: tuple[OrderContextVersionRecord, ...]
+    context_reviews: tuple[ContextReviewRecord, ...]
+    source_messages: tuple[StoredMessage, ...]
+    associations: tuple[MessageAssociationRecord, ...]
+    extraction_attempts: tuple[ExtractionAttemptRecord, ...]
 
 
 class DuplicateConflict(Exception):
@@ -74,6 +98,9 @@ class MessageRepository(Protocol):
     def apply_context_review(self, tenant_id: str, context_id: str, request: ContextReviewRequest, actor_id: str, actor_role: str) -> OrderContextRecord: ...
     def list_context_versions(self, tenant_id: str, context_id: str) -> list[OrderContextVersionRecord]: ...
     def list_context_reviews(self, tenant_id: str, context_id: str) -> list[ContextReviewRecord]: ...
+    def read_order_context_source(
+        self, tenant_id: str, context_id: str
+    ) -> OrderContextSourceSnapshot | None: ...
     def save_attachment(self, tenant_id: str, attachment: AttachmentRecord, content: bytes) -> AttachmentRecord: ...
     def get_attachment(self, tenant_id: str, evidence_ref: str) -> tuple[AttachmentRecord, bytes] | None: ...
     def save_document_extraction(self, tenant_id: str, extraction: DocumentExtractionResult) -> DocumentExtractionResult: ...
