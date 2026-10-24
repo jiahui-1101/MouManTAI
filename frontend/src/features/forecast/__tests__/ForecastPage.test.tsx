@@ -173,13 +173,12 @@ describe("ForecastPage Component", () => {
     expect(await screen.findByText(/Demo-Only • Synthetic/i)).toBeInTheDocument();
   });
 
-  it("displays the prominent transparency disclaimer banner", async () => {
+  it("renders the clean Refresh action button", async () => {
     renderComponent();
 
-    expect(await screen.findByText(/SYNTHETIC DEMO BASELINE/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Forecast advisories NEVER mutate authoritative inventory/i)
-    ).toBeInTheDocument();
+    const refreshBtn = await screen.findByRole("button", { name: "Refresh" });
+    expect(refreshBtn).toBeInTheDocument();
+    expect(refreshBtn).toHaveClass("btn-forecast-refresh");
   });
 
   it("renders the 4 KPI stat cards correctly", async () => {

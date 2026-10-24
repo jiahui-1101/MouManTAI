@@ -70,30 +70,15 @@ export const ForecastPage: React.FC = () => {
 
         <div className="forecast-header-actions">
           <button
-            className="btn-forecast-secondary"
+            className="btn-forecast-refresh"
             onClick={() => void refetch()}
             disabled={isFetching}
-            title="Refresh latest forecast"
+            type="button"
           >
-            <span>🔄</span> {isFetching ? "Calculating..." : "Refresh"}
+            {isFetching ? "Refreshing..." : "Refresh"}
           </button>
         </div>
       </div>
-
-      {/* Prominent Evidence / Uncertainty Disclaimer Banner */}
-      {data && (
-        <div className={`forecast-disclaimer-banner ${data.is_synthetic ? "" : "live-mode"}`}>
-          <div className="banner-icon">{data.is_synthetic ? "⚠️" : "ℹ️"}</div>
-          <div className="banner-content">
-            <strong>
-              {data.is_synthetic
-                ? "SYNTHETIC DEMO BASELINE — Mechanics Demonstration Only"
-                : "AUTHORITATIVE SME BASELINE — Pure Derived Guidance"}
-            </strong>
-            <p>{data.disclaimer}</p>
-          </div>
-        </div>
-      )}
 
       {/* Control Filter Bar */}
       <div className="forecast-controls-card">
