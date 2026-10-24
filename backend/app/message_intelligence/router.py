@@ -25,7 +25,8 @@ router = APIRouter(prefix="/v1/c3/reviews", tags=["C3 review"])
 def _tenant(_: None = Depends(require_isolated_e2e_key)) -> str:
     if (os.getenv("MOUMANTAI_ISOLATED_E2E") != "1"
         or os.getenv("MOUMANTAI_SYNTHETIC_MODE") != "1"
-        or os.getenv("ENVIRONMENT", "").lower() in {"production", "prod"}):
+        or os.getenv("ENVIRONMENT", "").lower() in {"production", "prod"}
+        or os.getenv("APP_ENV", "").lower() in {"production", "prod"}):
         raise DomainError("C3_REVIEW_UNAVAILABLE", "Trusted review identity is unavailable", status_code=503)
     tenant_id = os.getenv("MOUMANTAI_ISOLATED_E2E_TENANT_ID", "")
     if not tenant_id:

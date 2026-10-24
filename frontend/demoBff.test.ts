@@ -85,5 +85,13 @@ describe('isolated OrderRequest facade', () => {
       if (prior === undefined) delete process.env.ENVIRONMENT;
       else process.env.ENVIRONMENT = prior;
     }
+    const priorAppEnv = process.env.APP_ENV;
+    process.env.APP_ENV = 'production';
+    try {
+      expect((await call('/session', 'POST', {}, { bootstrap_token: bootstrap })).status).toBe(503);
+    } finally {
+      if (priorAppEnv === undefined) delete process.env.APP_ENV;
+      else process.env.APP_ENV = priorAppEnv;
+    }
   });
 });

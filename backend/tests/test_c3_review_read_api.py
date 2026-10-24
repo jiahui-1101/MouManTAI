@@ -81,6 +81,9 @@ def test_c3_review_reads_are_keyed_tenant_scoped_and_mutations_absent(monkeypatc
         assert client.post(f"{path}/review_tenant_a/decide", headers=headers, json={}).status_code in {404, 405}
         monkeypatch.setenv("ENVIRONMENT", "production")
         assert client.get(path, headers=headers).status_code == 503
+        monkeypatch.setenv("ENVIRONMENT", "test")
+        monkeypatch.setenv("APP_ENV", "production")
+        assert client.get(path, headers=headers).status_code == 503
     finally:
         app.dependency_overrides.pop(get_db, None)
         engine.dispose()

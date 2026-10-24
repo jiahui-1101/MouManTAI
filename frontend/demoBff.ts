@@ -78,6 +78,7 @@ export function demoBff(): Plugin {
         const configured = process.env.MOUMANTAI_SYNTHETIC_MODE === '1' &&
           process.env.MOUMANTAI_ISOLATED_E2E === '1' &&
           !['production', 'prod'].includes((process.env.ENVIRONMENT ?? '').toLowerCase()) &&
+          !['production', 'prod'].includes((process.env.APP_ENV ?? '').toLowerCase()) &&
           bootstrap.length >= 32 && key.length >= 32 && bootstrap !== key && !!tenant && !!actor;
         if (!configured) return error(response, 503, 'DEMO_AUTHORITY_UNAVAILABLE', 'Isolated demo session is not configured');
         const isMutation = method === 'POST' || method === 'DELETE';
