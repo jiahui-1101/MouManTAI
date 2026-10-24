@@ -20,6 +20,7 @@ interface Props {
   checked: (id: string, value?: MessageDraftView, failed?: boolean) => void;
   onDirtyChange?: (dirty: boolean) => void;
   now: number;
+  mode?: "preview" | "edit";
 }
 type CommunicationStage = 'overview' | 'draft' | 'send' | 'history';
 const communicationStages: { id: CommunicationStage; label: string }[] = [
@@ -29,7 +30,7 @@ const communicationStages: { id: CommunicationStage; label: string }[] = [
   { id: 'history', label: 'History & Confirmation' },
 ];
 
-export function CommunicationDetails({ request, auth, knownIds, remember, checked, onDirtyChange, now }: Props) {
+export function CommunicationDetails({ request, auth, knownIds, remember, checked, onDirtyChange, now, mode = "edit" }: Props) {
   const client = useQueryClient();
   const id = request.communication_id;
   const [language, setLanguage] = useState<DraftLanguage>("en");
@@ -100,6 +101,117 @@ export function CommunicationDetails({ request, auth, knownIds, remember, checke
   const label = request.outbound_status === "SENT" ? "Sent" : request.outbound_status === "QUEUED" ? "Sending" :
     request.outbound_status || failed ? "Blocked" : communicationLabel(request.request_status, request.message_status, !!validDraft);
   const terms = request.proposed_terms;
+
+  if (mode === "preview") {
+    return (
+      <div className="cc-preview-container" data-component="CommunicationPreview">
+        <div className="ra-context-warning" style={{ margin: "0 0 16px" }}>
+          <strong>Preview mode:</strong> You are viewing a read-only preview of this communication request and draft message. No modifications, reviews or sending actions can be performed in preview mode.
+        </div>
+        <div className="ra-columns">
+          {/* Left Column: Request Details & Terms */}
+          <section className="ra-card ra-source" data-component="SourceDetailsPanel">
+            <h3>Request &amp; Proposal Details</h3>
+            <p className="ra-hint">Authoritative specifications from the recovery proposal.</p>
+            <dl className="cc-facts">
+              <Fact label="Communication" value={id} />
+              <Fact label="Case origin" value={<OriginBadge request={request} />} />
+              <Fact label="Delivery mode" value={<DeliveryModeBadge request={request} />} />
+              <Fact label="Proposal" value={`${request.reference.proposal_id} · v${request.reference.proposal_version}`} />
+              <Fact label="Recovery plan" value={`${request.reference.plan_id} · v${request.reference.plan_version}`} />
+              <Fact label="Commitment version" value={request.reference.commitment_version} />
+              <Fact label="Channel" value={channelText(request.channel)} />
+              <Fact label="Request state (snapshot)" value={request.request_status} />
+              <Fact label="Created" value={formatKLTimestamp(request.created_at)} />
+              <Fact label="Valid until (snapshot)" value={formatKLTimestamp(request.expires_at)} />
+            </dl>
+            {blocked && (
+              <div className="cc-error" role="note" style={{ marginTop: "12px" }}>
+                <strong>Blocked</strong>
+                {(request.blocking_reasons?.length ? request.blocking_reasons : ["REVIEW_REQUIRED"]).map(code => (
+                  <p key={code}>{reasonText(code)} <code>{code}</code></p>
+                ))}
+              </div>
+            )}
+            <div style={{ marginTop: "16px", borderTop: "1px solid var(--ra-border)", paddingTop: "12px" }}>
+              <h4>Proposed terms snapshot</h4>
+              {terms ? (
+                <dl className="cc-facts">
+                  <Fact label="SKU" value={terms.sku} />
+                  <Fact label="Quantity" value={terms.quantity == null ? undefined : `${terms.quantity} ${terms.unit ?? ""}`} />
+                  <Fact label="Delivery deadline" value={formatKLTimestamp(terms.deadline)} />
+                  {terms.special_instructions && <Fact label="Special instructions" value={terms.special_instructions} />}
+                </dl>
+              ) : (
+                <p className="muted">Terms were not provided.</p>
+              )}
+            </div>
+            <details className="cc-section" style={{ marginTop: "12px" }}>
+              <summary>Verification and evidence snapshot</summary>
+              <dl className="cc-facts">
+                <Fact label="Recipient evidence" value={request.recipient_identity_id && request.recipient_evidence_refs?.length ? "Recorded" : "Not recorded"} />
+                <Fact label="Channel evidence" value={request.channel && request.channel !== "UNKNOWN" && request.channel_evidence_refs?.length ? "Recorded" : "Not recorded"} />
+                <Fact label="Approval expires" value={formatKLTimestamp(request.approval_expires_at)} />
+              </dl>
+              <Evidence label="Approval evidence references" values={request.approval_evidence_refs} />
+              <Evidence label="Proposal evidence references" values={request.proposal_evidence_refs} />
+            </details>
+          </section>
+
+          {/* Right Column: Draft Message Preview */}
+          <section className="ra-card" data-component="MessagePreviewPanel">
+            <h3>Draft Message Preview</h3>
+            <p className="ra-hint">Recipient: {request.recipient_identity_id || "Customer contact"} · Channel: {channelText(request.channel)}</p>
+            {validDraft ? (
+              <div>
+                {validDraft.subject && (
+                  <div style={{ margin: "0 0 10px", padding: "8px 12px", background: "#f8fafc", borderRadius: "6px", border: "1px solid var(--ra-border)" }}>
+                    <span className="muted" style={{ fontSize: "12px" }}>Subject: </span>
+                    <strong>{validDraft.subject}</strong>
+                  </div>
+                )}
+                <blockquote className="ra-message" style={{ minHeight: "160px" }}>
+                  {validDraft.body}
+                </blockquote>
+                <div style={{ marginTop: "14px", display: "grid", gap: "6px", fontSize: "12px", color: "rgba(28,49,83,0.75)" }}>
+                  <div><strong>Draft ID:</strong> {validDraft.draft_id}</div>
+                  <div><strong>Language:</strong> {languages[validDraft.language]}</div>
+                  <div><strong>Status:</strong> {validDraft.status} (Preview only · Send not authorized)</div>
+                  <div><strong>Expires at:</strong> {formatKLTimestamp(validDraft.expires_at)}</div>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <blockquote className="ra-message" style={{ minHeight: "160px" }}>
+                  {`Subject: Notice regarding commitment ${request.reference.commitment_id}
+
+` +
+                    `Dear Customer,
+
+` +
+                    `We are proposing delivery of ${terms?.quantity ?? "requested items"} ${terms?.unit ?? ""} ` +
+                    `of ${terms?.sku ?? "item"} scheduled for ${terms?.deadline ? formatKLTimestamp(terms.deadline) : "the agreed date"}.
+
+` +
+                    `${terms?.special_instructions ? `Special Instructions: ${terms.special_instructions}
+
+` : ""}` +
+                    `Please confirm if this proposed schedule is acceptable.`}
+                </blockquote>
+                <p className="ra-hint" style={{ marginTop: "12px" }}>
+                  Note: A customized draft has not been generated yet. Use <strong>Edit draft</strong> to prepare or modify the message.
+                </p>
+              </div>
+            )}
+            <div style={{ marginTop: "20px", padding: "12px", background: "rgba(28, 49, 83, 0.04)", borderRadius: "6px", fontSize: "12px", color: "rgba(28, 49, 83, 0.7)" }}>
+              🔒 <strong>Read-Only Mode:</strong> All editing controls, manager reviews, and sending actions are disabled in preview.
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
   return <>
     <div className="cc-row">
       <div>

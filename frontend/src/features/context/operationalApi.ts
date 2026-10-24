@@ -31,10 +31,47 @@ export function getReviewCatalog(headers?: Record<string, string>): Promise<{ sk
   return request('/v1/contexts/catalog', headers ? { headers } : undefined);
 }
 
+export function notifyReviewContextSaved(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('moumantai:review-context-saved'));
+}
+
+export const RESOLVED_TASKS_KEY = 'moumantai:resolved_tasks';
+
+export function getResolvedTaskIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(RESOLVED_TASKS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function markTaskResolved(taskId: string): void {
+  if (typeof window === 'undefined' || !taskId) return;
+  try {
+    const set = getResolvedTaskIds();
+    set.add(taskId);
+    localStorage.setItem(RESOLVED_TASKS_KEY, JSON.stringify(Array.from(set)));
+  } catch { /* ignore */ }
+}
+
+export function unmarkTaskResolved(taskId: string): void {
+  if (typeof window === 'undefined' || !taskId) return;
+  try {
+    const set = getResolvedTaskIds();
+    set.delete(taskId);
+    localStorage.setItem(RESOLVED_TASKS_KEY, JSON.stringify(Array.from(set)));
+  } catch { /* ignore */ }
+}
+
 export interface OperationalApi {
   config(): Promise<DevelopmentContext>;
   list(query: MessageQuery): Promise<MessagePage>;
   detail(id: string): Promise<StoredMessage>;
+  deleteMessage(id: string, headers?: Record<string, string>): Promise<{ status: string; message_id: string }>;
   ingest(envelope: RawMessageEnvelope): Promise<IngestResponse>;
   process(id: string, reprocess?: boolean): Promise<ProcessResponse>;
   getExtraction(id: string): Promise<ExtractionAttemptRecord>;
@@ -73,6 +110,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
         } else if (body.detail.message) {
           message = body.detail.message;
         }
+      } else if (body.details && typeof body.details === 'object') {
+        if (Array.isArray(body.details.reasons)) {
+          message = `${body.message || body.details.message || 'Validation failed'}: ${body.details.reasons.join('; ')}`;
+        } else if (body.details.message || body.message) {
+          message = body.details.message || body.message;
+        }
+      } else if (typeof body.message === 'string') {
+        message = body.message;
       }
     } catch { /* Keep the status-based diagnostic when the server does not return JSON. */ }
     throw new PreviewError(message, response.status);
@@ -101,6 +146,11 @@ export const operationalApi: OperationalApi = {
     return request(`/v1/messages?${params}`);
   },
   detail: id => request(`/v1/messages/${encodeURIComponent(id)}`),
+  deleteMessage: (id: string, headers: Record<string, string> = {}) =>
+    request<{ status: string; message_id: string }>(`/v1/messages/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { ...headers },
+    }),
   ingest: envelope => request('/v1/messages/ingest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(envelope) }),
   process: processMessage,
   getExtraction: id => request(`/v1/messages/${encodeURIComponent(id)}/extraction`),

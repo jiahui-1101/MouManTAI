@@ -446,4 +446,40 @@ describe("ActivityPage (FE-03a–d, UI-02)", () => {
       expect(badge.textContent).not.toContain("FULFILLED");
     }
   });
+
+  it("filters activity records by customer, supplier, incident, and date (FE-AUD-01)", async () => {
+    renderActivity();
+    await screen.findAllByTestId("timeline-entry");
+
+    // 1. Filter by customer
+    const custInput = screen.getByTestId("customer-filter");
+    fireEvent.change(custInput, { target: { value: "cust_bk" } });
+    expect(screen.getByTestId("customer-filter")).toHaveValue("cust_bk");
+
+    // Clear customer filter
+    fireEvent.change(custInput, { target: { value: "" } });
+
+    // 2. Filter by incident
+    const incInput = screen.getByTestId("incident-filter");
+    fireEvent.change(incInput, { target: { value: "asm_eval_01" } });
+    expect(screen.getByTestId("incident-filter")).toHaveValue("asm_eval_01");
+    fireEvent.change(incInput, { target: { value: "" } });
+
+    // 3. Filter by date
+    const dateInput = screen.getByTestId("date-filter");
+    fireEvent.change(dateInput, { target: { value: "2026-10-21" } });
+    expect(screen.getByTestId("date-filter")).toHaveValue("2026-10-21");
+    fireEvent.change(dateInput, { target: { value: "" } });
+  });
+
+  it("gracefully displays R-09 partial fallback when cross-feature causal correlation is unavailable", async () => {
+    renderActivity();
+    await screen.findAllByTestId("timeline-entry");
+
+    // Verify R-09 Partial fallback notice is displayed
+    const fallbackNote = screen.getByTestId("correlation-fallback-note");
+    expect(fallbackNote).toBeInTheDocument();
+    expect(fallbackNote).toHaveTextContent("Cross-feature causal correlation unavailable");
+    expect(fallbackNote).toHaveTextContent("without speculative client-side correlation guessing");
+  });
 });
