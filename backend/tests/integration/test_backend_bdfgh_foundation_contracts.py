@@ -3,6 +3,8 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
+import pytest
+
 from app.core.dependencies import RequestContext
 from app.decision_memory.models import CurrentSituation, Domain
 from app.decision_memory.service import DecisionMemoryService
@@ -140,6 +142,10 @@ def test_foundation_command_receipt_and_h_candidate_bind_the_same_terms():
     require_receipt_binding(receipt, expected=command, operation_id="fixture-operation")
     assert receipt.reservation_confirmed is False
 
+
+def test_h_candidate_runs_synthetic_cpsat_fixture():
+    pytest.importorskip("ortools", reason="CP-SAT is an optional backend extra")
+    request, spec = optimization_fixture()
     result = compare(
         request,
         provider=FixtureProvider(spec),
