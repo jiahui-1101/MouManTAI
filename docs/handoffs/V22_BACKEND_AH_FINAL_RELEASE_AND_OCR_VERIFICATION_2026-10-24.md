@@ -1,7 +1,7 @@
 # MouManTAI v2.2 Backend A–H review, OCR verification, and safe-merge status
 
 **Review date:** 2026-10-24
-**Current `main`:** `f6eca1ac93b382c2ffe68965e18b55f12e03d322`
+**Current `main`:** `b0d7b652353e0d256bb16b706f736def02f547d9`
 **Release verdict:** **NOT_READY** — the Mock-backed stack is operational on its stacked branches, but it remains unmerged under explicit review holds. No real channel or full Frontend-to-Backend E2E is claimed.
 
 ## OCR verdict and root cause
@@ -49,6 +49,7 @@ The fix is on branch `fix/p1-ocr-runtime-dependencies-main-20261024`, based on c
 | Demo Docker image build/runtime | Corrected image built successfully (2.63 GB local image). Runtime imports passed for PaddlePaddle 3.3.1, PaddleOCR 3.7.0, PyMuPDF 1.28.2, Pillow 13.0.0 and OR-Tools 9.15. A real in-image OCR call downloaded its official Paddle models and recognized `DuitNow Transfer Successful RM 88.00`; result `SUCCESS`, payment notice true, 1 evidence item. |
 | Exact-head OCR CI on PR #92 (`e978a239`) | GitHub run [40106631992](https://github.com/jiahui-1101/MouManTAI/actions/runs/40106631992), OCR job 120909562078: **25 passed, 0 skipped** including acceptance, image/PDF and migration tests. |
 | Exact-head required PR #92 checks (`e978a239`) | All 10 checks succeeded: Backend/PostgreSQL, general Backend, frontend, native Optimization, Forecasting, Decision Memory, Feature Suites, Hygiene, OCR and P1 Source Reader. Run [40106631992](https://github.com/jiahui-1101/MouManTAI/actions/runs/40106631992); separate source-reader run [40106631971](https://github.com/jiahui-1101/MouManTAI/actions/runs/40106631971). |
+| Follow-up exact-head validation (`b840c862`) | After the report-only PR update, all 10 checks succeeded again; OCR and zero-skip gates passed. Run [40106898374](https://github.com/jiahui-1101/MouManTAI/actions/runs/40106898374); separate source-reader run [40106898384](https://github.com/jiahui-1101/MouManTAI/actions/runs/40106898384). |
 
 Known OCR coverage limitation: scanned-page fallback runs only when the PDF has no machine-readable text on any inspected page. A mixed PDF containing both text and scanned pages will not OCR the scanned pages. This was outside the reproduced acceptance failure and remains follow-up work.
 
@@ -108,11 +109,11 @@ All six PRs are open, non-draft, and GitHub reported them mergeable. Their curre
 
 The six PRs have no unresolved inline review threads and no top-level issue comments. Each approval states that code approval is not merge authorization. The required merge sequence was **not run**. The exact approval still needed is explicit authorization from the repository owner/release authority after the P1 fix is reviewed and the final Backend review/branch-protection requirements are satisfied. This release task does not override the reviewers' holds.
 
-The scoped OCR fix is open separately as [PR #92](https://github.com/jiahui-1101/MouManTAI/pull/92), based on `main` at `f6eca1ac93b382c2ffe68965e18b55f12e03d322`. Its exact head `e978a23909428646a6117e0c26897d51647c0712` passed all 10 exact-head checks, including 25/25 OCR/P1/Alembic tests with zero skips. It remains unmerged pending independent review and release authorization.
+The scoped OCR fix is open separately as [PR #92](https://github.com/jiahui-1101/MouManTAI/pull/92). Its code was validated on exact head `e978a23909428646a6117e0c26897d51647c0712` with all 10 checks passing, including 25/25 OCR/P1/Alembic tests and zero skips; report-only follow-up head `b840c86248de57d632ef1319cbae64144c0b3248` also passed all 10 checks. After `main` advanced, the OCR branch was updated by a normal merge, and the latest exact-head CI is running again. Meishuet's independent review was requested; the PR remains unmerged pending that review and release authorization.
 
-PR #89 was not modified. Its C1 foundation is already an ancestor of current `main` (merge commit `d3c2a3e`). The separately opened PR #90 is Meishuet's draft C1 persistence/reply-association work; it remains untouched and has no changed-file overlap with this OCR fix. Its owner review asks that it stay Draft while its own CI/review gates are resolved. Open PR #91 changes only `README.md` and has no overlap. The other open draft PR inspected for overlap, #22, changes only `docs/TEAM_LOG.md`.
+PR #89 was not modified. Its C1 foundation is already an ancestor of current `main` (merge commit `d3c2a3e`). The separately opened PR #90 is Meishuet's draft C1 persistence/reply-association work; it remains untouched and has no changed-file overlap with this OCR fix. Its owner review asks that it stay Draft while its own CI/review gates are resolved. PR #91 was merged to `main` as `b0d7b65`; it changes only `README.md` and has no overlap with the OCR/backend stack. The other open draft PR inspected for overlap, #22, changes only `docs/TEAM_LOG.md`.
 
-The latest `main` tip is `f6eca1ac93b382c2ffe68965e18b55f12e03d322`; it advanced after #89 with PR #79. No stack PR has been merged into this tip. Consequently there is no final merged-main Backend/PostgreSQL validation to report, and the six successful branch-head runs do not replace that post-merge gate.
+The latest `main` tip is `b0d7b652353e0d256bb16b706f736def02f547d9`; after PR #79 (`f6eca1a`), PR #91 updated `README.md` only. No A–H stack PR has been merged into this tip. Consequently there is no final merged-main Backend/PostgreSQL validation to report, and the six successful branch-head runs do not replace that post-merge gate.
 
 ## Frontend and real-channel handoff
 
