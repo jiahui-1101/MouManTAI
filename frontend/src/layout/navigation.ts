@@ -52,6 +52,18 @@ export function isItemActive(item: NavigationItem, pathname: string): boolean {
 
   if (target) {
     if (pathname === target) return true;
+    if (target === "/orders") {
+      return (
+        pathname === "/orders" ||
+        (pathname.startsWith("/orders/") &&
+          !pathname.startsWith("/orders/pending") &&
+          !pathname.startsWith("/orders/portfolio") &&
+          !pathname.startsWith("/orders/calendar"))
+      );
+    }
+    if (target === "/orders/pending") {
+      return pathname === "/orders/pending";
+    }
     if (target === "/suppliers") {
       return pathname === "/suppliers" || (pathname.startsWith("/suppliers/") && !pathname.startsWith("/suppliers/compare"));
     }

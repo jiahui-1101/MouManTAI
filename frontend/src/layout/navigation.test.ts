@@ -62,4 +62,19 @@ describe("business navigation", () => {
     expect(isItemActive(recoveryPlans, "/recovery/REC-101/plans")).toBe(true);
     expect(isItemActive(emergencyCases, "/recovery/REC-101/plans")).toBe(false);
   });
+  it("prevents simultaneous active state on All Orders and Pending Acceptance", () => {
+    const orders = navigation.find((item) => item.id === "orders")!;
+    const allOrders = orders.children!.find((c) => c.id === "all-orders")!;
+    const pending = orders.children!.find((c) => c.id === "pending-acceptance")!;
+
+    // When at /orders/pending: pending child is active, but all-orders is FALSE
+    expect(isItemActive(pending, "/orders/pending")).toBe(true);
+    expect(isItemActive(allOrders, "/orders/pending")).toBe(false);
+    expect(isItemActive(orders, "/orders/pending")).toBe(true);
+
+    // When at /orders: all-orders is active, and pending is FALSE
+    expect(isItemActive(allOrders, "/orders")).toBe(true);
+    expect(isItemActive(pending, "/orders")).toBe(false);
+    expect(isItemActive(orders, "/orders")).toBe(true);
+  });
 });

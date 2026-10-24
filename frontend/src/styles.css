@@ -397,12 +397,12 @@ button, a, input, select { font: inherit; }
   align-items: center;
   gap: 1rem;
   padding: 1rem 1.15rem;
-  border: 1px solid #1e293b;
-  border-radius: 0.65rem;
-  background: #0f172a;
+  border: 1px solid rgba(28, 49, 83, 0.12);
+  border-radius: 8px;
+  background: #ffffff;
   transition: all 0.15s ease;
 }
-.attention-item:hover { border-color: #334155; background: #131d33; }
+.attention-item:hover { border-color: rgba(28, 49, 83, 0.22); background: #f8fbff; }
 .attention-item.severity-critical { border-left: 4px solid #ef4444; }
 .attention-item.severity-high { border-left: 4px solid #f59e0b; }
 .attention-item.severity-medium { border-left: 4px solid #0284c7; }
@@ -421,21 +421,22 @@ button, a, input, select { font: inherit; }
   margin-bottom: 0.35rem;
   font-size: 0.88rem;
   font-weight: 600;
-  color: #f1f5f9;
+  color: #1e293b;
 }
 .attention-meta {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.78rem;
-  color: #94a3b8;
+  color: #475569;
 }
 .attention-meta code {
-  background: rgba(255, 255, 255, 0.06);
+  background: #f1f5f9;
   padding: 0.1rem 0.35rem;
   border-radius: 3px;
-  color: #7dd3fc;
+  color: #0369a1;
   font-size: 0.76rem;
+  border: 1px solid #e2e8f0;
 }
 .attention-action { text-align: right; }
 
@@ -1042,8 +1043,8 @@ table th, .table th, .data-table th {
 }
 
 .timeline-entry-card.governance-highlight {
-  border-color: rgba(56, 189, 248, 0.4);
-  background: linear-gradient(180deg, rgba(14, 165, 233, 0.05) 0%, #0f172a 100%);
+  border-color: #cbd5e1;
+  background: #f8fafc;
 }
 
 .timeline-entry-card.governance-highlight::before {
@@ -1400,10 +1401,10 @@ table th, .table th, .data-table th {
 
 .skeleton-item {
   height: 140px;
-  border-radius: 0.75rem;
-  background: linear-gradient(90deg, #0f172a 25%, #1e293b 50%, #0f172a 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  animation: skeletonPulse 2s ease-in-out infinite;
 }
 
 /* Empty State */
