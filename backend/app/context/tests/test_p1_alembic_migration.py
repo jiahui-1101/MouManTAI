@@ -185,7 +185,7 @@ def test_scoped_delivery_collision_blocks_downgrade_without_data_loss(migrated_d
     indexes = {
         index["name"] for index in inspect(engine).get_indexes("inbound_messages", schema="p1_dev")
     }
-    assert version == "0018_c1_scoped_message_parent"
+    assert version == "0019_merge_c1_mock"
     assert {"uq_p1_delivery_legacy", "uq_p1_delivery_scoped"} <= indexes
     assert len(rows) == 2
     assert {row["provider_account_id"] for row in rows} == {"phone-a", "phone-b"}
