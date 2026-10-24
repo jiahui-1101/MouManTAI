@@ -17,7 +17,6 @@ Supports:
 from __future__ import annotations
 
 import hashlib
-import hmac
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -111,7 +110,7 @@ class WhatsAppAdapter:
         try:
             verify_whatsapp_signature(raw_body, signature_header, self.config.app_secret)
             return True
-        except FramingError as exc:
+        except FramingError:
             raise InvalidSignatureError("HMAC-SHA256 signature mismatch; request untrusted") from None
 
     # --- Media Retrieval via Graph API ---

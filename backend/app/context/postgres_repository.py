@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -66,6 +66,9 @@ from .repository import (
     StaleContextVersion,
 )
 from .schemas import Channel, ExtractedField, ProcessingStatus, RawMessageEnvelope
+
+if TYPE_CHECKING:
+    from .channels.reply_framing import ParentResolution, ReplyFrame
 
 
 def _to_json_compatible(val: Any) -> Any:
@@ -397,7 +400,7 @@ def _parent_reference(envelope: RawMessageEnvelope) -> str | None:
 
 def _scope_lock_key(frame: ReplyFrame, native_id: str) -> str:
     conversation = "" if frame.provider == "EMAIL" else (frame.conversation_id or "")
-    return "\x1f".join((frame.tenant_id, frame.provider, frame.account_id, conversation, native_id))
+    return f"{frame.tenant_id}\x1f{frame.provider}\x1f{frame.account_id}\x1f{conversation}\x1f{native_id}"
 
 
 def _row_frame(row: InboundMessage) -> ReplyFrame | None:
@@ -691,35 +694,34 @@ class PostgresMessageRepository:
         digest = fingerprint(envelope)
         is_real = envelope.adapter_mode == "REAL"
         provider = _CHANNEL_PROVIDER[envelope.channel] if is_real else "SYNTHETIC"
-        frame = _frame_from_envelope(envelope, parent=True)
         parent_reference = _parent_reference(envelope)
         try:
             with Session(self.engine) as session, session.begin():
                 self._lock_parent_scopes(session, envelope)
                 resolution, parent_row = self._resolve_parent_in_session(session, envelope)
                 exact_reference = parent_reference if envelope.relationship_source in {"PROVIDER_QUOTE", "SENDER_HEADER"} else None
-                values = dict(
-                    message_id=str(uuid4()),
-                    tenant_id=envelope.tenant_id,
-                    channel=envelope.channel,
-                    provider_message_id=envelope.provider_message_id,
-                    provider_account_id=envelope.provider_account_id,
-                    provider_native_message_id=envelope.provider_native_message_id,
-                    conversation_id=envelope.conversation_id,
-                    rfc_message_id=envelope.rfc_message_id,
-                    exact_parent_reference=exact_reference,
-                    parent_resolution=resolution.state,
-                    resolved_parent_message_id=parent_row.message_id if parent_row else None,
-                    source_authenticity=envelope.source_authenticity,
-                    synthetic_provider=(None if is_real else f"SYNTHETIC_{envelope.channel}"),
-                    provider=provider,
-                    raw=envelope.model_dump(mode="json"),
-                    immutable_fingerprint=digest,
-                    content_sha256=hashlib.sha256(envelope.text.encode("utf-8")).hexdigest(),
-                    processing_status="RECEIVED",
-                    ingested_at=now,
-                    updated_at=now,
-                )
+                values = {
+                    "message_id": str(uuid4()),
+                    "tenant_id": envelope.tenant_id,
+                    "channel": envelope.channel,
+                    "provider_message_id": envelope.provider_message_id,
+                    "provider_account_id": envelope.provider_account_id,
+                    "provider_native_message_id": envelope.provider_native_message_id,
+                    "conversation_id": envelope.conversation_id,
+                    "rfc_message_id": envelope.rfc_message_id,
+                    "exact_parent_reference": exact_reference,
+                    "parent_resolution": resolution.state,
+                    "resolved_parent_message_id": parent_row.message_id if parent_row else None,
+                    "source_authenticity": envelope.source_authenticity,
+                    "synthetic_provider": None if is_real else f"SYNTHETIC_{envelope.channel}",
+                    "provider": provider,
+                    "raw": envelope.model_dump(mode="json"),
+                    "immutable_fingerprint": digest,
+                    "content_sha256": hashlib.sha256(envelope.text.encode("utf-8")).hexdigest(),
+                    "processing_status": "RECEIVED",
+                    "ingested_at": now,
+                    "updated_at": now,
+                }
                 statement = insert(InboundMessage).values(**values).on_conflict_do_nothing().returning(InboundMessage.message_id)
                 created_id = session.execute(statement).scalar_one_or_none()
                 if envelope.provider_account_id and envelope.provider_native_message_id:
