@@ -209,9 +209,16 @@ class ManagerApprovalService:
                                     if action.type == "CREATE_DELIVERY_CHANGE_PROPOSAL"), None)
             if proposal_action is None:
                 raise DomainError("PROPOSAL_TERMS_MISSING", "Revised terms are missing", status_code=409)
+            # Mock acceptance keeps source-binding metadata on the Core record.
+            # It is not part of the customer-facing, versioned proposal terms.
+            approved_terms.pop("mock_order_request_version", None)
+            approved_terms.pop("mock_terms_hash", None)
             approved_terms.update({"quantity": proposal_action.parameters["partial_quantity"],
                                    "deadline": proposal_action.parameters["new_deadline"]})
-            approved_terms = CommitmentTerms.model_validate(approved_terms).model_dump(mode="json")
+            try:
+                approved_terms = CommitmentTerms.model_validate(approved_terms).model_dump(mode="json")
+            except ValidationError as exc:
+                raise DomainError("PROPOSAL_TERMS_INVALID", "Revised terms are invalid", status_code=409) from exc
         row = ManagerApprovalRecord(
             tenant_id=context.tenant_id, approval_id=approval_id, idempotency_key=idempotency_key,
             commitment_id=plan.commitment_id, case_id=plan.case_id,

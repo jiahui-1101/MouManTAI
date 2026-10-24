@@ -205,14 +205,21 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
     ))
     with Session(engine) as db:
         for commitment in inputs.before_commitments:
-            db.add(CommitmentRecord(
+            core = CommitmentRecord(
                 tenant_id=tenant, commitment_id=commitment.commitment_id,
                 order_id=commitment.order_id, customer_id=commitment.customer_id,
                 terms=commitment.terms.model_dump(mode="json"), agreement_state="CONFIRMED",
                 feasibility_state="NOT_ASSESSED", risk_state="NORMAL", recovery_state="NONE",
                 fulfilment_state="NOT_STARTED", commitment_version=commitment.commitment_version,
                 evidence_refs=commitment.evidence_refs, updated_at=commitment.updated_at,
-            ))
+            )
+            db.add(core)
+            if commitment.commitment_id == "com-001":
+                source_commitment = next(
+                    row for row in inputs.before.operational.confirmed_commitments
+                    if row.commitment_id == core.commitment_id
+                )
+                _seed_verified_accepted_order(db, tenant, core, source_commitment)
         stage_snapshot(db, inputs.before, current=True)
         stage_snapshot(db, inputs.after)
         db.commit()
@@ -247,8 +254,9 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
             assert linkage.json()["overall_status"] == "UNRESOLVED_HUMAN_REVIEW"
             target_link = next(row for row in linkage.json()["links"]
                                if row["commitment_id"] == "com-001")
-            assert target_link["link_status"] == "UNRESOLVED_ORDER_ACCEPTANCE"
-            assert "ACCEPTED_ORDER_RECORD_MISSING" in target_link["reason_codes"]
+            assert target_link["link_status"] == "LINKED_ACCEPTED_ORDER"
+            assert target_link["order_request_id"] == "order_com-001"
+            assert target_link["order_request_version"] == 3
             unaffected_link = next(row for row in linkage.json()["links"]
                                    if row["commitment_id"] == "com-002")
             assert unaffected_link["classification"] == "VERIFIED_UNAFFECTED"
@@ -361,9 +369,9 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
                     ))
 
             intent = _eventually(intent_ready)
-            assert intent.status == "UNRESOLVED_ORDER_ACCEPTANCE"
+            assert intent.status == "PENDING_P4_REVIEW"
             assert intent.idempotency_key == intent.source_event_id
-            assert intent.customer_ref is None
+            assert intent.customer_ref == "customer_com-001"
             assert intent.contact_ref is None and intent.channel_ref is None and intent.consent_ref is None
             assert intent.original_channel_ref is None
             assert "HUMAN_REVIEW_BEFORE_ANY_DRAFT" in intent.review_requirements
@@ -377,7 +385,7 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
             intent_view = http.get(f"/v1/orchestration/notification-intents/{intent.intent_id}", headers=headers)
             assert intent_view.status_code == 200, intent_view.text
             assert intent_view.json()["delivery_status"] == "NOT_SENT"
-            assert intent_view.json()["status"] == "UNRESOLVED_ORDER_ACCEPTANCE"
+            assert intent_view.json()["status"] == "PENDING_P4_REVIEW"
             assert intent_view.json()["verification_status"] == "INTERNALLY-VERIFIED"
             assert intent_view.json()["idempotency_key"] == intent_view.json()["source_event_id"]
             assert intent_view.json()["original_channel_ref"] is None
@@ -385,10 +393,11 @@ def test_real_http_worker_restart_and_verified_action_on_migrated_postgresql(tmp
             timeline = http.get("/v1/orchestration/commitments/com-001/timeline", headers=headers)
             assert timeline.status_code == 200, timeline.text
             timeline_types = {row["event_type"] for row in timeline.json()["entries"]}
+            assert "commitment.mock_order_accepted" in timeline_types
             assert "supplier.delivery_changed" in timeline_types
             assert "recovery.internal_task_created" in timeline_types
             assert "communication.notification_intent" in timeline_types
-            assert timeline.json()["overall_readiness"] == "UNRESOLVED_HUMAN_REVIEW"
+            assert timeline.json()["overall_readiness"] == "PARTIAL"
             assert http.get(f"/v1/orchestration/notification-intents/{intent.intent_id}",
                             headers={**headers, "X-Tenant-ID": "other_tenant"}).status_code == 404
 

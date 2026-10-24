@@ -1,14 +1,14 @@
 """Add P5 evidence links and pending P4 notification intents.
 
-Revision ID: 0023_business_orch_links
-Revises: 0022_mock_memory_history
+Revision ID: 0024_business_orch_links
+Revises: 0023_mock_memory_history
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0023_business_orch_links"
-down_revision = "0022_mock_memory_history"
+revision = "0024_business_orch_links"
+down_revision = "0023_mock_memory_history"
 branch_labels = None
 depends_on = None
 
