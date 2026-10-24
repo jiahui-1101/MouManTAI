@@ -165,7 +165,7 @@ describe('OrderContextDetail component', () => {
   });
 
   it('opens review drawer and submits field edits with optimistic locking', async () => {
-    render(<OrderContextDetail contextId="ctx_mock_1" />);
+    render(<OrderContextDetail contextId="ctx_mock_1" requestHeaders={{ 'X-Actor-ID': 'user_staff_01', 'X-Actor-Role': 'STAFF' }} />);
 
     await waitFor(() => {
       expect(screen.getByText('Order Context: ORD-5001')).toBeInTheDocument();

@@ -1,0 +1,56 @@
+{
+  "commitment": {
+    "tenant_id": "synthetic-decision-tenant",
+    "commitment_id": "synthetic-commitment",
+    "order_id": "synthetic-order",
+    "customer_id": "synthetic-customer",
+    "terms": {
+      "sku": "BREAD",
+      "quantity": "20",
+      "unit": "pieces",
+      "deadline": null,
+      "items": null,
+      "special_instructions": null
+    },
+    "agreement_state": "CONFIRMED",
+    "feasibility_state": "UNKNOWN",
+    "risk_state": "NORMAL",
+    "recovery_state": "NONE",
+    "fulfilment_state": "NOT_STARTED",
+    "commitment_version": 3,
+    "evidence_refs": [
+      "synthetic-core-evidence"
+    ],
+    "updated_at": "2026-10-24T00:00:00Z"
+  },
+  "timeline": [
+    {
+      "entry_id": "entry_synthetic-audit",
+      "occurred_at": "2026-10-24T00:00:00Z",
+      "actor_id": "user_manager_01",
+      "actor_role": "MANAGER",
+      "source_feature": "CORE",
+      "event_type": "commitment.synthetic_record",
+      "action": "Synthetic fixture record only",
+      "previous_state": {
+        "agreement_state": "OFFERED"
+      },
+      "new_state": {
+        "agreement_state": "CONFIRMED",
+        "commitment_version": 3
+      },
+      "commitment_version": 3,
+      "correlation_id": "synthetic-correlation",
+      "causation_id": null,
+      "approval_reason": "Synthetic fixture record only",
+      "evidence_refs": [
+        "synthetic-core-evidence"
+      ],
+      "context_id": null,
+      "assessment_id": null,
+      "recovery_case_id": null,
+      "communication_id": null,
+      "proposal_id": null
+    }
+  ]
+}

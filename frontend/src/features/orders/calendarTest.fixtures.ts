@@ -1,0 +1,46 @@
+// Synthetic presentation fixtures: test and explicit isolated validation only.
+import type { ScheduleEvent, ScheduleSnapshot } from './calendarTypes';
+export const calendarTestNow = Date.parse('2026-10-24T03:00:00Z');
+export function calendarFixture(): ScheduleSnapshot {
+  const event: ScheduleEvent = {
+    id: 'job-one', tenantId: 'test-tenant', snapshotVersion: '7', scheduleId: 'schedule-one', scheduleVersion: '3', currentScheduleVersion: '3',
+    type: 'PRODUCTION', title: 'Synthetic overnight mixing', status: 'PLANNED', authority: { kind: 'CONFIRMED_SCHEDULE', evidence: ['synthetic-approved-schedule'] },
+    detailAccess: 'FULL', when: { kind: 'INTERVAL', start: '2026-10-23T15:00:00Z', end: '2026-10-24T03:00:00Z' },
+    order: { id: 'order/one', requestVersion: '2' }, resources: [{ id: 'machine-A', version: '4' }], stage: 'Mixing',
+    quantity: { amount: '12.5', unit: 'kg' }, materialReadiness: 'Source reports material check pending',
+    dependencies: [], evidence: ['synthetic-job-evidence'], source: 'Synthetic test-only schedule reader', historyRefs: ['synthetic-audit'] };
+  return { tenantId: 'test-tenant', actorId: 'user_owner_01', readAuthorized: true, source: 'Synthetic test-only calendar source', sourceVerified: true,
+    evidenceTier: 'DEMO-ONLY', integrationMode: 'SYNTHETIC', evidence: ['synthetic-calendar-evidence'], snapshotId: 'synthetic-calendar-snapshot',
+    snapshotVersion: '7', currentVersion: '7', updatedAt: '2026-10-24T02:00:00Z', expiresAt: '2026-10-24T04:00:00Z', freshness: 'CURRENT',
+    window: { from: '2026-01-01', toExclusive: '2027-01-01', timeZone: 'Asia/Kuala_Lumpur' }, coverage: 'COMPLETE',
+    orders: [{ id: 'order/one', requestVersion: '2' }, { id: 'secret-order', requestVersion: '2' }],
+    events: [event,
+      { ...event, id: 'job-two', scheduleId: 'schedule-two', title: 'Synthetic tentative packing', status: 'PROPOSED',
+        authority: { kind: 'TENTATIVE', evidence: ['synthetic-proposal'] }, dependencies: ['job-one'],
+        when: { kind: 'INTERVAL', start: '2026-10-24T02:00:00Z', end: '2026-10-24T04:00:00Z' } },
+      { ...event, id: 'delivery-request', scheduleId: 'delivery-request-schedule', title: 'Synthetic requested delivery', type: 'DELIVERY',
+        deliveryMilestone: 'REQUESTED', when: { kind: 'DATE', date: '2026-10-24' }, authority: { kind: 'UNKNOWN', evidence: [] }, resources: [] },
+      { ...event, id: 'delivery-agreed', scheduleId: 'delivery-agreed-schedule', title: 'Synthetic agreed delivery', type: 'DELIVERY',
+        deliveryMilestone: 'CUSTOMER_AGREED', when: { kind: 'INSTANT', at: '2026-10-25T06:00:00+08:00' }, resources: [] },
+      { ...event, id: 'simulation', scheduleId: 'simulation-schedule', title: 'Synthetic forecast task', authority: { kind: 'SIMULATION', evidence: ['synthetic-simulation'] },
+        when: { kind: 'INTERVAL', start: '2026-10-26T00:00:00Z', end: '2026-10-26T01:00:00Z' } },
+      { ...event, id: 'history', scheduleId: 'history-schedule', title: 'Synthetic historical task', status: 'COMPLETED', authority: { kind: 'HISTORICAL', evidence: ['synthetic-history'] },
+        when: { kind: 'INTERVAL', start: '2026-10-22T00:00:00Z', end: '2026-10-22T01:00:00Z' } },
+      { ...event, id: 'secret-event', scheduleId: 'secret-schedule', title: 'secret-event-title', status: 'secret-status',
+        detailAccess: 'REDACTED', order: { id: 'secret-order', requestVersion: '2' }, resources: [{ id: 'secret-resource', version: '4' }],
+        source: 'secret-source', evidence: ['secret-evidence'], historyRefs: ['secret-history'], stage: 'secret-stage',
+        when: { kind: 'INTERVAL', start: '2026-10-24T03:00:00Z', end: '2026-10-24T04:00:00Z' } },
+    ],
+    resources: [{ id: 'machine-A', version: '4', label: 'Synthetic machine A', detailAccess: 'FULL', coverage: 'VALIDATED_COMPLETE',
+      windows: [{ id: 'window-occupied', start: '2026-10-24T00:00:00Z', end: '2026-10-24T01:00:00Z', state: 'OCCUPIED', evidence: ['synthetic-occupancy'] },
+        { id: 'window-free', start: '2026-10-24T04:00:00Z', end: '2026-10-24T05:00:00Z', state: 'FREE', evidence: ['synthetic-free-window'] },
+        { id: 'window-maintenance', start: '2026-10-24T06:00:00Z', end: '2026-10-24T07:00:00Z', state: 'MAINTENANCE', evidence: ['synthetic-maintenance'] }],
+      utilization: { percentage: '50', numerator: '60', denominator: '120', unit: 'minutes', basis: 'Source capacity basis',
+        start: '2026-10-24T00:00:00Z', end: '2026-10-24T02:00:00Z', evidence: ['synthetic-utilization'] } },
+      { id: 'secret-resource', version: '4', label: 'secret-resource-label', detailAccess: 'REDACTED', coverage: 'UNKNOWN', windows: [] }],
+    conflicts: [{ id: 'synthetic-conflict', detailAccess: 'FULL', when: { kind: 'INTERVAL', start: '2026-10-24T02:00:00Z', end: '2026-10-24T03:00:00Z' },
+      eventIds: ['job-one', 'job-two'], resourceIds: ['machine-A'], severity: 'HIGH', explanation: 'Source-reported machine overlap',
+      uncertainty: 'Source supplier window incomplete', source: 'Synthetic P2 conflict projection', sourceVersion: '9', evidence: ['synthetic-conflict-evidence'] }],
+    conflictCoverage: 'VALIDATED_COMPLETE',
+  };
+}

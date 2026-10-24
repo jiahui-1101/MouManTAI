@@ -1,0 +1,13 @@
+{
+  "requirement": "AZ-06",
+  "branch": "frontend-orders-planning",
+  "baseline": "ffbcee31cea57ea82a73ab1056c9689f2f5605f0",
+  "files": {
+    "frontend/src/features/orders/OrderQueuePage.tsx": "50b104358d8d49a44cd032a601c6ac9ddb83e3b3bb8df16d567d494e3406d443",
+    "frontend/src/features/orders/useQueuePreferences.ts": "95deebd07beed4799cbdda75e415074125ceb951f91137a3d04ff055f03dd590",
+    "frontend/src/features/orders/QueueNavigationState.test.tsx": "89b03d8226a0e5c52766946af9edd16ba95d0cbb5cde6e8856e37dedd114d854"
+  },
+  "shared_files_changed": [],
+  "backend_files_changed": [],
+  "patch_apply_check": "PASSED against clean baseline files"
+}
