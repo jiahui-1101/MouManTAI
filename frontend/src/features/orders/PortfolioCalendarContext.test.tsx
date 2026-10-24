@@ -90,15 +90,15 @@ describe('Strict feature-local requested date context', () => {
       date: '2026-10-24', from: '2026-10-24', toExclusive: '2026-10-25', timeZone: 'Asia/Kuala_Lumpur',
     });
   });
-  it('supports deep links and a full App remount while keeping Backend unavailability honest', async () => {
+  it('supports deep links and a full App remount while keeping source coverage honest', async () => {
     const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
     window.history.replaceState({}, '', href);
     const first = render(<App routeExtensions={orderPlanningRoutes} />);
-    await screen.findByRole('heading', { name: 'Portfolio API unavailable' });
+    await screen.findByRole('heading', { name: 'Portfolio Comparison' });
     expect(panel()).toHaveTextContent('2026-10-24'); first.unmount();
     render(<App routeExtensions={orderPlanningRoutes} />);
-    await screen.findByRole('heading', { name: 'Portfolio API unavailable' });
-    expect(panel()).toHaveTextContent('Portfolio date coverage is not supplied'); expect(fetch).not.toHaveBeenCalled();
+    await screen.findByRole('heading', { name: 'Portfolio Comparison' });
+    expect(panel()).toHaveTextContent('Portfolio date coverage is not supplied'); expect(fetch).toHaveBeenCalledWith('/v1/planning/portfolio/inputs', expect.any(Object));
   });
   it('uses current URL context on Back/Forward instead of retaining an obsolete requested date', async () => {
     const router = setup(href);

@@ -46,14 +46,17 @@ it('navigates an explicitly injected test queue through the real detail/P1 works
   if (screen.getByRole('button', { name: 'Planning' }).getAttribute('aria-expanded') === 'false')
     fireEvent.click(screen.getByRole('button', { name: 'Planning' }));
   fireEvent.click(within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('link', { name: 'Portfolio Comparison' }));
-  expect(await screen.findByRole('heading', { name: 'Portfolio API unavailable' })).toBeInTheDocument();
-  fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: 'Production & Delivery Calendar' }));
+  expect(await screen.findByRole('heading', { name: 'Portfolio Comparison' })).toBeInTheDocument();
+  fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: 'Back to Order Decision Queue' }));
+  const dashboardGroup = screen.getByRole('button', { name: 'Dashboard' });
+  if (dashboardGroup.getAttribute('aria-expanded') === 'false') fireEvent.click(dashboardGroup);
+  fireEvent.click(within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('link', { name: 'Calendar' }));
   expect(await screen.findByRole('heading', { name: 'Scheduling API unavailable' })).toBeInTheDocument();
   if (screen.getByRole('button', { name: 'Planning' }).getAttribute('aria-expanded') === 'false')
     fireEvent.click(screen.getByRole('button', { name: 'Planning' }));
   fireEvent.click(within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('link', { name: 'Portfolio Comparison' }));
-  expect(await screen.findByRole('heading', { name: 'Portfolio API unavailable' })).toBeInTheDocument();
-  expect(fetch).not.toHaveBeenCalled(); expect(publish).not.toHaveBeenCalled();
+  expect(await screen.findByRole('heading', { name: 'Portfolio Comparison' })).toBeInTheDocument();
+  expect(fetch).toHaveBeenCalledWith('/v1/planning/portfolio/inputs', expect.any(Object)); expect(publish).not.toHaveBeenCalled();
   expect(operationalApi.getContextByOrder).toHaveBeenCalledWith('uat-order', expect.objectContaining({ 'X-Tenant-ID': 'tenant_demo_01', 'X-Actor-ID': 'user_owner_01' }));
 });
 

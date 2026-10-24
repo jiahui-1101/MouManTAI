@@ -8,6 +8,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core import models as _core_models  # noqa: F401 - register ORM tables for Alembic metadata
 from app.orders import models as _order_models  # noqa: F401 - register OrderRequest, Mock Orbyte and P4 Orders tables
+from app.orders import portfolio_models as _portfolio_models  # noqa: F401 - register demo planning assumptions
 from app.suppliers import models as _supplier_models  # noqa: F401 - register Mock supplier tables
 from app.forecasting import mock_models as _forecast_models  # noqa: F401 - register Mock forecast tables
 from app.communication import models as _communication_models  # noqa: F401 - register P4 ORM tables

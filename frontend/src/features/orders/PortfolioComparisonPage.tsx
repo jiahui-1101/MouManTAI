@@ -1,3 +1,4 @@
+import { PortfolioDemoDashboard } from './PortfolioDemoDashboard';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -298,6 +299,7 @@ export function PortfolioComparisonPage({
   const query = useQuery({
     queryKey: ['orders', 'portfolio', source.cacheKey, auth.tenantId, auth.actorId],
     queryFn: async ({ signal }) => validatePortfolio(await source.load(auth, signal), auth),
+    enabled: source !== unavailablePortfolioSource,
     retry: false,
     gcTime: 0,
     staleTime: 0,
@@ -341,6 +343,9 @@ export function PortfolioComparisonPage({
     (data && data.snapshotVersion !== data.currentVersion);
   const observedNow = Math.max(now, Date.now());
   const available = data && portfolioFresh(data, observedNow);
+  if (source === unavailablePortfolioSource) {
+    return <PortfolioDemoDashboard key={`${auth.tenantId}:${auth.actorId}`} />;
+  }
 
   return (
     <section className="portfolio-comparison pc-workspace" aria-labelledby="pc-title">

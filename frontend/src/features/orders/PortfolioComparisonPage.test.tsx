@@ -33,12 +33,12 @@ describe('Portfolio Comparison states and read safety', () => {
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 25)); });
     expect(ticks - settled).toBeLessThan(12); expect(source.load).toHaveBeenCalledTimes(1);
   });
-  it('defaults to unavailable without fetching or fabricating strategies', async () => {
+  it('reads persisted inputs by default without fabricating strategies on API failure', async () => {
     const fetch = vi.fn(); vi.stubGlobal('fetch', fetch); setup();
     expect(screen.getByRole('heading', { name: 'Portfolio Comparison' })).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: 'Portfolio API unavailable' })).toBeInTheDocument();
-    expect(screen.queryByRole('table')).not.toBeInTheDocument(); expect(fetch).not.toHaveBeenCalled();
-    expect(screen.getByText('TARGET')).toBeInTheDocument(); expect(screen.getByLabelText('Last updated: unknown')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith('/v1/planning/portfolio/inputs', expect.any(Object));
   });
   it('shows cancellable loading', () => {
     let signal: AbortSignal | undefined;

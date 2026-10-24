@@ -676,3 +676,24 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Read-only database planning simulation inputs remain usable on narrow screens. */
+.pc-workspace input[type="number"], .pc-workspace input[type="date"], .pc-workspace select { max-width: 100%; min-width: 0; }
+.pc-workspace .pc-card > label { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-block: .65rem; }
+.pc-workspace .pc-card > label input[type="number"] { width: 11rem; }
+.pc-workspace .pc-scroll { overflow-x: auto; }
+.pc-workspace .pc-scroll table { min-width: 34rem; }
+.pc-overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .8rem; margin: 1rem 0; }
+.pc-overview-card { display: flex; flex-direction: column; gap: .35rem; padding: 1rem; border: 1px solid #dbe3ef; border-radius: .75rem; background: linear-gradient(145deg, #f8fafc, #fff 70%); }
+.pc-overview-card span { color: #64748b; font-size: .8rem; }
+.pc-overview-card strong { color: #0f172a; font-size: 1.45rem; }
+.pc-overview-card small { color: #64748b; }
+.pc-demo-strategy-cards > .pc-demo-fcfs { border-top: 4px solid #2563eb; background: linear-gradient(145deg, #eff6ff, #fff 55%); }
+.pc-demo-strategy-cards > .pc-demo-profit { border-top: 4px solid #0d9488; background: linear-gradient(145deg, #f0fdfa, #fff 55%); }
+.pc-demo-strategy-cards > .pc-demo-expiry_aware { border-top: 4px solid #d97706; background: linear-gradient(145deg, #fffbeb, #fff 55%); }
+.pc-workspace .pc-cards > .pc-simulation-card:nth-child(1),
+.pc-workspace .pc-cards > .pc-card:nth-child(1) { border-top: 4px solid #2563eb; background: linear-gradient(145deg, #eff6ff, #fff 55%); }
+.pc-workspace .pc-cards > .pc-simulation-card:nth-child(2),
+.pc-workspace .pc-cards > .pc-card:nth-child(2) { border-top: 4px solid #0d9488; background: linear-gradient(145deg, #f0fdfa, #fff 55%); }
+.pc-workspace .pc-cards > .pc-simulation-card:nth-child(3),
+.pc-workspace .pc-cards > .pc-card:nth-child(3) { border-top: 4px solid #d97706; background: linear-gradient(145deg, #fffbeb, #fff 55%); }
