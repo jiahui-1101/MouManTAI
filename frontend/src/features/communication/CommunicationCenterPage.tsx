@@ -42,15 +42,25 @@ interface FollowUpView {
   tenant_id: string;
   communication_id: string;
   confirmation_id: string;
-  commitment_id: string;
-  proposal_id: string;
-  proposal_version: number;
+  commitment_id?: string;
+  proposal_id?: string;
+  proposal_version?: number;
   status: "WAITING" | "BLOCKED" | "DISPATCHING" | "CANCELLED" | "ESCALATED";
+  reason_code?: string;
   reminders_sent: number;
   next_due_at: string | null;
   escalation_at: string;
   last_reminder_at: string | null;
-  policy: { max_reminders: number; response_sla_seconds: number };
+  policy: {
+    max_reminders: number;
+    response_sla_seconds?: number;
+    contact_hours?: {
+      start_hour?: number;
+      end_hour?: number;
+      start?: string;
+      end?: string;
+    };
+  };
 }
 
 function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
@@ -775,13 +785,69 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
                               <time>{formatKLTimestamp(request.created_at)}</time>
                             </td>
                             <td>
-                              <button
-                                type="button"
-                                className="btn btn-secondary btn-sm"
-                                onClick={() => selectRequest(request.communication_id)}
-                              >
-                                Inspect
-                              </button>
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  onClick={() => selectRequest(request.communication_id)}
+                                  title="Preview draft & proposal details"
+                                >
+                                  Preview
+                                </button>
+                                {request.request_status === "READY_FOR_DRAFTING" && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => selectRequest(request.communication_id)}
+                                    title="Edit / prepare draft"
+                                  >
+                                    Edit draft
+                                  </button>
+                                )}
+                                {label(request) === "Pending" && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="btn btn-primary btn-sm"
+                                      onClick={() => selectRequest(request.communication_id)}
+                                      title="Approve draft"
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn-secondary btn-sm"
+                                      onClick={() => selectRequest(request.communication_id)}
+                                      title="Reject draft"
+                                    >
+                                      Reject
+                                    </button>
+                                  </>
+                                )}
+                                {request.outbound_status === "FAILED" && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-primary btn-sm"
+                                    onClick={() => selectRequest(request.communication_id)}
+                                    title="Retry send"
+                                  >
+                                    Retry send
+                                  </button>
+                                )}
+                                {(request.outbound_status === "DELIVERY_UNKNOWN" || request.outbound_status === "QUEUED") && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => {
+                                      void list.refetch();
+                                      void summary.refetch();
+                                    }}
+                                    title="Check provider status"
+                                  >
+                                    Check provider status
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -893,6 +959,7 @@ function CommunicationSession({ auth }: { auth: RequestAuthHeaders }) {
         <NewDraftModal
           requests={requests}
           auth={auth}
+          preferences={preferences.data ?? []}
           onClose={() => setNewDraftOpen(false)}
           onCreated={commId => {
             setSelected(commId);
@@ -1094,13 +1161,29 @@ function ConfirmationsView({
                     <td>{formatKLTimestamp(item.created_at)}</td>
                     <td>{formatKLTimestamp(item.expires_at)}</td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => onSelect(item.confirmation_id)}
-                      >
-                        Inspect
-                      </button>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => onSelect(item.confirmation_id)}
+                        >
+                          Inspect
+                        </button>
+                        <Link
+                          className="btn btn-secondary btn-sm"
+                          to={`/planning?proposal=${encodeURIComponent(item.reference.proposal_id)}&version=${item.reference.proposal_version}`}
+                          title="Link to proposal version"
+                        >
+                          Link to proposal
+                        </Link>
+                        <Link
+                          className="btn btn-secondary btn-sm"
+                          to={`/review?ref=${encodeURIComponent(item.confirmation_id)}`}
+                          title="Send to Human Review"
+                        >
+                          Send to Human Review
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1212,6 +1295,21 @@ function ConfirmationsView({
                   <p className="muted">No response received yet.</p>
                 )}
               </section>
+
+              <div className="cc-actions" style={{ marginTop: "24px", paddingTop: "16px", borderTop: "1px solid rgba(28, 49, 83, 0.12)", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <Link
+                  className="btn btn-secondary"
+                  to={`/planning?proposal=${encodeURIComponent(selectedItem.reference.proposal_id)}&version=${selectedItem.reference.proposal_version}`}
+                >
+                  Link to proposal version
+                </Link>
+                <Link
+                  className="btn btn-primary"
+                  to={`/review?ref=${encodeURIComponent(selectedItem.confirmation_id)}`}
+                >
+                  Send to Human Review
+                </Link>
+              </div>
             </div>
           </>
         )}
@@ -1245,17 +1343,80 @@ function FollowUpQueueView({
 }) {
   const client = useQueryClient();
   const [runningDue, setRunningDue] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string>("");
+  const [actionNotice, setActionNotice] = useState<string>("");
 
   const runDue = async () => {
     setRunningDue(true);
+    setActionNotice("");
     try {
       await apiRequest<FollowUpView[]>("/v1/follow-ups/run-due", {
         method: "POST",
         headers: authHeaders(auth),
       });
+      setActionNotice("Due reminders dispatched successfully.");
       void client.invalidateQueries({ queryKey: [...communicationKeys.scope(auth), "follow-ups-list"] });
+      void client.invalidateQueries({ queryKey: confirmationKeys.queue(auth) });
+    } catch (err) {
+      setActionNotice(`Failed to run due reminders: ${err instanceof ApiError ? err.message : "Error"}`);
     } finally {
       setRunningDue(false);
+    }
+  };
+
+  const handleSendReminder = async (item: ConfirmationView) => {
+    setActionLoading(`remind-${item.confirmation_id}`);
+    setActionNotice("");
+    try {
+      await apiRequest<FollowUpView[]>("/v1/follow-ups/run-due", {
+        method: "POST",
+        headers: authHeaders(auth),
+      });
+      setActionNotice(`Reminder sent for ${item.confirmation_id}.`);
+      void client.invalidateQueries({ queryKey: [...communicationKeys.scope(auth), "follow-ups-list"] });
+      void client.invalidateQueries({ queryKey: confirmationKeys.queue(auth) });
+    } catch (err) {
+      setActionNotice(`Failed to send reminder: ${err instanceof ApiError ? err.message : "Error"}`);
+    } finally {
+      setActionLoading("");
+    }
+  };
+
+  const handleCancelFollowUp = async (item: ConfirmationView, task?: FollowUpView) => {
+    setActionLoading(`cancel-${item.confirmation_id}`);
+    setActionNotice("");
+    try {
+      if (task?.task_id) {
+        await apiRequest(`/v1/follow-ups/${task.task_id}/cancel`, {
+          method: "POST",
+          headers: authHeaders(auth),
+          body: JSON.stringify({ reason: "Manual operator cancellation" }),
+        });
+      }
+      setActionNotice(`Follow-up cancelled for ${item.confirmation_id}.`);
+      void client.invalidateQueries({ queryKey: [...communicationKeys.scope(auth), "follow-ups-list"] });
+    } catch (err) {
+      setActionNotice(`Failed to cancel follow-up: ${err instanceof ApiError ? err.message : "Error"}`);
+    } finally {
+      setActionLoading("");
+    }
+  };
+
+  const handleMarkExpired = async (item: ConfirmationView) => {
+    setActionLoading(`expire-${item.confirmation_id}`);
+    setActionNotice("");
+    try {
+      await apiRequest(`/v1/confirmations/${item.confirmation_id}/revoke`, {
+        method: "POST",
+        headers: authHeaders(auth),
+      });
+      setActionNotice(`Confirmation ${item.confirmation_id} marked as expired.`);
+      void client.invalidateQueries({ queryKey: confirmationKeys.queue(auth) });
+      void client.invalidateQueries({ queryKey: [...communicationKeys.scope(auth), "follow-ups-list"] });
+    } catch (err) {
+      setActionNotice(`Failed to mark expired: ${err instanceof ApiError ? err.message : "Error"}`);
+    } finally {
+      setActionLoading("");
     }
   };
 
@@ -1285,7 +1446,7 @@ function FollowUpQueueView({
       <div className="cc-row">
         <div>
           <h3>Follow-Up Queue</h3>
-          <p className="muted">Send reminders and escalate late replies for awaiting confirmations.</p>
+          <p className="muted">Send reminders, escalate late replies, or cancel follow-ups for awaiting confirmations.</p>
         </div>
         <button className="btn btn-primary" onClick={runDue} disabled={runningDue}>
           {runningDue ? "Running due reminders…" : "Run Due Reminders"}
@@ -1307,6 +1468,25 @@ function FollowUpQueueView({
         </div>
       </div>
 
+      {actionNotice && (
+        <div
+          className="cc-info-banner"
+          role="status"
+          style={{
+            padding: "10px 14px",
+            margin: "12px 0",
+            background: "#eff6ff",
+            border: "1px solid #bfdbfe",
+            borderRadius: "6px",
+            color: "#1e40af",
+            fontSize: "13px",
+            fontWeight: 500,
+          }}
+        >
+          {actionNotice}
+        </div>
+      )}
+
       {!items.length ? (
         <div className="cc-state">
           <h3>Nothing here yet</h3>
@@ -1317,35 +1497,102 @@ function FollowUpQueueView({
           <table className="cc-table cc-master-table">
             <thead>
               <tr>
-                <th>Confirmation ID</th>
+                <th>Reference ID</th>
+                <th>Proposal & Version</th>
                 <th>Customer</th>
-                <th>Proposal Version</th>
-                <th>State</th>
-                <th>Expires At</th>
-                <th>Action</th>
+                <th>已发次数 / 上限</th>
+                <th>上次提醒</th>
+                <th>下次到期</th>
+                <th>允许时段</th>
+                <th>升级原因</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {items.map(c => (
-                <tr key={c.confirmation_id}>
-                  <td>
-                    <code>{c.confirmation_id}</code>
-                  </td>
-                  <td>{c.customer_id}</td>
-                  <td>
-                    {c.reference.proposal_id} · v{c.reference.proposal_version}
-                  </td>
-                  <td>
-                    <ConfirmationBadge value={c} />
-                  </td>
-                  <td>{formatKLTimestamp(c.expires_at)}</td>
-                  <td>
-                    <Link className="btn btn-secondary btn-sm" to={`/confirmations/${encodeURIComponent(c.confirmation_id)}`}>
-                      Inspect
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              {items.map(c => {
+                const task = (followUps.data ?? []).find(f => f.confirmation_id === c.confirmation_id);
+                const remindersSent = task?.reminders_sent ?? 0;
+                const remindersMax = task?.policy?.max_reminders ?? 3;
+                const lastReminder = task?.last_reminder_at ? formatKLTimestamp(task.last_reminder_at) : "None yet";
+                const nextDue = task?.next_due_at ? formatKLTimestamp(task.next_due_at) : formatKLTimestamp(c.expires_at);
+                const allowedWindow = task?.policy?.contact_hours
+                  ? `${String(task.policy.contact_hours.start_hour ?? 9).padStart(2, "0")}:00 - ${String(task.policy.contact_hours.end_hour ?? 18).padStart(2, "0")}:00 MYT`
+                  : "09:00 - 18:00 MYT";
+                const escalationReason = task?.reason_code || (Date.parse(c.expires_at) <= now
+                  ? "Expired without response"
+                  : Date.parse(c.expires_at) - now <= 24 * 3600 * 1000
+                  ? "Expiring within 24h"
+                  : "Awaiting customer response");
+
+                return (
+                  <tr key={c.confirmation_id}>
+                    <td>
+                      <code>{c.confirmation_id}</code>
+                      <br />
+                      <ConfirmationBadge value={c} />
+                    </td>
+                    <td>
+                      {c.reference.proposal_id} · v{c.reference.proposal_version}
+                    </td>
+                    <td>{c.customer_id}</td>
+                    <td>
+                      <strong>{remindersSent} / {remindersMax}</strong>
+                    </td>
+                    <td>
+                      <small className="muted">{lastReminder}</small>
+                    </td>
+                    <td>
+                      <small className="muted">{nextDue}</small>
+                    </td>
+                    <td>
+                      <small className="muted">{allowedWindow}</small>
+                    </td>
+                    <td>
+                      <span className="cc-reason-badge" style={{ fontSize: "12px", background: "#f1f5f9", padding: "2px 8px", borderRadius: "4px" }}>
+                        {escalationReason}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          disabled={actionLoading === `remind-${c.confirmation_id}` || remindersSent >= remindersMax}
+                          onClick={() => handleSendReminder(c)}
+                          title="Send reminder to customer"
+                        >
+                          Send reminder
+                        </button>
+                        <Link
+                          to={`/review?ref=${encodeURIComponent(c.confirmation_id)}`}
+                          className="btn btn-secondary btn-sm"
+                          title="Escalate to Human Review"
+                        >
+                          Escalate to Human Review
+                        </Link>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          disabled={actionLoading === `cancel-${c.confirmation_id}`}
+                          onClick={() => handleCancelFollowUp(c, task)}
+                          title="Cancel follow-up"
+                        >
+                          Cancel follow-up
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          disabled={actionLoading === `expire-${c.confirmation_id}`}
+                          onClick={() => handleMarkExpired(c)}
+                          title="Mark expired"
+                        >
+                          Mark expired
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1357,11 +1604,13 @@ function FollowUpQueueView({
 function NewDraftModal({
   requests,
   auth,
+  preferences,
   onClose,
   onCreated,
 }: {
   requests: CommunicationRequestView[];
   auth: RequestAuthHeaders;
+  preferences: RecipientPreference[];
   onClose: () => void;
   onCreated: (commId: string) => void;
 }) {
@@ -1370,6 +1619,17 @@ function NewDraftModal({
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  const authorizedRecipients = preferences.filter(p => p.consent_status === "OPTED_IN");
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(
+    authorizedRecipients[0]?.customer_id ?? requests[0]?.recipient_identity_id ?? ""
+  );
+
+  const matchingPrefs = authorizedRecipients.filter(p => p.customer_id === selectedCustomerId);
+  const allowedChannels = matchingPrefs.length > 0
+    ? [...new Set(matchingPrefs.map(p => p.channel))]
+    : ["MOCK_EMAIL", "MOCK_WHATSAPP", "MOCK_TELEGRAM"];
+
+  const [channel, setChannel] = useState<string>(allowedChannels[0] ?? "MOCK_EMAIL");
   const selectedRequest = requests.find(r => r.communication_id === commId);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1397,7 +1657,7 @@ function NewDraftModal({
           </button>
         </div>
         <p className="muted text-sm">
-          Prepare an outbound message draft bound to an approved recovery proposal version.
+          Prepare an outbound message draft. Recipients only list authorized/verified contacts; channels only list allowed channels.
         </p>
 
         {errorMsg && (
@@ -1408,7 +1668,7 @@ function NewDraftModal({
 
         <form onSubmit={handleSubmit}>
           <label>
-            Proposal reference / Communication
+            Bound Proposal Version / Commitment
             <select value={commId} onChange={e => setCommId(e.target.value)} required>
               {requests.map(r => (
                 <option key={r.communication_id} value={r.communication_id}>
@@ -1419,23 +1679,37 @@ function NewDraftModal({
           </label>
 
           <label>
-            Recipient Contact
-            <input
-              type="text"
-              value={selectedRequest?.recipient_identity_id ?? "Verified recipient required"}
-              readOnly
-              disabled
-            />
+            Authorized & Verified Recipient
+            <select
+              value={selectedCustomerId}
+              onChange={e => {
+                setSelectedCustomerId(e.target.value);
+                const prefs = authorizedRecipients.filter(p => p.customer_id === e.target.value);
+                if (prefs[0]?.channel) setChannel(prefs[0].channel);
+              }}
+              required
+            >
+              {authorizedRecipients.length > 0 ? (
+                authorizedRecipients.map(p => (
+                  <option key={`${p.customer_id}:${p.channel}`} value={p.customer_id}>
+                    {p.customer_id} ({p.recipient_identity_id}) — Verified
+                  </option>
+                ))
+              ) : (
+                <option value="">{selectedRequest?.recipient_identity_id ?? "Default verified recipient"}</option>
+              )}
+            </select>
           </label>
 
           <label>
-            Channel
-            <input
-              type="text"
-              value={selectedRequest?.channel ? channelText(selectedRequest.channel) : "No channel assigned"}
-              readOnly
-              disabled
-            />
+            Allowed Channel
+            <select value={channel} onChange={e => setChannel(e.target.value)} required>
+              {allowedChannels.map(ch => (
+                <option key={ch} value={ch}>
+                  {channelText(ch)}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label>
