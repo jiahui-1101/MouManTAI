@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import email.utils
 import hashlib
+import json
 import logging
 import re
 import threading
@@ -26,18 +27,21 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
-from uuid import uuid4
 
 import httpx
 
-from app.context.attachment_validator import validate_attachment
+from app.context.attachment_validator import (
+    MAX_ATTACHMENT_BYTES,
+    AttachmentLimitExceeded,
+    validate_attachment,
+)
 from app.context.document_schemas import AttachmentRecord
 from app.context.ingestion import IngestionService
-from app.context.ingestion_schemas import IngestResponse
 from app.context.repository import MessageRepository
 from app.context.schemas import Attachment, RawMessageEnvelope
 
 from .config import GmailChannelConfig
+from .provider_transport import read_limited_get, safe_get
 from .state import ChannelStateManager, get_state_manager
 
 logger = logging.getLogger(__name__)
@@ -122,7 +126,7 @@ class GmailAdapter:
     def _get_client(self) -> httpx.Client:
         if self._custom_client is not None:
             return self._custom_client
-        return httpx.Client(timeout=30.0)
+        return httpx.Client(timeout=httpx.Timeout(self.config.request_timeout_seconds, connect=3.0), follow_redirects=False)
 
     # --- Google OAuth 2.0 Authorization & Token Refresh ---
 
@@ -159,7 +163,7 @@ class GmailAdapter:
             resp = client.post(self.config.token_endpoint, data=data)
             token_data = resp.json()
             if not resp.is_success or "error" in token_data:
-                raise GmailAuthError(f"OAuth code exchange failed: {token_data.get('error_description', resp.text)}")
+                raise GmailAuthError(f"OAuth code exchange failed (HTTP {resp.status_code})")
 
             self.config.access_token = token_data.get("access_token")
             if "refresh_token" in token_data:
@@ -171,7 +175,7 @@ class GmailAdapter:
         except Exception as exc:
             if isinstance(exc, GmailAuthError):
                 raise
-            raise GmailAuthError(f"Token exchange network failure: {exc}") from exc
+            raise GmailAuthError("Token exchange network failure") from None
 
     def refresh_access_token(self) -> str:
         """Use refresh_token to obtain a new access_token."""
@@ -197,11 +201,10 @@ class GmailAdapter:
             token_data = resp.json()
             if not resp.is_success or "error" in token_data:
                 err = token_data.get("error", "")
-                desc = token_data.get("error_description", resp.text)
                 if err == "invalid_grant":
-                    self.state_manager.set_status("EMAIL", self.config.tenant_id, "AUTH_EXPIRED", f"Revoked: {desc}")
-                    raise GmailAuthError(f"Google OAuth authorization has expired or been revoked: {desc}")
-                raise GmailAuthError(f"Token refresh failed: {desc}")
+                    self.state_manager.set_status("EMAIL", self.config.tenant_id, "AUTH_EXPIRED", "Revoked refresh token")
+                    raise GmailAuthError("Google OAuth authorization has expired or been revoked")
+                raise GmailAuthError(f"Token refresh failed (HTTP {resp.status_code})")
 
             new_access_token = token_data["access_token"]
             self.config.access_token = new_access_token
@@ -214,7 +217,7 @@ class GmailAdapter:
         except Exception as exc:
             if isinstance(exc, GmailAuthError):
                 raise
-            raise GmailAuthError(f"Token refresh network error: {exc}") from exc
+            raise GmailAuthError("Token refresh network error") from None
 
     def get_valid_access_token(self) -> str:
         """Return a valid access token, refreshing if necessary."""
@@ -231,19 +234,19 @@ class GmailAdapter:
         headers = {"Authorization": f"Bearer {token}"}
         client = self._get_client()
         try:
-            resp = client.get(url, headers=headers)
+            resp = safe_get(client, url, headers=headers)
             if resp.status_code == 401:
                 token = self.refresh_access_token()
                 headers["Authorization"] = f"Bearer {token}"
-                resp = client.get(url, headers=headers)
+                resp = safe_get(client, url, headers=headers)
 
             if not resp.is_success:
-                raise GmailApiError(f"Gmail get_profile failed ({resp.status_code}): {resp.text}")
+                raise GmailApiError(f"Gmail get_profile failed (HTTP {resp.status_code})")
             return resp.json()
         except Exception as exc:
             if isinstance(exc, (GmailApiError, GmailAuthError)):
                 raise
-            raise GmailApiError(f"Gmail get_profile network error: {exc}") from exc
+            raise GmailApiError("Gmail get_profile network error") from None
 
     def verify_connection(self) -> dict[str, Any]:
         """Safely verify authenticated Gmail account identity and OAuth validity."""
@@ -283,20 +286,20 @@ class GmailAdapter:
         headers = {"Authorization": f"Bearer {token}"}
         client = self._get_client()
         try:
-            resp = client.get(url, params=params, headers=headers)
+            resp = safe_get(client, url, params=params, headers=headers)
             if resp.status_code == 401:
                 # Token expired; refresh and retry once
                 token = self.refresh_access_token()
                 headers["Authorization"] = f"Bearer {token}"
-                resp = client.get(url, params=params, headers=headers)
+                resp = safe_get(client, url, params=params, headers=headers)
 
             if not resp.is_success:
-                raise GmailApiError(f"Gmail list_messages failed ({resp.status_code}): {resp.text}")
+                raise GmailApiError(f"Gmail list_messages failed (HTTP {resp.status_code})")
             return resp.json()
         except Exception as exc:
             if isinstance(exc, (GmailApiError, GmailAuthError)):
                 raise
-            raise GmailApiError(f"Gmail list_messages network error: {exc}") from exc
+            raise GmailApiError("Gmail list_messages network error") from None
 
     def get_message_detail(self, message_id: str) -> dict[str, Any]:
         """Fetch full MIME message details by ID."""
@@ -305,42 +308,51 @@ class GmailAdapter:
         headers = {"Authorization": f"Bearer {token}"}
         client = self._get_client()
         try:
-            resp = client.get(url, params={"format": "full"}, headers=headers)
+            resp = safe_get(client, url, params={"format": "full"}, headers=headers)
             if resp.status_code == 401:
                 token = self.refresh_access_token()
                 headers["Authorization"] = f"Bearer {token}"
-                resp = client.get(url, params={"format": "full"}, headers=headers)
+                resp = safe_get(client, url, params={"format": "full"}, headers=headers)
 
             if not resp.is_success:
-                raise GmailApiError(f"Gmail get_message_detail failed for {message_id}: {resp.text}")
+                raise GmailApiError(f"Gmail get_message_detail failed (HTTP {resp.status_code})")
             return resp.json()
         except Exception as exc:
             if isinstance(exc, (GmailApiError, GmailAuthError)):
                 raise
-            raise GmailApiError(f"Gmail get_message_detail network error: {exc}") from exc
+            raise GmailApiError("Gmail get_message_detail network error") from None
 
     def download_attachment(self, message_id: str, attachment_id: str) -> bytes:
         """Download raw attachment bytes given message_id and attachment_id."""
+        if (not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", message_id)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", attachment_id)):
+            raise GmailApiError("Gmail attachment identifiers are invalid")
         token = self.get_valid_access_token()
         url = f"{self.config.api_base_url.rstrip('/')}/gmail/v1/users/me/messages/{message_id}/attachments/{attachment_id}"
         headers = {"Authorization": f"Bearer {token}"}
         client = self._get_client()
         try:
-            resp = client.get(url, headers=headers)
-            if resp.status_code == 401:
+            encoded_limit = ((MAX_ATTACHMENT_BYTES + 2) // 3) * 4 + 4096
+            status_code, content = read_limited_get(client, url, encoded_limit, headers=headers)
+            if status_code == 401:
                 token = self.refresh_access_token()
                 headers["Authorization"] = f"Bearer {token}"
-                resp = client.get(url, headers=headers)
+                status_code, content = read_limited_get(client, url, encoded_limit, headers=headers)
 
-            if not resp.is_success:
-                raise GmailApiError(f"Gmail download_attachment failed for {attachment_id}: {resp.text}")
-            data = resp.json()
+            if not 200 <= status_code < 300:
+                raise GmailApiError(f"Gmail download_attachment failed (HTTP {status_code})")
+            data = json.loads(content)
             raw_data = data.get("data", "")
-            return _base64url_decode(raw_data)
+            if not isinstance(raw_data, str) or len(raw_data) > encoded_limit:
+                raise GmailApiError("Gmail attachment response is invalid or exceeds the size limit")
+            decoded = _base64url_decode(raw_data)
+            if len(decoded) > MAX_ATTACHMENT_BYTES:
+                raise AttachmentLimitExceeded("Gmail attachment exceeds the configured size limit")
+            return decoded
         except Exception as exc:
-            if isinstance(exc, (GmailApiError, GmailAuthError)):
+            if isinstance(exc, (GmailApiError, GmailAuthError, AttachmentLimitExceeded)):
                 raise
-            raise GmailApiError(f"Gmail download_attachment error: {exc}") from exc
+            raise GmailApiError("Gmail download_attachment error") from None
 
     # --- MIME Parsing & Normalization ---
 
@@ -370,8 +382,9 @@ class GmailAdapter:
                         content = _base64url_decode(body.get("data", ""))
 
                     detected_mime, clean_filename = validate_attachment(filename, content, mime_type)
-                    att_id = f"att_gm_{uuid4().hex[:12]}"
-                    ev_ref = f"ev_gm_{uuid4().hex[:12]}"
+                    stable = hashlib.sha256(f"{message_id}:{attachment_id or filename}".encode()).hexdigest()[:24]
+                    att_id = f"att_gm_{stable}"
+                    ev_ref = f"ev_gm_{stable}"
                     sha256 = hashlib.sha256(content).hexdigest()
 
                     record = AttachmentRecord(
@@ -396,7 +409,7 @@ class GmailAdapter:
                         )
                     )
                 except Exception as exc:
-                    logger.warning("Skipping invalid or unsupported email attachment '%s': %s", filename, exc)
+                    logger.warning("Skipping invalid or unsupported Gmail attachment (%s)", type(exc).__name__)
                 return
 
             # Check body text
@@ -409,7 +422,7 @@ class GmailAdapter:
                     elif mime_type == "text/html":
                         text_html_parts.append(_strip_html_tags(decoded))
                 except Exception as exc:
-                    logger.warning("Failed decoding message part: %s", exc)
+                    logger.warning("Failed decoding Gmail message part (%s)", type(exc).__name__)
 
             for subpart in part.get("parts", []):
                 walk_parts(subpart)
@@ -454,8 +467,14 @@ class GmailAdapter:
         subject = headers.get("subject", "").strip()
 
         # Extract Message-ID
-        rfc_message_id = headers.get("message-id", "").strip()
         provider_message_id = f"gmail_{msg_id}"
+        def message_ids(value: str) -> list[str]:
+            if "\r" in value or "\n" in value:
+                return []
+            return re.findall(r"<[^\s<>\r\n]+@[^\s<>\r\n]+>", value)[:100]
+
+        parent_ids = message_ids(headers.get("in-reply-to", ""))
+        references = message_ids(headers.get("references", ""))
 
         # Extract Body and Attachments
         body_text, attachments = self._extract_body_and_attachments(msg_id, payload, received_at)
@@ -486,7 +505,8 @@ class GmailAdapter:
             message_at=message_at,
             text=text,
             attachments=attachments,
-            thread_ref=thread_id or rfc_message_id or msg_id,
+            thread_ref=thread_id or (references[0] if references else provider_message_id),
+            reply_to_provider_message_id=parent_ids[-1] if parent_ids else (references[-1] if references else None),
             adapter_mode="REAL",
         )
 
@@ -556,7 +576,7 @@ class GmailAdapter:
                             self.state_manager.mark_seen_provider_id("EMAIL", self.config.tenant_id, f"gmail_{m_id}")
                             processed_count += 1
                     except Exception as msg_exc:
-                        logger.warning("Could not process Gmail message %s: %s", m_id, msg_exc)
+                        logger.warning("Could not process Gmail message (%s)", type(msg_exc).__name__)
                         self.state_manager.mark_seen_provider_id("EMAIL", self.config.tenant_id, f"gmail_{m_id}")
 
                     if curr_internal_date > highest_internal_date:
@@ -572,8 +592,8 @@ class GmailAdapter:
             self.state_manager.record_poll_attempt("EMAIL", self.config.tenant_id)
             return processed_count
         except Exception as exc:
-            err_msg = str(exc)
-            logger.error("Error during Gmail inbox polling: %s", err_msg)
+            err_msg = "Gmail inbox provider error"
+            logger.error("Error during Gmail inbox polling (%s)", type(exc).__name__)
             self.state_manager.record_poll_attempt("EMAIL", self.config.tenant_id, error=err_msg)
             raise
 
@@ -619,12 +639,12 @@ class GmailAdapter:
         while not self._stop_event.is_set():
             try:
                 self.poll_inbox()
-            except GmailAuthError as exc:
-                logger.error("Gmail authentication failure; halting polling: %s", exc)
+            except GmailAuthError:
+                logger.error("Gmail authentication failure; halting polling")
                 self.stop_polling()
                 break
             except Exception as exc:
-                logger.error("Unhandled error in Gmail polling loop: %s", exc)
+                logger.error("Unhandled error in Gmail polling loop (%s)", type(exc).__name__)
                 time.sleep(min(60.0, interval * 2))
 
             self._stop_event.wait(timeout=interval)

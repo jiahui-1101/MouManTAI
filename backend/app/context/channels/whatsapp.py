@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
-from uuid import uuid4
 
 import httpx
 
@@ -33,6 +34,14 @@ from app.context.repository import MessageRepository
 from app.context.schemas import Attachment, RawMessageEnvelope
 
 from .config import WhatsAppChannelConfig
+from .provider_transport import (
+    ProcessIdempotencyGate,
+    ProviderSendResult,
+    ProviderStatusReceipt,
+    classify_http_status,
+    read_limited_get,
+    safe_get,
+)
 from .state import ChannelStateManager, get_state_manager
 
 logger = logging.getLogger(__name__)
@@ -67,11 +76,12 @@ class WhatsAppAdapter:
         self._custom_client = http_client
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self.ingestion_service = IngestionService(repository, clock=self._clock)
+        self._send_gate = ProcessIdempotencyGate()
 
     def _get_client(self) -> httpx.Client:
         if self._custom_client is not None:
             return self._custom_client
-        return httpx.Client(timeout=30.0)
+        return httpx.Client(timeout=httpx.Timeout(self.config.request_timeout_seconds, connect=3.0), follow_redirects=False)
 
     # --- Webhook Verification (GET) ---
 
@@ -83,7 +93,7 @@ class WhatsAppAdapter:
         if mode != "subscribe":
             raise WebhookVerificationError(f"Unsupported hub.mode '{mode}'; expected 'subscribe'")
 
-        if not verify_token or verify_token != self.config.verify_token:
+        if not verify_token or not hmac.compare_digest(verify_token, self.config.verify_token):
             raise WebhookVerificationError("Invalid hub.verify_token")
 
         if not challenge:
@@ -130,9 +140,9 @@ class WhatsAppAdapter:
         url = f"{self.config.api_base_url.rstrip('/')}/{media_id}"
 
         # 1. Fetch media metadata URL
-        resp = client.get(url, headers=headers)
+        resp = safe_get(client, url, headers=headers)
         if not resp.is_success:
-            raise WhatsAppWebhookError(f"Failed fetching media metadata for {media_id}: {resp.text}")
+            raise WhatsAppWebhookError("Failed fetching WhatsApp media metadata")
 
         meta = resp.json()
         download_url = meta.get("url")
@@ -140,14 +150,128 @@ class WhatsAppAdapter:
         if not download_url:
             raise WhatsAppWebhookError(f"No download URL returned for media {media_id}")
 
-        # 2. Download binary content using the same bearer token
-        media_resp = client.get(download_url, headers=headers)
-        if not media_resp.is_success:
-            raise WhatsAppWebhookError(f"Failed downloading media binary from {download_url}: {media_resp.status_code}")
+        parsed_url = httpx.URL(download_url)
+        if (parsed_url.scheme != "https" or parsed_url.host not in {"lookaside.fbsbx.com", "lookaside.instagram.com"}
+                or parsed_url.port not in {None, 443} or parsed_url.username or parsed_url.password):
+            raise WhatsAppWebhookError("WhatsApp returned a media URL outside the trusted Meta media hosts")
 
-        content = media_resp.content
+        # 2. Download binary content using the same bearer token
+        status_code, content = read_limited_get(client, download_url, 10 * 1024 * 1024, headers=headers)
+        if not 200 <= status_code < 300:
+            raise WhatsAppWebhookError("Failed downloading WhatsApp media binary")
         filename = f"whatsapp_media_{media_id}"
         return content, declared_mime, filename
+
+    @staticmethod
+    def _normalized_recipient(recipient: str) -> str:
+        return re.sub(r"\D", "", recipient)
+
+    def _validate_outbound_recipient(self, recipient: str) -> str:
+        normalized = self._normalized_recipient(recipient)
+        allowed = {self._normalized_recipient(value) for value in self.config.test_recipient_ids}
+        if not self.config.outbound_enabled or not self.config.is_configured:
+            raise WhatsAppWebhookError("WhatsApp outbound transport is disabled or unconfigured")
+        if not normalized or normalized not in allowed:
+            raise WhatsAppWebhookError("WhatsApp recipient is not in the configured test recipient allowlist")
+        return normalized
+
+    def send_text(self, recipient: str, text: str, *, idempotency_key: str,
+                  service_window_expires_at: datetime | None = None,
+                  reply_to_message_id: str | None = None) -> ProviderSendResult:
+        """Send inside a current service window; for outside it, use an approved template."""
+        recipient_id = self._validate_outbound_recipient(recipient)
+        if not text.strip() or len(text) > 4096:
+            raise WhatsAppWebhookError("WhatsApp message text is empty or exceeds the provider limit")
+        now = self._clock()
+        if (service_window_expires_at is None or service_window_expires_at.tzinfo is None
+                or service_window_expires_at <= now):
+            raise WhatsAppWebhookError("WhatsApp customer service window is not currently open")
+        payload: dict[str, Any] = {"messaging_product": "whatsapp", "recipient_type": "individual",
+            "to": recipient_id, "type": "text", "text": {"preview_url": False, "body": text},
+            "biz_opaque_callback_data": str(idempotency_key)}
+        if reply_to_message_id:
+            payload["context"] = {"message_id": reply_to_message_id}
+        return self._submit_outbound(payload, idempotency_key)
+
+    def send_template(self, recipient: str, template_name: str, language_code: str, *,
+                      idempotency_key: str, components: list[dict[str, Any]] | None = None) -> ProviderSendResult:
+        """Send a named pre-approved template to an explicitly allowlisted test recipient."""
+        recipient_id = self._validate_outbound_recipient(recipient)
+        if not re.fullmatch(r"[a-z0-9_]{1,128}", template_name) or not re.fullmatch(r"[a-z]{2,3}(?:_[A-Z]{2})?", language_code):
+            raise WhatsAppWebhookError("WhatsApp template name or language code is invalid")
+        if template_name not in set(self.config.approved_templates):
+            raise WhatsAppWebhookError("WhatsApp template is not in the configured approved template allowlist")
+        payload: dict[str, Any] = {"messaging_product": "whatsapp", "to": recipient_id, "type": "template",
+            "template": {"name": template_name, "language": {"code": language_code}}}
+        if components:
+            payload["template"]["components"] = components
+        payload["biz_opaque_callback_data"] = str(idempotency_key)
+        return self._submit_outbound(payload, idempotency_key)
+
+    def _submit_outbound(self, payload: dict[str, Any], key: str) -> ProviderSendResult:
+        if not self.config.phone_number_id or not self.config.access_token:
+            raise WhatsAppWebhookError("WhatsApp phone number id and access token are required")
+        fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+        def submit() -> ProviderSendResult:
+            try:
+                response = self._get_client().post(
+                    f"{self.config.api_base_url.rstrip('/')}/{self.config.phone_number_id}/messages",
+                    headers={"Authorization": f"Bearer {self.config.access_token}"}, json=payload)
+            except httpx.TimeoutException:
+                return ProviderSendResult("WHATSAPP", "UNKNOWN", error_class="UNKNOWN",
+                    error_code="PROVIDER_TIMEOUT", idempotency_key=key)
+            except httpx.RequestError:
+                return ProviderSendResult("WHATSAPP", "UNKNOWN", error_class="UNKNOWN",
+                    error_code="PROVIDER_CONNECTION_ERROR", idempotency_key=key)
+            state, error_class, error_code = classify_http_status(response.status_code)
+            try:
+                data = response.json()
+            except ValueError:
+                data = {}
+            if state == "ACCEPTED" and data.get("messages"):
+                return ProviderSendResult("WHATSAPP", "ACCEPTED", data["messages"][0].get("id"),
+                    provider_status="ACCEPTED", idempotency_key=key)
+            if state == "ACCEPTED":
+                state, error_class, error_code = "UNKNOWN", "UNKNOWN", "PROVIDER_RESPONSE_INVALID"
+            return ProviderSendResult("WHATSAPP", state, provider_status=str(response.status_code),
+                error_class=error_class, error_code=error_code, idempotency_key=key)
+
+        try:
+            return self._send_gate.execute(str(key), fingerprint, submit)
+        except ValueError as exc:
+            raise WhatsAppWebhookError(str(exc)) from exc
+
+    def parse_status_callbacks(self, payload: dict[str, Any]) -> list[ProviderStatusReceipt]:
+        """Normalize signed delivery callbacks without inventing durable status storage."""
+        state_map = {"sent": "SENT", "delivered": "DELIVERED", "read": "READ", "failed": "FAILED"}
+        receipts: list[ProviderStatusReceipt] = []
+        for entry in payload.get("entry", []) if isinstance(payload.get("entry", []), list) else []:
+            for change in entry.get("changes", []) if isinstance(entry.get("changes", []), list) else []:
+                if change.get("field") != "messages":
+                    continue
+                value = change.get("value", {})
+                self._validate_account_metadata(value)
+                for status in value.get("statuses", []) if isinstance(value.get("statuses", []), list) else []:
+                    provider_id = status.get("id")
+                    if not provider_id:
+                        continue
+                    name = str(status.get("status", "")).lower()
+                    try:
+                        occurred = datetime.fromtimestamp(int(status.get("timestamp")), tz=timezone.utc).isoformat()
+                    except (TypeError, ValueError, OSError):
+                        occurred = None
+                    receipts.append(ProviderStatusReceipt("WHATSAPP", self.config.tenant_id,
+                        str(provider_id), state_map.get(name, "UNKNOWN"), occurred,
+                        "PROVIDER_DELIVERY_FAILED" if name == "failed" else None))
+        return receipts
+
+    def _validate_account_metadata(self, value: dict[str, Any]) -> None:
+        metadata = value.get("metadata") or {}
+        actual = str(metadata.get("phone_number_id", ""))
+        expected = str(self.config.phone_number_id or "")
+        if expected and actual != expected:
+            raise WhatsAppWebhookError("WhatsApp webhook phone number account is missing or does not match configured account")
 
     # --- Webhook Notification Processing ---
 
@@ -177,9 +301,11 @@ class WhatsAppAdapter:
                 if not isinstance(value, dict):
                     continue
 
+                self._validate_account_metadata(value)
+
                 # Delivery statuses (sent, delivered, read) - do not ingest as inbound messages
                 if "statuses" in value and not value.get("messages"):
-                    logger.debug("Received WhatsApp delivery status callback: %s", value.get("statuses"))
+                    logger.debug("Received WhatsApp delivery status callback")
                     continue
 
                 # Contacts lookup for sender aliases
@@ -196,7 +322,7 @@ class WhatsAppAdapter:
 
                 for msg in messages:
                     msg_id = msg.get("id")
-                    if not msg_id:
+                    if not msg_id or len(str(msg_id)) > 200:
                         continue
 
                     sender_id = str(msg.get("from", "unknown_wa_sender"))
@@ -230,12 +356,13 @@ class WhatsAppAdapter:
 
                         if media_id:
                             try:
-                                content, detected_mime, default_name = self.download_media(media_id)
+                                content, _detected_mime, default_name = self.download_media(media_id)
                                 target_name = filename or default_name
                                 valid_mime, clean_name = validate_attachment(target_name, content, declared_mime)
 
-                                att_id = f"att_wa_{uuid4().hex[:12]}"
-                                ev_ref = f"ev_wa_{uuid4().hex[:12]}"
+                                stable = hashlib.sha256(f"{msg_id}:{media_id}".encode()).hexdigest()[:24]
+                                att_id = f"att_wa_{stable}"
+                                ev_ref = f"ev_wa_{stable}"
                                 sha256 = hashlib.sha256(content).hexdigest()
 
                                 record = AttachmentRecord(
@@ -260,7 +387,7 @@ class WhatsAppAdapter:
                                     )
                                 )
                             except Exception as exc:
-                                logger.warning("Failed processing WhatsApp media %s: %s", media_id, exc)
+                                logger.warning("Failed processing WhatsApp media (%s)", type(exc).__name__)
 
                         text = caption if caption else (
                             f"[WhatsApp {msg_type.title()} Attachment: {attachments[0].filename}]"
@@ -290,6 +417,8 @@ class WhatsAppAdapter:
                         message_at=message_at,
                         text=text,
                         attachments=attachments,
+                        thread_ref=sender_id,
+                        reply_to_provider_message_id=(msg.get("context") or {}).get("id"),
                         adapter_mode="REAL",
                     )
                     envelopes.append(envelope)

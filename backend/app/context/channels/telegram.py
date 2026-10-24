@@ -14,12 +14,13 @@ Supports:
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
+import re
 import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
-from uuid import uuid4
 
 import httpx
 
@@ -31,6 +32,13 @@ from app.context.repository import MessageRepository
 from app.context.schemas import Attachment, RawMessageEnvelope
 
 from .config import TelegramChannelConfig
+from .provider_transport import (
+    ProcessIdempotencyGate,
+    ProviderSendResult,
+    classify_http_status,
+    read_limited_get,
+    safe_get,
+)
 from .state import ChannelStateManager, get_state_manager
 
 logger = logging.getLogger(__name__)
@@ -62,6 +70,7 @@ class TelegramAdapter:
         self._stop_event = threading.Event()
         self._is_polling = False
         self._lock = threading.Lock()
+        self._send_gate = ProcessIdempotencyGate()
 
     @property
     def is_polling(self) -> bool:
@@ -70,7 +79,7 @@ class TelegramAdapter:
     def _get_client(self) -> httpx.Client:
         if self._custom_client is not None:
             return self._custom_client
-        return httpx.Client(timeout=30.0)
+        return httpx.Client(timeout=httpx.Timeout(self.config.request_timeout_seconds, connect=3.0), follow_redirects=False)
 
     def _api_url(self, method: str) -> str:
         token = self.config.bot_token or ""
@@ -89,15 +98,15 @@ class TelegramAdapter:
         url = self._api_url("getMe")
         client = self._get_client()
         try:
-            resp = client.get(url)
+            resp = safe_get(client, url)
             data = resp.json()
             if not resp.is_success or not data.get("ok"):
-                raise TelegramApiError(f"Telegram getMe failed: {data.get('description', resp.text)}")
+                raise TelegramApiError(f"Telegram getMe failed (HTTP {resp.status_code})")
             return data["result"]
         except Exception as exc:
             if isinstance(exc, TelegramApiError):
                 raise
-            raise TelegramApiError(f"Telegram API request failed: {exc}") from exc
+            raise TelegramApiError("Telegram API request failed") from None
 
     def get_webhook_info(self) -> dict[str, Any]:
         """Inspect current webhook status to detect conflicts."""
@@ -106,15 +115,15 @@ class TelegramAdapter:
         url = self._api_url("getWebhookInfo")
         client = self._get_client()
         try:
-            resp = client.get(url)
+            resp = safe_get(client, url)
             data = resp.json()
             if not resp.is_success or not data.get("ok"):
-                raise TelegramApiError(f"Telegram getWebhookInfo failed: {data.get('description', resp.text)}")
+                raise TelegramApiError(f"Telegram getWebhookInfo failed (HTTP {resp.status_code})")
             return data["result"]
         except Exception as exc:
             if isinstance(exc, TelegramApiError):
                 raise
-            raise TelegramApiError(f"Telegram API request failed: {exc}") from exc
+            raise TelegramApiError("Telegram API request failed") from None
 
     def delete_webhook(self, drop_pending_updates: bool = False) -> bool:
         """Clear webhook configuration so getUpdates polling can proceed without conflict."""
@@ -127,31 +136,36 @@ class TelegramAdapter:
             data = resp.json()
             return bool(resp.is_success and data.get("ok"))
         except Exception as exc:
-            logger.warning("Failed to delete Telegram webhook: %s", exc)
+            logger.warning("Failed to delete Telegram webhook (%s)", type(exc).__name__)
             return False
 
     def set_webhook(self, url: str, secret_token: str | None = None) -> bool:
-        """Register public HTTPS webhook with optional secret verification token."""
+        """Register a public HTTPS webhook with the required Telegram secret token."""
         if not self.config.is_configured:
             raise TelegramApiError("Telegram bot token is not configured")
+        secret_token = secret_token or self.config.webhook_secret
+        if not secret_token or not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", secret_token):
+            raise TelegramApiError("A valid Telegram webhook secret token is required")
+        webhook_url = httpx.URL(url)
+        if webhook_url.scheme != "https" or not webhook_url.host or webhook_url.username or webhook_url.password:
+            raise TelegramApiError("Telegram webhook URL must be a public HTTPS URL")
         api_url = self._api_url("setWebhook")
         payload: dict[str, Any] = {
             "url": url,
             "allowed_updates": ["message"],
         }
-        if secret_token:
-            payload["secret_token"] = secret_token
+        payload["secret_token"] = secret_token
         client = self._get_client()
         try:
             resp = client.post(api_url, json=payload)
             data = resp.json()
             if not resp.is_success or not data.get("ok"):
-                raise TelegramApiError(f"Telegram setWebhook failed: {data.get('description', resp.text)}")
+                raise TelegramApiError(f"Telegram setWebhook failed (HTTP {resp.status_code})")
             return True
         except Exception as exc:
             if isinstance(exc, TelegramApiError):
                 raise
-            raise TelegramApiError(f"Telegram API setWebhook failed: {exc}") from exc
+            raise TelegramApiError("Telegram API setWebhook failed") from None
 
     def get_updates(self, offset: int | None = None, timeout: int = 10) -> list[dict[str, Any]]:
         """Fetch incoming updates via long-polling with persistent offset."""
@@ -169,20 +183,20 @@ class TelegramAdapter:
             resp = client.post(url, json=params)
             data = resp.json()
             if not resp.is_success or not data.get("ok"):
-                err_desc = data.get("description", resp.text)
-                if "can't use getUpdates method while webhook is active" in err_desc.lower():
+                provider_description = str(data.get("description", ""))
+                if "can't use getUpdates method while webhook is active" in provider_description.lower():
                     logger.info("Webhook conflict detected. Clearing active webhook for polling mode...")
                     self.delete_webhook()
                     resp = client.post(url, json=params)
                     data = resp.json()
                     if resp.is_success and data.get("ok"):
                         return data["result"]
-                raise TelegramApiError(f"Telegram getUpdates failed: {err_desc}")
+                raise TelegramApiError(f"Telegram getUpdates failed (HTTP {resp.status_code})")
             return data["result"]
         except Exception as exc:
             if isinstance(exc, TelegramApiError):
                 raise
-            raise TelegramApiError(f"Telegram getUpdates network error: {exc}") from exc
+            raise TelegramApiError("Telegram getUpdates network error") from None
 
     def download_file(self, file_id: str) -> tuple[bytes, str]:
         """Download file content from Telegram API given a file_id."""
@@ -190,18 +204,78 @@ class TelegramAdapter:
             raise TelegramApiError("Telegram bot token is not configured")
         client = self._get_client()
         get_file_url = self._api_url("getFile")
-        resp = client.get(get_file_url, params={"file_id": file_id})
+        resp = safe_get(client, get_file_url, params={"file_id": file_id})
         data = resp.json()
         if not resp.is_success or not data.get("ok"):
-            raise TelegramApiError(f"getFile failed for {file_id}: {data.get('description', resp.text)}")
+            raise TelegramApiError("Telegram getFile request failed")
 
         file_path = data["result"]["file_path"]
+        if not isinstance(file_path, str) or ".." in file_path.split("/") or len(file_path) > 1024:
+            raise TelegramApiError("Telegram returned an invalid file path")
         download_url = self._file_url(file_path)
-        file_resp = client.get(download_url)
-        if not file_resp.is_success:
-            raise TelegramApiError(f"Downloading file from {download_url} failed with status {file_resp.status_code}")
+        status_code, content = read_limited_get(client, download_url, 10 * 1024 * 1024)
+        if not 200 <= status_code < 300:
+            raise TelegramApiError("Telegram file download failed")
         filename = file_path.split("/")[-1] if "/" in file_path else "telegram_attachment"
-        return file_resp.content, filename
+        return content, filename
+
+    def validate_webhook_secret(self, supplied_secret: str | None) -> bool:
+        """Fail closed if the webhook secret is missing or does not match."""
+        expected = self.config.webhook_secret
+        return bool(expected and supplied_secret and hmac.compare_digest(expected, supplied_secret))
+
+    def _provider_message_id(self, chat_id: str, message_id: Any) -> str:
+        account = self.config.bot_account_id
+        if account:
+            return f"tg_{account}_{chat_id}_{message_id}"
+        # Preserve the original P1 id format for tenants that have not configured the bot id.
+        return f"tg_{chat_id}_{message_id}"
+
+    def send_text(self, chat_id: str, text: str, *, idempotency_key: str,
+                  reply_to_message_id: int | str | None = None) -> ProviderSendResult:
+        """Internal transport boundary. P4 authorization is intentionally not bypassed or wired here."""
+        recipient = str(chat_id).strip()
+        allowed = {str(value).strip() for value in self.config.test_recipient_ids}
+        if not self.config.outbound_enabled or not self.config.is_configured:
+            raise TelegramApiError("Telegram outbound transport is disabled or unconfigured")
+        if not recipient or recipient not in allowed:
+            raise TelegramApiError("Telegram recipient is not in the configured test recipient allowlist")
+        if not text.strip() or len(text) > 4096:
+            raise TelegramApiError("Telegram message text is empty or exceeds the provider limit")
+        key = str(idempotency_key).strip()
+        payload: dict[str, Any] = {"chat_id": recipient, "text": text}
+        if reply_to_message_id is not None:
+            payload["reply_parameters"] = {"message_id": int(reply_to_message_id)}
+        fingerprint = hashlib.sha256(repr(sorted(payload.items())).encode()).hexdigest()
+
+        def submit() -> ProviderSendResult:
+            try:
+                response = self._get_client().post(self._api_url("sendMessage"), json=payload)
+            except httpx.TimeoutException:
+                return ProviderSendResult("TELEGRAM", "UNKNOWN", error_class="UNKNOWN",
+                    error_code="PROVIDER_TIMEOUT", idempotency_key=key)
+            except httpx.RequestError:
+                return ProviderSendResult("TELEGRAM", "UNKNOWN", error_class="UNKNOWN",
+                    error_code="PROVIDER_CONNECTION_ERROR", idempotency_key=key)
+            state, error_class, error_code = classify_http_status(response.status_code)
+            try:
+                data = response.json()
+            except ValueError:
+                data = {}
+            if state == "ACCEPTED" and data.get("ok") is True:
+                provider_id = data.get("result", {}).get("message_id")
+                return ProviderSendResult("TELEGRAM", "ACCEPTED",
+                    self._provider_message_id(recipient, provider_id) if provider_id is not None else None,
+                    provider_status="ACCEPTED", idempotency_key=key)
+            if state == "ACCEPTED":
+                state, error_class, error_code = "REJECTED", "PERMANENT", "PROVIDER_RESPONSE_INVALID"
+            return ProviderSendResult("TELEGRAM", state, provider_status=str(response.status_code),
+                error_class=error_class, error_code=error_code, idempotency_key=key)
+
+        try:
+            return self._send_gate.execute(key, fingerprint, submit)
+        except ValueError as exc:
+            raise TelegramApiError(str(exc)) from exc
 
     # --- Inbound Update Normalization ---
 
@@ -230,7 +304,12 @@ class TelegramAdapter:
         chat = message.get("chat") or {}
         chat_id = str(chat.get("id") or sender_id)
         msg_id = message.get("message_id")
-        provider_message_id = f"tg_{chat_id}_{msg_id}"
+        provider_message_id = self._provider_message_id(chat_id, msg_id)
+        replied_to = message.get("reply_to_message") or {}
+        reply_to_provider_message_id = (
+            self._provider_message_id(chat_id, replied_to.get("message_id"))
+            if replied_to.get("message_id") is not None else None
+        )
 
         # Timestamps
         raw_date = message.get("date")
@@ -253,8 +332,9 @@ class TelegramAdapter:
                 try:
                     content, _ = self.download_file(file_id)
                     detected_mime, clean_filename = validate_attachment(orig_filename, content, mime_type)
-                    att_id = f"att_tg_{uuid4().hex[:12]}"
-                    ev_ref = f"ev_tg_{uuid4().hex[:12]}"
+                    identity_digest = hashlib.sha256(f"{provider_message_id}:{file_id}".encode()).hexdigest()[:24]
+                    att_id = f"att_tg_{identity_digest}"
+                    ev_ref = f"ev_tg_{identity_digest}"
                     sha256 = hashlib.sha256(content).hexdigest()
 
                     record = AttachmentRecord(
@@ -279,7 +359,7 @@ class TelegramAdapter:
                         )
                     )
                 except Exception as exc:
-                    logger.warning("Failed to download or validate Telegram document: %s", exc)
+                    logger.warning("Failed to download or validate Telegram document (%s)", type(exc).__name__)
 
         # 2. Photo attachment (take highest resolution)
         elif "photo" in message and isinstance(message["photo"], list) and message["photo"]:
@@ -290,8 +370,9 @@ class TelegramAdapter:
                 try:
                     content, _ = self.download_file(file_id)
                     detected_mime, clean_filename = validate_attachment("photo.jpg", content, "image/jpeg")
-                    att_id = f"att_tg_{uuid4().hex[:12]}"
-                    ev_ref = f"ev_tg_{uuid4().hex[:12]}"
+                    identity_digest = hashlib.sha256(f"{provider_message_id}:{file_id}".encode()).hexdigest()[:24]
+                    att_id = f"att_tg_{identity_digest}"
+                    ev_ref = f"ev_tg_{identity_digest}"
                     sha256 = hashlib.sha256(content).hexdigest()
 
                     record = AttachmentRecord(
@@ -316,7 +397,7 @@ class TelegramAdapter:
                         )
                     )
                 except Exception as exc:
-                    logger.warning("Failed to download or validate Telegram photo: %s", exc)
+                    logger.warning("Failed to download or validate Telegram photo (%s)", type(exc).__name__)
 
         # Ensure text is not empty if only an attachment was sent
         if not text:
@@ -336,6 +417,7 @@ class TelegramAdapter:
             text=text,
             attachments=attachments,
             thread_ref=chat_id,
+            reply_to_provider_message_id=reply_to_provider_message_id,
             adapter_mode="REAL",
         )
 
@@ -396,8 +478,9 @@ class TelegramAdapter:
             self.state_manager.record_poll_attempt("TELEGRAM", self.config.tenant_id)
             return processed_count
         except Exception as exc:
-            err_msg = str(exc)
-            logger.error("Error during Telegram polling: %s", err_msg)
+            err_msg = (str(exc)[:120] if isinstance(exc, TelegramApiError)
+                       else "Telegram polling provider error")
+            logger.error("Error during Telegram polling (%s)", type(exc).__name__)
             self.state_manager.record_poll_attempt("TELEGRAM", self.config.tenant_id, error=err_msg)
             raise
 
@@ -416,10 +499,10 @@ class TelegramAdapter:
             try:
                 info = self.get_webhook_info()
                 if info.get("url"):
-                    logger.info("Existing Telegram webhook detected (%s). Removing for polling mode.", info.get("url"))
+                    logger.info("Existing Telegram webhook detected; removing for polling mode")
                     self.delete_webhook()
             except Exception as exc:
-                logger.warning("Could not check/clear Telegram webhook info: %s", exc)
+                logger.warning("Could not check/clear Telegram webhook info (%s)", type(exc).__name__)
 
             self._stop_event.clear()
             self._is_polling = True
@@ -453,7 +536,7 @@ class TelegramAdapter:
             try:
                 self.poll_once()
             except Exception as exc:
-                logger.error("Unhandled error in Telegram polling loop: %s", exc)
+                logger.error("Unhandled error in Telegram polling loop (%s)", type(exc).__name__)
                 # Exponential backoff on recurring failures
                 time.sleep(min(30.0, interval * 3))
 

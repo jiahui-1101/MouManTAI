@@ -12,6 +12,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 class ChannelConfigBase(BaseModel):
     model_config = ConfigDict(extra="ignore")
+    request_timeout_seconds: float = Field(default=10.0, ge=1.0, le=30.0)
 
 
 class TelegramChannelConfig(ChannelConfigBase):
@@ -27,6 +29,9 @@ class TelegramChannelConfig(ChannelConfigBase):
     mode: Literal["polling", "webhook"] = "polling"
     webhook_url: str | None = None
     webhook_secret: str | None = None
+    bot_account_id: str | None = None
+    outbound_enabled: bool = False
+    test_recipient_ids: list[str] = Field(default_factory=list)
     poll_interval_seconds: float = Field(default=2.0, ge=0.01, le=60.0)
     poll_timeout_seconds: int = Field(default=20, ge=1, le=60)
     tenant_id: str = "synthetic_tenant_a"
@@ -68,6 +73,28 @@ class GmailChannelConfig(ChannelConfigBase):
         return bool(self.client_id and self.client_secret)
 
 
+class ResendChannelConfig(ChannelConfigBase):
+    """Resend inbound webhook and restricted outbound transport settings."""
+    api_key: str | None = None
+    webhook_secret: str | None = None
+    tenant_id: str = "synthetic_tenant_a"
+    api_base_url: str = "https://api.resend.com"
+    inbound_addresses: list[str] = Field(default_factory=list)
+    outbound_enabled: bool = False
+    test_recipients: list[str] = Field(default_factory=list)
+    verified_from_email: str | None = None
+    reply_to_email: str | None = None
+    max_attachment_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=10 * 1024 * 1024)
+
+    @property
+    def is_inbound_configured(self) -> bool:
+        return bool(self.api_key and self.webhook_secret)
+
+    @property
+    def is_outbound_configured(self) -> bool:
+        return bool(self.api_key and self.verified_from_email and self.outbound_enabled and self.test_recipients)
+
+
 class WhatsAppChannelConfig(ChannelConfigBase):
     """Configuration for Meta WhatsApp Cloud API webhooks."""
     phone_number_id: str | None = None
@@ -75,7 +102,10 @@ class WhatsAppChannelConfig(ChannelConfigBase):
     app_secret: str | None = None
     verify_token: str | None = None
     tenant_id: str = "synthetic_tenant_a"
-    api_base_url: str = "https://graph.facebook.com/v21.0"
+    api_base_url: str = "https://graph.facebook.com/v26.0"
+    outbound_enabled: bool = False
+    test_recipient_ids: list[str] = Field(default_factory=list)
+    approved_templates: list[str] = Field(default_factory=list)
 
     @property
     def is_configured(self) -> bool:
@@ -96,6 +126,7 @@ class ChannelsConfig(ChannelConfigBase):
     telegram: TelegramChannelConfig = Field(default_factory=TelegramChannelConfig)
     gmail: GmailChannelConfig = Field(default_factory=GmailChannelConfig)
     whatsapp: WhatsAppChannelConfig = Field(default_factory=WhatsAppChannelConfig)
+    resend: ResendChannelConfig = Field(default_factory=ResendChannelConfig)
 
     @classmethod
     def load_from_env(cls) -> ChannelsConfig:
@@ -106,6 +137,10 @@ class ChannelsConfig(ChannelConfigBase):
             mode=os.environ.get("TELEGRAM_MODE", "polling").lower(),  # type: ignore[arg-type]
             webhook_url=os.environ.get("TELEGRAM_WEBHOOK_URL"),
             webhook_secret=os.environ.get("TELEGRAM_WEBHOOK_SECRET"),
+            bot_account_id=os.environ.get("TELEGRAM_BOT_ACCOUNT_ID"),
+            outbound_enabled=os.environ.get("TELEGRAM_OUTBOUND_ENABLED", "false").lower() == "true",
+            test_recipient_ids=[v.strip() for v in os.environ.get("TELEGRAM_TEST_RECIPIENT_IDS", "").split(",") if v.strip()],
+            request_timeout_seconds=float(os.environ.get("CHANNEL_REQUEST_TIMEOUT_SECONDS", "10")),
             poll_interval_seconds=float(os.environ.get("TELEGRAM_POLL_INTERVAL", "2.0")),
             poll_timeout_seconds=int(os.environ.get("TELEGRAM_POLL_TIMEOUT", "20")),
             tenant_id=os.environ.get("TELEGRAM_TENANT_ID", tenant_id),
@@ -158,6 +193,7 @@ class ChannelsConfig(ChannelConfigBase):
             auth_endpoint=file_auth_endpoint or "https://accounts.google.com/o/oauth2/v2/auth",
             auto_start=os.environ.get("GMAIL_AUTO_START", "true").lower() == "true",
             credentials_file=cred_file,
+            request_timeout_seconds=float(os.environ.get("CHANNEL_REQUEST_TIMEOUT_SECONDS", "10")),
         )
 
         whatsapp = WhatsAppChannelConfig(
@@ -166,7 +202,25 @@ class ChannelsConfig(ChannelConfigBase):
             app_secret=os.environ.get("WHATSAPP_APP_SECRET"),
             verify_token=os.environ.get("WHATSAPP_VERIFY_TOKEN"),
             tenant_id=os.environ.get("WHATSAPP_TENANT_ID", tenant_id),
-            api_base_url=os.environ.get("WHATSAPP_API_BASE_URL", "https://graph.facebook.com/v21.0"),
+            api_base_url=os.environ.get("WHATSAPP_API_BASE_URL", "https://graph.facebook.com/v26.0"),
+            outbound_enabled=os.environ.get("WHATSAPP_OUTBOUND_ENABLED", "false").lower() == "true",
+            test_recipient_ids=[v.strip() for v in os.environ.get("WHATSAPP_TEST_RECIPIENT_IDS", "").split(",") if v.strip()],
+            approved_templates=[v.strip() for v in os.environ.get("WHATSAPP_APPROVED_TEMPLATES", "").split(",") if v.strip()],
+            request_timeout_seconds=float(os.environ.get("CHANNEL_REQUEST_TIMEOUT_SECONDS", "10")),
         )
 
-        return cls(telegram=telegram, gmail=gmail, whatsapp=whatsapp)
+        resend = ResendChannelConfig(
+            api_key=os.environ.get("RESEND_API_KEY"),
+            webhook_secret=os.environ.get("RESEND_WEBHOOK_SECRET"),
+            tenant_id=os.environ.get("RESEND_TENANT_ID", tenant_id),
+            api_base_url=os.environ.get("RESEND_API_BASE_URL", "https://api.resend.com"),
+            inbound_addresses=[v.strip().lower() for v in os.environ.get("RESEND_INBOUND_ADDRESSES", "").split(",") if v.strip()],
+            outbound_enabled=os.environ.get("RESEND_OUTBOUND_ENABLED", "false").lower() == "true",
+            test_recipients=[v.strip().lower() for v in os.environ.get("RESEND_TEST_RECIPIENTS", "").split(",") if v.strip()],
+            verified_from_email=os.environ.get("RESEND_VERIFIED_FROM_EMAIL"),
+            reply_to_email=os.environ.get("RESEND_REPLY_TO_EMAIL"),
+            max_attachment_bytes=int(os.environ.get("RESEND_MAX_ATTACHMENT_BYTES", str(10 * 1024 * 1024))),
+            request_timeout_seconds=float(os.environ.get("CHANNEL_REQUEST_TIMEOUT_SECONDS", "10")),
+        )
+
+        return cls(telegram=telegram, gmail=gmail, whatsapp=whatsapp, resend=resend)
