@@ -77,6 +77,8 @@ export interface AppProps {
   routeExtensions?: readonly AppRouteRegistration[];
 }
 
+const isolatedDemoOrders = import.meta.env.VITE_DEMO_ADMIN_LOGIN === '1';
+
 export function App({ queryClient, initialTenantId, initialActorId, routeExtensions = [] }: AppProps = {}) {
   const [defaultClient] = useState(
     () =>
@@ -118,14 +120,14 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="/inbox/human-review/:taskId" element={<HumanReviewPage />} />
 
               {/* AZ-03: /orders -> Developer B OrderQueuePage */}
-              <Route path="/orders" element={<OrderQueuePage />} />
+              <Route path="/orders" element={isolatedDemoOrders ? <OrderRequestListPage /> : <OrderQueuePage />} />
               {/* AZ-03: /orders/pending -> Developer B OrderQueuePage (pending acceptance filter) */}
-              <Route path="/orders/pending" element={<OrderQueuePage />} />
+              <Route path="/orders/pending" element={isolatedDemoOrders ? <OrderRequestListPage /> : <OrderQueuePage />} />
               {/* AZ-01: /orders/portfolio canonical -> Developer B PortfolioComparisonPage */}
               <Route path="/orders/portfolio" element={<PortfolioComparisonPage />} />
               {/* AZ-02: /orders/calendar canonical -> Developer B CalendarSchedulingPage */}
               <Route path="/orders/calendar" element={<CalendarSchedulingPage />} />
-              <Route path="/orders/:id" element={<OrderDetailPage />} />
+              <Route path="/orders/:id" element={isolatedDemoOrders ? <OrderRequestDetailPage /> : <OrderDetailPage />} />
               <Route path="/order-requests" element={<OrderRequestListPage />} />
               <Route path="/order-requests/:id" element={<OrderRequestDetailPage />} />
               <Route path="/planning" element={<FeaturePlaceholder owner="Planning" title="Planning" />} />
