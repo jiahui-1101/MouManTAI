@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mapDemoDetail, mapDemoQueue, ordersDemoEnabled, type DemoDetailDto, type DemoQueueDto } from './demoSource';
+import { mapDemoCalendar, mapDemoDetail, mapDemoQueue, ordersDemoEnabled, type DemoDetailDto, type DemoQueueDto } from './demoSource';
+import { validateSchedule } from './calendarSource';
 import { initialFilters, selectOrders } from './queue';
 
 const auth = { tenantId: 'tenant_demo_01', actorId: 'user_owner_01' };
@@ -53,4 +54,18 @@ it('maps detail without accepting Core state or missing assessment provenance', 
   expect(() => mapDemoDetail(dto, 'com_001', auth)).toThrow();
   Object.assign(dto.related_commitment!, { tenant_id: 'other' });
   expect(() => mapDemoDetail(dto, 'ord_hero_001', auth)).toThrow();
+});
+
+it('maps only requested delivery events, without reservations, confirmed schedules or free-resource claims', () => {
+  const window = { from: '2026-10-01', toExclusive: '2026-11-01', timeZone: 'Asia/Kuala_Lumpur' };
+  const dto = { ...demoDto(), valid_until: '2026-11-24T08:00:00Z', window: {
+    from_date: window.from, to_exclusive: window.toExclusive, time_zone: window.timeZone } };
+  const result = validateSchedule(mapDemoCalendar(dto, window, auth), window, auth);
+  expect(result.events[0].deliveryMilestone).toBe('REQUESTED');
+  expect(result.events[0].authority.kind).toBe('TENTATIVE');
+  expect(result.events[0].when).toEqual({ kind: 'INSTANT', at: dto.orders[0].requested_delivery_at });
+  expect(result.resources).toEqual([]);
+  expect(result.conflicts).toBeNull();
+  expect(result.coverage).toBe('PARTIAL');
+  expect(() => mapDemoCalendar(dto, { ...window, timeZone: 'UTC' }, auth)).toThrow();
 });

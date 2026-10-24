@@ -110,3 +110,27 @@ def test_bad_assessment_provenance_is_explicit(demo, detail_db, monkeypatch):
     assert data["assessment_availability"] == "UNVERIFIABLE"
     assert "ASSESSMENT_PROVENANCE_MISSING" in data["assessment_reason"]
     assert data["assessments"] == []
+
+
+def test_calendar_matches_queue_and_business_timezone(demo):
+    url = "/v1/demo/orders/planning/calendar"
+    params = {"from_date": "2026-10-24", "to_exclusive": "2026-10-29", "time_zone": "Asia/Kuala_Lumpur"}
+    data = demo.get(url, params=params, headers=HEADERS).json()
+    queue = demo.get("/v1/demo/orders", headers=HEADERS).json()
+    assert data["orders"] == queue["orders"]
+    # UTC-12 places the fulfilled example's 06:02 UTC request on the preceding day.
+    params.update(from_date="2026-10-23", to_exclusive="2026-10-24", time_zone="Etc/GMT+12")
+    west = demo.get(url, params=params, headers=HEADERS).json()
+    assert [o["order_id"] for o in west["orders"]] == ["ord_fulfilled_01"]
+    params["time_zone"] = "Asia/Kuala_Lumpur"
+    assert demo.get(url, params=params, headers=HEADERS).json()["orders"] == []
+
+
+@pytest.mark.parametrize("params", [
+    {"from_date": "2026-10-24", "to_exclusive": "2026-10-24"},
+    {"from_date": "2026-10-24", "to_exclusive": "2028-10-24"},
+    {"from_date": "2026-10-24", "to_exclusive": "2026-10-25", "time_zone": "invalid"},
+    {"from_date": "2026-02-30", "to_exclusive": "2026-10-25"},
+])
+def test_calendar_rejects_invalid_windows(demo, params):
+    assert demo.get("/v1/demo/orders/planning/calendar", params=params, headers=HEADERS).status_code == 422

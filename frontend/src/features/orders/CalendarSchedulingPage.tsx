@@ -8,6 +8,7 @@ import { addDays, addMonths, calendarWindow, civilLabel, daysInWindow, localDate
 import { ScheduleUnavailableError, ScheduleVersionError, scheduleFresh, unavailableScheduleSource, validateSchedule } from './calendarSource';
 import { authorityLabel, eventLabel, eventsForDay, filterSchedule, initialCalendarFilters } from './calendarView';
 import type { CalendarFilters, CalendarView, ScheduleSnapshot, ScheduleSource } from './calendarTypes';
+import { demoScheduleSource, ordersDemoEnabled } from './demoSource';
 import { CalendarEventPanel } from './CalendarEventPanel';
 import { CalendarResources } from './CalendarResources';
 import { portfolioCalendarHref } from './portfolioCalendarContext';
@@ -157,7 +158,7 @@ function CalendarContents({ data, filters, setFilters, window, view, date, openD
 }
 
 /** Route-ready; source and zone configuration must come from reviewed application integration. */
-export function CalendarSchedulingPage({ source = unavailableScheduleSource, timeZone = 'Asia/Kuala_Lumpur', initialDate }: CalendarPageProps = {}) {
+export function CalendarSchedulingPage({ source = ordersDemoEnabled() ? demoScheduleSource : unavailableScheduleSource, timeZone = 'Asia/Kuala_Lumpur', initialDate }: CalendarPageProps = {}) {
   const { tenantId, actorId } = useAuth();
   if (!validZone(timeZone)) return <ErrorState kind="validation" title="Unsupported calendar time zone" description="A valid IANA business time zone is required." />;
   return <CalendarWorkspace key={`${tenantId}:${actorId}:${source.cacheKey}:${timeZone}`} source={source} timeZone={timeZone} initialDate={initialDate} />;

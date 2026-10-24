@@ -34,11 +34,14 @@ class DemoDataset(DemoContract):
     evidence_tier: Literal["DEMO-ONLY"]
     source: str
     source_at: AwareDatetime
+    valid_until: AwareDatetime
     coverage: Literal["partial"]
     orders: tuple[DemoOrder, ...]
 
     @model_validator(mode="after")
     def unique_identities(self):
+        if self.valid_until <= self.source_at:
+            raise ValueError("Fixture validity must follow its source timestamp")
         for key in ("order_id", "commitment_id"):
             values = [getattr(row, key) for row in self.orders]
             if len(values) != len(set(values)):

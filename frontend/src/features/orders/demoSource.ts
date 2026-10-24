@@ -3,6 +3,7 @@ import type { OrderQueueSource } from './api';
 import type { OrderQueueSnapshot } from './types';
 import type { OrderDetailSource } from './detailApi';
 import type { OrderDetail } from './detailTypes';
+import type { CalendarWindow, ScheduleSnapshot, ScheduleSource } from './calendarTypes';
 
 /** Both explicit mode and flag are required; no automatic fallback on API errors. */
 export const ordersDemoEnabled = () => import.meta.env.MODE === 'demo' && import.meta.env.VITE_ORDERS_DEMO === '1';
@@ -16,7 +17,7 @@ export interface DemoOrderDto {
 export interface DemoQueueDto {
   schema_version: 'orders-demo-v1'; tenant_id: string; actor_id: string; read_authorized: true;
   integration_mode: 'SYNTHETIC'; evidence_tier: 'DEMO-ONLY'; source: string;
-  source_at: string; coverage: 'partial'; orders: DemoOrderDto[];
+  source_at: string; valid_until?: string; coverage: 'partial'; orders: DemoOrderDto[];
 }
 const nonempty = (v: unknown): v is string => typeof v === 'string' && !!v.trim();
 const date = (v: unknown) => nonempty(v) && /(?:Z|[+-]\d\d:\d\d)$/.test(v) && Number.isFinite(Date.parse(v));
@@ -82,5 +83,40 @@ export const demoOrderDetailSource: OrderDetailSource = {
   async load(id, auth, signal) {
     const dto = await apiRequest<DemoDetailDto>(`/v1/demo/orders/${encodeURIComponent(id)}`, { headers: authHeaders(auth), signal });
     return mapDemoDetail(dto, id, auth);
+  },
+};
+
+export interface DemoCalendarDto extends DemoQueueDto {
+  valid_until: string;
+  window: { from_date: string; to_exclusive: string; time_zone: string };
+}
+export function mapDemoCalendar(dto: DemoCalendarDto, window: CalendarWindow, auth: RequestAuthHeaders): ScheduleSnapshot {
+  validateDemoQueue(dto, auth);
+  if (!date(dto.valid_until) || Date.parse(dto.valid_until) <= Date.parse(dto.source_at) ||
+      dto.window?.from_date !== window.from || dto.window.to_exclusive !== window.toExclusive || dto.window.time_zone !== window.timeZone)
+    throw new Error('Synthetic calendar window mismatch');
+  const version = dto.schema_version;
+  return { tenantId: dto.tenant_id, actorId: dto.actor_id, readAuthorized: true,
+    source: `${dto.source} · immutable synthetic requested dates only; no production/reservation source`, sourceVerified: true,
+    evidenceTier: 'DEMO-ONLY', integrationMode: 'SYNTHETIC', evidence: [dto.source],
+    snapshotId: dto.source, snapshotVersion: version, currentVersion: version,
+    updatedAt: dto.source_at, expiresAt: dto.valid_until, freshness: 'CURRENT', window,
+    coverage: 'PARTIAL', conflictCoverage: 'UNKNOWN', conflicts: null, resources: [],
+    orders: dto.orders.map(o => ({ id: o.order_id, requestVersion: version })),
+    events: dto.orders.map(o => ({ id: `requested:${o.order_id}`, tenantId: dto.tenant_id, snapshotVersion: version,
+      scheduleId: `requested:${o.order_id}`, scheduleVersion: version, currentScheduleVersion: version,
+      type: 'DELIVERY', title: `Synthetic requested delivery · ${o.order_id}`, status: 'REQUESTED',
+      authority: { kind: 'TENTATIVE', evidence: o.evidence_refs }, detailAccess: 'FULL',
+      when: { kind: 'INSTANT', at: o.requested_delivery_at }, order: { id: o.order_id, requestVersion: version },
+      resources: [], deliveryMilestone: 'REQUESTED', dependencies: [], evidence: o.evidence_refs,
+      source: dto.source, historyRefs: [] })),
+  };
+}
+export const demoScheduleSource: ScheduleSource = {
+  cacheKey: 'synthetic-requested-delivery-v1',
+  async load(window, auth, signal) {
+    const params = new URLSearchParams({ from_date: window.from, to_exclusive: window.toExclusive, time_zone: window.timeZone });
+    return mapDemoCalendar(await apiRequest<DemoCalendarDto>(`/v1/demo/orders/planning/calendar?${params}`,
+      { headers: authHeaders(auth), signal }), window, auth);
   },
 };

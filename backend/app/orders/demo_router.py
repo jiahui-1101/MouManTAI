@@ -1,5 +1,7 @@
 """Opt-in synthetic reads. Header identity is a demo identity, never live auth."""
 import os
+from datetime import date
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends
@@ -37,6 +39,31 @@ class DemoQueue(DemoDataset):
 def queue(context: Context) -> DemoQueue:
     data = load_demo_dataset()
     return DemoQueue(**data.model_dump(), actor_id=context.actor_id)
+
+
+class DemoWindow(DemoContract):
+    from_date: date
+    to_exclusive: date
+    time_zone: str
+
+
+class DemoCalendar(DemoQueue):
+    window: DemoWindow
+
+
+@router.get("/planning/calendar", response_model=DemoCalendar)
+def calendar(context: Context, from_date: date, to_exclusive: date,
+             time_zone: str = "Asia/Kuala_Lumpur") -> DemoCalendar:
+    if not 0 < (to_exclusive - from_date).days <= 370:
+        raise DomainError("INVALID_WINDOW", "Calendar requires a positive window of at most 370 days", status_code=422)
+    try:
+        zone = ZoneInfo(time_zone)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise DomainError("INVALID_TIME_ZONE", "An IANA business timezone is required", status_code=422)
+    data = load_demo_dataset()
+    rows = tuple(o for o in data.orders if from_date <= o.requested_delivery_at.astimezone(zone).date() < to_exclusive)
+    return DemoCalendar(**{**data.model_dump(), "orders": rows}, actor_id=context.actor_id,
+                        window=DemoWindow(from_date=from_date, to_exclusive=to_exclusive, time_zone=time_zone))
 
 
 class RelatedCommitment(DemoContract):

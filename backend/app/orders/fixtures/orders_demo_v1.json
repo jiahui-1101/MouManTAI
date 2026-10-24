@@ -5,6 +5,7 @@
   "evidence_tier": "DEMO-ONLY",
   "source": "synthetic://orders-demo-v1",
   "source_at": "2026-10-24T08:02:48.832001Z",
+  "valid_until": "2026-11-24T08:02:48.832001Z",
   "coverage": "partial",
   "orders": [
     {
