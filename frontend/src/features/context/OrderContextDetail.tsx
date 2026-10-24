@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useInRouterContext, useParams } from 'react-router-dom';
 import type {
   ContextReviewRecord,
   OrderContextRecord,
@@ -16,6 +16,7 @@ export interface OrderContextDetailProps {
 }
 
 export function OrderContextDetail({ orderId: propOrderId, contextId: propContextId, onClose, onContextUpdated }: OrderContextDetailProps) {
+  const inRouter = useInRouterContext();
   const params = useParams<{ id: string }>();
   const effectiveOrderId = propOrderId || params.id;
   const effectiveContextId = propContextId;
@@ -131,6 +132,11 @@ export function OrderContextDetail({ orderId: propOrderId, contextId: propContex
         </div>
 
         <div className="p1-context-actions">
+          {context.core_commitment_id && (inRouter ? (
+            <Link className="p1-btn p1-btn-outline" to={`/commitments/${encodeURIComponent(context.core_commitment_id)}`}>View feasibility</Link>
+          ) : (
+            <a className="p1-btn p1-btn-outline" href={`/commitments/${encodeURIComponent(context.core_commitment_id)}`}>View feasibility</a>
+          ))}
           <button
             type="button"
             className={`p1-btn ${context.core_commitment_id ? 'p1-btn-outline' : 'p1-btn-success'}`}
