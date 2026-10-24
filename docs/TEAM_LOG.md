@@ -3861,6 +3861,7 @@ The durable P1 OrderRequest/version and approved commercial/disclosure sources r
   - `npm run build`: Clean production bundle built in 1.37s (`dist/assets/index-*.js`, `dist/assets/index-*.css`).
 - **Safety & Non-Regressions**: Zero modifications to backend routes, database models, or API contracts. Preserved all `data-testid`, `role`, and `aria-*` tags.
 
+
 ## 2026-10-25 — PR #95 post-Backend A–H Main integration
 
 - Confirmed PRs #83, #84, #85 and #88 merged and #88's exact-head CI passed. Merged Main `7035a509a61f684163cfa828f05d47619c0484f6` into #95 with two-parent commit `1e5ee7b728f682cdac4f7565668eb4c1ef875ff4`, preserving published history. The sole textual conflict in `backend/app/main.py` retained both Main's registered routes and orchestration. Retargeted #95 to Main; kept it Draft and unmerged.
@@ -3885,3 +3886,14 @@ The durable P1 OrderRequest/version and approved commercial/disclosure sources r
 ### 2026-10-25 — PR #96 landed during #95 validation
 
 - #96 merged into Main `c766663539d98e02f928cb58f9a141b755165709` with exact-head CI green. #95 merged this Main normally, retaining both independent handoff entries above. C2 has no migration; the sole `0025_merge_c1_business_orch` head remains the expected integration graph. Provider transports remain disconnected from P4 authorization and no real outbound send is enabled.
+
+## 2026-10-25 — P1 Qwen primary with Gemini fallback reliability layer
+
+- **Isolation and baseline**: Used worktree `MouManTAI-qwen-gemini-fallback` on `feat/p1-qwen-gemini-fallback-20261025`. Refreshed from `origin/main` at `cd6c64e` before implementation and fast-forwarded to `65b525f` before publication. The original checkout and other worktrees were left untouched.
+- **Parallel-contract audit**: PR #90 remains open Draft and non-mergeable; it adds C1 provider-account/source-parent semantics and migration `0018_c1_scoped_message_parent`. PR #95 remains open Draft on its unfinished A–H stack; its accepted-order/P2 source projection and P4 milestone/contact/send contracts remain pending. Neither PR or its branch was changed. No P1/C1 migration, frontend DTO, Core, P2, Recovery or P4 contract was changed here.
+- **Reuse findings**: Reused L0 deterministic extraction, the existing P1 Qwen inference request and strict Pydantic/source-span protocol, tenant-scoped cache, extraction-attempt diagnostics, and existing ContextService conflict/Human Review path. Existing OCR/document extraction remains deterministic; no parallel document AI pipeline was introduced. See `docs/p1/QWEN_GEMINI_FALLBACK.md` for the reuse/extend matrix and configuration.
+- **Implementation**: Added a same-length identifier masking pass shared by Qwen and Gemini, a bounded Google Gemini structured-output adapter, fixed provider error categories, Qwen-first technical fallback, source-evidence restoration/validation, provider/fallback/latency/attempt telemetry, and durable `MODEL_PROVIDER_FAILURE` review diagnostics. Empty or ambiguous grounded answers do not trigger fallback; invalid/absent evidence fails closed. No model proposal can write Core commitments, P2 reservations, Recovery execution or P4 sends.
+- **Validation**: The P1 PostgreSQL workflow-equivalent local command passed **64 tests, 1 deselected** (the opt-in live smoke), with 6 Alembic warnings. A broader selected P1 HTTP/persistence/review/migration suite passed **145 tests, 1 skipped, 4 Alembic warnings**; the legacy provider-outage persistence regression also passed (**1 passed**). Tests ran against task-owned disposable PostgreSQL 16 containers, removed after validation. New adapter/test files pass Ruff and formatting; changed import blocks pass Ruff; `compileall` passed. CRLF-aware `git diff --check` passed. No live Qwen or Gemini call was made. The P1 PostgreSQL workflow now includes the mocked provider and P1 integration tests while excluding only that opt-in smoke; exact-head GitHub CI and owner review remain pending publication.
+- **Delivery limits**: Redaction is bounded-pattern masking and is not guaranteed PII detection. Gemini is used only when the existing P1 Qwen stage is enabled/configured; the existing default GLiNER-only selection remains unchanged. No merge or deployment is authorized by this entry.
+
+

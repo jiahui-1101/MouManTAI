@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from app.context.ai.protocol import InferenceFailure, InferenceOutput, MODEL_CONFIG
+from app.context.ai.protocol import MODEL_CONFIG, InferenceFailure, InferenceOutput
 from app.context.deterministic_extraction import PROVISIONAL_PRODUCTS
 from app.context.extraction import prepare_model_proposal_service
 from app.context.schemas import ExtractedField, FieldEvidence
@@ -28,7 +28,16 @@ class FakeEndpoint:
 def test_default_is_lazy_and_does_not_call_an_endpoint():
     endpoint = FakeEndpoint()
     result = asyncio.run(prepare_model_proposal_service(endpoint).extract_stored(stored("20 burgers"), catalog=PROVISIONAL_PRODUCTS))
-    assert result.outcomes == {"models": "disabled"} and not endpoint.requests
+    assert result.outcomes == {"gliner": "not_needed"} and not endpoint.requests
+
+    incomplete = asyncio.run(
+        prepare_model_proposal_service(endpoint).extract_stored(
+            stored("Need burgers tomorrow"), catalog=PROVISIONAL_PRODUCTS
+        )
+    )
+    assert incomplete.provider_audit["primary_provider"] == "gliner"
+    assert incomplete.provider_audit["fallback_provider"] is None
+    assert not endpoint.requests
 
 
 def test_model_cannot_replace_human_reviewed_value_or_original_message():
