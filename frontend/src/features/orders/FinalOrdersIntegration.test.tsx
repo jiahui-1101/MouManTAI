@@ -28,12 +28,15 @@ it('navigates an explicitly injected test queue through the real detail/P1 works
     cacheKey: 'uat-only-queue', load: async () => ({ items: [{ id: 'uat-order', status: 'PENDING_ACCEPTANCE', evidenceTier: 'SYNTHETIC' }], coverage: 'complete' }),
   }} /> }]} />);
   fireEvent.click(await screen.findByRole('link', { name: 'View Details for uat-order' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'History' }));
   expect(await screen.findByRole('heading', { name: 'Order Context: uat-order' })).toBeInTheDocument();
   expect(window.location.pathname).toBe('/orders/uat-order');
   const nav = within(screen.getByRole('navigation', { name: 'Primary navigation' }));
   expect(nav.getByRole('link', { name: 'All Orders' })).toHaveAttribute('aria-current', 'page');
   expect(nav.getAllByRole('link').filter(link => link.getAttribute('aria-current') === 'page')).toHaveLength(1);
+  fireEvent.click(screen.getByRole('tab', { name: 'Overview' }));
   expect(await screen.findByRole('heading', { name: 'Order Decision workspace' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: 'History' }));
   fireEvent.click(screen.getByRole('button', { name: 'Version History' }));
   expect(screen.getByLabelText('Version History')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Review & Amend' })).toBeInTheDocument();
@@ -62,6 +65,7 @@ it('withholds a wrong-order legacy context and recovers by re-reading without ed
   expect(screen.queryByRole('heading', { name: 'Order Context: foreign-order' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Publish to Core' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Refresh order assessment view' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'History' }));
   expect(await screen.findByRole('heading', { name: 'Order Context: uat-order' })).toBeInTheDocument();
   expect(window.location.pathname).toBe('/orders/uat-order');
   const nav = within(screen.getByRole('navigation', { name: 'Primary navigation' }));

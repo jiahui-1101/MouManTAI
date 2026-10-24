@@ -79,7 +79,7 @@ export function InventoryAssessmentPanel({ detail: d }: { detail: OrderDetail })
         <tbody>{d.materials.map((m, i) => <tr key={i}><th scope="row">{m.material}<small>BOM: {shown(m.bom)}</small></th>
           <td>Required: {quantityText(m.required)}<small>Stock on hand: {quantityText(m.onHand)}</small></td>
           <td>Effective availability (backend): {quantityText(m.effective)}<small>Shortage (backend): {quantityText(m.shortage)}</small></td>
-          <td>{shown(m.lot)}<small>Location: {shown(m.location)}</small><small>Expiry: {validDate(m.expiresAt) ? `${m.expiresAt} (date only; cutoff unknown)` : timestamp(m.expiresAt)}</small></td>
+          <td>{shown(m.lot)}<small>Location: {shown(m.location)}</small><small>Expiry: {validDate(m.expiresAt) ? `${m.expiresAt} (date only; cutoff unknown)` : timestamp(m.expiresAt)}</small><small>Relevance to deadline: Not verified</small></td>
           <td>{m.incoming?.length ? <ul>{m.incoming.map((s, j) => <li key={j}>{quantityText(s.quantity)} · {shown(s.status)}
             <small>Due: {timestamp(s.dueAt)}</small><Values values={s.evidence} empty="Supply evidence not available" /></li>)}</ul> : 'Not available'}</td>
           <td>{timestamp(m.sourceAt)}<Values values={m.constraints} /></td></tr>)}</tbody></table></div>}
@@ -98,6 +98,7 @@ export function CapacityAssessmentPanel({ detail: d }: { detail: OrderDetail }) 
       <h3>{c.resource}</h3><Facts values={[
         ['Required workload', quantityText(c.workload)], ['Available capacity (backend)', quantityText(c.available)],
         ['Production window start', timestamp(c.windowStart)], ['Production window end', timestamp(c.windowEnd)],
+        ['Capacity gap', 'Unavailable — no source gap supplied'],
         ['Capacity source updated', timestamp(c.sourceAt)],
       ]} /><h4>Schedule / deadline conflicts</h4><Values values={c.conflicts} /><h4>Bottlenecks</h4><Values values={c.bottlenecks} />
       <h4>Time assumptions</h4><Values values={c.assumptions} /></article>)}
@@ -132,6 +133,6 @@ export function DecisionReadinessPanel({ detail: d, now }: { detail: OrderDetail
       ['Outstanding conditions', a?.conditions], ['Assumptions', a?.assumptions], ['Assessment evidence references', a?.evidence], ['Missing evidence', a?.missingEvidence]] as [string, string[] | undefined][])
       .map(([label, values]) => <div key={label}><h3>{label}</h3><Values values={values} /></div>)}
     <p>Decision commands remain unavailable until verified backend integration. The Order Decision workspace below separates exact terms, proposals, amendments and recorded outcomes; frontend assessment does not grant execution authority.</p>
-    {d.commitmentId && <p>Explicit P1-linked commitment: <Link to={`/commitments/${encodeURIComponent(d.commitmentId)}`}>{d.commitmentId}</Link> (existing commitment workflow; not a pending-order assessment).</p>}
+    {d.commitmentId && <p>Explicit related commitment: <Link to={`/commitments/${encodeURIComponent(d.commitmentId)}`}>{d.commitmentId}</Link> (existing commitment workflow; not a pending-order assessment).</p>}
   </section>;
 }
