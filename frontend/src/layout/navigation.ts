@@ -28,7 +28,7 @@ export const navigation: NavigationItem[] = [
   ] },
   { id: "planning", label: "Planning", icon: "planning", children: [
     { id: "portfolio-comparison", label: "Portfolio Comparison", icon: "portfolio", to: "/planning/portfolio", activeFor: ["/orders/portfolio"] },
-    { id: "forecasts", label: "Forecasts", icon: "forecast", to: "/planning/forecasts" },
+    { id: "forecasts", label: "Forecasts", icon: "forecast", to: "/planning/forecasts", activeFor: ["/forecasts"] },
   ] },
   { id: "suppliers", label: "Suppliers", icon: "supplier", activeFor: ["/suppliers/"], children: [
     { id: "supplier-directory", label: "Supplier Directory", icon: "supplier", to: "/suppliers" },
