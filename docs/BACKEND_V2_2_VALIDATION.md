@@ -314,7 +314,7 @@ The code/test HEAD `947acba5841ba67a2727f787aa87eb633d44c19e` passed all five jo
 
 ### Reviews and downstream handoff
 
-- Jiahui's `CHANGES_REQUESTED` review on `e73914770ee54ce5fd12199b1aa103968338d193` was not dismissed. Fresh P3, P1 and P5 review requests are pending after publication of the fix. No unresolved inline review threads were returned.
+- Jiahui's `CHANGES_REQUESTED` review on `e73914770ee54ce5fd12199b1aa103968338d193` was not dismissed. He submitted a fresh `APPROVED` review on code/test + Main-synchronized HEAD `e6aabe000e4ccd9ecd22d4272e0d29b73549487b` at 2026-10-24 09:43:59 UTC. The only later changes are documentation-only. Fresh P1 Mavis and P5 Gan review requests are pending. No unresolved inline review threads were returned.
 - P1 Mavis's approval cites `e73914770ee54ce5fd12199b1aa103968338d193`; P5's latest recorded approval text cites `63fb44de2e85917562602076d997b50b29ac79a8`. These older decisions remain in the review timeline but were not treated as current-head signoffs. No approval was made by this task.
 - PR #59 remains open/Draft at base `62040da02b4ec3532ea02d734567e0913996ec2b`, head `6dcebe5d7baf46f0136160abe153ee30885331c6`. Its base is stale after #49 advanced to `947acba5841ba67a2727f787aa87eb633d44c19e`; its owner must refresh the child onto the updated #49 branch and rerun supplier/sourcing compatibility and exact-head CI. #59 was not changed and is not claimed merge-ready.
 
