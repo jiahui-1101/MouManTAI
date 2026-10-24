@@ -287,6 +287,7 @@ export function OverviewPage() {
 
   // Generic API Error State with Working Retry Callback
   if (error || !data) {
+    const demoError = import.meta.env.VITE_DEMO_ADMIN_LOGIN === '1' && error instanceof ApiError;
     return (
       <section aria-labelledby="overview-title" className="overview-container">
         <div className="page-heading">
@@ -301,7 +302,9 @@ export function OverviewPage() {
           <div className="error-badge">API ERROR</div>
           <h3>Failed to Load Overview Data</h3>
           <p className="error-message">
-            {error instanceof Error ? error.message : "Failed to fetch commitment overview from backend service."}
+            {demoError
+              ? `The authorized dashboard request failed (HTTP ${(error as ApiError).status}). Retry; if your session expired, sign in again.`
+              : error instanceof Error ? error.message : "Failed to fetch commitment overview from backend service."}
           </p>
           <button type="button" onClick={() => refetch()} className="btn btn-primary" data-testid="retry-button">
             Retry Connection

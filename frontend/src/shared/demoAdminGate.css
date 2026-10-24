@@ -1,0 +1,15 @@
+.demo-admin-login { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #f2f7fd; color: #172a43; }
+.demo-admin-login-card { width: min(100%, 440px); padding: 36px; border: 1px solid #d6e2ef; border-radius: 16px; background: #fff; box-shadow: 0 18px 48px rgba(18, 49, 83, .11); }
+.demo-admin-login-card h1 { margin: 8px 0 12px; font-size: 1.9rem; line-height: 1.2; }
+.demo-admin-login-card p { line-height: 1.5; }
+.demo-admin-eyebrow { margin: 0; color: #1574b9; font-weight: 700; font-size: .8rem; letter-spacing: .1em; text-transform: uppercase; }
+.demo-admin-login-card form { display: grid; gap: 16px; margin-top: 24px; }
+.demo-admin-login-card label { display: grid; gap: 6px; font-weight: 600; }
+.demo-admin-login-card input { width: 100%; border: 1px solid #9eafc2; border-radius: 8px; padding: 11px 12px; color: #172a43; background: #fff; font: inherit; }
+.demo-admin-login-card input:focus { outline: 2px solid #1574b9; outline-offset: 2px; }
+.demo-admin-login-card form button { border: 0; border-radius: 8px; padding: 12px 16px; background: #0869ae; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.demo-admin-login-card button:disabled { opacity: .65; cursor: wait; }
+.demo-admin-error { padding: 10px 12px; border-radius: 8px; background: #fff0ed; color: #8d2118; }
+.demo-admin-retry { margin-top: 16px; border: 0; background: transparent; color: #075c9a; text-decoration: underline; cursor: pointer; }
+.demo-admin-session-bar { display: flex; align-items: center; justify-content: flex-end; gap: 14px; min-height: 38px; padding: 5px 20px; background: #e8f3fc; color: #204160; font-size: .8rem; }
+.demo-admin-session-bar button { border: 1px solid #9cbbd3; border-radius: 6px; padding: 4px 10px; background: #fff; color: #17446e; cursor: pointer; }

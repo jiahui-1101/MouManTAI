@@ -18,6 +18,7 @@ import { CalendarSchedulingPage } from "./features/orders/CalendarSchedulingPage
 import { HumanReviewPage } from "./features/context/HumanReviewPage";
 import { DailyPerformancePage } from "./features/overview/DailyPerformance";
 import { AuthProvider, useAuth } from "./shared/auth";
+import { DemoAdminGate } from "./shared/DemoAdminGate";
 import { apiRequest, authHeaders } from "./shared/api";
 import { createP2PublicApiSource } from "./features/feasibility/apiSource";
 import { CommitmentFeasibilityPage } from "./features/feasibility/CommitmentFeasibilityPage";
@@ -100,6 +101,7 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
     <QueryClientProvider client={defaultClient}>
       <AuthProvider initialTenantId={initialTenantId} initialActorId={initialActorId}>
         <BrowserRouter>
+          <DemoAdminGate>
           <Routes>
             <Route element={<AppShell />}>
               <Route path="/" element={<OverviewPage />} />
@@ -157,6 +159,7 @@ export function App({ queryClient, initialTenantId, initialActorId, routeExtensi
               <Route path="*" element={<FeaturePlaceholder owner="Shared shell" title="Page not found" />} />
             </Route>
           </Routes>
+          </DemoAdminGate>
         </BrowserRouter>
       </AuthProvider>
     </QueryClientProvider>
