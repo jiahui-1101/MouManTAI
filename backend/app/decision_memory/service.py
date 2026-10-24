@@ -72,12 +72,14 @@ class DecisionMemoryService:
             return RetrievalResult(status="POLICY_NOT_APPROVED", eligible_count=0)
         return retrieve(current, cases, approved, live=live)
 
-    def summarize_verified_outcomes(self, current: CurrentSituation) -> OutcomeInsight | str:
-        cases = self._read(current, live=True)
+    def summarize_verified_outcomes(self, current: CurrentSituation, *,
+                                    live: bool = True) -> OutcomeInsight | str:
+        cases = self._read(current, live=live)
         return cases if isinstance(cases, str) else summarize(cases)
 
-    def propose_review_insights(self, current: CurrentSituation) -> ReviewProposal | str:
-        insight = self.summarize_verified_outcomes(current)
+    def propose_review_insights(self, current: CurrentSituation, *,
+                                live: bool = True) -> ReviewProposal | str:
+        insight = self.summarize_verified_outcomes(current, live=live)
         return (
             insight
             if isinstance(insight, str)
